@@ -2,28 +2,31 @@ import { describe, expect, test } from "bun:test";
 
 import {
   EDIT_MODELS, MAX_SEND_USD, aspectOf, buildEditInput, classifyProviderRefusal, editIdempotencyKey,
-  editModelById, editSize, estimateEditUsd, liveRoute, planEditSend, readFalResult, readFalStatus, readPikaJob,
+  editModelById, editSize, estimateEditUsd, liveRoute, magnificGenerateArgs, planEditSend, readFalResult, readFalStatus, readPikaJob,
 } from "../lib/edit-models";
 
 // Expected values are the reviewer kit's (reviewer-kit/server.py) for the same inputs.
 
 describe("routing", () => {
-  test("follows the routing table: Krea on fal, Seedream on Pika first, GPT on fal first", () => {
-    expect(editModelById("krea-3")!.routes.map((r) => r.provider)).toEqual(["fal"]);
-    expect(editModelById("seedream-5")!.routes.map((r) => r.provider)).toEqual(["pika", "fal"]);
-    expect(editModelById("gpt-flare")!.routes.map((r) => r.provider)).toEqual(["fal", "pika"]);
+  test("follows the routing table: Magnific first where it has the model, then fal / Pika", () => {
+    expect(editModelById("krea-3")!.routes.map((r) => r.provider)).toEqual(["magnific", "fal"]);
+    expect(editModelById("ideogram-precise")!.routes.map((r) => r.provider)).toEqual(["magnific"]);
+    expect(editModelById("seedream-5")!.routes.map((r) => r.provider)).toEqual(["magnific", "pika", "fal"]);
+    expect(editModelById("gpt-flare")!.routes.map((r) => r.provider)).toEqual(["magnific", "fal", "pika"]);
     expect(editModelById("gpt-sunburst")!.routes.map((r) => r.provider)).toEqual(["fal", "pika"]);
-    expect(editModelById("nano-21")!.routes.map((r) => r.provider)).toEqual(["pika"]);
+    expect(editModelById("nano-21")!.routes.map((r) => r.provider)).toEqual(["magnific", "pika"]);
     expect(EDIT_MODELS.filter((m) => m.default).map((m) => m.id)).toEqual(["krea-3"]);
   });
 
   test("the live route skips a blocked or keyless provider", () => {
     const gpt = editModelById("gpt-flare")!;
-    expect(liveRoute(gpt, { fal: { key: true, blocked: "fal: out of credits (403)" }, pika: { key: true } }))
-      .toEqual({ route: gpt.routes[1]!, blocked: false });
-    expect(liveRoute(gpt, { fal: { key: false }, pika: { key: true } }).route.provider).toBe("pika");
+    const off = { key: false };
+    expect(liveRoute(gpt, { magnific: { key: true }, fal: { key: true } }).route.provider).toBe("magnific");
+    expect(liveRoute(gpt, { magnific: off, fal: { key: true, blocked: "fal: out of credits (403)" }, pika: { key: true } }))
+      .toEqual({ route: gpt.routes[2]!, blocked: false });
+    expect(liveRoute(gpt, { magnific: off, fal: { key: false }, pika: { key: true } }).route.provider).toBe("pika");
     const krea = editModelById("krea-3")!;
-    expect(liveRoute(krea, { fal: { key: true, blocked: "out" }, pika: { key: true } }))
+    expect(liveRoute(krea, { magnific: off, fal: { key: true, blocked: "out" }, pika: { key: true } }))
       .toEqual({ route: krea.routes[0]!, blocked: true });
     expect(liveRoute(krea).blocked).toBe(false);
   });
@@ -134,8 +137,15 @@ describe("provider replies", () => {
 });
 
 describe("planning a send", () => {
-  test("one job per model per take, priced on the first route, references capped per model", () => {
-    const plan = planEditSend({ prompt: "make it night", modelIds: ["krea-3", "kontext-max"], takes: 2, refs: 2, width: 1456, height: 816 });
+  test("one job per model per take, priced on the route it takes now, references capped per model", () => {
+    const connected = planEditSend({ prompt: "make it night", modelIds: ["krea-3"], takes: 1, refs: 2, width: 1456, height: 816 });
+    if (!connected.ok) throw new Error(connected.error);
+    expect(connected.totalUsd).toBeCloseTo(estimateEditUsd("krea-3@1k"), 4);
+    expect(estimateEditUsd("krea-3@1k")).toBeCloseTo(90 * 0.00073, 4);
+    const plan = planEditSend({
+      prompt: "make it night", modelIds: ["krea-3", "kontext-max"], takes: 2, refs: 2, width: 1456, height: 816,
+      providers: { magnific: { key: false }, fal: { key: true } },
+    });
     if (!plan.ok) throw new Error(plan.error);
     expect(plan.takes.map((t) => `${t.model.id}:${t.take}/${t.of}:${t.refs}`)).toEqual([
       "krea-3:1/2:2", "krea-3:2/2:2", "kontext-max:1/2:0", "kontext-max:2/2:0",
@@ -159,5 +169,19 @@ describe("planning a send", () => {
     expect(planEditSend({ prompt: "x", modelIds: ["kontext-max"], takes: 5, refs: 0, limitUsd: 0.4 }))
       .toEqual({ ok: false, error: "≈$0.40 is over the $0.4 ask-first line." });
     expect(planEditSend({ prompt: "x", modelIds: ["kontext-max"], takes: 4, refs: 0, limitUsd: 0.4 }).ok).toBe(true);
+  });
+});
+
+describe("magnific", () => {
+  test("images_generate arguments: frame first, aspect snapped, precise edits keep their own framing", () => {
+    expect(magnificGenerateArgs("krea-3@1k", "night", ["src", "ref"], 1456, 816, "proj")).toEqual({
+      prompt: "night", count: 1, mode: "krea-3", resolution: "1k",
+      references: [{ type: "image", identifier: "src" }, { type: "image", identifier: "ref" }],
+      aspectRatio: "16:9", folderReference: "proj",
+    });
+    const precise = magnificGenerateArgs("ideogram-4-5@precise", "night", ["src"], 1000, 1500);
+    expect(precise).toMatchObject({ mode: "ideogram-4-5", preciseEdit: true });
+    expect(precise).not.toHaveProperty("aspectRatio");
+    expect(() => magnificGenerateArgs("nope", "x", [])).toThrow();
   });
 });

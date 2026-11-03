@@ -656,7 +656,7 @@ function OpenView({ ownerUserId, frame, index, count, style, story, level, gone,
         <div className="mt-5">
           {frame.kind === "image" && frame.url ? (
             <EditInPlace assetId={frame.assetId} ownerUserId={ownerUserId} width={frame.width} height={frame.height} assetUrl={frame.url}
-              compare={compare} onCompare={setCompare} focusSignal={editSignal} listenForE={false} />
+              compare={compare} onCompare={setCompare} focusSignal={editSignal} listenForE={false} showNote={false} />
           ) : null}
         </div>
 

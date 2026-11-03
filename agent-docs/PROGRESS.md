@@ -2,11 +2,29 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-11-02
+Last updated: 2026-11-03
 
 ---
 
 ## ✔ Shipped
+
+### 2026-11-03 — Settings: edit keys and Connect Magnific; C in Edit in place is a note for the reviewer (branch `feat/edit-keys-and-comment`)
+- `/settings` (sidebar → Settings, owner only): where edits in place run, in
+  route order. fal and Pika take an API key pasted here (checked live, sealed
+  AES-GCM in `providerCredentials`, only the last four shown; it wins over the
+  deployment's FAL_KEY / PIKA_API_KEY). Magnific is a plugin connection: OAuth
+  with PKCE against auth.magnific.com (public client registered 3 Nov,
+  `lib/magnific-mcp.ts`), tokens sealed and refreshed by `convex/providerVault.ts`.
+  Check shows Pika's balance and Magnific's credits.
+- Edits run on Magnific first where it has the model (Krea 3 1K, Ideogram 4.5
+  precise (new), Seedream 5 Pro, GPT Image 2.5 Flare 2K, Nano Banana 2.1 2K),
+  through its MCP server: frame and references uploaded by URL into the
+  Magnific project named like the world (else "laniameda.gallery"), then
+  `images_generate` and `creations_wait`. Not connected → fal / Pika as before.
+  A send is priced on the route each model takes now.
+- Edit in place: key C (and in the Inbox zoom with the panel open) writes a
+  note for the reviewer, an owner comment on the image in view (the take while
+  its wipe is open) that becomes a Tasks item with a context line in its brief.
 
 ### 2026-11-02 — Stories tab: markdown first, Human / Agent view, clutter refused (branch `feat/stories-md-first`, backend pushed 2 Nov)
 - The tab was a form of eleven fields over a card grid, and 161 records mixed

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
+import Link from "next/link";
 import { Check, Copy, Loader2, RotateCcw } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -36,10 +37,13 @@ type Ref = { assetId: string; name: string };
  * would take now, takes per model, the world's cast attached as references,
  * then every take listed under the source with status, cost and Retry. A
  * landed take opens the before/after wipe on the stage (`onCompare`). Key E
- * focuses the prompt.
+ * focuses the prompt; key C a note for the reviewer: an owner comment on the
+ * image in view (the take, while its wipe is open), which becomes a task the
+ * reviewer agent picks up.
  */
 export function EditInPlace({
   assetId, ownerUserId, width, height, assetUrl, compare, onCompare, focusSignal = 0, listenForE = true,
+  noteSignal = 0, showNote = true,
 }: {
   assetId: string;
   ownerUserId: string;
@@ -51,13 +55,18 @@ export function EditInPlace({
   onCompare: (compare: EditCompare | null) => void;
   /** Bump to focus the prompt from outside (the Inbox zoom's E). */
   focusSignal?: number;
-  /** The detail panel listens for E itself; the Inbox zoom handles it. */
+  /** The detail panel listens for E (and C) itself; the Inbox zoom handles them. */
   listenForE?: boolean;
+  /** Bump to focus the reviewer note from outside (the Inbox zoom's C). */
+  noteSignal?: number;
+  /** Off where the page has its own comments under the panel. */
+  showNote?: boolean;
 }) {
   const { isAuthenticated } = useConvexAuth();
   const data = useQuery(api.editJobs.listAssetEdits, isAuthenticated ? { ownerUserId, assetId: assetId as Id<"assets"> } : "skip");
   const startEdit = useMutation(api.editJobs.startEdit);
   const retryEdit = useMutation(api.editJobs.retryEdit);
+  const addComment = useMutation(api.assetComments.addAssetComment);
 
   const [prompt, setPrompt] = useState("");
   const [models, setModels] = useState<string[]>(() => EDIT_MODELS.filter((m) => m.default).map((m) => m.id));
@@ -67,12 +76,20 @@ export function EditInPlace({
   const [message, setMessage] = useState<{ text: string; bad?: boolean }>();
   const [retrying, setRetrying] = useState<string>();
   const [copied, setCopied] = useState<string>();
+  const [note, setNote] = useState("");
+  const [noteState, setNoteState] = useState<{ text: string; bad?: boolean; sent?: boolean }>();
+  const [noting, setNoting] = useState(false);
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
 
   const focusPrompt = () => {
     sectionRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
     promptRef.current?.focus({ preventScroll: true });
+  };
+  const focusNote = () => {
+    noteRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    noteRef.current?.focus({ preventScroll: true });
   };
 
   // Saved choices load after mount so the server render matches the first client one.
@@ -83,18 +100,19 @@ export function EditInPlace({
   }, [assetId]);
 
   useEffect(() => { if (focusSignal) focusPrompt(); }, [focusSignal]);
+  useEffect(() => { if (noteSignal && showNote) focusNote(); }, [noteSignal, showNote]);
 
   useEffect(() => {
     if (!listenForE) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
-      if (event.key.toLowerCase() !== "e") return;
-      event.preventDefault();
-      focusPrompt();
+      const key = event.key.toLowerCase();
+      if (key === "e") { event.preventDefault(); focusPrompt(); }
+      else if (key === "c" && showNote) { event.preventDefault(); focusNote(); }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [listenForE]);
+  }, [listenForE, showNote]);
 
   const providers = data?.providers;
   const priced = useMemo(() => EDIT_MODELS.map((model) => {
@@ -163,6 +181,32 @@ export function EditInPlace({
     setCopied(id); setTimeout(() => setCopied(undefined), 1200);
   };
 
+  // The note goes on the image in view: the take while its wipe is open.
+  const comparedJob = compare ? data?.jobs.find((job) => job._id === compare.jobId) : undefined;
+  const noteTarget = comparedJob?.resultAssetId ?? assetId;
+  const sendNote = async () => {
+    const body = note.trim();
+    if (!body || noting) return;
+    setNoting(true);
+    try {
+      const context = comparedJob
+        ? `Written in Edit in place while comparing the take asset:${comparedJob.resultAssetId} (${comparedJob.modelName}, prompt: "${comparedJob.prompt.slice(0, 300)}") against its source asset:${assetId}.`
+        : data?.editOf
+          ? `Written in Edit in place on asset:${assetId}, an edit of asset:${data.editOf.job.sourceAssetId} (${data.editOf.job.modelName}).`
+          : `Written in Edit in place on asset:${assetId}.`;
+      await addComment({ ownerUserId, assetId: noteTarget as Id<"assets">, body, context });
+      setNote("");
+      setNoteState({ text: "Sent to the reviewer", sent: true });
+      noteRef.current?.blur();
+    } catch (error) {
+      setNoteState({ text: error instanceof Error ? error.message.replace(/^.*ConvexError: /, "").split("\n")[0]! : "Not sent", bad: true });
+    } finally {
+      setNoting(false);
+    }
+  };
+
+  const missing = priced.some((entry) => entry.blocked) || (providers ? !providers.magnific?.key : false);
+
   const imageMap = refs.length
     ? ["<image-1> this frame", ...refs.map((ref, index) => `<image-${index + 2}> ${ref.name}`)].join(" · ")
     : "";
@@ -218,6 +262,12 @@ export function EditInPlace({
           </button>
         ))}
       </div>
+      {missing && (
+        <p className="lm-edit-map">
+          {providers && !providers.magnific?.key ? "Magnific is not connected, so edits take the fal and Pika routes. " : "A route has no key or credit. "}
+          <Link href="/settings" className="lm-edit-settings">Keys in Settings</Link>
+        </p>
+      )}
 
       {data && data.characters.length > 0 && (
         <div className="lm-edit-cast">
@@ -252,6 +302,33 @@ export function EditInPlace({
         </button>
         {message && <span className={`lm-edit-msg${message.bad ? " bad" : ""}`} role="status">{message.text}</span>}
       </div>
+
+      {showNote && (
+        <div className="lm-edit-note">
+          <div className="lm-edit-note-head">
+            <span className="lm-edit-label">Note for the reviewer{comparedJob ? ` · on the ${comparedJob.modelName} take` : ""}</span>
+            <kbd className="lm-edit-kbd" title="Press C to write a note for the reviewer">C</kbd>
+          </div>
+          <textarea
+            ref={noteRef}
+            rows={2}
+            value={note}
+            onChange={(event) => { setNote(event.target.value); if (noteState) setNoteState(undefined); }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void sendNote(); }
+              if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); event.currentTarget.blur(); }
+            }}
+            placeholder="What should the reviewer fix, try or pick up here? Enter sends it to their tasks."
+            aria-label="Note for the reviewer"
+            className="lm-edit-prompt lm-edit-note-box"
+          />
+          {noteState && (
+            <span className={`lm-edit-msg${noteState.bad ? " bad" : ""}`} role="status">
+              {noteState.text}{noteState.sent && <> · <Link href="/tasks" className="lm-edit-settings">Tasks</Link></>}
+            </span>
+          )}
+        </div>
+      )}
 
       {data && data.jobs.length > 0 && (
         <ol className="lm-edit-takes-list">
