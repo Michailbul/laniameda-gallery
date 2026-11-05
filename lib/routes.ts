@@ -4,6 +4,10 @@
 export const OWNER_HANDLE = "misha.buloy";
 export const SELECTED_WORK_PATH = `/${OWNER_HANDLE}/selected_work`;
 
+// "Public / Worlds": the short address of the public worlds view, the one the
+// vault's sidebar opens. app/worlds forwards it to the worlds mode.
+export const PUBLIC_WORLDS_PATH = "/worlds";
+
 // The surface's previous address. Links copied before the rename still land:
 // app/misha.buloy/taste_profile forwards every view and query here.
 export const LEGACY_TASTE_PROFILE_PATH = `/${OWNER_HANDLE}/taste_profile`;

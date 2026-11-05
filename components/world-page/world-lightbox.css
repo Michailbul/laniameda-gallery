@@ -1,0 +1,101 @@
+.wpl {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  background: #050302;
+  animation: wpl-in 0.28s ease both;
+  touch-action: pan-y;
+}
+@keyframes wpl-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.wpl-stage {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100vw;
+  height: 100svh;
+  padding: 56px 0;
+  pointer-events: none;
+  animation: wpl-frame 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes wpl-frame {
+  from { opacity: 0; transform: scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+.wpl-media {
+  grid-area: 1 / 1;
+  width: 100%;
+  height: calc(100svh - 112px);
+  object-fit: contain;
+  pointer-events: auto;
+}
+.wpl-full { opacity: 0; transition: opacity 0.35s ease; background: transparent; }
+.wpl-full[data-ready="true"] { opacity: 1; }
+.wpl-chrome {
+  position: fixed;
+  inset: 0 0 auto 0;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 16px clamp(16px, 3vw, 32px);
+  color: rgba(241, 231, 214, 0.55);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+.wpl-close {
+  background: none;
+  border: 0;
+  color: rgba(241, 231, 214, 0.8);
+  cursor: pointer;
+  padding: 8px 0;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+.wpl-close:hover { color: #d4a957; }
+.wpl-nav {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 18vw;
+  max-width: 220px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.wpl-prev { left: 0; cursor: w-resize; }
+.wpl-next { right: 0; cursor: e-resize; }
+@media (hover: none) {
+  .wpl-nav { display: none; }
+}
+.wpl-close:focus { outline: none; }
+.wpl-close:focus-visible { outline: 0; box-shadow: inset 0 -1px 0 #d4a957; }
+.wpl-credit {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 56px;
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+  color: rgba(241, 231, 214, 0.5);
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.3em;
+  pointer-events: none;
+}
+.wpl-lozenge {
+  width: 5px;
+  height: 5px;
+  transform: rotate(45deg);
+  background: #d4a957;
+}

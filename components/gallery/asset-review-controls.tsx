@@ -16,6 +16,7 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
+import { ASSET_HOTKEYS, assetHotkeyOf } from "@/lib/asset-hotkeys";
 import "./asset-review.css";
 
 type Target = { id: string; src: string; name: string };
@@ -41,6 +42,9 @@ export type ArchiveStore = {
   setTrayOpen: (open: boolean) => void;
   restore: (assetId: string) => void;
   bindRestore: (fn: (assetId: string) => void) => void;
+  /** F pressed on a frame, before the server answers: starred or not. */
+  starOverride: (assetId: string) => boolean | undefined;
+  setStarOverride: (assetId: string, starred: boolean | undefined) => void;
 };
 
 const EMPTY_ARCHIVE: ArchiveItem[] = [];
@@ -51,6 +55,7 @@ export function createArchiveStore(): ArchiveStore {
   let active = false;
   let trayOpen = false;
   let restoreFn: (assetId: string) => void = () => {};
+  const stars = new Map<string, boolean>();
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
   return {
@@ -79,6 +84,13 @@ export function createArchiveStore(): ArchiveStore {
     bindRestore: (fn) => {
       restoreFn = fn;
     },
+    starOverride: (assetId) => stars.get(assetId),
+    setStarOverride: (assetId, starred) => {
+      if (stars.get(assetId) === starred) return;
+      if (starred === undefined) stars.delete(assetId);
+      else stars.set(assetId, starred);
+      emit();
+    },
   };
 }
 
@@ -92,6 +104,16 @@ export function useArchivedAt(assetId: string | undefined) {
   return useSyncExternalStore(
     store.subscribe,
     () => (assetId ? store.deleteAt(assetId) : undefined),
+    () => undefined,
+  );
+}
+
+/** The star F just set on this asset, until the gallery query carries it. */
+export function useStarOverride(assetId: string | undefined) {
+  const store = useArchiveStore();
+  return useSyncExternalStore(
+    store.subscribe,
+    () => (assetId ? store.starOverride(assetId) : undefined),
     () => undefined,
   );
 }
@@ -160,6 +182,7 @@ export function ArchivedChip({
 }
 
 const KEYS = [
+  { key: "F", label: "Feature" },
   { key: "D", label: "Archive" },
   { key: "C", label: "Comment" },
   { key: "V", label: "Scene idea" },
@@ -292,14 +315,6 @@ export function ArchiveTray() {
   );
 }
 
-const isTyping = (target: EventTarget | null) => {
-  const element = target as HTMLElement | null;
-  return Boolean(
-    element?.isContentEditable ||
-      element?.closest?.("input, textarea, select, [role=textbox]"),
-  );
-};
-
 export function AssetReviewControls({
   ownerUserId,
   enabled,
@@ -319,6 +334,7 @@ export function AssetReviewControls({
   const [store] = useState(createArchiveStore);
   const archive = useMutation(api.assetReview.archive);
   const restoreMutation = useMutation(api.assetReview.restore);
+  const setStarred = useMutation(api.assets.setAssetStarred);
   const saveStory = useMutation(api.stories.saveStory);
   const addComment = useMutation(api.assetComments.addAssetComment);
   const coral = useCoralToastSafe();
@@ -385,19 +401,10 @@ export function AssetReviewControls({
       pointer.current = { x: event.clientX, y: event.clientY };
     };
     const keydown = (event: KeyboardEvent) => {
-      if (
-        event.repeat ||
-        event.isComposing ||
-        event.ctrlKey ||
-        event.metaKey ||
-        event.altKey ||
-        event.shiftKey ||
-        editor ||
-        isTyping(event.target)
-      )
-        return;
-      const key = event.key.toLowerCase();
-      if (key !== "d" && key !== "c" && key !== "v") return;
+      if (editor) return;
+      // The key set and the typing guard live in lib/asset-hotkeys.ts.
+      const key = assetHotkeyOf(event);
+      if (!key) return;
       // Other open dialogs own their keys. The gallery detail view is allowed.
       const visible = (node: HTMLElement) => node.getClientRects().length > 0;
       if (
@@ -416,7 +423,7 @@ export function AssetReviewControls({
       ).find(visible);
       // Keep the existing reviewer-note shortcut while inspecting an edit.
       if (
-        key === "c" &&
+        key === ASSET_HOTKEYS.comment &&
         detail
           ?.querySelector<HTMLElement>('[aria-label="Note for the reviewer"]')
           ?.getClientRects().length
@@ -425,7 +432,7 @@ export function AssetReviewControls({
       if (
         detail?.querySelector<HTMLElement>(".lm-wipe")?.getClientRects()
           .length &&
-        key === "d"
+        key === ASSET_HOTKEYS.archive
       )
         return;
       const pointed = pointer.current
@@ -445,7 +452,23 @@ export function AssetReviewControls({
         src: frame.dataset.reviewSrc ?? "",
         name: frame.dataset.reviewName ?? "Scene",
       };
-      if (key === "d") {
+      if (key === ASSET_HOTKEYS.feature) {
+        // Optimistic: the card repaints from the store this frame; the
+        // override clears once the mutation (and so the query) has landed.
+        const current = store.starOverride(target.id);
+        const next = !(current ?? frame.dataset.reviewStarred === "true");
+        store.setStarOverride(target.id, next);
+        void setStarred({
+          ownerUserId: ownerUserId!,
+          assetId: target.id as Id<"assets">,
+          starred: next,
+        })
+          .then(() => notify(next ? "Featured · leads the public page" : "Unfeatured"))
+          .catch((error) =>
+            notify(error instanceof Error ? error.message : "Could not feature asset", true),
+          )
+          .finally(() => store.setStarOverride(target.id, undefined));
+      } else if (key === ASSET_HOTKEYS.archive) {
         if (inFlight.current.has(target.id)) return;
         // D toggles: on an archived frame it brings the frame back.
         if (store.deleteAt(target.id) !== undefined) {
@@ -469,7 +492,7 @@ export function AssetReviewControls({
         setText("");
         setEditor({
           target,
-          kind: key === "c" ? "comment" : "scene",
+          kind: key === ASSET_HOTKEYS.comment ? "comment" : "scene",
           key: `asset-note:${crypto.randomUUID()}`,
         });
       }
@@ -480,7 +503,7 @@ export function AssetReviewControls({
       window.removeEventListener("pointermove", move);
       window.removeEventListener("keydown", keydown, true);
     };
-  }, [active, ownerUserId, archive, restore, notify, store, editor]);
+  }, [active, ownerUserId, archive, restore, notify, store, editor, setStarred]);
 
   async function save() {
     if (!editor || !text.trim() || busy) return;

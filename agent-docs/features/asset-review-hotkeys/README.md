@@ -35,3 +35,16 @@ failures; the base commit reproduces the test failures.
 Publication requires the additive `assetArchive` schema/functions on the canonical
 cloud backend before deploying the frontend. Never publish the unrelated working
 changes already present in the shared checkout.
+
+## F: feature (5 Nov 2026)
+
+- F toggles the curator star (`assets.setAssetStarred`) on the hovered frame
+  in the vault and on the public world page (`?public=1` for the signed-in
+  owner). The card repaints before the server answers; the override clears
+  when the mutation resolves. Featured pieces lead the world page.
+- Every asset hotkey is declared once in `lib/asset-hotkeys.ts` with the shared
+  typing guard. Keys taken elsewhere: ` (Feedback), 1–9 and F inside the
+  Decisions screen, E/C/0 in the inbox zoom viewer, S in the world doc editor.
+- On the world page D archives through the same `assetReview.archive` and the
+  frame greys out in place; double-click restores. Keypress-to-paint times are
+  recorded in `window.__worldPageKeyMs`.

@@ -6,6 +6,7 @@ import { GalleryDashboard } from "@/components/gallery/dashboard";
 import { TelegramLoginButton } from "@/components/telegram-login-button";
 import Link from "next/link";
 import { PUBLIC_HOME_PATH } from "@/lib/public-modes";
+import { PUBLIC_WORLDS_PATH } from "@/lib/routes";
 
 /**
  * The signed-in gallery, or the login screen. Every gallery URL (/, /w/…,
@@ -36,10 +37,10 @@ function GalleryRootInner() {
           </h1>
           <TelegramLoginButton size="large" />
           <Link
-            href={PUBLIC_HOME_PATH}
+            href={PUBLIC_WORLDS_PATH}
             className="mt-6 block text-center text-sm text-[var(--lm-text-secondary)] underline underline-offset-4"
           >
-            View selected work
+            View public worlds
           </Link>
         </div>
       </main>

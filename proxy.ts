@@ -51,16 +51,33 @@ const withRenewedSession = async (
   return response;
 };
 
+// /w/<slug> is two pages. A visitor gets the public pitch; the signed-in
+// owner gets the vault on that world, served from /w/<slug>/owner-view at the
+// same address. `?public=1` shows the owner the pitch. Deciding here keeps the
+// vault's code out of the public page's bundle.
+const WORLD_ROOT = /^\/w\/([^/]+)\/?$/;
+const routeFor = async (request: NextRequest): Promise<NextResponse> => {
+  const match = WORLD_ROOT.exec(request.nextUrl.pathname);
+  if (!match || request.nextUrl.searchParams.get("public") === "1") {
+    return NextResponse.next();
+  }
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  if (!token || !(await verifySession(token))) return NextResponse.next();
+  const target = request.nextUrl.clone();
+  target.pathname = `/w/${match[1]}/owner-view`;
+  return NextResponse.rewrite(target);
+};
+
 export async function proxy(request: NextRequest) {
   if (process.env.VERCEL_ENV !== "production") {
-    return withRenewedSession(request, NextResponse.next());
+    return withRenewedSession(request, await routeFor(request));
   }
 
   const host = request.headers.get("host")?.trim().toLowerCase();
   const canonicalHost = resolveCanonicalHost();
 
   if (!host || host === canonicalHost || !host.endsWith(".vercel.app")) {
-    return withRenewedSession(request, NextResponse.next());
+    return withRenewedSession(request, await routeFor(request));
   }
 
   // Non-canonical host: redirect to the canonical one. The redirected request

@@ -23,7 +23,7 @@ import { BookmarkPostCard } from "@/components/gallery/bookmark-post-card";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import type { GalleryEntryPreview } from "@/lib/gallery-entries";
 import { VideoScrubPreview, useVideoScrub } from "@/components/video-scrub-preview";
-import { ArchivedChip, useArchiveStore, useArchivedAt } from "@/components/gallery/asset-review-controls";
+import { ArchivedChip, useArchiveStore, useArchivedAt, useStarOverride } from "@/components/gallery/asset-review-controls";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
@@ -311,6 +311,7 @@ export const ImageCard = memo(function ImageCard({
   const activeContentType = activePreview.contentType ?? image.contentType;
   const displayedMember = isPackDeck ? activePreview : image;
   const displayedAssetId = isPackDeck ? activePreview.id : image.id;
+  const starOverride = useStarOverride(displayedAssetId);
   const archivedAt = useArchivedAt(
     image.galleryItemType === undefined || image.galleryItemType === "asset" || image.galleryItemType === "pack"
       ? displayedAssetId
@@ -556,7 +557,9 @@ export const ImageCard = memo(function ImageCard({
   // Focus dimming: selected stays full, others dim when there is a selection
   const dimmed = hasSelection && !isSelected;
 
-  const isStarred = Boolean(displayedMember.starredAt);
+  // F on the hovered card flips the star before the server answers.
+  const isStarred =
+    starOverride ?? Boolean(displayedMember.starredAt);
   const starNote = isStarred ? displayedMember.starNote?.trim() || undefined : undefined;
 
   // A deck's tabs run along the top edge; its hover toolbars sit just below.
@@ -900,6 +903,7 @@ export const ImageCard = memo(function ImageCard({
       data-review-src={activeThumbSrc}
       data-review-name={displayLabel}
       data-review-archived={isArchived || undefined}
+      data-review-starred={isStarred ? "true" : undefined}
       data-review-disabled={image.galleryItemType && !["asset", "pack"].includes(image.galleryItemType) ? "true" : undefined}
       onDoubleClick={event => { if (isArchived) { event.preventDefault(); event.stopPropagation(); review.restore(displayedAssetId); } }}
       onClickCapture={event => {
@@ -1232,8 +1236,8 @@ export const ImageCard = memo(function ImageCard({
               aria-pressed={isStarred}
               title={
                 isStarred
-                  ? "Featured on the taste profile — click to take it off"
-                  : "Feature on the taste profile"
+                  ? "Featured on the public page (F) — click to take it off"
+                  : "Feature on the public page (F)"
               }
             >
               <Star

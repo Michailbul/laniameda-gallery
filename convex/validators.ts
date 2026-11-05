@@ -454,6 +454,8 @@ export const assetDocValidator = v.object({
   isLiked: v.optional(v.boolean()),
   starredAt: v.optional(v.number()),
   starNote: v.optional(v.string()),
+  worldPageHidden: v.optional(v.boolean()),
+  worldPageHiddenReason: v.optional(v.string()),
   superLikedAt: v.optional(v.number()),
   curatedByUserId: v.optional(v.string()),
   curatedAt: v.optional(v.number()),

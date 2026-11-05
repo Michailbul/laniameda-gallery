@@ -809,3 +809,28 @@ agent from anywhere.
   task with `source: "feedback"`, the page URL, the open asset or pile linked.
 - Skill 1.27.0: inbox.md (group rule, one-pass flow), tasks.md (feedback
   tasks, no progress-only blocks), data-model.md.
+
+## The world page is a pitch (5 Nov 2026)
+
+/w/<slug> for visitors is now a cinematic pitch made only of the world's
+pictures (`components/world-page`, `convex/worldPage.ts`).
+
+- Hero: the world's reel full-bleed, poster first, film attached after the
+  page settles (later on phones, never on Save-Data or 2g/3g), paused off
+  screen, sound toggle. Source: `worldPage.heroReelAssetId`, else the newest
+  member tagged `showreel`, else a featured video. DEAR ANNETE has a drawn
+  wordmark (Bodoni Moda outlines, crossbar-less A with a lozenge; pure SVG).
+- Live action / 3D switch (`worldPage.sides`, the root plus universe siblings)
+  and All / Characters / Scenes / Locations tabs switch in place; the URL
+  follows (`?side=3d&view=characters`). Other sides subscribe on idle.
+- Grid: windowed masonry (only frames near the screen mount), 1 / 2 / 3 / 4
+  columns, a full-width 2.39:1 band every ~9 frames, featured frames first,
+  then `leadAssetIds`, then newest. Takes of one job sit apart. Lightbox is
+  code-split, full screen, phones get the 1440 rendition.
+- Data: `worldPage.allMembers` shows every member not `worldPageHidden`;
+  reference and inspiration pieces never show. DEAR ANNETE exclusions are data
+  (duplicate takes, off-world, artifacts, the rejected reel).
+- Owner: F features, D archives on the hovered frame, here (`?public=1`) and
+  in the vault (`lib/asset-hotkeys.ts`). proxy.ts sends a signed-in owner's
+  /w/<slug> to the vault at the same address (`/w/<slug>/owner-view`).
+- "Taste profile" in the vault is now "Public / Worlds"; /worlds opens it.

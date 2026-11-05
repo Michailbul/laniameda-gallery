@@ -71,6 +71,16 @@ export const folderReturnValidator = v.object({
   publicMemberCount: v.optional(v.number()),
   worldKey: v.optional(v.string()),
   universeRootId: v.optional(v.id("folders")),
+  worldPage: v.optional(
+    v.object({
+      allMembers: v.optional(v.boolean()),
+      heroReelAssetId: v.optional(v.id("assets")),
+      leadAssetIds: v.optional(v.array(v.id("assets"))),
+      sides: v.optional(
+        v.array(v.object({ key: v.string(), label: v.string(), folderId: v.id("folders") })),
+      ),
+    }),
+  ),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
 });
