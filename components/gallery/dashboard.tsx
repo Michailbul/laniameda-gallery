@@ -63,6 +63,7 @@ import {
   type ViewMode,
 } from "./filter-bar";
 import { MasonryGrid } from "@/components/masonry-grid";
+import { AssetReviewControls } from "./asset-review-controls";
 import { useSavedViews } from "./filter-presets";
 import type { PrivateCountArgs, PublishAllOutcome } from "./publish-all-dialog";
 import {
@@ -5522,6 +5523,7 @@ export function GalleryDashboard({
       contentLeft={sidebarCollapsed ? "var(--lm-sidebar-collapsed)" : "var(--lm-sidebar-width)"}
       contentRight="0"
     >
+    <AssetReviewControls ownerUserId={ownerUserId} enabled={canManageFoldersInCurrentView}>
     {/* Grid deletes have no inline error surface (the card just returns),
         so failures fire a toast — otherwise a failed delete looks like a
         silent no-op. */}
@@ -6728,6 +6730,7 @@ export function GalleryDashboard({
           className="fixed inset-0 z-[70] hidden md:block"
           role="dialog"
           aria-modal="true"
+          data-asset-detail
           aria-label="Selected image details"
         >
           {/* No backdrop-filter here: at 0.992 alpha the blur is invisible,
@@ -6765,6 +6768,7 @@ export function GalleryDashboard({
           className="fixed inset-0 z-[65] md:hidden"
           role="dialog"
           aria-modal="true"
+          data-asset-detail
           aria-label="Selected image details"
         >
           <div
@@ -7351,6 +7355,7 @@ export function GalleryDashboard({
         </MountOnceOpen>
       )}
     </div>
+    </AssetReviewControls>
     </CoralToastProvider>
   );
 }

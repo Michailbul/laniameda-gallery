@@ -51,6 +51,11 @@ const semanticVectorFields = {
 };
 
 export default defineSchema({
+  assetArchive: defineTable({
+    ownerUserId: v.string(), assetId: v.id("assets"),
+    deleteAt: v.number(),
+  }).index("by_asset", ["assetId"])
+    .index("by_owner", ["ownerUserId"]),
   // Private agent reference documents, kept out of public repository bundles.
   // These are instructions, not creative media or gallery Skills.
   agentInstructions: defineTable({

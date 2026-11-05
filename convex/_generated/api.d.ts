@@ -22,6 +22,7 @@ import type * as assetComments from "../assetComments.js";
 import type * as assetHashes from "../assetHashes.js";
 import type * as assetPackHelpers from "../assetPackHelpers.js";
 import type * as assetPacks from "../assetPacks.js";
+import type * as assetReview from "../assetReview.js";
 import type * as assetShelves from "../assetShelves.js";
 import type * as assets from "../assets.js";
 import type * as authz from "../authz.js";
@@ -123,6 +124,7 @@ declare const fullApi: ApiFromModules<{
   assetHashes: typeof assetHashes;
   assetPackHelpers: typeof assetPackHelpers;
   assetPacks: typeof assetPacks;
+  assetReview: typeof assetReview;
   assetShelves: typeof assetShelves;
   assets: typeof assets;
   authz: typeof authz;

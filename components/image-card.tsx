@@ -23,6 +23,7 @@ import { BookmarkPostCard } from "@/components/gallery/bookmark-post-card";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import type { GalleryEntryPreview } from "@/lib/gallery-entries";
 import { VideoScrubPreview, useVideoScrub } from "@/components/video-scrub-preview";
+import { useAssetReview } from "@/components/gallery/asset-review-controls";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
@@ -243,6 +244,7 @@ export const ImageCard = memo(function ImageCard({
   excludeFolderId,
   marked,
 }: ImageCardProps) {
+  const review = useAssetReview();
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
   const isCinema = image.pillar === CINEMA_PILLAR;
@@ -315,6 +317,7 @@ export const ImageCard = memo(function ImageCard({
   const activeContentType = activePreview.contentType ?? image.contentType;
   const displayedMember = isPackDeck ? activePreview : image;
   const displayedAssetId = isPackDeck ? activePreview.id : image.id;
+  const isArchived = review.archived.some(item => item.assetId === displayedAssetId);
   const displayedTags = displayedMember.tagNames ?? [];
   const displayedCollections = displayedMember.collectionLabels ?? [];
   const displayedTypeLabel = displayedMember.typeLabel;
@@ -902,6 +905,13 @@ export const ImageCard = memo(function ImageCard({
 
   const card = (
     <motion.div
+      data-review-id={displayedAssetId}
+      data-review-src={activeThumbSrc}
+      data-review-name={displayLabel}
+      data-review-archived={isArchived || undefined}
+      data-review-disabled={image.galleryItemType && !["asset", "pack"].includes(image.galleryItemType) ? "true" : undefined}
+      onDoubleClick={event => { if (isArchived) { event.preventDefault(); event.stopPropagation(); review.restore(displayedAssetId); } }}
+      onClickCapture={event => { if (isArchived) { event.preventDefault(); event.stopPropagation(); } }}
       layoutId={isCinema ? `cinema-${image.id}` : undefined}
       className={cardClasses}
       style={{

@@ -231,6 +231,12 @@ stage/source provenance.
 
 ## Access and safe completion
 
+At the start of an agent routine, read private owner notes with `list_stories`,
+`search: "agent-review"`, `status: "idea"`. Gallery hotkeys save comments and scene
+ideas here with their source in `assetIds`. Inspect the source, act on the note,
+then remove its `agent-review` tag with a revision-guarded update. Preserve the
+text and links. See references/data-model.md for the note and archive contracts.
+
 Deletion needs both technical access and the user's explicit approval. Before
 calling delete_collection or delete_filter_preset, name the targets and explain
 the consequences, then obtain approval for that named collection/preset or
