@@ -92,9 +92,9 @@ export const WorldMasonry = memo(function WorldMasonry({
         sinceBand >= BAND_EVERY &&
         tile.w / tile.h >= 1.6 &&
         tile.w >= width * 0.8 &&
-        // Places and scenes, not faces: a shallow-focus portrait goes soft
-        // at full width.
-        tile.section !== "characters"
+        // Places only: a face or a shallow-focus scene goes soft at full
+        // width; a city or a valley holds it.
+        tile.section === "locations"
       ) {
         const y = Math.max(...heights);
         if (levelFor(y)) {
