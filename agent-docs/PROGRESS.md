@@ -8,6 +8,10 @@ Last updated: 2026-11-03
 
 ## ✔ Shipped
 
+### 2026-11-05 — Test suite green, backlog reconciled (#146, branch `docs/backlog-reconcile`)
+- `bun test` on main had 33 failures and 3 unloadable files. Skills tests moved off the removed `convex/workflows`; mock leaks between route tests fixed (see OBSERVATIONS, Dev workflow). 1142 pass, 0 fail.
+- `BACKLOG.md` rewritten against the code: done, dropped (pillar-era items) and still-open items separated.
+
 ### 2026-11-03 — Settings: edit keys and Connect Magnific; C in Edit in place is a note for the reviewer (branch `feat/edit-keys-and-comment`)
 - `/settings` (sidebar → Settings, owner only): where edits in place run, in
   route order. fal and Pika take an API key pasted here (checked live, sealed
@@ -597,7 +601,7 @@ that did nothing, the recipe column in the way. Now `/w/<world>/styles`:
 - Gallery tiles now load WebP card thumbnails instead of originals. Before: 1,810 of 2,427 image tiles pulled the full original (629 of them over 2 MB), 48 video tiles mounted the full video for want of a poster, and existing thumbs were quality-100 JPEG or PNG at a median of 500 KB. Scrolling the whole grid now costs 160 MB for images (was 4.5 GB) and 8 MB for video posters (was 670 MB); the median tile is 47 KB. All ingest paths (API, agent, cinema frames, design saves, browser posters) share one sharp encoder; `thumbnails:backfillCardThumbnails` rebuilt the existing thumbs and `scripts/backfill-video-posters.ts` gave 18 poster-less videos a poster via local ffmpeg.
 - Public pages (Featured, Worlds, Browse) render their first screen at hydration: the static page (rebuilt every 5 minutes) carries the first screen's data and preloads its thumbnails with the HTML, and the page no longer waits for `/api/auth/me` before querying. On a throttled first visit the first screen finishes in 0.7–1.0 s instead of about 2.1 s. Grid video tiles on Featured mount only after their poster has painted.
 - The tile rule counts portrait thumbs by height (`isCardThumbSharp`), so a 540×960 thumb no longer sends a 3 MB original into the grid. The public lightbox paints the cached thumb at once and swaps the original in after it decodes.
-- Prompt families: the grid folds the same prompt saved as separate rows, and variations of one prompt (e.g. a Masa template with the spoken line rewritten), into one pack. Rules live in `lib/prompt-family.ts` (content-word similarity, generation params ignored, variations within 3 days, identical text at any distance); web bookmarks and cinema frames never fold.
+- Prompt families (REMOVED 9 Oct 2026 in 11a7d0a: each variation is its own tile again; `lib/prompt-family.ts` remains but the grid no longer calls it): the grid folds the same prompt saved as separate rows, and variations of one prompt (e.g. a Masa template with the spoken line rewritten), into one pack. Rules live in `lib/prompt-family.ts` (content-word similarity, generation params ignored, variations within 3 days, identical text at any distance); web bookmarks and cinema frames never fold.
 - Packs render as stacked, self-rotating decks: cards peek out behind the front one, the front frame flips on its own (staggered per card, held on hover, still when off-screen or under reduced motion), and carousel tabs across the top show progress and jump to a frame. Clicking opens the expanded view on the frame on show.
 - Expanded view for packs: glass arrows at the stage edges, a filmstrip of the pack's frames with a `Pack 02 / 05 · N prompt variations` line, ←/→ walking the pack before the next card (and never while typing), swipes on mobile doing the same. Every field and action (description, tags, star, public, filing, delete, download) now applies to the frame on show, not the cover.
 

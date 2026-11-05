@@ -3,7 +3,7 @@
 > Single source of truth for all work items.
 > Statuses: `🔥 active` | `✅ ready` | `📋 backlog` | `🧊 icebox` | `✔ done`
 
-Last updated: 2026-08-13
+Last updated: 2026-11-05 (reconciled against the code and PROGRESS.md)
 
 ---
 
@@ -15,105 +15,58 @@ Last updated: 2026-08-13
 | **Effort** | XS < 2h · S 2-4h · M 4-8h · L 1-2d · XL 2-5d |
 | **Detail** | link to ticket/PRD file |
 
----
-
-## 🔥 Active Sprint — Dashboard Polish
-
-> Goal: Transform prototype into studio-grade creative tool.
-> Sprint detail: `features/dashboard-polish/SPRINT.md`
-
-| ID | Title | P | Effort | Status |
-|----|-------|---|--------|--------|
-| SP-01 | Replace inline hover handlers with CSS | P0 | M | todo |
-| SP-02 | Add shadow/elevation token system | P0 | S | todo |
-| SP-03 | Wire swipe gestures to mobile detail sheet | P0 | M | todo |
-| SP-04 | Tab content transition animation | P1 | S | todo |
-| SP-05 | Polish FilterTab and TagButton components | P1 | M | todo |
-| SP-06 | Image card hover refinement (CSS-only) | P1 | M | todo |
-| SP-07 | Sidebar visual polish | P1 | M | todo |
-| SP-08 | Detail panel copy feedback (toast) | P1 | S | todo |
-| SP-09 | Empty state & loading polish | P2 | S | todo |
-| SP-10 | Mobile detail sheet full polish | P2 | M | todo |
-| SP-11 | Keyboard navigation audit | P2 | S | todo |
-| SP-12 | Responsive breakpoint audit | P2 | S | todo |
-| SP-13 | Performance: reduce re-renders | P3 | M | todo |
+Open work for agents lives on the gallery task board (`/tasks`, MCP `list_tasks`). This file keeps only the long-lived engineering backlog.
 
 ---
 
-## ✅ Ready — Defined, next in queue
+## 🔥 Active
 
-No queued ready items. Promote from backlog after the production hardening pass lands.
-
----
+None queued. The 5 Nov board had no code-fix tasks; the one engineering item is the inspiration-draft vertical slice below.
 
 ## 📋 Backlog — Defined but not yet scheduled
 
-### AI Features
-
 | ID | Title | P | Effort | Notes |
 |----|-------|---|--------|-------|
-| AI-01 | Image → Prompt Generator (reverse-engineer prompt from image) | P1 | L | Vision model (Claude/Gemini). Button on images with no prompt. NB cinematic structure output. |
-| AI-02 | Image Focus Mode Phase 2 — transitions + keyboard nav | P2 | M | PRD: `features/image-focus-mode/PRD.md` §10 Phase 2 |
-| AI-03 | Image Focus Mode Phase 3 — preloading + related prompts | P3 | M | PRD: `features/image-focus-mode/PRD.md` §10 Phase 3 |
-| AI-04 | Auto-tagging on ingest via embedding neighbors | P2 | M | After reindexAsset succeeds → vectorSearch 10 nearest neighbors → inherit tags (freq ≥2/10, top 5). Add `source` field to `assetTags` (`user`/`agent`/`auto`). No tag creation, reuses existing. See `agent-docs/SEMANTIC_SEARCH.md` § Future. |
-| AI-05 | Smart clustering — auto-generate collections from embedding space | P3 | L | K-means/HDBSCAN over `semanticDocuments` vectors. Phase 2 feature. Also tracked as ORG-006 in HQ backlog. |
+| INS-01 | Inspiration drafts: original, adaptation draft, versions, feedback, promotion | P2 | XL | Task `td72c1jd` on /tasks. Claude CLI opus 5.5 only, Friday 6 Nov or later. Gates: private original delivery before personal uploads; drafts excluded from production search and reference selection; unknown paid outcomes never auto-resubmit. Design: gallery skill `qh79d2sg…`/`qh797xrk…` (critique). |
+| SP-01 | Replace the remaining inline hover handlers with CSS | P2 | S | 15 `onMouseEnter` uses in 10 files (5 Nov). Audit against `features/dashboard-polish/SPRINT.md`. |
+| SP-04–07, 09–13 | Dashboard polish remainder | P3 | M | Written 27 Feb and not re-audited. The grid, sidebar, tabs and toolbar were rebuilt since (see PROGRESS.md Nov entries). Re-audit before starting any of them. |
+| AI-01 | Image → Prompt generator (button on images with no prompt) | P2 | L | Partial: `convex/agentDescriptions.ts` writes agent descriptions; no prompt-reversal button in the UI. |
+| AI-02/03 | Image Focus Mode Phase 2/3 (transitions, preloading, related prompts) | P3 | M | PRD `features/image-focus-mode/PRD.md`. Keyboard nav and swipe from Phase 1 are done; the rest is open. |
+| UI-02–04 | Prompt provenance tab, tab state across images, related tags/prompts | P3 | XS–L | IFM PRD open questions. |
+| INF-02 | Telemetry hooks (copy/action funnel) | P3 | S | Nothing built. |
 
-### Ingest / Content
+## 🧊 Icebox
 
-| ID | Title | P | Effort | Notes |
-|----|-------|---|--------|-------|
-| ING-01 | Agent auto-classification into pillars on ingest | P1 | M | laniameda-gallery-ingest skill calls classifier action on save |
-| ING-02 | Bulk re-classify existing assets into pillars | P2 | S | One-time migration action |
-| ING-03 | Telegram ingest: photo + caption in one message | P1 | M | Currently only processes text or URL |
+Nothing live. Superseded items are listed under Dropped.
 
-### Gallery / UI
+## ✔ Done (since the August backlog)
 
-| ID | Title | P | Effort | Notes |
-|----|-------|---|--------|-------|
-| UI-01 | Pillar-aware theming — accent colors shift with active pillar | P1 | M | CSS vars for `--pillar-r/g/b` |
-| UI-02 | Prompt detail tab: show provenance / source history | P3 | S | Phase 2 question from IFM PRD |
-| UI-03 | Tab state persists globally (not reset on image switch) | P3 | XS | IFM PRD open question |
-| UI-04 | Contextual related tags/prompts in side panel | P3 | L | IFM Phase 3 |
-| UI-05 | Gallery Entry V2: hover actions + side-panel carousel + prompt/image arrays | P0 | XL | Ticket: `features/gallery-entry-v2/TICKET.md` (includes Convex schema/backend/frontend/docs tasks) |
-| UI-06 | Designs Pillar — skills/workflows library with structured cards + fullscreen modal | P1 | L | PRD: `features/designs-pillar/PRD.md`. Pillar-aware dashboard switching, DesignSkillCard, DesignSkillModal, schema additions (workflowSteps, agentPrompt, toolNames). |
-
-### Infrastructure
-
-| ID | Title | P | Effort | Notes |
-|----|-------|---|--------|-------|
-| INF-01 | Deployment pipeline (Vercel/Railway + Convex prod) | P1 | M | Need to set up proper CI deploy |
-| INF-02 | Low-friction telemetry hooks (copy/action funnel) | P2 | S | IFM PRD §3 success metrics hooks |
-
----
-
-## 🧊 Icebox — Interesting but not prioritised
-
-| ID | Title | Notes |
+| ID | Title | Where |
 |----|-------|-------|
-| ICE-01 | Video media support | Separate UX from image-specific behaviors |
-| ICE-02 | Public gallery share links | Per-pillar or per-tag public URL |
-| ICE-03 | Collections / manual curation folders | Beyond auto-pillars |
+| EXT-01 | Browser extension: web saves, file/folder drop desk | 2026-08-13 |
+| IFM-01–06 | Image Focus Mode Phase 1 | 2026-02-27 · `features/image-focus-mode/TICKETS-PHASE1.md` |
+| SP-02 | Shadow/elevation tokens (`--shadow-sm/md/lg/sharp`) | `app/globals.css` |
+| SP-03 | Swipe gestures on the mobile detail sheet and packs | PROGRESS 2026-10-09, 2026-10-29 |
+| SP-08 | Copy feedback toast | `components/ui/coral-toast.tsx` |
+| AI-04 | Auto-tagging on ingest | Jev classifier, PROGRESS 2026-11-02 (a vision classifier, not embedding neighbours) |
+| AI-05 | Smart clustering | Group similar by perceptual hash, PROGRESS 2026-10-21 (not embedding k-means) |
+| INF-01 | Deployment pipeline | Vercel on merge to main; Convex cloud `dev:perfect-buffalo-375` |
+| ICE-01 | Video support | Hover scrub, posters, R2 video migration |
+| ICE-02 | Public share links | Public worlds `/w/<slug>`, selected-work pages |
+| ICE-03 | Collections / manual curation | Worlds, shelves, one-level collections |
+| UI-05 | Gallery entry V2 (hover actions, side-panel carousel, prompt/image arrays) | Packs, expanded view, PROGRESS 2026-10-09 |
+| — | Tests green again: skills ported off `convex/workflows`, mock leaks fixed | #146, 2026-11-05 |
+
+## ✖ Dropped (superseded)
+
+| ID | Why |
+|----|-----|
+| ING-01, ING-02 | Pillars are retired; agents file through collections and tags. |
+| ING-03 | The Telegram webhook route was removed; ingest is OpenClaw → Convex action. |
+| UI-01 | Pillar-aware theming has no pillars to follow. |
+| UI-06 | Designs Pillar became tags on ordinary assets and Skills. |
 
 ---
-
-## ✔ Done
-
-| ID | Title | Shipped |
-|----|-------|---------|
-| EXT-01 | Browser extension: web saves + persistent local file/folder drop desk | 2026-08-13 |
-| IFM-01–06 | Image Focus Mode Phase 1 (all tickets) | 2026-02-27 · `features/image-focus-mode/TICKETS-PHASE1.md` |
-| — | 4-pillar system (creators/cars/designs/dump) — schema + UI | 2026-02 |
-| — | Model name filter chips in TopFilterBar | 2026-02 |
-| — | Gallery dashboard with masonry grid + Convex data | 2026-02 |
-| — | Detail modal with progressive thumbnail → full-res | 2026-02 |
-| — | Upload panel (drag-drop, URL, tags, folder, model) | 2026-02 |
-| — | Image thumbnails auto-generated on ingest (Jimp) | 2026-02 |
-| — | Telegram auth routes + TelegramAuthProvider | 2026-02 |
-| — | Convex schema: assets, prompts, tags, folders, runs | 2026-02 |
-| — | Ingestion action with idempotency key | 2026-02 |
-| — | Backend: hidden ingest tool + Telegram streaming pipeline | 2026-02 |
-| — | Dev Telegram simulator + structured observability | 2026-02 |
-
 
 ## Harness 1.1 (from the 23 Oct critic round)
 - Archive/delete for shelves and storybooks as journaled world operations; restore a doc to revision N.
