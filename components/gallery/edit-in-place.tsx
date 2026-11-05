@@ -3,13 +3,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import Link from "next/link";
-import { Check, Copy, Loader2, RotateCcw } from "lucide-react";
+import { Archive, Check, Copy, Loader2, RotateCcw, Undo2 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
   EDIT_MODELS, MAX_SEND_USD, TAKE_CHOICES, estimateEditUsd, formatUsd, liveRoute, planEditSend,
 } from "@/lib/edit-models";
 import type { EditCompare } from "./before-after-wipe";
+import { clearEditTakeKeyHandler, setEditTakeKeyHandler } from "@/lib/edit-take-keys";
 
 const STALE_MS = 20 * 60 * 1000;
 const MODELS_KEY = "lm-edit-models";
@@ -32,12 +33,15 @@ const PROVIDER_NAMES = { magnific: "Magnific", fal: "fal", pika: "Pika" } as con
 
 type Ref = { assetId: string; name: string };
 
+
 /**
  * "Edit in place" for one image (the reviewer kit's edit panel, in the
  * gallery): a prompt, model pills priced for this image on the route each
  * would take now, takes per model, the world's cast attached as references,
  * then every take listed under the source with status, cost and Retry. A
- * landed take opens the before/after wipe on the stage (`onCompare`). Key E
+ * landed take is pending: it opens the before/after wipe on the stage
+ * (`onCompare`) and waits for Approve (key 1: it becomes this asset's picture,
+ * the old one a version) or Discard (key 2: archived, recoverable). Key E
  * focuses the prompt; key C a note for the reviewer: an owner comment on the
  * image in view (the take, while its wipe is open), which becomes a task the
  * reviewer agent picks up.
@@ -68,6 +72,21 @@ export function EditInPlace({
   const startEdit = useMutation(api.editJobs.startEdit);
   const retryEdit = useMutation(api.editJobs.retryEdit);
   const addComment = useMutation(api.assetComments.addAssetComment);
+  const queryArgs = { ownerUserId, assetId: assetId as Id<"assets"> };
+  // Optimistic: the take moves the moment it is decided; Convex confirms it.
+  const approveEdit = useMutation(api.editJobs.approveEdit).withOptimisticUpdate((store, args) => {
+    const current = store.getQuery(api.editJobs.listAssetEdits, queryArgs);
+    if (current) store.setQuery(api.editJobs.listAssetEdits, queryArgs, { ...current, jobs: current.jobs.map((job) => (job._id === args.jobId ? { ...job, review: "approved" as const } : job)) });
+  });
+  const discardEdit = useMutation(api.editJobs.discardEdit).withOptimisticUpdate((store, args) => {
+    const current = store.getQuery(api.editJobs.listAssetEdits, queryArgs);
+    const review = args.reopen ? "pending" as const : "discarded" as const;
+    if (current) store.setQuery(api.editJobs.listAssetEdits, queryArgs, { ...current, jobs: current.jobs.map((job) => (job._id === args.jobId ? { ...job, review } : job)) });
+  });
+  const restoreVersion = useMutation(api.editJobs.restoreAssetVersion).withOptimisticUpdate((store, args) => {
+    const current = store.getQuery(api.editJobs.listAssetEdits, queryArgs);
+    if (current) store.setQuery(api.editJobs.listAssetEdits, queryArgs, { ...current, versions: current.versions.map((row) => ({ ...row, current: row._id === args.versionId })) });
+  });
 
   const [prompt, setPrompt] = useState("");
   const [models, setModels] = useState<string[]>(() => EDIT_MODELS.filter((m) => m.default).map((m) => m.id));
@@ -80,6 +99,12 @@ export function EditInPlace({
   const [note, setNote] = useState("");
   const [noteState, setNoteState] = useState<{ text: string; bad?: boolean; sent?: boolean }>();
   const [noting, setNoting] = useState(false);
+  const [showArchive, setShowArchive] = useState(false);
+  const [hovered, setHovered] = useState<string>();
+  const [flash, setFlash] = useState<{ jobId: string; text: string }>();
+  // After Approve the wipe holds the approved picture on the stage until the
+  // page's own image switches to it, so the change shows at once.
+  const held = useRef<{ from?: string; timer?: ReturnType<typeof setTimeout> } | null>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const sectionRef = useRef<HTMLElement>(null);
@@ -164,7 +189,7 @@ export function EditInPlace({
       setMessage({ text: `${result.jobs.length} queued · ≈${formatUsd(result.totalUsd)}${dropped.length ? ` · ${dropped.join(", ")} take fewer references` : ""}` });
       promptRef.current?.blur();
     } catch (error) {
-      setMessage({ text: error instanceof Error ? error.message.replace(/^.*ConvexError: /, "").split("\n")[0]! : "Send failed", bad: true });
+      setMessage({ text: errorText(error, "Send failed"), bad: true });
     } finally {
       setSending(false);
     }
@@ -177,10 +202,80 @@ export function EditInPlace({
     finally { setRetrying(undefined); }
   };
 
-  const copyId = (id: string) => {
-    void navigator.clipboard?.writeText(`asset:${id}`);
+  const copyId = (id: string, prefix = "asset") => {
+    void navigator.clipboard?.writeText(`${prefix}:${id}`);
     setCopied(id); setTimeout(() => setCopied(undefined), 1200);
   };
+
+  const errorText = (error: unknown, fallback: string) =>
+    error instanceof Error ? error.message.replace(/^.*ConvexError: /, "").split("\n")[0]! : fallback;
+  const flashOn = (jobId: string, text: string) => {
+    setFlash({ jobId, text });
+    setTimeout(() => setFlash((current) => (current?.jobId === jobId ? undefined : current)), 900);
+  };
+
+  type Job = NonNullable<typeof data>["jobs"][number];
+  const versionOf = (jobId: string) => data?.versions.find((row) => row.editJobId === jobId);
+
+  const approve = (job: Job) => {
+    if (job.status !== "done" || !job.resultUrl || job.review === "approved") return;
+    flashOn(job._id, "Approved");
+    if (assetUrl) {
+      if (held.current?.timer) clearTimeout(held.current.timer);
+      held.current = { from: assetUrl, timer: setTimeout(() => { held.current = null; onCompare(null); }, 10000) };
+      onCompare({ jobId: job._id, beforeUrl: job.resultUrl, afterUrl: job.resultUrl, beforeLabel: "Approved", afterLabel: job.modelName });
+    }
+    approveEdit({ ownerUserId, jobId: job._id as Id<"editJobs"> })
+      .then((done) => setMessage({ text: `Approved · now v${done.version} of asset:${short(assetId)}` }))
+      .catch((error) => { held.current = null; onCompare(null); setMessage({ text: errorText(error, "Approve failed"), bad: true }); });
+  };
+  const discard = (job: Job, reopen = false) => {
+    if (job.status !== "done" || job.review === "approved") return;
+    flashOn(job._id, reopen ? "Back" : "Archived");
+    if (!reopen && compare?.jobId === job._id) onCompare(null);
+    discardEdit({ ownerUserId, jobId: job._id as Id<"editJobs">, reopen })
+      .catch((error) => setMessage({ text: errorText(error, reopen ? "Restore failed" : "Discard failed"), bad: true }));
+  };
+  const restore = (versionId: string, number: number) => {
+    restoreVersion({ ownerUserId, versionId: versionId as Id<"assetVersions"> })
+      .then(() => setMessage({ text: `Showing v${number} again` }))
+      .catch((error) => setMessage({ text: errorText(error, "Restore failed"), bad: true }));
+  };
+
+  // The page's image switched to the approved picture: let go of the wipe.
+  useEffect(() => {
+    if (held.current && assetUrl !== held.current.from) {
+      if (held.current.timer) clearTimeout(held.current.timer);
+      held.current = null;
+      onCompare(null);
+    }
+  }, [assetUrl, onCompare]);
+  useEffect(() => () => { if (held.current?.timer) clearTimeout(held.current.timer); }, []);
+
+  // Keys 1 / 2 on the take under the pointer, else the one in the wipe.
+  const keyState = useRef({ data, hovered, compare, approve, discard });
+  keyState.current = { data, hovered, compare, approve, discard };
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || isTyping(event.target)) return false;
+      if (event.key !== "1" && event.key !== "2") return false;
+      const state = keyState.current;
+      const id = state.hovered ?? (state.compare && !held.current ? state.compare.jobId : undefined);
+      const job = id ? state.data?.jobs.find((entry) => entry._id === id) : undefined;
+      if (!job || job.status !== "done" || !job.resultUrl || job.review === undefined || job.review === "approved") return false;
+      event.preventDefault(); event.stopPropagation();
+      if (event.key === "1") state.approve(job); else state.discard(job);
+      return true;
+    };
+    setEditTakeKeyHandler(handler);
+    // Where no page hosts the panel's keys, it listens itself.
+    const own = (event: KeyboardEvent) => { if (listenForE) handler(event); };
+    window.addEventListener("keydown", own, true);
+    return () => {
+      clearEditTakeKeyHandler(handler);
+      window.removeEventListener("keydown", own, true);
+    };
+  }, [listenForE]);
 
   // The note goes on the image in view: the take while its wipe is open.
   const comparedJob = compare ? data?.jobs.find((job) => job._id === compare.jobId) : undefined;
@@ -335,53 +430,109 @@ export function EditInPlace({
         </div>
       )}
 
-      {data && data.jobs.length > 0 && (
-        <ol className="lm-edit-takes-list">
-          {data.jobs.map((job) => {
-            const done = job.status === "done" && job.resultUrl;
-            const bad = job.status === "error";
-            const stale = (job.status === "running" || job.status === "queued") && Date.now() - job.updatedAt > STALE_MS;
-            const on = compare?.jobId === job._id;
-            const ratio = `${job.width ?? width ?? 16} / ${job.height ?? height ?? 9}`;
-            return (
-              <li key={job._id} className={`lm-edit-take${on ? " on" : ""}${bad ? " bad" : ""}`}>
-                <button type="button" className={`lm-edit-thumb${done ? "" : " pending"}`} style={{ aspectRatio: ratio }}
-                  disabled={!done || !assetUrl} title={done ? "Compare before and after" : job.status}
-                  onClick={() => done && assetUrl && onCompare(on ? null : {
-                    jobId: job._id, beforeUrl: assetUrl, afterUrl: job.resultUrl!,
-                    beforeLabel: short(assetId), afterLabel: `${job.modelName} ${short(job.resultAssetId ?? job._id)}`,
-                  })}>
-                  {/* eslint-disable-next-line @next/next/no-img-element -- the landed take */}
-                  {done && <img src={job.resultThumbUrl ?? job.resultUrl} alt="" />}
-                </button>
-                <div className="lm-edit-meta">
-                  <div className="lm-edit-meta-top">
-                    <b>{job.modelName}{job.of > 1 ? ` · ${job.take}/${job.of}` : ""}</b>
-                    {job.resultAssetId && (
-                      <button type="button" className="lm-edit-id" onClick={() => copyId(job.resultAssetId!)} title="Copy the edit's id">
-                        {copied === job.resultAssetId ? <Check size={10} aria-hidden /> : <Copy size={10} aria-hidden />}
-                        {short(job.resultAssetId)}
-                      </button>
-                    )}
-                  </div>
-                  <div className="lm-edit-status" title={job.tried.join("\n")}>
-                    <span>{job.provider}{job.refNames.length ? ` · refs ${job.refNames.join(", ")}` : ""}{job.createdBy === "agent" ? " · agent" : ""}</span>
-                    {done ? <span className="ok">{formatUsd(job.chargedUsd)}{job.chargedExact ? "" : " est"}</span>
-                      : bad ? <span className="err">{job.error}</span>
-                      : <span className="run">{stale ? "stalled" : job.status === "queued" ? "queued" : "running"}… ≈{formatUsd(job.estimateUsd)}</span>}
-                  </div>
-                  {(bad || stale) && (
-                    <button type="button" className="lm-edit-retry" disabled={retrying === job._id} onClick={() => void retry(job._id)}>
-                      <RotateCcw size={10} aria-hidden />{retrying === job._id ? "Retrying" : "Retry"}
+      {data && data.versions.length > 0 && (
+        <div className="lm-edit-versions">
+          <span className="lm-edit-label">Versions · same asset, nothing deleted</span>
+          <div className="lm-edit-version-row">
+            {data.versions.map((row) => (
+              <button key={row._id} type="button" className={`lm-edit-version${row.current ? " on" : ""}`}
+                disabled={row.current} onClick={() => restore(row._id, row.number)}
+                title={row.current ? `v${row.number} is showing` : `Show v${row.number} again${row.prompt ? `: ${row.prompt}` : ""}`}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- version thumbnails */}
+                {row.thumbUrl ? <img src={row.thumbUrl} alt="" style={{ aspectRatio: `${row.width ?? 16} / ${row.height ?? 9}` }} /> : <span className="lm-edit-ref-empty" />}
+                <span>v{row.number}<i>{row.current ? "showing" : row.origin === "original" ? "original" : row.modelName ?? "edit"}</i></span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {data && data.jobs.length > 0 && (() => {
+        const archived = data.jobs.filter((job) => job.review === "discarded");
+        const live = data.jobs.filter((job) => job.review !== "discarded");
+        const row = (job: Job) => {
+          const done = job.status === "done" && job.resultUrl;
+          const bad = job.status === "error";
+          const stale = (job.status === "running" || job.status === "queued") && Date.now() - job.updatedAt > STALE_MS;
+          const on = compare?.jobId === job._id;
+          const ratio = `${job.width ?? width ?? 16} / ${job.height ?? height ?? 9}`;
+          const pending = done && job.review === "pending";
+          const version = job.review === "approved" ? versionOf(job._id) : undefined;
+          const idText = job.resultAssetId ?? job._id;
+          return (
+            <li key={job._id} className={`lm-edit-take${on ? " on" : ""}${bad ? " bad" : ""}${job.review === "discarded" ? " archived" : ""}${job.review === "approved" ? " approved" : ""}`}
+              onMouseEnter={() => setHovered(job._id)} onMouseLeave={() => setHovered((current) => (current === job._id ? undefined : current))}>
+              <button type="button" className={`lm-edit-thumb${done ? "" : " pending"}`} style={{ aspectRatio: ratio }}
+                disabled={!done || !assetUrl} title={done ? "Compare before and after" : job.status}
+                onClick={() => done && assetUrl && onCompare(on ? null : {
+                  jobId: job._id, beforeUrl: assetUrl, afterUrl: job.resultUrl!,
+                  beforeLabel: short(assetId), afterLabel: `${job.modelName} ${short(idText)}`,
+                })}>
+                {/* eslint-disable-next-line @next/next/no-img-element -- the landed take */}
+                {done && <img src={job.resultThumbUrl ?? job.resultUrl} alt="" />}
+                {flash?.jobId === job._id && <span key={flash.text} className="lm-edit-flash" data-kind={flash.text}>{flash.text}</span>}
+              </button>
+              <div className="lm-edit-meta">
+                <div className="lm-edit-meta-top">
+                  <b>{job.modelName}{job.of > 1 ? ` · ${job.take}/${job.of}` : ""}</b>
+                  {(job.resultAssetId || job.review) && (
+                    <button type="button" className="lm-edit-id" onClick={() => copyId(idText, job.resultAssetId ? "asset" : "editJobs")}
+                      title={job.resultAssetId ? "Copy the edit's asset id" : "Copy the take's id (editJobs:…)"}>
+                      {copied === idText ? <Check size={10} aria-hidden /> : <Copy size={10} aria-hidden />}
+                      {short(idText)}
                     </button>
                   )}
-                  <q>{job.prompt}</q>
                 </div>
-              </li>
-            );
-          })}
-        </ol>
-      )}
+                <div className="lm-edit-status" title={job.tried.join("\n")}>
+                  <span>{job.provider}{job.refNames.length ? ` · refs ${job.refNames.join(", ")}` : ""}{job.createdBy === "agent" ? " · agent" : ""}</span>
+                  {done ? <span className="ok">{formatUsd(job.chargedUsd)}{job.chargedExact ? "" : " est"}{job.review === "approved" ? ` · approved${version ? ` · v${version.number}${version.current ? "" : " (not showing)"}` : ""}` : job.review === "discarded" ? " · archived" : pending ? " · waiting for you" : ""}</span>
+                    : bad ? <span className="err">{job.error}</span>
+                    : <span className="run">{stale ? "stalled" : job.status === "queued" ? "queued" : "running"}… ≈{formatUsd(job.estimateUsd)}</span>}
+                </div>
+                {pending && (
+                  <div className="lm-edit-decide">
+                    <button type="button" className="lm-edit-approve" onClick={() => approve(job)} title="Make this the asset's picture (1). The old one stays a version.">
+                      <Check size={11} aria-hidden />Approve<kbd>1</kbd>
+                    </button>
+                    <button type="button" className="lm-edit-discard" onClick={() => discard(job)} title="Archive this take (2). Recoverable.">
+                      <Archive size={11} aria-hidden />Discard<kbd>2</kbd>
+                    </button>
+                  </div>
+                )}
+                {job.review === "discarded" && done && (
+                  <div className="lm-edit-decide">
+                    <button type="button" className="lm-edit-retry" onClick={() => discard(job, true)}><Undo2 size={10} aria-hidden />Restore</button>
+                  </div>
+                )}
+                {version && !version.current && (
+                  <button type="button" className="lm-edit-retry" onClick={() => restore(version._id, version.number)}>
+                    <Undo2 size={10} aria-hidden />Show v{version.number} again
+                  </button>
+                )}
+                {(bad || stale) && (
+                  <button type="button" className="lm-edit-retry" disabled={retrying === job._id} onClick={() => void retry(job._id)}>
+                    <RotateCcw size={10} aria-hidden />{retrying === job._id ? "Retrying" : "Retry"}
+                  </button>
+                )}
+                <q>{job.prompt}</q>
+              </div>
+            </li>
+          );
+        };
+        return (
+          <>
+            {live.length > 0 && <ol className="lm-edit-takes-list">{live.map(row)}</ol>}
+            {archived.length > 0 && (
+              <div className="lm-edit-archive">
+                <button type="button" className="lm-edit-chip" aria-expanded={showArchive} onClick={() => setShowArchive((open) => !open)}>
+                  <Archive size={10} aria-hidden />Archive · {archived.length}
+                </button>
+                {showArchive && <ol className="lm-edit-takes-list">{archived.map(row)}</ol>}
+              </div>
+            )}
+          </>
+        );
+      })()}
     </section>
   );
 }

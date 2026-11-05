@@ -6,6 +6,7 @@ import { shortAssetId } from "@/lib/inbox";
 import { imageKeyOf, type ImageKey } from "@/lib/inbox-keys";
 import { CopyChip, Micro, RADIUS, SCRIM, mono } from "./inbox-ui";
 import { EditInPlace } from "@/components/gallery/edit-in-place";
+import { handleEditTakeKey } from "@/lib/edit-take-keys";
 import { BeforeAfterWipe, type EditCompare } from "@/components/gallery/before-after-wipe";
 
 type View = { scale: number; x: number; y: number };
@@ -82,6 +83,8 @@ export function ZoomViewer({ assetId, kind, url, thumbUrl, width, height, defect
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // 1 / 2 on an edit take (hovered, or open in the wipe) approve or discard it.
+      if (editing && handleEditTakeKey(event)) return;
       // Typing an edit prompt: the keys are text. Escape leaves the field.
       const target = event.target as HTMLElement | null;
       if (target && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) {

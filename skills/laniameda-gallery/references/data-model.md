@@ -625,12 +625,15 @@ fal or pika, `endpoint`), `requestId` with fal's `statusUrl` / `responseUrl`,
 (out_of_credit, provider, timeout, ingest), `estimateUsd`, `chargedUsd` with
 `chargedExact` (true when Pika billed it; fal charges are the estimate),
 `batch` / `take` / `of`, `refAssetIds` / `refNames` (<image-2> and on),
-`refsDropped`, `resultAssetId` / `resultUrl`, `createdBy` owner or agent.
+`refsDropped`, `resultAssetId` / `resultUrl`, `createdBy` owner or agent,
+and since 5 Nov 2026 `takeMedia` (the landed picture: `r2Key`, `thumbR2Key`,
+`thumbVariants`, size, dimensions, `contentHash`, generation `notes`),
+`review` (pending, approved, discarded) and `reviewedAt`.
 
 Routes, prices and request bodies live in `lib/edit-models.ts` (the routing
 table since 3 Nov 2026: Magnific first where it has the model, on Michael's own
 sign-in through its MCP server; krea-3 Magnific then fal; ideogram-precise
-Magnific; seedream-5 Magnific, Pika, fal; gpt-flare Magnific, fal, Pika;
+fal then Magnific; seedream-5 Magnific, Pika, fal; gpt-flare Magnific, fal, Pika;
 gpt-sunburst fal then Pika; nano-21 Magnific then Pika; kontext-max fal). A
 Magnific edit uploads the frame and references by URL into the Magnific
 project named like the world (else "laniameda.gallery") and its `requestId` is
@@ -638,11 +641,37 @@ the creation identifier. A route whose provider has no key or sign-in is
 skipped. A billing or auth refusal falls
 through to the next route; a send of $30 or more is refused. A job with a
 `requestId` is only polled, never resubmitted; Retry polls it again after a
-timeout or a failed filing, otherwise sends a new request. The result is a new
-asset with the source's tags, in its collections, a prompt whose
-`promptSections.generationNotes` names the source, model, provider, cost and
-job, and `generationLineage` role `edit_source` to the source (references as
-role `other`, stageOrder 2 and on). Deleting the source deletes its jobs.
+timeout or a failed filing, otherwise sends a new request.
+
+Ideogram 4.5 precise on fal is `ideogram/v4.5/edit` with `edit_precision:
+"high"` (Precise Edit: unchanged pixels restored), `quality: "medium"`,
+`image_size: "auto"`, the frame as `image_url` and up to four
+`reference_image_urls`; $0.06 a take at any size (fal, 5 Nov 2026).
+
+Review (5 Nov 2026). A landed take is `review: "pending"`: its picture is
+stored on the job, not as an asset, so it appears in no grid, search, world
+page, collection count or public view, only beside its source in Edit in
+place (`list_asset_edits`). Approve (key 1, `review_asset_edit` approve) puts
+the take on the source asset itself: the same asset id, tags, collections,
+characters, comments and links, new media; search and the perceptual hash are
+redone; the take's references become `generationLineage` role `other` on the
+asset. Discard (key 2) sets `review: "discarded"`: the take stays on its job,
+in the panel's Archive tray, and reopen brings it back to pending. Nothing is
+deleted by either.
+
+`assetVersions`: every picture an asset has been, append-only, written on
+the first approval: `assetId`, `number` (1 is the original), `origin`
+original or edit, `editJobId`, `modelName`, `prompt`, and the media fields
+(`r2Key`, `thumbR2Key`, `storageId`, `thumbStorageId`, `sourceUrl`,
+`contentType`, `contentHash`, size, dimensions, `thumbVariants`). The asset
+row shows one of them, matched by media key (`r2Key`, else `storageId`, else
+`sourceUrl`); `list_asset_edits` returns them as `versions` with `current`.
+`restore_asset_version` copies a version's media back onto the asset.
+
+Takes from before 5 Nov 2026 (no `review`) became their own assets with the
+source's tags and collections, `edit_source` lineage and generation notes;
+`editOf` still names their source. Deleting the source deletes its jobs, its
+takes' pictures and its versions.
 
 # Tasks (29 October 2026)
 

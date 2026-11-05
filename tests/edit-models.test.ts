@@ -10,7 +10,7 @@ import {
 describe("routing", () => {
   test("follows the routing table: Magnific first where it has the model, then fal / Pika", () => {
     expect(editModelById("krea-3")!.routes.map((r) => r.provider)).toEqual(["magnific", "fal"]);
-    expect(editModelById("ideogram-precise")!.routes.map((r) => r.provider)).toEqual(["magnific"]);
+    expect(editModelById("ideogram-precise")!.routes.map((r) => r.provider)).toEqual(["fal", "magnific"]);
     expect(editModelById("seedream-5")!.routes.map((r) => r.provider)).toEqual(["magnific", "pika", "fal"]);
     expect(editModelById("gpt-flare")!.routes.map((r) => r.provider)).toEqual(["magnific", "fal", "pika"]);
     expect(editModelById("gpt-sunburst")!.routes.map((r) => r.provider)).toEqual(["fal", "pika"]);
@@ -83,6 +83,16 @@ describe("input building", () => {
   });
   test("Kontext takes the frame only", () => {
     expect(buildEditInput("fal-ai/flux-pro/kontext/max", "p", urls, 1000, 1000)).toEqual({ prompt: "p", image_url: urls[0], aspect_ratio: "1:1" });
+  });
+
+  test("Ideogram 4.5 on fal is a precise edit of the frame with up to four references", () => {
+    const six = ["a", "b", "c", "d", "e", "f"];
+    expect(buildEditInput("ideogram/v4.5/edit", "p", six, 1000, 1500)).toEqual({
+      prompt: "p", image_url: "a", reference_image_urls: ["b", "c", "d", "e"],
+      edit_precision: "high", quality: "medium", image_size: "auto", num_images: 1,
+    });
+    expect(buildEditInput("ideogram/v4.5/edit", "p", ["a"])).not.toHaveProperty("reference_image_urls");
+    expect(estimateEditUsd("ideogram/v4.5/edit", 4000, 4000, 4)).toBe(0.06);
   });
 });
 

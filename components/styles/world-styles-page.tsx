@@ -14,6 +14,7 @@ import type { MadeWith } from "@/convex/styleFrames";
 import { buildGridImageAttrs } from "@/lib/grid-image";
 import { galleryRoutePath, worldStylesPath } from "@/lib/gallery-routes";
 import { MOSAIC_COVERS, MOSAIC_CSS, StyleCaption, StyleMosaic, framesLabel, orderMedia } from "./style-mosaic";
+import { handleEditTakeKey } from "@/lib/edit-take-keys";
 
 // The styles page of a world's universe (/w/<world>/styles): every style as a
 // carousel of mosaic covers across the top, then the chosen style's frames as
@@ -234,6 +235,8 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
         return;
       }
       if (event.metaKey || event.ctrlKey || event.altKey) return;
+      // 1 / 2 on an edit take (hovered, or open in the wipe) approve or discard it.
+      if (handleEditTakeKey(event)) return;
       const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
       const targetId = openId ?? hovered.current;
       const frame = targetId ? byId.get(targetId) : undefined;

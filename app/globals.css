@@ -3523,6 +3523,46 @@
 .lm-edit-status .err { color: var(--lm-coral); word-break: break-word; }
 .lm-edit-status .run { color: #ff8c42; }
 .lm-edit-meta q { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; quotes: none; margin-top: 4px; color: var(--lm-text-ghost); }
+/* Pending takes: Approve (1, teal, the keep colour) makes the take the asset's
+   picture; Discard (2, the archive red) files it in the Archive tray. */
+.lm-edit-decide { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.lm-edit-approve, .lm-edit-discard {
+  display: inline-flex; align-items: center; gap: 5px; padding: 5px 7px; cursor: pointer; border-radius: var(--lm-radius);
+  font: 800 9.5px/1 var(--lm-font-display); letter-spacing: .1em; text-transform: uppercase;
+  transition: transform var(--lm-duration-fast), background-color var(--lm-duration-fast);
+}
+.lm-edit-approve { color: #0a0805; background: #79b791; border: 1px solid #79b791; }
+.lm-edit-discard { color: var(--lm-text-secondary); background: transparent; border: 1px solid var(--lm-border-strong); }
+.lm-edit-approve:hover { transform: translateY(-1px); }
+.lm-edit-discard:hover { color: #fff4ea; background: #b3161b; border-color: #b3161b; }
+.lm-edit-approve kbd, .lm-edit-discard kbd { font: 700 9px/1 var(--lm-font); padding: 2px 4px; border-radius: 3px; background: rgba(10, 8, 5, .18); }
+.lm-edit-discard kbd { background: var(--lm-surface-2); color: var(--lm-text-tertiary); }
+.lm-edit-take.approved { border-color: color-mix(in srgb, #79b791 55%, transparent); }
+.lm-edit-take.archived { opacity: .62; }
+.lm-edit-take.archived .lm-edit-thumb img { filter: grayscale(1); }
+.lm-edit-flash {
+  position: absolute; inset: auto 4px 4px 4px; z-index: 2; padding: 4px 0; text-align: center; border-radius: 3px; pointer-events: none;
+  font: 800 9px/1 var(--lm-font-display); letter-spacing: .12em; text-transform: uppercase; color: #0a0805; background: #79b791;
+  animation: lm-edit-flash .9s ease-out forwards;
+}
+.lm-edit-flash[data-kind="Archived"] { background: #b3161b; color: #fff4ea; }
+@keyframes lm-edit-flash { 0% { opacity: 0; transform: translateY(6px); } 20% { opacity: 1; transform: none; } 75% { opacity: 1; } 100% { opacity: 0; } }
+.lm-edit-archive { margin-top: 10px; }
+.lm-edit-archive > .lm-edit-chip { margin-bottom: 2px; }
+.lm-edit-versions { margin-top: 12px; }
+.lm-edit-version-row { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }
+.lm-edit-version { flex: none; width: 66px; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; }
+.lm-edit-version img, .lm-edit-version .lm-edit-ref-empty {
+  display: block; width: 66px; max-height: 88px; object-fit: cover; border-radius: var(--lm-radius); background: var(--lm-surface-2);
+  outline: 2px solid transparent; outline-offset: -2px; opacity: .7; transition: opacity var(--lm-duration-fast);
+}
+.lm-edit-version span { display: block; margin-top: 3px; font: 700 9.5px/1.25 var(--lm-font); color: var(--lm-text-secondary); }
+.lm-edit-version span i { display: block; font-style: normal; font-weight: 500; color: var(--lm-text-ghost); text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lm-edit-version:hover:not(:disabled) img { opacity: 1; }
+.lm-edit-version.on { cursor: default; }
+.lm-edit-version.on img { outline-color: #79b791; opacity: 1; }
+.lm-edit-version.on span i { color: #79b791; }
+@media (prefers-reduced-motion: reduce) { .lm-edit-flash { animation-duration: .01s; } }
 
 .lm-wipe { position: absolute; inset: 0; z-index: 15; cursor: ew-resize; user-select: none; touch-action: none; background: var(--media-stage-bg, var(--lm-paper)); }
 .lm-wipe img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
