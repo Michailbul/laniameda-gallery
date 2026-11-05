@@ -189,7 +189,11 @@ describe("gallery skill scripts", () => {
         convexUrl: "https://example.convex.cloud",
         ownerUserId: "telegram:278674008",
         fetchImpl: async (_url, init) => {
-          calls.push(JSON.parse(String(init?.body)));
+          const call = JSON.parse(String(init?.body));
+          if (call.path === "skills:resolveSkillReference") {
+            return Response.json({ status: "success", value: null });
+          }
+          calls.push(call);
           return new Response(
             JSON.stringify({
               status: "success",
@@ -267,7 +271,11 @@ describe("gallery skill scripts", () => {
         convexUrl: "https://example.convex.cloud",
         ownerUserId: "telegram:278674008",
         fetchImpl: async (_url, init) => {
-          calls.push(JSON.parse(String(init?.body)));
+          const call = JSON.parse(String(init?.body));
+          if (call.path === "skills:resolveSkillReference") {
+            return Response.json({ status: "success", value: null });
+          }
+          calls.push(call);
           return new Response(
             JSON.stringify({
               status: "success",

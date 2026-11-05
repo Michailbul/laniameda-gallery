@@ -6,7 +6,11 @@ const state = {
   partFailure: undefined as string | undefined,
 };
 
+// bun's mock.module is process-wide: keep the real exports so a later test file
+// that imports createAgentTokenSecret and friends still finds them.
+const realAgentAuth = await import("@/lib/server/agent-auth");
 mock.module("@/lib/server/agent-auth", () => ({
+  ...realAgentAuth,
   AgentAuthError: class extends Error {
     constructor(message: string, public readonly status = 401) { super(message); }
   },

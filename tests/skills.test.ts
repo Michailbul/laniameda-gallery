@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
   addSkillToCollection,
-  listWorkflows,
+  listSkills,
   markdownExcerpt,
   parseBodyAssetIds,
   removeSkillFromCollection,
   updateSkill,
-} from "../convex/workflows";
+} from "../convex/skills";
 import { buildSkillTextLane } from "../convex/semanticIndex";
 import { skillCardToEntry } from "../lib/skill-entries";
 import { handleGetById } from "../skills/laniameda-gallery/scripts/query";
@@ -60,7 +60,7 @@ describe("skill helpers", () => {
       createdAt: 1,
       previewImages: [],
     });
-    expect(entry.galleryItemType).toBe("workflow");
+    expect(entry.galleryItemType).toBe("skill");
     expect(entry.excerpt).toBe("Studio editorials.");
     expect(entry.width! / entry.height!).toBeCloseTo(0.8);
     expect(entry.src).toBe("/placeholder.svg");
@@ -82,7 +82,7 @@ describe("skill tags and collections", () => {
       createdAt: 1,
       updatedAt: 1,
     } as never);
-    const workflowId = await harness.db.insert("workflows", {
+    const skillId = await harness.db.insert("skills", {
       ownerUserId: OWNER,
       title: "Torn paper reveal",
       tagIds: [],
@@ -90,48 +90,48 @@ describe("skill tags and collections", () => {
       createdAt: 1,
       updatedAt: 1,
     } as never);
-    return { folderId, workflowId };
+    return { folderId, skillId };
   };
 
   test("tags are added, filtered on and removed canonically", async () => {
-    const { workflowId } = await seedSkill();
+    const { skillId } = await seedSkill();
     const result = await callAsOwner(updateSkill)(harness.ctx, {
       ownerUserId: OWNER,
-      id: workflowId,
+      id: skillId,
       addTagNames: ["#Stop-Motion", "seedream"],
     });
     expect(result.tagNames).toEqual(["Stop-Motion", "seedream"]);
 
-    const matched = await callAsOwner(listWorkflows)(harness.ctx, {
+    const matched = await callAsOwner(listSkills)(harness.ctx, {
       ownerUserId: OWNER,
       tagNames: ["stop motion"],
     });
-    expect(matched.map((card: { _id: string }) => card._id)).toEqual([workflowId]);
+    expect(matched.map((card: { _id: string }) => card._id)).toEqual([skillId]);
 
     const removed = await callAsOwner(updateSkill)(harness.ctx, {
       ownerUserId: OWNER,
-      id: workflowId,
+      id: skillId,
       removeTagNames: ["stop_motion"],
     });
     expect(removed.tagNames).toEqual(["seedream"]);
   });
 
   test("a skill is filed into a collection, listed there, and taken out", async () => {
-    const { folderId, workflowId } = await seedSkill();
+    const { folderId, skillId } = await seedSkill();
     const first = await callAsOwner(addSkillToCollection)(harness.ctx, {
       ownerUserId: OWNER,
-      id: workflowId,
+      id: skillId,
       folderId,
     });
     const again = await callAsOwner(addSkillToCollection)(harness.ctx, {
       ownerUserId: OWNER,
-      id: workflowId,
+      id: skillId,
       folderId,
     });
     expect(first.added).toBe(true);
     expect(again.added).toBe(false);
 
-    const inFolder = await callAsOwner(listWorkflows)(harness.ctx, {
+    const inFolder = await callAsOwner(listSkills)(harness.ctx, {
       ownerUserId: OWNER,
       folderId,
     });
@@ -140,10 +140,10 @@ describe("skill tags and collections", () => {
 
     await callAsOwner(removeSkillFromCollection)(harness.ctx, {
       ownerUserId: OWNER,
-      id: workflowId,
+      id: skillId,
       folderId,
     });
-    const after = await callAsOwner(listWorkflows)(harness.ctx, {
+    const after = await callAsOwner(listSkills)(harness.ctx, {
       ownerUserId: OWNER,
       folderId,
     });
@@ -151,11 +151,11 @@ describe("skill tags and collections", () => {
   });
 
   test("another owner cannot retag someone else's skill", async () => {
-    const { workflowId } = await seedSkill();
+    const { skillId } = await seedSkill();
     await expect(
       callAsOwner(updateSkill)(harness.ctx, {
         ownerUserId: "telegram:999",
-        id: workflowId,
+        id: skillId,
         addTagNames: ["x"],
       }),
     ).rejects.toThrow("Skill does not belong to this user.");
@@ -163,23 +163,28 @@ describe("skill tags and collections", () => {
 });
 
 describe("query script resolves skill ids", () => {
-  test("getById routes workflow:<id> to workflows:getWorkflow", async () => {
+  test("getById resolves a legacy workflow:<id> reference, then reads the native Skill", async () => {
     const calls: Array<{ path: string; args: Record<string, unknown> }> = [];
     const response = await handleGetById(
       { action: "getById", id: "workflow:wf_1" },
       {
-        convexUrl: "https://example.convex.cloud",
+        convexUrl: "https://example.com/convex",
         ownerUserId: OWNER,
         fetchImpl: async (_url, init) => {
-          calls.push(JSON.parse(String(init?.body)));
-          return new Response(
-            JSON.stringify({ status: "success", value: { _id: "wf_1", title: "Skill" } }),
-          );
+          const call = JSON.parse(String(init?.body));
+          calls.push(call);
+          const value =
+            call.path === "skills:resolveSkillReference"
+              ? "skill_1"
+              : { _id: "skill_1", title: "Skill" };
+          return new Response(JSON.stringify({ status: "success", value }));
         },
       },
     );
-    expect(calls[0]!.path).toBe("workflows:getWorkflow");
-    expect(calls[0]!.args.id).toBe("wf_1");
-    expect((response as { skill: { id: string } }).skill.id).toBe("skill:wf_1");
+    expect(calls[0]!.path).toBe("skills:resolveSkillReference");
+    expect(calls[0]!.args.id).toBe("workflow:wf_1");
+    const read = calls.find((call) => call.path === "skills:getSkill");
+    expect(read!.args.id).toBe("skill_1");
+    expect((response as { skill: { id: string } }).skill.id).toBe("skill:skill_1");
   });
 });

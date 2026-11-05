@@ -38,7 +38,11 @@ class MockAgentAuthError extends Error {
   }
 }
 
+// bun's mock.module is process-wide: keep the real exports so a later test file
+// that imports createAgentTokenSecret and friends still finds them.
+const realAgentAuth = await import("@/lib/server/agent-auth");
 mock.module("@/lib/server/agent-auth", () => ({
+  ...realAgentAuth,
   AgentAuthError: MockAgentAuthError,
   requireAgentAuth: async (_request: Request, requiredScope: string) => {
     state.requiredScopes.push(requiredScope);
