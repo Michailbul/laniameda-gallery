@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { useAssetReview } from "./asset-review-controls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   X,
@@ -432,6 +433,8 @@ export function GalleryDetailPanel({
   // ("Untitled prompt", a bare file name) so the prompt UI stays hidden.
   const promptForDisplay = meaningfulPrompt(activePrompt);
   const currentAssetId = currentSlide.id ?? image.id;
+  const review = useAssetReview();
+  const isArchived = review.archived.some(item => item.assetId === currentAssetId);
   const tagDatalistId = `asset-tag-suggestions-${currentAssetId}`;
   const canEditThis = Boolean(canEditDetails && !isDesignView);
 
@@ -643,6 +646,12 @@ export function GalleryDetailPanel({
   return (
     <div
       ref={panelRef}
+      data-review-detail
+      data-review-id={isDesignView ? undefined : currentAssetId}
+      data-review-src={currentSlide.thumbSrc}
+      data-review-name="Scene"
+      data-review-archived={isArchived || undefined}
+      onDoubleClick={() => { if (isArchived) review.restore(currentAssetId); }}
       tabIndex={-1}
       className={`flex h-full flex-col ${isModal ? "" : "lm-animate-slide-right"}`}
       key={image.id}

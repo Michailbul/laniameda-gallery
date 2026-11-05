@@ -19,6 +19,7 @@ import type * as agentTokens from "../agentTokens.js";
 import type * as agent_ingest from "../agent_ingest.js";
 import type * as assetPackHelpers from "../assetPackHelpers.js";
 import type * as assetPacks from "../assetPacks.js";
+import type * as assetReview from "../assetReview.js";
 import type * as assets from "../assets.js";
 import type * as authz from "../authz.js";
 import type * as bookmarkHelpers from "../bookmarkHelpers.js";
@@ -85,6 +86,7 @@ declare const fullApi: ApiFromModules<{
   agent_ingest: typeof agent_ingest;
   assetPackHelpers: typeof assetPackHelpers;
   assetPacks: typeof assetPacks;
+  assetReview: typeof assetReview;
   assets: typeof assets;
   authz: typeof authz;
   bookmarkHelpers: typeof bookmarkHelpers;

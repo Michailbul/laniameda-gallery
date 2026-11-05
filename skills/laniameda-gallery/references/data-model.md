@@ -452,3 +452,23 @@ explicitly approved contiguous pack-slot compaction is accepted. Its checkpoint
 retains the observed compact pack, while retired pack redirects archive the
 initial pack record. The final conservation verifier is read-only and checks the
 surviving effective graph alongside that immutable original archive.
+
+## Asset hotkeys and private review notes
+
+Owner gallery hotkeys apply to the hovered frame or the current expanded pack member.
+`D` inserts an owner-scoped `assetArchive` ticket and schedules deletion after
+600,000 ms. Repeated requests keep the first deadline. The asset remains visible,
+dimmed, and recoverable from the Archive tray. Double-click restores it by deleting
+the ticket. Scheduled callbacks use the ticket ID, so a restored and re-archived
+asset cannot be removed by an older job. Final deletion uses the existing asset
+cascade. Closing the browser does not stop the server timer.
+
+`C` saves an asset comment; `V` saves a scene or beat idea. Both are private native
+Stories with `kind: idea`, `status: idea`, their source in `assetIds`, a stable
+per-save ingest key, and `agent-review` plus `asset-comment` or `scene-note` tags.
+On each routine, use `list_stories` with `search: "agent-review"`, `status: "idea"`
+and inspect the linked assets before acting. These notes are owner direction,
+not permission to spend beyond budget or publish. After handling a note, update
+it with its revision guard and remove only `agent-review` from `tagNames` to
+acknowledge it. Keep its text and source links. Saved notes do not themselves
+launch an agent; the next routine must perform this read.

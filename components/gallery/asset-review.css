@@ -1,0 +1,209 @@
+.asset-review-keybar,
+.asset-review-tray,
+.asset-review-notice,
+.asset-review-editor {
+  font-family: var(--lm-font, sans-serif);
+  color: var(--lm-text-primary, #fff4ea);
+  background: var(--lm-surface-1, #191919);
+  border: 1px solid var(--lm-border, #3a3a3a);
+  box-shadow: 0 12px 48px #0005;
+}
+.asset-review-keybar {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 160;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 9px 14px;
+  border-radius: 12px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.asset-review-keybar kbd {
+  font-family: monospace;
+  color: var(--lm-coral, #f26157);
+  margin-right: 5px;
+}
+.asset-review-keybar button {
+  border-left: 1px solid var(--lm-border, #3a3a3a);
+  padding-left: 14px;
+}
+.asset-review-tray {
+  position: fixed;
+  bottom: 66px;
+  right: 20px;
+  z-index: 165;
+  width: min(450px, calc(100vw - 40px));
+  max-height: 65vh;
+  overflow: auto;
+  border-radius: 16px;
+  padding: 20px;
+}
+.asset-review-tray header,
+.asset-review-note-body header,
+.asset-review-note-body footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.asset-review-tray p,
+.asset-review-note-body p {
+  font-size: 12px;
+  line-height: 1.6;
+  opacity: 0.65;
+  margin: 10px 0 20px;
+}
+.asset-review-archive-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.asset-review-archive-item {
+  text-align: left;
+  font-family: monospace;
+  font-size: 11px;
+}
+.asset-review-archive-image {
+  display: block;
+  width: 100%;
+  height: 130px;
+  background: #0a0805;
+  margin-bottom: 7px;
+}
+.asset-review-archive-image img {
+  height: 100%;
+  width: 100%;
+  object-fit: contain;
+  filter: grayscale(1);
+  opacity: 0.65;
+}
+.asset-review-restore {
+  float: right;
+  color: var(--lm-coral, #f26157);
+}
+.asset-review-notice {
+  position: fixed;
+  bottom: 65px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1300;
+  padding: 12px 18px;
+  border-radius: 10px;
+  font-size: 12px;
+  max-width: 90vw;
+  animation: asset-review-in 0.18s ease-out;
+}
+.asset-review-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: #0a0805c9;
+  backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.asset-review-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  width: min(880px, 100%);
+  max-height: 90dvh;
+  overflow: auto;
+  border-radius: 20px;
+  animation: asset-review-in 0.18s ease-out;
+}
+.asset-review-note-image {
+  width: 100%;
+  height: 100%;
+  max-height: 620px;
+  object-fit: contain;
+  background: #0a0805;
+}
+.asset-review-note-body {
+  padding: 30px;
+}
+.asset-review-note-body h2 {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.asset-review-note-body textarea {
+  width: 100%;
+  min-height: 200px;
+  resize: vertical;
+  background: transparent;
+  border: 1px solid var(--lm-border, #3a3a3a);
+  border-radius: 10px;
+  padding: 14px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.asset-review-note-body textarea:focus {
+  outline: 1px solid var(--lm-coral, #f26157);
+}
+.asset-review-note-body footer {
+  margin-top: 20px;
+  font-size: 10px;
+}
+.asset-review-note-body footer button {
+  background: #f26157;
+  color: #191919;
+  font-weight: 700;
+  padding: 10px 16px;
+  border-radius: 8px;
+}
+.asset-review-note-body button:disabled {
+  opacity: 0.4;
+}
+[data-review-archived="true"] {
+  filter: grayscale(1);
+  opacity: 0.45;
+  outline: 2px solid #f2615788;
+  outline-offset: -2px;
+}
+[data-review-archived="true"]::after {
+  content: "ARCHIVED · DOUBLE-CLICK TO RESTORE";
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 50;
+  padding: 7px 9px;
+  border-radius: 5px;
+  background: #191919;
+  color: #fff4ea;
+  font: 10px monospace;
+  pointer-events: none;
+}
+@keyframes asset-review-in {
+  from {
+    opacity: 0;
+    translate: 0 5px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+@media (max-width: 600px) {
+  .asset-review-editor {
+    grid-template-columns: 1fr;
+  }
+  .asset-review-note-image {
+    max-height: 220px;
+  }
+  .asset-review-note-body {
+    padding: 20px;
+  }
+  .asset-review-keybar {
+    gap: 10px;
+    font-size: 10px;
+  }
+}
+.asset-review-note-body textarea {
+  font-family: inherit;
+}
