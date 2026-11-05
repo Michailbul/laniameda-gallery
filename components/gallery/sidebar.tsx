@@ -1549,53 +1549,59 @@ function FilterRow({
           {label}
         </span>
       )}
-      {taste && renameDraft === null && (
-        <Sparkles
-          className="h-2.5 w-2.5 flex-shrink-0"
-          style={{ color: "var(--lm-coral)", fill: "var(--lm-coral)" }}
-          aria-label="Taste collection — feeds the showcase inspiration grid"
-        />
-      )}
-      {featured && renameDraft === null && (
-        <Star
-          className="h-2.5 w-2.5 flex-shrink-0"
-          style={{ color: "var(--lm-coral)", fill: "var(--lm-coral)" }}
-          aria-label="Featured on showcase"
-        />
-      )}
-      {showcased && !featured && renameDraft === null && (
-        <Globe
-          className="h-2.5 w-2.5 flex-shrink-0"
-          style={{ color: "var(--lm-coral)" }}
-          aria-label="Public on showcase"
-        />
-      )}
-      {hidden && renameDraft === null && (
-        <EyeOff
-          className="h-2.5 w-2.5 flex-shrink-0"
-          style={{ color: "var(--lm-sidebar-text-ghost)" }}
-          aria-label="Hidden from the gallery"
-        />
-      )}
-      {published && renameDraft === null && (
-        <Eye
-          className="h-2.5 w-2.5 flex-shrink-0"
-          style={{ color: "var(--lm-coral)" }}
-          aria-label="Has assets in the public gallery"
-        />
-      )}
-      {count !== undefined && renameDraft === null && (
-        <span
-          style={{
-            fontSize: "9px",
-            fontVariantNumeric: "tabular-nums",
-            color: active
-              ? "var(--lm-coral)"
-              : "var(--lm-sidebar-text-ghost)",
-            fontWeight: 700,
-          }}
-        >
-          {count}
+      {renameDraft === null && (
+        // Status marks and the count share one fixed column: it never
+        // shrinks, so a long name truncates before it reaches the icons.
+        <span className="flex shrink-0 items-center gap-1.5">
+        {taste && renameDraft === null && (
+          <Sparkles
+            className="h-2.5 w-2.5 flex-shrink-0"
+            style={{ color: "var(--lm-coral)", fill: "var(--lm-coral)" }}
+            aria-label="Taste collection — feeds the showcase inspiration grid"
+          />
+        )}
+        {featured && renameDraft === null && (
+          <Star
+            className="h-2.5 w-2.5 flex-shrink-0"
+            style={{ color: "var(--lm-coral)", fill: "var(--lm-coral)" }}
+            aria-label="Featured on showcase"
+          />
+        )}
+        {showcased && !featured && renameDraft === null && (
+          <Globe
+            className="h-2.5 w-2.5 flex-shrink-0"
+            style={{ color: "var(--lm-coral)" }}
+            aria-label="Public on showcase"
+          />
+        )}
+        {hidden && renameDraft === null && (
+          <EyeOff
+            className="h-2.5 w-2.5 flex-shrink-0"
+            style={{ color: "var(--lm-sidebar-text-ghost)" }}
+            aria-label="Hidden from the gallery"
+          />
+        )}
+        {published && renameDraft === null && (
+          <Eye
+            className="h-2.5 w-2.5 flex-shrink-0"
+            style={{ color: "var(--lm-coral)" }}
+            aria-label="Has assets in the public gallery"
+          />
+        )}
+        {count !== undefined && renameDraft === null && (
+          <span
+            style={{
+              fontSize: "9px",
+              fontVariantNumeric: "tabular-nums",
+              color: active
+                ? "var(--lm-coral)"
+                : "var(--lm-sidebar-text-ghost)",
+              fontWeight: 700,
+            }}
+          >
+            {count}
+          </span>
+        )}
         </span>
       )}
       </button>

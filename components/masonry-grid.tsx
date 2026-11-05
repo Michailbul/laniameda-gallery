@@ -96,8 +96,6 @@ interface MasonryGridProps {
   onToggleAssetSelect?: (imageId: string, mode?: "toggle" | "range") => void;
   /** Replace the entire selection set — used by shift+drag box-select. */
   onReplaceSelection?: (imageIds: string[]) => void;
-  likeable?: boolean;
-  onToggleLike?: (imageId: string, nextLiked: boolean) => void;
   /** Owner-only: cards offer the star toggle. */
   starrable?: boolean;
   onToggleStar?: (imageId: string, nextStarred: boolean) => void;
@@ -332,8 +330,6 @@ export function MasonryGrid({
   selectedAssetIds,
   onToggleAssetSelect,
   onReplaceSelection,
-  likeable = false,
-  onToggleLike,
   starrable = false,
   onToggleStar,
   draggableAssets = false,
@@ -934,13 +930,6 @@ export function MasonryGrid({
                 selected={Boolean(selectedAssetIds?.has(image.id))}
                 selectionActive={Boolean(selectedAssetIds && selectedAssetIds.size > 0)}
                 onToggleSelect={onToggleAssetSelect}
-                likeable={
-                  likeable &&
-                  (image.galleryItemType === "asset" ||
-                    image.galleryItemType === undefined)
-                }
-                liked={Boolean(image.isLiked)}
-                onToggleLike={onToggleLike}
                 starrable={starrable && isAssetCard}
                 onToggleStar={onToggleStar}
                 collections={isAssetCard ? collections : undefined}

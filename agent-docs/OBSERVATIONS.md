@@ -83,6 +83,14 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Gallery / UI
 
+- Radix ScrollArea wraps its content in a `display: table; min-width: 100%`
+  div, which grows to the widest row: `truncate` never applies and the list
+  scrolls sideways under a trackpad. `components/ui/scroll-area.tsx` forces
+  that wrapper to `block`.
+- `.card-base::after` is the tile's ring overlay (`inset: 0`, z-index 35). Any
+  rule that gives it content or a background covers the whole picture; put
+  tile labels in a real element instead.
+
 - Bulk asset deletion must run sequentially: cascades update shared tag usage,
   collection counts and pack membership, so parallel DELETE requests can exhaust
   Convex's conflict retries. Only retry a reported

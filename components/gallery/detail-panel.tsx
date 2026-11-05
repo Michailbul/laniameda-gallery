@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useAssetReview } from "./asset-review-controls";
+import { ReviewHeaderHints, useArchiveStore, useArchivedAt } from "./asset-review-controls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   X,
@@ -443,8 +443,8 @@ export function GalleryDetailPanel({
   // ("Untitled prompt", a bare file name) so the prompt UI stays hidden.
   const promptForDisplay = meaningfulPrompt(activePrompt);
   const currentAssetId = currentSlide.id ?? image.id;
-  const review = useAssetReview();
-  const isArchived = review.archived.some(item => item.assetId === currentAssetId);
+  const review = useArchiveStore();
+  const isArchived = useArchivedAt(isDesignView ? undefined : currentAssetId) !== undefined;
   const tagDatalistId = `asset-tag-suggestions-${currentAssetId}`;
   // A landed in-place edit wiped against its source on the stage.
   const [compare, setCompare] = useState<EditCompare | null>(null);
@@ -744,9 +744,13 @@ export function GalleryDetailPanel({
             </button>
           )}
         </div>
+        <div className="flex min-w-0 flex-1 justify-center px-2">
+          <ReviewHeaderHints assetId={isDesignView ? undefined : currentAssetId} />
+        </div>
         <button
           type="button"
           onClick={onClose}
+          aria-label="Close"
           className="flex items-center justify-center transition-colors hover:bg-black/5"
           style={{
             width: "26px",
