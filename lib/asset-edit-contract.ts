@@ -23,3 +23,12 @@ export const editListSchema = z.object({
 export const editRetrySchema = z.object({
   jobId: z.string().min(1).describe("The edit job id (editJobs:<id> or bare) of a failed or stalled take."),
 });
+
+export const editReviewSchema = z.object({
+  jobId: z.string().min(1).describe("The edit job id (editJobs:<id> or bare) of a landed take (status done, review pending or discarded)."),
+  decision: z.enum(["approve", "discard", "reopen"]).describe("approve: the take becomes the source asset's current picture (same asset id, tags, collections and links; the old picture stays a version). discard: archive the take (kept, recoverable). reopen: a discarded take back to pending."),
+});
+
+export const versionRestoreSchema = z.object({
+  versionId: z.string().min(1).describe("An assetVersions id from list_asset_edits → versions: show that picture on the asset again. Nothing is deleted."),
+});

@@ -27,8 +27,10 @@ export const EDIT_MODELS: readonly EditModel[] = [
   },
   {
     id: "ideogram-precise", name: "Ideogram 4.5 precise", maxRefs: 4,
-    hint: "Edits the whole frame and keeps its framing and geometry exactly.",
-    routes: [{ provider: "magnific", endpoint: "ideogram-4-5@precise" }],
+    hint: "Precise edit: changes what you name and restores every unchanged pixel.",
+    // fal first (Michael, 5 Nov 2026: "Ideogram 4.5 precise through fal"),
+    // edit_precision high at medium quality, $0.06 a take; Magnific behind it.
+    routes: [{ provider: "fal", endpoint: "ideogram/v4.5/edit" }, { provider: "magnific", endpoint: "ideogram-4-5@precise" }],
   },
   {
     id: "seedream-5", name: "Seedream 5 Pro", maxRefs: 6,
@@ -141,6 +143,8 @@ const FLAT_USD: Record<string, number> = {
   "openai/gpt-image-2.5-sunburst/image-to-image": 0.049,
   "google/gemini-nano-banana-2.1/image-to-image": 0.045,
   "fal-ai/flux-pro/kontext/max": 0.08,
+  // fal, 5 Nov 2026: $0.008 very_low, $0.03 low, $0.06 medium, $0.22 high, any size.
+  "ideogram/v4.5/edit": 0.06,
 };
 
 /** USD estimate for one take on one endpoint. */
@@ -193,6 +197,15 @@ export function buildEditInput(endpoint: string, prompt: string, urls: string[],
     return { prompt, image_urls: urls, aspect_ratio: aspectOf(w, h) };
   }
   if (endpoint === "fal-ai/flux-pro/kontext/max") return { prompt, image_url: urls[0], aspect_ratio: aspectOf(w, h) };
+  if (endpoint === "ideogram/v4.5/edit") {
+    // The frame is image_url; up to four references. "high" is Precise Edit:
+    // unchanged pixels are restored, the source's geometry kept (image_size auto).
+    const refs = urls.slice(1, 5);
+    return {
+      prompt, image_url: urls[0], ...(refs.length ? { reference_image_urls: refs } : {}),
+      edit_precision: "high", quality: "medium", image_size: "auto", num_images: 1,
+    };
+  }
   return { prompt, image_urls: urls };
 }
 

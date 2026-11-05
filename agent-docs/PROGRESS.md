@@ -8,6 +8,24 @@ Last updated: 2026-11-05
 
 ## ✔ Shipped
 
+### 2026-11-05 — Edit in place: Ideogram 4.5 precise on fal; approve or discard a take
+- Ideogram 4.5 precise runs on fal first (`ideogram/v4.5/edit`, Precise Edit,
+  medium quality, $0.06 a take), Magnific behind it. Krea 3 stays the default.
+- A landed take is pending: stored on its `editJobs` row (`takeMedia`,
+  `review`), never an asset, so the grid, search, world pages and public
+  views cannot show it. It sits beside its source in Edit in place with
+  Approve (key 1) and Discard (key 2), on the hovered take or the one in the
+  wipe; both update optimistically.
+- Approve puts the take's picture on the same asset (id, tags, collections,
+  links unchanged), reindexes and rehashes it, and records versions in the new
+  `assetVersions` table (v1 the original). The panel's Versions strip restores
+  any version. Discard archives the take into the Archive tray; Restore brings
+  it back. Nothing is deleted.
+- Agents: `review_asset_edit` (approve, discard, reopen) and
+  `restore_asset_version` through `/api/agent/edits`; skill 1.28.0.
+- Hosts (Inbox zoom, styles page) ask `lib/edit-take-keys.ts` before their own
+  1 / 2 so the take keys win while a take is hovered or compared.
+
 ### 2026-11-05 — Gallery review keys sit in the dock; archived frames stay visible; sidebar rows truncate; tile KEEP removed
 - The D / C / V hints and the Archive tray toggle are one segment of the
   bottom dock (`ReviewDockHints` in `BottomMenu`'s `trailing` slot), so they

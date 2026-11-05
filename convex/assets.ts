@@ -4389,7 +4389,7 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
   await detachAssetFromMoodboards(ctx, asset._id);
   // Its comment thread goes with it, and its perceptual hash.
   await deleteCommentsForAsset(ctx, asset._id);
-  await detachAssetFromEditJobs(ctx, asset._id);
+  await detachAssetFromEditJobs(ctx, asset);
   await deleteHashForAsset(ctx, asset._id);
   await deleteClassificationForAsset(ctx, asset._id);
   const shelfFiling = await ctx.db.query("assetShelfFilings").withIndex("by_asset", (q) => q.eq("assetId", asset._id)).first();

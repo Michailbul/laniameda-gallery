@@ -293,8 +293,31 @@ export default defineSchema({
     refsDropped: v.number(),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
+    // Before 5 Nov 2026 a landed take became its own asset (resultAssetId).
+    // Since then it is a pending take: its media lives here (`takeMedia`) and
+    // nowhere in the grid, search or world pages until the owner approves it
+    // (it becomes the source's current version, see assetVersions) or
+    // discards it (kept here, recoverable). `review` absent = a legacy take.
     resultAssetId: v.optional(v.id("assets")),
     resultUrl: v.optional(v.string()),
+    takeMedia: v.optional(v.object({
+      r2Key: v.optional(v.string()),
+      thumbR2Key: v.optional(v.string()),
+      storageId: v.optional(v.id("_storage")),
+      thumbStorageId: v.optional(v.id("_storage")),
+      contentType: v.string(),
+      contentHash: v.optional(v.string()),
+      size: v.optional(v.number()),
+      width: v.optional(v.number()),
+      height: v.optional(v.number()),
+      thumbSize: v.optional(v.number()),
+      thumbWidth: v.optional(v.number()),
+      thumbHeight: v.optional(v.number()),
+      thumbVariants: v.optional(v.array(thumbVariantValidator)),
+      notes: v.optional(v.string()),
+    })),
+    review: v.optional(v.union(v.literal("pending"), v.literal("approved"), v.literal("discarded"))),
+    reviewedAt: v.optional(v.number()),
     createdBy: v.union(v.literal("owner"), v.literal("agent")),
     pollCount: v.number(),
     submittedAt: v.optional(v.number()),
@@ -305,6 +328,35 @@ export default defineSchema({
     .index("by_source_createdAt", ["sourceAssetId", "createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_result", ["resultAssetId"]),
+  // Every picture an asset has been: its original and each approved in-place
+  // edit, append-only. The asset row always shows one of them (matched by
+  // media key); restoring a version copies its media back onto the same
+  // asset, so its id, links, collections and tags never change.
+  assetVersions: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    number: v.number(),
+    origin: v.union(v.literal("original"), v.literal("edit")),
+    editJobId: v.optional(v.id("editJobs")),
+    modelName: v.optional(v.string()),
+    prompt: v.optional(v.string()),
+    r2Key: v.optional(v.string()),
+    thumbR2Key: v.optional(v.string()),
+    storageId: v.optional(v.id("_storage")),
+    thumbStorageId: v.optional(v.id("_storage")),
+    sourceUrl: v.optional(v.string()),
+    contentType: v.optional(v.string()),
+    contentHash: v.optional(v.string()),
+    size: v.optional(v.number()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    thumbSize: v.optional(v.number()),
+    thumbWidth: v.optional(v.number()),
+    thumbHeight: v.optional(v.number()),
+    thumbVariants: v.optional(v.array(thumbVariantValidator)),
+    createdAt: v.number(),
+  })
+    .index("by_asset_number", ["assetId", "number"]),
   // Provider keys and sign-ins set in Settings (fal and Pika API keys, the
   // Magnific connection). `sealed` is AES-GCM ciphertext (convex/providerVault.ts);
   // nothing here is ever returned to a client except `hint` and `account`.

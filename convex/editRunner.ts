@@ -16,8 +16,8 @@ import {
 } from "../lib/magnific-mcp";
 
 // Runs one in-place edit job (convex/editJobs.ts): submit along the model's
-// route, poll by request id until it lands, then file the result as a new
-// asset next to its source. Ported from reviewer-kit/server.py (Fal, Pika,
+// route, poll by request id until it lands, then store the result as a
+// pending take next to its source. Ported from reviewer-kit/server.py (Fal, Pika,
 // Board._run). The source and references go to the provider as their public
 // gallery URLs, so nothing is uploaded first. Keys come from Settings
 // (providerCredentials) before the deployment's environment; Magnific runs on
@@ -191,10 +191,6 @@ const settledPikaCharge = async (ctx: ActionCtx, owner: string, requestId: strin
   return undefined;
 };
 
-const modelProviderOf = (model: string) =>
-  model.startsWith("gpt-") ? "openai" as const : model.startsWith("nano-") ? "google" as const
-    : model.startsWith("kontext") ? "flux" as const : "other" as const;
-
 const usdText = (n: number) => `$${n.toFixed(n < 0.1 ? 3 : 2)}`;
 
 /** Submit a queued job along its route. A job with a request id is only polled. */
@@ -281,7 +277,7 @@ export const poll = internalAction({
       return null;
     }
     try {
-      await land(ctx, job, loaded, result);
+      await land(ctx, job, result);
     } catch (error) {
       await ctx.runMutation(internal.editJobs.failJob, {
         jobId: job._id, errorKind: "ingest",
@@ -292,11 +288,15 @@ export const poll = internalAction({
   },
 });
 
-/** File the result: a new asset in the source's collections and tags, prompt and cost in its notes. */
+/**
+ * Store the result as a pending take on its job: the picture in R2 with its
+ * thumbnails, the cost and notes on the job. It becomes part of the gallery
+ * only when the owner approves it (editJobs.approveEdit), as the source's
+ * next version.
+ */
 const land = async (
   ctx: ActionCtx,
   job: Job,
-  loaded: { sourceTagIds: Id<"tags">[]; sourceFolderId?: Id<"folders">; folderIds: Id<"folders">[] },
   result: Extract<EditPollResult, { state: "done" }>,
 ): Promise<void> => {
   let usd = result.usd;
@@ -315,50 +315,16 @@ const land = async (
   ].filter(Boolean).join(" · ");
 
   const media = await processMediaInput(ctx, { url: result.url });
-  const key = `edit:${job._id}:${job.retries}`;
-  const { promptId }: { promptId: Id<"prompts"> } = await ctx.runMutation(internal.prompts.createPromptInternal, {
-    ownerUserId: job.ownerUserId,
-    text: job.prompt,
-    tagIds: loaded.sourceTagIds,
-    folderId: loaded.sourceFolderId,
-    ingestKey: `${key}:prompt`,
-    promptType: "image_gen",
-    modelName: job.modelName,
-    modelProvider: modelProviderOf(job.model),
-    promptSections: { finalPrompt: job.prompt, generationNotes: notes },
-  });
-  const { assetId }: { assetId: Id<"assets"> } = await ctx.runMutation(internal.assets.createAssetInternal, {
-    ownerUserId: job.ownerUserId,
-    kind: media.kind,
-    r2Key: media.r2Key,
-    thumbR2Key: media.thumbR2Key,
-    contentType: media.contentType,
-    size: media.size,
-    width: media.width,
-    height: media.height,
-    thumbSize: media.thumbSize,
-    thumbWidth: media.thumbWidth,
-    thumbHeight: media.thumbHeight,
-    thumbVariants: media.thumbVariants,
-    fileName: `edit-${job.model}-${job._id}.${media.contentType.includes("png") ? "png" : "jpg"}`,
-    contentHash: media.contentHash,
-    promptId,
-    tagIds: loaded.sourceTagIds,
-    folderId: loaded.sourceFolderId,
-    ingestKey: key,
-    modelName: job.modelName,
-    generationType: "image_gen",
-    ingestSource: job.createdBy === "agent" ? "agent" : "manual",
-    agentDescription: `In-place edit of asset:${job.sourceAssetId} with ${job.modelName}: ${job.prompt}`.slice(0, 400),
-    agentDescriptionSource: "agent",
-  });
-  if (loaded.folderIds.length) {
-    await ctx.runMutation(internal.assets.addAssetFoldersInternal, {
-      ownerUserId: job.ownerUserId, assetId, folderIds: loaded.folderIds,
-    });
-  }
+  if (media.kind !== "image") throw new Error(`the provider returned ${media.contentType}, not an image`);
   await ctx.runMutation(internal.editJobs.finishJob, {
-    jobId: job._id, resultAssetId: assetId, resultUrl: result.url,
-    chargedUsd: Math.round(charged * 1e5) / 1e5, chargedExact: exact, notes,
+    jobId: job._id,
+    take: {
+      r2Key: media.r2Key, thumbR2Key: media.thumbR2Key, storageId: media.storageId, thumbStorageId: media.thumbStorageId,
+      contentType: media.contentType, contentHash: media.contentHash, size: media.size,
+      width: media.width, height: media.height, thumbSize: media.thumbSize, thumbWidth: media.thumbWidth,
+      thumbHeight: media.thumbHeight, thumbVariants: media.thumbVariants, notes,
+    },
+    resultUrl: result.url,
+    chargedUsd: Math.round(charged * 1e5) / 1e5, chargedExact: exact,
   });
 };

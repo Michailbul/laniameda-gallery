@@ -5,16 +5,20 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { requireAgentAuth, AgentAuthError, type AgentTokenScope } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
-import { editListSchema, editRetrySchema, editStartSchema } from "@/lib/asset-edit-contract";
+import { editListSchema, editRetrySchema, editReviewSchema, editStartSchema, versionRestoreSchema } from "@/lib/asset-edit-contract";
 
 // In-place edits for agents: send a targeted edit on an image (one job per
-// model per take, refused at $30 or more), read its takes, retry a failed one.
+// model per take, refused at $30 or more), read its takes, retry a failed one,
+// and, when Michael asked for it, approve or discard a landed take or restore
+// an earlier version of the asset.
 // The same jobs Michael runs from the detail panel and the Inbox zoom.
-const actions = ["start", "list", "retry"] as const;
+const actions = ["start", "list", "retry", "review", "restore_version"] as const;
 const scopes: Record<(typeof actions)[number], AgentTokenScope> = {
   start: "gallery:write",
   list: "gallery:read",
   retry: "gallery:write",
+  review: "gallery:write",
+  restore_version: "gallery:write",
 };
 
 const bare = (value: string, prefix: string) => value.replace(new RegExp(`^${prefix}:`), "").trim();
@@ -38,7 +42,25 @@ export async function POST(request: Request) {
         refs: input.refs?.map((ref) => ({ assetId: bare(ref.assetId, "asset") as Id<"assets">, name: ref.name })),
         createdBy: "agent",
       });
-      return NextResponse.json({ ok: true, ...sent, next: "Poll list_asset_edits {assetId} until each take is done or error; a done take has resultAssetId." });
+      return NextResponse.json({ ok: true, ...sent, next: "Poll list_asset_edits {assetId} until each take is done or error. A done take is review: pending, shown only beside its source (resultUrl); Michael approves or discards it." });
+    }
+    if (action === "review") {
+      const input = editReviewSchema.parse(body);
+      const jobId = bare(input.jobId, "editJobs") as Id<"editJobs">;
+      if (input.decision === "approve") {
+        const done = await client.mutation(api.editJobs.approveEdit, { ownerUserId, jobId });
+        return NextResponse.json({ ok: true, review: "approved", ...done, asset: `asset:${done.assetId}` });
+      }
+      return NextResponse.json({ ok: true, ...await client.mutation(api.editJobs.discardEdit, {
+        ownerUserId, jobId, reopen: input.decision === "reopen",
+      }) });
+    }
+    if (action === "restore_version") {
+      const input = versionRestoreSchema.parse(body);
+      const done = await client.mutation(api.editJobs.restoreAssetVersion, {
+        ownerUserId, versionId: bare(input.versionId, "assetVersions") as Id<"assetVersions">,
+      });
+      return NextResponse.json({ ok: true, ...done, asset: `asset:${done.assetId}` });
     }
     if (action === "retry") {
       const input = editRetrySchema.parse(body);
