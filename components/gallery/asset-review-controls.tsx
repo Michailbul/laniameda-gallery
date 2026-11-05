@@ -5,9 +5,9 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -15,21 +15,290 @@ import Image from "next/image";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import "./asset-review.css";
 
 type Target = { id: string; src: string; name: string };
-type ArchiveItem = {
+export type ArchiveItem = {
   assetId: string;
   deleteAt: number;
   name: string;
   thumb: string | null;
 };
+
+/**
+ * The archive lives in a small external store instead of a context value, so
+ * a card subscribes to its own row only: archiving one picture re-renders
+ * that one card (and the dock count), not every memoised tile in the grid.
+ */
+export type ArchiveStore = {
+  active: () => boolean;
+  items: () => ArchiveItem[];
+  deleteAt: (assetId: string) => number | undefined;
+  trayOpen: () => boolean;
+  subscribe: (listener: () => void) => () => void;
+  set: (items: ArchiveItem[], active: boolean) => void;
+  setTrayOpen: (open: boolean) => void;
+  restore: (assetId: string) => void;
+  bindRestore: (fn: (assetId: string) => void) => void;
+};
+
 const EMPTY_ARCHIVE: ArchiveItem[] = [];
-const ReviewContext = createContext<{
-  archived: ArchiveItem[];
-  restore: (id: string) => void;
-}>({ archived: [], restore: () => {} });
-export const useAssetReview = () => useContext(ReviewContext);
+
+export function createArchiveStore(): ArchiveStore {
+  let items = EMPTY_ARCHIVE;
+  let byId = new Map<string, number>();
+  let active = false;
+  let trayOpen = false;
+  let restoreFn: (assetId: string) => void = () => {};
+  const listeners = new Set<() => void>();
+  const emit = () => listeners.forEach((listener) => listener());
+  return {
+    active: () => active,
+    items: () => items,
+    deleteAt: (assetId) => byId.get(assetId),
+    trayOpen: () => trayOpen,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    set: (next, nextActive) => {
+      if (next === items && nextActive === active) return;
+      items = next;
+      active = nextActive;
+      byId = new Map(next.map((item) => [item.assetId, item.deleteAt]));
+      if (!next.length) trayOpen = false;
+      emit();
+    },
+    setTrayOpen: (open) => {
+      if (open === trayOpen) return;
+      trayOpen = open;
+      emit();
+    },
+    restore: (assetId) => restoreFn(assetId),
+    bindRestore: (fn) => {
+      restoreFn = fn;
+    },
+  };
+}
+
+const INACTIVE_STORE = createArchiveStore();
+export const ArchiveStoreContext = createContext<ArchiveStore>(INACTIVE_STORE);
+export const useArchiveStore = () => useContext(ArchiveStoreContext);
+
+/** When this asset deletes, if it is archived; undefined otherwise. */
+export function useArchivedAt(assetId: string | undefined) {
+  const store = useArchiveStore();
+  return useSyncExternalStore(
+    store.subscribe,
+    () => (assetId ? store.deleteAt(assetId) : undefined),
+    () => undefined,
+  );
+}
+
+export function useArchiveItems() {
+  const store = useArchiveStore();
+  return useSyncExternalStore(store.subscribe, store.items, () => EMPTY_ARCHIVE);
+}
+
+export function useReviewActive() {
+  const store = useArchiveStore();
+  return useSyncExternalStore(store.subscribe, store.active, () => false);
+}
+
+function useTrayOpen() {
+  const store = useArchiveStore();
+  return useSyncExternalStore(store.subscribe, store.trayOpen, () => false);
+}
+
+/** Seconds left before an archived asset deletes, ticking once a second. */
+function useCountdown(deleteAt: number | undefined) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (deleteAt === undefined) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [deleteAt]);
+  if (deleteAt === undefined) return "";
+  const seconds = Math.min(600, Math.max(0, Math.ceil((deleteAt - now) / 1000)));
+  return seconds
+    ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+    : "Deleting…";
+}
+
+/**
+ * The archived state on a frame: the picture stays visible, grayed, with
+ * one small chip that counts down and restores. Nothing covers the image.
+ */
+export function ArchivedChip({
+  assetId,
+  deleteAt,
+}: {
+  assetId: string;
+  deleteAt: number;
+}) {
+  const store = useArchiveStore();
+  const left = useCountdown(deleteAt);
+  return (
+    <span className="asset-review-chip" data-review-restore>
+      <span className="asset-review-chip-label">Archived</span>
+      <span className="asset-review-chip-time">{left}</span>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          store.restore(assetId);
+        }}
+        aria-label="Restore to the gallery"
+        title="Restore (D, or double-click the frame)"
+      >
+        Restore
+      </button>
+    </span>
+  );
+}
+
+const KEYS = [
+  { key: "D", label: "Archive" },
+  { key: "C", label: "Comment" },
+  { key: "V", label: "Scene idea" },
+] as const;
+
+/**
+ * The key hints and the Archive toggle as one segment of the bottom dock, so
+ * the two can never sit on top of each other at any width.
+ */
+export function ReviewDockHints() {
+  const store = useArchiveStore();
+  const active = useReviewActive();
+  const count = useArchiveItems().length;
+  const open = useTrayOpen();
+  if (!active) return null;
+  return (
+    <div className="asset-review-dock" aria-label="Frame keys">
+      <span className="asset-review-dock-keys">
+        {KEYS.map(({ key, label }) => (
+          <span key={key} title={`${key}: ${label} the hovered frame`}>
+            <kbd>{key}</kbd>
+            <span className="asset-review-dock-label">{label}</span>
+          </span>
+        ))}
+      </span>
+      <button
+        type="button"
+        className="asset-review-dock-archive"
+        onClick={() => store.setTrayOpen(!open)}
+        aria-expanded={open}
+        aria-label={`Archive tray, ${count} ${count === 1 ? "frame" : "frames"}`}
+        data-open={open || undefined}
+      >
+        Archive
+        <span>{count}</span>
+      </button>
+    </div>
+  );
+}
+
+/** The same keys, small, in the expanded view's header. */
+export function ReviewHeaderHints({ assetId }: { assetId?: string }) {
+  const active = useReviewActive();
+  const deleteAt = useArchivedAt(assetId);
+  if (!active || !assetId) return null;
+  if (deleteAt !== undefined)
+    return <ArchivedChip assetId={assetId} deleteAt={deleteAt} />;
+  return (
+    <span className="asset-review-header-keys" aria-label="Frame keys">
+      {KEYS.map(({ key, label }) => (
+        <span key={key}>
+          <kbd>{key}</kbd>
+          {label}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function ArchiveTrayItem({ item }: { item: ArchiveItem }) {
+  const store = useArchiveStore();
+  const left = useCountdown(item.deleteAt);
+  return (
+    <div className="asset-review-archive-item">
+      <button
+        type="button"
+        className="asset-review-archive-image"
+        onDoubleClick={() => store.restore(item.assetId)}
+        aria-label={`Restore ${item.name} with a double-click`}
+      >
+        {item.thumb && (
+          <Image
+            src={item.thumb}
+            alt={item.name}
+            width={200}
+            height={130}
+            unoptimized
+          />
+        )}
+      </button>
+      <span>{left}</span>
+      <button
+        type="button"
+        className="asset-review-restore"
+        onClick={() => store.restore(item.assetId)}
+      >
+        Restore
+      </button>
+    </div>
+  );
+}
+
+export function ArchiveTray() {
+  const store = useArchiveStore();
+  const open = useTrayOpen();
+  const items = useArchiveItems();
+  useEffect(() => {
+    if (!open) return;
+    // Escape closes the tray first, before it reaches an open detail view.
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      store.setTrayOpen(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, store]);
+  if (!open) return null;
+  return (
+    <aside className="asset-review-tray" aria-label="Archived assets">
+      <header>
+        <strong>ARCHIVE</strong>
+        <button
+          type="button"
+          onClick={() => store.setTrayOpen(false)}
+          aria-label="Close archive"
+        >
+          ×
+        </button>
+      </header>
+      <p>Deleted when the timer ends. Restore, or double-click a frame.</p>
+      <div className="asset-review-archive-grid">
+        {items.map((item) => (
+          <ArchiveTrayItem key={item.assetId} item={item} />
+        ))}
+        {!items.length && <p>Archive is empty.</p>}
+      </div>
+    </aside>
+  );
+}
+
+const isTyping = (target: EventTarget | null) => {
+  const element = target as HTMLElement | null;
+  return Boolean(
+    element?.isContentEditable ||
+      element?.closest?.("input, textarea, select, [role=textbox]"),
+  );
+};
 
 export function AssetReviewControls({
   ownerUserId,
@@ -47,11 +316,17 @@ export function AssetReviewControls({
       api.assetReview.list,
       active ? { ownerUserId: ownerUserId! } : "skip",
     ) ?? EMPTY_ARCHIVE;
+  const [store] = useState(createArchiveStore);
   const archive = useMutation(api.assetReview.archive);
   const restoreMutation = useMutation(api.assetReview.restore);
   const saveStory = useMutation(api.stories.saveStory);
   const addComment = useMutation(api.assetComments.addAssetComment);
-  const [trayOpen, setTrayOpen] = useState(false);
+  const coral = useCoralToastSafe();
+  const notify = useCallback(
+    (title: string, warning = false) =>
+      coral?.toast(title, undefined, warning ? "warning" : "success", 4000),
+    [coral],
+  );
   const [editor, setEditor] = useState<{
     target: Target;
     kind: "comment" | "scene";
@@ -59,13 +334,15 @@ export function AssetReviewControls({
   } | null>(null);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [now, setNow] = useState(() => Date.now());
   const inFlight = useRef(new Set<string>());
   const pointer = useRef<{ x: number; y: number } | null>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
   const dialog = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    store.set(active ? archived : EMPTY_ARCHIVE, active);
+  }, [store, active, archived]);
 
   const restore = useCallback(
     async (id: string) => {
@@ -76,39 +353,24 @@ export function AssetReviewControls({
           ownerUserId: ownerUserId!,
           assetId: id as Id<"assets">,
         });
-        setNotice("Restored to gallery");
+        notify("Restored to the gallery");
       } catch (error) {
-        setNotice(
+        notify(
           error instanceof Error ? error.message : "Could not restore asset",
+          true,
         );
       } finally {
         inFlight.current.delete(id);
       }
     },
-    [active, ownerUserId, restoreMutation],
-  );
-
-  const contextValue = useMemo(
-    () => ({
-      archived: active ? archived : EMPTY_ARCHIVE,
-      restore: (id: string) => {
-        void restore(id);
-      },
-    }),
-    [active, archived, restore],
+    [active, ownerUserId, restoreMutation, notify],
   );
 
   useEffect(() => {
-    if (!active || !trayOpen) return;
-    const interval = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [active, trayOpen]);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(""), 5000);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
+    store.bindRestore((id) => {
+      void restore(id);
+    });
+  }, [store, restore]);
 
   useEffect(() => {
     if (!editor) return;
@@ -130,17 +392,12 @@ export function AssetReviewControls({
         event.metaKey ||
         event.altKey ||
         event.shiftKey ||
-        editor
-      )
-        return;
-      const eventTarget = event.target as HTMLElement | null;
-      if (
-        eventTarget?.isContentEditable ||
-        eventTarget?.closest("input, textarea, select, [role=textbox]")
+        editor ||
+        isTyping(event.target)
       )
         return;
       const key = event.key.toLowerCase();
-      if (!["d", "c", "v"].includes(key)) return;
+      if (key !== "d" && key !== "c" && key !== "v") return;
       // Other open dialogs own their keys. The gallery detail view is allowed.
       const visible = (node: HTMLElement) => node.getClientRects().length > 0;
       if (
@@ -189,26 +446,22 @@ export function AssetReviewControls({
         name: frame.dataset.reviewName ?? "Scene",
       };
       if (key === "d") {
-        if (
-          archived.some((item) => item.assetId === target.id) ||
-          inFlight.current.has(target.id)
-        )
+        if (inFlight.current.has(target.id)) return;
+        // D toggles: on an archived frame it brings the frame back.
+        if (store.deleteAt(target.id) !== undefined) {
+          void restore(target.id);
           return;
+        }
         inFlight.current.add(target.id);
         void archive({
           ownerUserId: ownerUserId!,
           assetId: target.id as Id<"assets">,
         })
-          .then(() =>
-            setNotice(
-              "Archived · deletes in 10 minutes · double-click to restore",
-            ),
-          )
+          .then(() => notify("Archived · deletes in 10 minutes · D restores"))
           .catch((error) =>
-            setNotice(
-              error instanceof Error
-                ? error.message
-                : "Could not archive asset",
+            notify(
+              error instanceof Error ? error.message : "Could not archive asset",
+              true,
             ),
           )
           .finally(() => inFlight.current.delete(target.id));
@@ -227,7 +480,7 @@ export function AssetReviewControls({
       window.removeEventListener("pointermove", move);
       window.removeEventListener("keydown", keydown, true);
     };
-  }, [active, ownerUserId, archive, archived, editor]);
+  }, [active, ownerUserId, archive, restore, notify, store, editor]);
 
   async function save() {
     if (!editor || !text.trim() || busy) return;
@@ -253,211 +506,130 @@ export function AssetReviewControls({
         });
       }
       setEditor(null);
-      setNotice(
+      notify(
         editor.kind === "comment"
           ? "Comment saved · queued for your agent"
           : "Saved in Stories / Scripts · ready for agent review",
       );
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Could not save note");
+      notify(
+        error instanceof Error ? error.message : "Could not save note",
+        true,
+      );
     } finally {
       setBusy(false);
     }
   }
 
-  const remaining = (deleteAt: number) => {
-    const seconds = Math.min(
-      600,
-      Math.max(0, Math.ceil((deleteAt - now) / 1000)),
-    );
-    return seconds
-      ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
-      : "Deleting…";
-  };
-
   return (
-    <ReviewContext.Provider value={contextValue}>
+    <ArchiveStoreContext.Provider value={store}>
       {children}
-      {active && (
-        <>
-          <div className="asset-review-keybar">
-            <span>
-              <kbd>D</kbd> Archive
-            </span>
-            <span>
-              <kbd>C</kbd> Comment
-            </span>
-            <span>
-              <kbd>V</kbd> Scene idea
-            </span>
-            <button
-              onClick={() => setTrayOpen(!trayOpen)}
-              aria-expanded={trayOpen}
+      {active && <ArchiveTray />}
+      {active &&
+        editor &&
+        createPortal(
+          <div
+            className="asset-review-backdrop"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div
+              ref={dialog}
+              className="asset-review-editor"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="asset-note-title"
+              onKeyDown={(event) => {
+                event.stopPropagation();
+                if (event.key === "Escape" && !busy) {
+                  event.preventDefault();
+                  setEditor(null);
+                }
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  void save();
+                }
+                if (event.key === "Tab") {
+                  const nodes = dialog.current?.querySelectorAll<HTMLElement>(
+                    "textarea, button:not(:disabled)",
+                  );
+                  if (!nodes?.length) return;
+                  const first = nodes[0],
+                    last = nodes[nodes.length - 1];
+                  if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last.focus();
+                  }
+                  if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first.focus();
+                  }
+                }
+              }}
             >
-              Archive · {archived.length}
-            </button>
-          </div>
-          {trayOpen && (
-            <aside className="asset-review-tray" aria-label="Archived assets">
-              <header>
-                <strong>ARCHIVE</strong>
-                <button
-                  onClick={() => setTrayOpen(false)}
-                  aria-label="Close archive"
-                >
-                  ×
-                </button>
-              </header>
-              <p>Double-click a frame to restore it before the timer ends.</p>
-              <div className="asset-review-archive-grid">
-                {archived.map((item) => (
-                  <div key={item.assetId} className="asset-review-archive-item">
-                    <button
-                      className="asset-review-archive-image"
-                      onDoubleClick={() => {
-                        void restore(item.assetId);
-                      }}
-                      aria-label={`Restore ${item.name} with a double-click`}
-                    >
-                      {item.thumb && (
-                        <Image
-                          src={item.thumb}
-                          alt={item.name}
-                          width={200}
-                          height={130}
-                          unoptimized
-                        />
-                      )}
-                    </button>
-                    <span>{remaining(item.deleteAt)}</span>
-                    <button
-                      className="asset-review-restore"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void restore(item.assetId);
-                      }}
-                    >
-                      Restore
-                    </button>
-                  </div>
-                ))}
-                {!archived.length && <p>Archive is empty.</p>}
-              </div>
-            </aside>
-          )}
-          {notice && (
-            <div className="asset-review-notice" role="status">
-              {notice}
-            </div>
-          )}
-          {editor &&
-            createPortal(
-              <div
-                className="asset-review-backdrop"
-                onClick={(event) => event.stopPropagation()}
-              >
-                <div
-                  ref={dialog}
-                  className="asset-review-editor"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-labelledby="asset-note-title"
-                  onKeyDown={(event) => {
-                    event.stopPropagation();
-                    if (event.key === "Escape" && !busy) {
-                      event.preventDefault();
-                      setEditor(null);
-                    }
-                    if (
-                      (event.metaKey || event.ctrlKey) &&
-                      event.key === "Enter"
-                    ) {
-                      event.preventDefault();
+              {editor.target.src && (
+                <Image
+                  className="asset-review-note-image"
+                  src={editor.target.src}
+                  alt="Source scene"
+                  width={440}
+                  height={620}
+                  unoptimized
+                />
+              )}
+              <div className="asset-review-note-body">
+                <header>
+                  <h2 id="asset-note-title">
+                    {editor.kind === "comment"
+                      ? "ASSET COMMENT"
+                      : "SCENE / BEAT IDEA"}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setEditor(null)}
+                    disabled={busy}
+                    aria-label="Close note"
+                  >
+                    ×
+                  </button>
+                </header>
+                <p>
+                  Saved with this frame. Your agent can pick it up on the next
+                  routine.
+                </p>
+                <textarea
+                  ref={textarea}
+                  aria-label={
+                    editor.kind === "comment"
+                      ? "Asset comment"
+                      : "Scene or beat idea"
+                  }
+                  placeholder={
+                    editor.kind === "comment"
+                      ? "What should the agent know?"
+                      : "What happens in this scene?"
+                  }
+                  value={text}
+                  onChange={(event) => setText(event.target.value)}
+                  disabled={busy}
+                  maxLength={editor.kind === "comment" ? 4000 : 200000}
+                />
+                <footer>
+                  <span>⌘ / Ctrl + Enter to save</span>
+                  <button
+                    type="button"
+                    disabled={busy || !text.trim()}
+                    onClick={() => {
                       void save();
-                    }
-                    if (event.key === "Tab") {
-                      const nodes =
-                        dialog.current?.querySelectorAll<HTMLElement>(
-                          "textarea, button:not(:disabled)",
-                        );
-                      if (!nodes?.length) return;
-                      const first = nodes[0],
-                        last = nodes[nodes.length - 1];
-                      if (event.shiftKey && document.activeElement === first) {
-                        event.preventDefault();
-                        last.focus();
-                      }
-                      if (!event.shiftKey && document.activeElement === last) {
-                        event.preventDefault();
-                        first.focus();
-                      }
-                    }
-                  }}
-                >
-                  {editor.target.src && (
-                    <Image
-                      className="asset-review-note-image"
-                      src={editor.target.src}
-                      alt="Source scene"
-                      width={440}
-                      height={620}
-                      unoptimized
-                    />
-                  )}
-                  <div className="asset-review-note-body">
-                    <header>
-                      <h2 id="asset-note-title">
-                        {editor.kind === "comment"
-                          ? "ASSET COMMENT"
-                          : "SCENE / BEAT IDEA"}
-                      </h2>
-                      <button
-                        onClick={() => setEditor(null)}
-                        disabled={busy}
-                        aria-label="Close note"
-                      >
-                        ×
-                      </button>
-                    </header>
-                    <p>
-                      Saved with this frame. Your agent can pick it up on the
-                      next routine.
-                    </p>
-                    <textarea
-                      ref={textarea}
-                      aria-label={
-                        editor.kind === "comment"
-                          ? "Asset comment"
-                          : "Scene or beat idea"
-                      }
-                      placeholder={
-                        editor.kind === "comment"
-                          ? "What should the agent know?"
-                          : "What happens in this scene?"
-                      }
-                      value={text}
-                      onChange={(event) => setText(event.target.value)}
-                      disabled={busy}
-                      maxLength={editor.kind === "comment" ? 4000 : 200000}
-                    />
-                    <footer>
-                      <span>⌘ / Ctrl + Enter to save</span>
-                      <button
-                        disabled={busy || !text.trim()}
-                        onClick={() => {
-                          void save();
-                        }}
-                      >
-                        {busy ? "Saving…" : "Save note"}
-                      </button>
-                    </footer>
-                  </div>
-                </div>
-              </div>,
-              document.body,
-            )}
-        </>
-      )}
-    </ReviewContext.Provider>
+                    }}
+                  >
+                    {busy ? "Saving…" : "Save note"}
+                  </button>
+                </footer>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+    </ArchiveStoreContext.Provider>
   );
 }

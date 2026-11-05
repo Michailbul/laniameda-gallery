@@ -1,6 +1,4 @@
-.asset-review-keybar,
 .asset-review-tray,
-.asset-review-notice,
 .asset-review-editor {
   font-family: var(--lm-font, sans-serif);
   color: var(--lm-text-primary, #fff4ea);
@@ -8,32 +6,157 @@
   border: 1px solid var(--lm-border, #3a3a3a);
   box-shadow: 0 12px 48px #0005;
 }
-.asset-review-keybar {
-  position: fixed;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 160;
+/* Key hints: one segment of the bottom dock pill, after a hairline. */
+.asset-review-dock {
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 9px 14px;
-  border-radius: 12px;
-  font-size: 11px;
+  gap: 4px;
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid var(--lm-border, rgba(32, 23, 16, 0.08));
+  font: 600 10.5px/1 var(--font-geist-mono, ui-monospace, monospace);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--lm-text-ghost, rgba(32, 23, 16, 0.45));
   white-space: nowrap;
 }
-.asset-review-keybar kbd {
-  font-family: monospace;
-  color: var(--lm-coral, #f26157);
-  margin-right: 5px;
+.asset-review-dock-keys {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px 0 4px;
 }
-.asset-review-keybar button {
-  border-left: 1px solid var(--lm-border, #3a3a3a);
-  padding-left: 14px;
+.asset-review-dock-keys > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.asset-review-dock kbd,
+.asset-review-header-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font: 800 10px/1 var(--font-geist-mono, ui-monospace, monospace);
+  color: var(--lm-coral, #f26157);
+  background: color-mix(in srgb, var(--lm-coral, #f26157) 12%, transparent);
+}
+.asset-review-dock-archive {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 46px;
+  padding: 0 12px;
+  border-radius: 16px;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: var(--lm-text-secondary, rgba(32, 23, 16, 0.6));
+  transition: background-color 150ms, color 150ms;
+}
+.asset-review-dock-archive:hover,
+.asset-review-dock-archive[data-open] {
+  background: var(--lm-surface-2, rgba(32, 23, 16, 0.04));
+  color: var(--lm-text-primary, #201710);
+}
+.asset-review-dock-archive span {
+  min-width: 18px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  background: var(--lm-surface-2, rgba(32, 23, 16, 0.06));
+}
+/* Narrow content column: keys only, labels in the title tooltip. */
+@media (max-width: 1100px) {
+  .asset-review-dock-label {
+    display: none;
+  }
+  .asset-review-dock-keys {
+    gap: 6px;
+  }
+}
+.asset-review-header-keys {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  overflow: hidden;
+  font: 600 10px/1 var(--font-geist-mono, ui-monospace, monospace);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--lm-text-ghost);
+}
+.asset-review-header-keys > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+@media (max-width: 767px) {
+  .asset-review-header-keys {
+    display: none;
+  }
+}
+/* Archived frame: the picture stays, grayed, with one small chip. */
+[data-review-archived="true"] img,
+[data-review-archived="true"] video,
+[data-review-archived="true"] canvas {
+  filter: grayscale(1) brightness(0.6);
+  opacity: 0.55;
+  transition: filter 200ms, opacity 200ms;
+}
+[data-review-archived="true"] .card-toolbar {
+  display: none;
+}
+.asset-review-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 4px 0 9px;
+  border-radius: 999px;
+  background: rgba(10, 8, 5, 0.86);
+  box-shadow: inset 0 0 0 1px rgba(255, 244, 234, 0.16);
+  color: #fff4ea;
+  font: 600 10px/1 var(--font-geist-mono, ui-monospace, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  animation: asset-review-in 0.18s ease-out;
+}
+.asset-review-chip-time {
+  color: rgba(255, 244, 234, 0.55);
+  font-variant-numeric: tabular-nums;
+}
+.asset-review-chip button {
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--lm-coral, #f26157);
+  color: #0a0805;
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: inherit;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.asset-review-chip button:hover {
+  filter: brightness(1.08);
+}
+.asset-review-card-chip {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  z-index: 45;
+  max-width: calc(100% - 16px);
 }
 .asset-review-tray {
   position: fixed;
-  bottom: 66px;
+  bottom: 104px;
   right: 20px;
   z-index: 165;
   width: min(450px, calc(100vw - 40px));
@@ -84,18 +207,6 @@
 .asset-review-restore {
   float: right;
   color: var(--lm-coral, #f26157);
-}
-.asset-review-notice {
-  position: fixed;
-  bottom: 65px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 1300;
-  padding: 12px 18px;
-  border-radius: 10px;
-  font-size: 12px;
-  max-width: 90vw;
-  animation: asset-review-in 0.18s ease-out;
 }
 .asset-review-backdrop {
   position: fixed;
@@ -160,25 +271,6 @@
 .asset-review-note-body button:disabled {
   opacity: 0.4;
 }
-[data-review-archived="true"] {
-  filter: grayscale(1);
-  opacity: 0.45;
-  outline: 2px solid #f2615788;
-  outline-offset: -2px;
-}
-[data-review-archived="true"]::after {
-  content: "ARCHIVED · DOUBLE-CLICK TO RESTORE";
-  position: absolute;
-  left: 10px;
-  bottom: 10px;
-  z-index: 50;
-  padding: 7px 9px;
-  border-radius: 5px;
-  background: #191919;
-  color: #fff4ea;
-  font: 10px monospace;
-  pointer-events: none;
-}
 @keyframes asset-review-in {
   from {
     opacity: 0;
@@ -199,11 +291,21 @@
   .asset-review-note-body {
     padding: 20px;
   }
-  .asset-review-keybar {
-    gap: 10px;
-    font-size: 10px;
-  }
 }
 .asset-review-note-body textarea {
   font-family: inherit;
+}
+/* Narrow tiles: the chip drops its label, then its timer; Restore stays. */
+@container (max-width: 220px) {
+  .asset-review-card-chip .asset-review-chip-label {
+    display: none;
+  }
+}
+@container (max-width: 130px) {
+  .asset-review-card-chip .asset-review-chip-time {
+    display: none;
+  }
+  .asset-review-card-chip .asset-review-chip {
+    padding-left: 4px;
+  }
 }

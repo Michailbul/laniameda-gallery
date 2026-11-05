@@ -63,7 +63,7 @@ import {
   type ViewMode,
 } from "./filter-bar";
 import { MasonryGrid } from "@/components/masonry-grid";
-import { AssetReviewControls } from "./asset-review-controls";
+import { AssetReviewControls, ReviewDockHints } from "./asset-review-controls";
 import { useSavedViews } from "./filter-presets";
 import type { PrivateCountArgs, PublishAllOutcome } from "./publish-all-dialog";
 import {
@@ -1109,36 +1109,6 @@ export function GalleryDashboard({
       }
     },
     [canAccessMyGallery, createFolderMutation, ownerUserId],
-  );
-
-  const toggleAssetLike = useCallback(
-    async (assetId: string, nextLiked: boolean) => {
-      if (!canAccessMyGallery) {
-        return;
-      }
-      // Optimistic: reflect the new state on the open detail panel immediately;
-      // the reactive gallery query refreshes the card heart shortly after.
-      setSelectedImage((current) =>
-        current && current.id === assetId
-          ? { ...current, isLiked: nextLiked }
-          : current,
-      );
-      try {
-        await setAssetLikedMutation({
-          ownerUserId,
-          assetId: assetId as Id<"assets">,
-          isLiked: nextLiked,
-        });
-      } catch {
-        // Revert the optimistic detail-panel change on failure.
-        setSelectedImage((current) =>
-          current && current.id === assetId
-            ? { ...current, isLiked: !nextLiked }
-            : current,
-        );
-      }
-    },
-    [canAccessMyGallery, ownerUserId, setAssetLikedMutation],
   );
 
   const toggleAssetStar = useCallback(
@@ -3995,13 +3965,6 @@ export function GalleryDashboard({
     [convex, deleteAsset, deleteSkillMutation, ownerUserId, skillIds],
   );
 
-  const handleCardToggleLike = useCallback(
-    (imageId: string, nextLiked: boolean) => {
-      void toggleAssetLike(imageId, nextLiked);
-    },
-    [toggleAssetLike],
-  );
-
   const handleCardToggleStar = useCallback(
     (imageId: string, nextStarred: boolean) => {
       void toggleAssetStar(imageId, nextStarred);
@@ -4861,6 +4824,18 @@ export function GalleryDashboard({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        // Escape in a field (tags, description) leaves the field first; it
+        // must not close the view and drop what was being typed.
+        const target = event.target as HTMLElement | null;
+        if (
+          target?.isContentEditable ||
+          target?.tagName === "INPUT" ||
+          target?.tagName === "TEXTAREA" ||
+          target?.tagName === "SELECT"
+        ) {
+          target.blur();
+          return;
+        }
         closeSelectedImage();
         return;
       }
@@ -6479,8 +6454,6 @@ export function GalleryDashboard({
                     selectedAssetIds={selectedAssetIds}
                     onToggleAssetSelect={toggleAssetSelection}
                     onReplaceSelection={replaceAssetSelection}
-                    likeable={canManageFoldersInCurrentView}
-                    onToggleLike={handleCardToggleLike}
                     starrable={canManageFoldersInCurrentView}
                     onToggleStar={handleCardToggleStar}
                     draggableAssets={canManageFoldersInCurrentView}
@@ -7270,6 +7243,7 @@ export function GalleryDashboard({
             onSearchClear={clearSemanticMode}
             searchPlaceholder="SEARCH VAULT..."
             searchLoading={semanticLoading}
+            trailing={<ReviewDockHints />}
           />
         </div>
       </div>

@@ -23,7 +23,7 @@ import { BookmarkPostCard } from "@/components/gallery/bookmark-post-card";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import type { GalleryEntryPreview } from "@/lib/gallery-entries";
 import { VideoScrubPreview, useVideoScrub } from "@/components/video-scrub-preview";
-import { useAssetReview } from "@/components/gallery/asset-review-controls";
+import { ArchivedChip, useArchiveStore, useArchivedAt } from "@/components/gallery/asset-review-controls";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
@@ -161,9 +161,6 @@ interface ImageCardProps {
       toggles selection instead of opening the detail panel. */
   selectionActive?: boolean;
   onToggleSelect?: (imageId: string, mode?: "toggle" | "range") => void;
-  likeable?: boolean;
-  liked?: boolean;
-  onToggleLike?: (imageId: string, nextLiked: boolean) => void;
   /** Owner-only: the card offers the star toggle. */
   starrable?: boolean;
   onToggleStar?: (imageId: string, nextStarred: boolean) => void;
@@ -222,9 +219,6 @@ export const ImageCard = memo(function ImageCard({
   selected = false,
   selectionActive = false,
   onToggleSelect,
-  likeable = false,
-  liked = false,
-  onToggleLike,
   starrable = false,
   onToggleStar,
   showPublicBadge = false,
@@ -244,7 +238,7 @@ export const ImageCard = memo(function ImageCard({
   excludeFolderId,
   marked,
 }: ImageCardProps) {
-  const review = useAssetReview();
+  const review = useArchiveStore();
   const isSelected = image.id === selectedId;
   const hasSelection = selectedId != null;
   const isCinema = image.pillar === CINEMA_PILLAR;
@@ -317,7 +311,12 @@ export const ImageCard = memo(function ImageCard({
   const activeContentType = activePreview.contentType ?? image.contentType;
   const displayedMember = isPackDeck ? activePreview : image;
   const displayedAssetId = isPackDeck ? activePreview.id : image.id;
-  const isArchived = review.archived.some(item => item.assetId === displayedAssetId);
+  const archivedAt = useArchivedAt(
+    image.galleryItemType === undefined || image.galleryItemType === "asset" || image.galleryItemType === "pack"
+      ? displayedAssetId
+      : undefined,
+  );
+  const isArchived = archivedAt !== undefined;
   const displayedTags = displayedMember.tagNames ?? [];
   const displayedCollections = displayedMember.collectionLabels ?? [];
   const displayedTypeLabel = displayedMember.typeLabel;
@@ -327,7 +326,6 @@ export const ImageCard = memo(function ImageCard({
   const displayLabel = isPackDeck
     ? activePreview.agentDescription || activePreview.name || activePreview.prompt || "Gallery asset"
     : image.agentDescription || image.name || activePreview.prompt || "Gallery asset";
-  const displayedLiked = isPackDeck ? Boolean(activePreview.isLiked) : liked;
   const activeThumbSrc = activePreview.src || image.src;
   const activeFullSrc = activePreview.fullSrc || image.fullSrc;
   const isVideo =
@@ -573,19 +571,12 @@ export const ImageCard = memo(function ImageCard({
     dimmed && "card-dimmed",
     exiting && "animate-card-exit",
     selectable && selected && "card-picked",
-    likeable && displayedLiked && "card-kept",
   ].filter(Boolean).join(" ");
 
   const handleToggleSelect = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
     onToggleSelect?.(image.id, event.shiftKey ? "range" : "toggle");
-  };
-
-  const handleToggleLike = (event: React.MouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    onToggleLike?.(displayedAssetId, !displayedLiked);
   };
 
   const handleToggleStar = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -911,7 +902,13 @@ export const ImageCard = memo(function ImageCard({
       data-review-archived={isArchived || undefined}
       data-review-disabled={image.galleryItemType && !["asset", "pack"].includes(image.galleryItemType) ? "true" : undefined}
       onDoubleClick={event => { if (isArchived) { event.preventDefault(); event.stopPropagation(); review.restore(displayedAssetId); } }}
-      onClickCapture={event => { if (isArchived) { event.preventDefault(); event.stopPropagation(); } }}
+      onClickCapture={event => {
+        // An archived frame only answers its Restore chip (and a double-click).
+        if (isArchived && !(event.target as HTMLElement).closest("[data-review-restore]")) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
       layoutId={isCinema ? `cinema-${image.id}` : undefined}
       className={cardClasses}
       style={{
@@ -939,6 +936,12 @@ export const ImageCard = memo(function ImageCard({
         setPromptOpen(false);
       }}
     >
+      {archivedAt !== undefined && (
+        <span className="asset-review-card-chip">
+          <ArchivedChip assetId={displayedAssetId} deleteAt={archivedAt} />
+        </span>
+      )}
+
       {/* Skeleton / Loading */}
       {(isLoading || hasError) && (
         <div
@@ -1163,7 +1166,7 @@ export const ImageCard = memo(function ImageCard({
         <div className="ml-auto flex min-w-0 max-w-[65%] shrink-0 items-center justify-end gap-1">
           {/* Provenance caption — the public surface says which world a
               featured piece comes from. Only where no owner marks render. */}
-          {image.overlayLabel && !canDelete && !likeable && (
+          {image.overlayLabel && !canDelete && !starrable && (
             <span className="card-chip-btn min-w-0 truncate opacity-0 group-hover:opacity-100">
               {image.overlayLabel}
             </span>
@@ -1241,24 +1244,6 @@ export const ImageCard = memo(function ImageCard({
             </button>
           )}
 
-          {/* KEEP / KEPT — the private like, as the board's pick pill. */}
-          {likeable && (
-            <button
-              type="button"
-              onClick={handleToggleLike}
-              className={`card-keep pointer-events-auto ${
-                displayedLiked
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-              }`}
-              data-on={displayedLiked ? "true" : undefined}
-              aria-label={displayedLiked ? "Kept — click to unkeep" : "Keep"}
-              aria-pressed={displayedLiked}
-              title={displayedLiked ? "Kept — click to unkeep" : "Keep"}
-            >
-              {displayedLiked ? "Kept" : "Keep"}
-            </button>
-          )}
         </div>
       </div>
 

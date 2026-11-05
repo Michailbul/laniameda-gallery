@@ -1309,7 +1309,6 @@
   .card-base.card-starred::after {
     box-shadow: inset 0 0 0 2px var(--lm-ember, #ff8c42);
   }
-  .card-base.card-kept::after,
   .card-base.card-picked::after {
     box-shadow: inset 0 0 0 2px var(--lm-coral);
   }
@@ -1457,10 +1456,9 @@
 
   /* ── Tile controls, the board way ── */
   /* Small dark squares and mono text chips on the picture (same on both
-     themes: they sit on the image, not the page), and the KEEP pill. */
+     themes: they sit on the image, not the page). */
   .card-icon-btn,
-  .card-chip-btn,
-  .card-keep {
+  .card-chip-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1487,26 +1485,10 @@
   .card-chip-btn[data-active] {
     color: #fff4ea;
   }
-  .card-keep {
-    padding: 0 9px;
-    border-radius: 999px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: #fff4ea;
-    box-shadow: inset 0 0 0 1px rgba(255, 244, 234, 0.22);
-  }
   .card-icon-btn:hover,
   .card-chip-btn:hover {
     color: #fff4ea;
     background: rgba(10, 8, 5, 0.95);
-  }
-  .card-keep:hover {
-    box-shadow: inset 0 0 0 1px #fff4ea;
-  }
-  .card-keep[data-on] {
-    background: var(--lm-coral);
-    color: #0a0805;
-    box-shadow: none;
   }
   .card-icon-btn[data-active] {
     background: var(--lm-coral);
@@ -2140,8 +2122,7 @@
    top-bar controls shrink a step so the two groups keep to one row. */
 @container (max-width: 220px) {
   .card-toolbar .card-icon-btn,
-  .card-toolbar .card-chip-btn,
-  .card-toolbar .card-keep {
+  .card-toolbar .card-chip-btn {
     height: 19px;
     font-size: 9.5px;
   }

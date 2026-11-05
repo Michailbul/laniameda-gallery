@@ -5,10 +5,13 @@ Pack shortcuts follow the member on display. Shortcuts ignore text fields,
 editable content, repeats, IME input and modifier combinations.
 
 - D archives the asset in place and schedules its existing deletion cascade in
-  ten minutes. Repeating D keeps the original deadline. The Archive tray lists
-  pending pieces with a countdown and an accessible Restore action.
+  ten minutes. The frame stays in the grid, grayed, with a chip showing the
+  countdown and RESTORE. D on an archived frame restores it. The Archive tray
+  (the dock's Archive button) lists pending pieces with a countdown and Restore.
 - Double-clicking an archived frame or its tray preview restores it. The callback
   is guarded by a unique archive ticket, so restoring and re-archiving is safe.
+- The key hints live in the bottom dock and in the expanded view's header.
+  F stays free for feature/unfeature.
 - C opens a private asset comment. V opens a scene or beat idea. Comments use the native
   asset-comment system and create agent Tasks. Scene ideas save native Stories
   linked to the current asset with `agent-review` and `scene-note` tags.

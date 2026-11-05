@@ -11,7 +11,7 @@ import Search01Icon from "@hugeicons/core-free-icons/Search01Icon";
 import UserEdit01Icon from "@hugeicons/core-free-icons/UserEdit01Icon";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import useMeasure from "react-use-measure";
 import { TelegramLoginButton } from "@/components/telegram-login-button";
 import { cn } from "@/lib/utils";
@@ -43,6 +43,8 @@ interface BottomMenuProps {
   searchPlaceholder?: string;
   searchLoading?: boolean;
   notificationTypes?: string[];
+  /** Extra controls inside the pill, after the nav buttons. */
+  trailing?: ReactNode;
 }
 
 const MAIN_NAV = [
@@ -70,6 +72,7 @@ export default function BottomMenu({
   searchPlaceholder = "Search...",
   searchLoading = false,
   notificationTypes = DEFAULT_NOTIFICATIONS,
+  trailing,
 }: BottomMenuProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hiddenRef, hiddenBounds] = useMeasure();
@@ -494,6 +497,7 @@ export default function BottomMenu({
             />
           </button>
         ))}
+        {trailing}
       </div>
     </div>
   );

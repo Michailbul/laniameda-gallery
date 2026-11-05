@@ -2,11 +2,31 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-11-03
+Last updated: 2026-11-05
 
 ---
 
 ## ✔ Shipped
+
+### 2026-11-05 — Gallery review keys sit in the dock; archived frames stay visible; sidebar rows truncate; tile KEEP removed
+- The D / C / V hints and the Archive tray toggle are one segment of the
+  bottom dock (`ReviewDockHints` in `BottomMenu`'s `trailing` slot), so they
+  can never overlap it; under 1100px only the key letters show. The expanded
+  view carries the same keys in its header. Notices use the coral toasts.
+- An archived frame keeps its picture, grayed, with one chip: ARCHIVED, the
+  countdown and RESTORE (narrow tiles drop the label, then the timer). D on an
+  archived frame restores it; double-click still works. The tray opens above
+  the dock and closes on Escape. The old `::after` label shared `.card-base`'s
+  full-tile overlay and painted a solid box over the picture.
+- Archive state is an external store (`useArchivedAt(id)` via
+  useSyncExternalStore): archiving re-renders that one card, not every tile.
+- Sidebar: Radix ScrollArea's `display: table` wrapper is now block, so world
+  names truncate and the list cannot scroll sideways; status icons and the
+  count share one non-shrinking column.
+- The tile KEEP / KEPT pill and its coral ring are gone. `isLiked` data, the
+  Liked-only filter and bulk Like stay.
+- Keys: Escape in a field of the expanded view leaves the field instead of
+  closing the view; Escape in the collection menu closes only the menu.
 
 ### 2026-11-05 — Test suite green, backlog reconciled (#146, branch `docs/backlog-reconcile`)
 - `bun test` on main had 33 failures and 3 unloadable files. Skills tests moved off the removed `convex/workflows`; mock leaks between route tests fixed (see OBSERVATIONS, Dev workflow). 1142 pass, 0 fail.

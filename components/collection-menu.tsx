@@ -175,7 +175,10 @@ export function CardCollectionButton({
       close();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close();
+      if (event.key !== "Escape") return;
+      // One Escape closes the menu only, not the detail view behind it.
+      event.stopPropagation();
+      close();
     };
     const handleScroll = (event: Event) => {
       // The menu's own list is scrollable — the capture-phase listener sees
