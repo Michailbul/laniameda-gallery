@@ -85,7 +85,7 @@ export function EditInPlace({
   });
   const restoreVersion = useMutation(api.editJobs.restoreAssetVersion).withOptimisticUpdate((store, args) => {
     const current = store.getQuery(api.editJobs.listAssetEdits, queryArgs);
-    if (current) store.setQuery(api.editJobs.listAssetEdits, queryArgs, { ...current, versions: current.versions.map((row) => ({ ...row, current: row._id === args.versionId })) });
+    if (current) store.setQuery(api.editJobs.listAssetEdits, queryArgs, { ...current, versions: (current.versions ?? []).map((row) => ({ ...row, current: row._id === args.versionId })) });
   });
 
   const [prompt, setPrompt] = useState("");
@@ -215,7 +215,9 @@ export function EditInPlace({
   };
 
   type Job = NonNullable<typeof data>["jobs"][number];
-  const versionOf = (jobId: string) => data?.versions.find((row) => row.editJobId === jobId);
+  // `?? []`: a backend from before versions (the gap between a web and a Convex deploy).
+  const versions = data?.versions ?? [];
+  const versionOf = (jobId: string) => versions.find((row) => row.editJobId === jobId);
 
   const approve = (job: Job) => {
     if (job.status !== "done" || !job.resultUrl || job.review === "approved") return;
@@ -430,11 +432,11 @@ export function EditInPlace({
         </div>
       )}
 
-      {data && data.versions.length > 0 && (
+      {versions.length > 0 && (
         <div className="lm-edit-versions">
           <span className="lm-edit-label">Versions · same asset, nothing deleted</span>
           <div className="lm-edit-version-row">
-            {data.versions.map((row) => (
+            {versions.map((row) => (
               <button key={row._id} type="button" className={`lm-edit-version${row.current ? " on" : ""}`}
                 disabled={row.current} onClick={() => restore(row._id, row.number)}
                 title={row.current ? `v${row.number} is showing` : `Show v${row.number} again${row.prompt ? `: ${row.prompt}` : ""}`}>
