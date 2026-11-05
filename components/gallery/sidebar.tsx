@@ -125,7 +125,7 @@ interface GallerySidebarProps {
   onRenameFolder?: (folderId: string, name: string) => Promise<void> | void;
   /** Deletes the folder; its assets stay in the gallery. */
   onDeleteFolder?: (folderId: string) => Promise<void> | void;
-  /** Folder ids currently published to the public "My Taste" showcase. */
+  /** Folder ids currently published to the public page (Public / Worlds). */
   showcasedFolderIds?: Set<string>;
   /** Toggle a collection / storybook onto or off the public showcase. */
   onToggleShowcase?: (folderId: string, next: boolean) => void;
@@ -770,7 +770,7 @@ export function GallerySidebar({
         {onPreviewShowcase && (
           <NavItem
             icon={Globe}
-            label="Taste profile"
+            label="Public / Worlds"
             href="#"
             active={false}
             collapsed={collapsed}
@@ -1798,13 +1798,13 @@ function FilterRow({
               }}
               aria-label={
                 showcased
-                  ? `Remove ${label} from the taste profile`
-                  : `Publish ${label} to the taste profile`
+                  ? `Remove ${label} from the public page`
+                  : `Publish ${label} to the public page`
               }
               title={
                 showcased
-                  ? "On your taste profile (showcase page) — click to remove"
-                  : "Show as a stack on your taste profile (showcase page)"
+                  ? "On your public page (Public / Worlds) — click to remove"
+                  : "Show as a stack on your public page (Public / Worlds)"
               }
             >
               <Globe className="h-2.5 w-2.5" />

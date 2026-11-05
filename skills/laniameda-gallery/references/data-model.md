@@ -197,6 +197,14 @@ to him, and never creates or reorders them unless asked.
   level: none | like | super}` sets both together.
 - **`tasteCollection`**: at most one collection per owner carries this. The
   public home's inspiration grid shows exactly its members.
+- **`worldPageHidden`** (+ `worldPageHiddenReason`) keeps a piece off public
+  world pages (/w/<slug>): a duplicate take, an artifact, a frame Michael
+  rejected. The vault still shows it; nothing is deleted. Set with
+  `worldPage:setWorldPageHidden {assetIds, hidden, reason}` (signed owner).
+  Record exclusions here, never as ids in code.
+- Keys on a hovered frame (vault and public world page, `lib/asset-hotkeys.ts`):
+  **F** toggles the curator star (featured pieces lead the world page), **D**
+  archives (restorable for ten minutes, then the normal delete).
 
 Agents never set star, featured, public or taste flags unless Michael asks to
 publish.
@@ -410,6 +418,7 @@ only plain collections may be children. One level deep.
   - `parentFolderId` nests one level only: a plain root collection is the parent and only plain collections may be children (`assertValidParent` in `convex/folders.ts`).
   - `memberCount` is denormalized; backend mutations recount via `recountFolderMembers`.
   - `showcased: true` publishes the folder as a world and allocates its stable `/w/<slug>` on first showcase (`folders:setFolderShowcased`). Folders inside a collection cannot be showcased.
+  - `worldPage` (optional object) shapes the public world page: `allMembers` (show every member that is not `worldPageHidden`, instead of only `isPublic` ones; reference and inspiration pieces never show), `heroReelAssetId` (pin the hero film; unset = the newest member tagged `showreel`, then a featured video, then the newest video), `leadAssetIds` (frames that open the grid right after the featured ones, in order), `sides` (`[{key, label, folderId}]`, the Live action / 3D switch: the root and its `universeRootId` siblings). Set with `worldPage:setWorldPageSettings` (signed owner). Public reads: `worldPage:getWorldPage {slug, side}` and the paginated `worldPage:listWorldPage {slug, side, section, paginationOpts}`, slim tiles only (no prompts).
   - Idempotency: `by_owner_normalizedName` — `createFolder` reuses an existing folder of the same normalized name.
 
 - `designInspirations`

@@ -50,7 +50,7 @@ import {
   resolveMedia,
 } from "@/lib/bulk-upload";
 import { quickIngestFile } from "@/lib/quick-ingest";
-import { SELECTED_WORK_PATH } from "@/lib/routes";
+import { PUBLIC_WORLDS_PATH } from "@/lib/routes";
 import { CoralToastProvider, useCoralToast } from "@/components/ui/coral-toast";
 import BottomMenu from "@/components/ui/bottom-menu";
 import { GallerySidebar } from "./sidebar";
@@ -1023,7 +1023,7 @@ export function GalleryDashboard({
         const { updatedCount, skippedCount } = payload.result;
         const verb =
           isFeatured === true
-            ? "featured on the taste profile"
+            ? "featured on the public page"
             : isPublic
               ? "made public"
               : "made private";
@@ -5852,7 +5852,7 @@ export function GalleryDashboard({
               : undefined
           }
           onPreviewShowcase={
-            () => window.open(SELECTED_WORK_PATH, "_blank")
+            () => window.open(PUBLIC_WORLDS_PATH, "_blank")
           }
           hiddenFolderIds={hiddenFolderIds}
           onToggleHidden={
@@ -7100,8 +7100,8 @@ export function GalleryDashboard({
                   opacity: bulkCurationLoading || bulkActionLoading ? 0.55 : 1,
                   cursor: bulkCurationLoading || bulkActionLoading ? "not-allowed" : "pointer",
                 }}
-                aria-label="Feature selected assets on the public taste profile"
-                title="Feature on the taste profile (also makes them public)"
+                aria-label="Feature selected assets on the public page"
+                title="Feature on the public page (also makes them public)"
               >
                 {bulkCurationLoading ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />

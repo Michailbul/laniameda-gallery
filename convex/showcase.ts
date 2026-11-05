@@ -38,7 +38,7 @@ const showcaseOwnerCandidates = () => {
   return owner ? resolveUserIdCandidates(owner) : [];
 };
 
-const isShowcaseOwner = (ownerUserId: string | undefined) => {
+export const isShowcaseOwner = (ownerUserId: string | undefined) => {
   if (!ownerUserId?.trim()) return false;
   return showcaseOwnerCandidates().includes(ownerUserId.trim());
 };
@@ -337,7 +337,7 @@ const worldChildFolders = async (
 
 // A published root with a world address remains a world when its assets
 // are organized with tags instead of sub-collections.
-const isWorldFolder = async (
+export const isWorldFolder = async (
   ctx: Parameters<typeof hydrateGalleryAssetResults>[0],
   folder: Doc<"folders">,
 ) => {

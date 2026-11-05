@@ -591,6 +591,29 @@ export default defineSchema({
     // 3D, — ART DECO and IRON STAGE point at DEAR ANNETE, so one styles page
     // shows every style of the story universe. Membership stays per world.
     universeRootId: v.optional(v.id("folders")),
+    // The world's public page (/w/<slug>), set by the owner. allMembers shows
+    // every member that is not worldPageHidden instead of only isPublic ones;
+    // heroReelAssetId pins the hero video (else the newest member tagged
+    // showreel, then a featured video); leadAssetIds open the grid after the
+    // featured frames; sides are the switchable worlds on
+    // one page ("Live action" = this root, "3D" = a universe sibling).
+    worldPage: v.optional(
+      v.object({
+        allMembers: v.optional(v.boolean()),
+        heroReelAssetId: v.optional(v.id("assets")),
+        // Frames that open the page right after the featured ones, in order.
+        leadAssetIds: v.optional(v.array(v.id("assets"))),
+        sides: v.optional(
+          v.array(
+            v.object({
+              key: v.string(),
+              label: v.string(),
+              folderId: v.id("folders"),
+            }),
+          ),
+        ),
+      }),
+    ),
     // Exact public assets, deduped across links + the legacy primary pointer.
     // Only readable as complete after publicCollectionCountBackfill is done.
     publicMemberCount: v.optional(v.number()),
@@ -747,6 +770,10 @@ export default defineSchema({
     // (Distinct from pinnedAt, which is manual ordering local to the project
     // workspace and carries no note.)
     starredAt: v.optional(v.number()),
+    // Left off public world pages (a duplicate take, an artifact, a frame
+    // Michael rejected). Data, never hard-coded ids; the vault still shows it.
+    worldPageHidden: v.optional(v.boolean()),
+    worldPageHiddenReason: v.optional(v.string()),
     // Optional owner note on why this one is starred. Only surfaced while the
     // asset is starred; kept on unstar so an accidental toggle loses nothing.
     starNote: v.optional(v.string()),

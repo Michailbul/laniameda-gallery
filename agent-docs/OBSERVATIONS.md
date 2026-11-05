@@ -90,6 +90,18 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - `.card-base::after` is the tile's ring overlay (`inset: 0`, z-index 35). Any
   rule that gives it content or a background covers the whole picture; put
   tile labels in a real element instead.
+- `bun run typecheck` starts with `rm -rf .next`: running it while `next dev`
+  serves the same checkout breaks the dev server (missing chunks, 500s).
+  Restart dev after it, or check types with `bunx tsc --noEmit`.
+- On the Intel iMac `bun install` leaves the nested sharp in
+  `node_modules/sharp/node_modules/@img` without its libvips, so `bun run
+  build` fails collecting /api/agent/ingest. A symlink to the top-level
+  `@img/sharp-libvips-darwin-x64` fixes it locally; Vercel is unaffected.
+- The world page's full-bleed hero poster never becomes an LCP candidate in
+  Chrome (tested without its animation and smaller than the viewport); the
+  mobile LCP is the top line's text, held by the root layout's render-blocking
+  CSS. Measure the page with Lighthouse three times: a busy machine inflates
+  simulated TBT by seconds.
 
 - Bulk asset deletion must run sequentially: cascades update shared tag usage,
   collection counts and pack membership, so parallel DELETE requests can exhaust
