@@ -1,0 +1,100 @@
+import { describe, expect, test } from "bun:test";
+
+import { buildGridImageAttrs, GRID_IMAGE_SIZES, GRID_VIDEO_SIZES, gridImageSizes } from "../lib/grid-image";
+import { buildGalleryEntries } from "../lib/gallery-entries";
+
+const thumb = "https://r2.example/thumbs/a.webp";
+const full = "https://r2.example/a.png";
+
+describe("grid image srcset", () => {
+  test("lists the thumb and the original at their real widths, smallest first", () => {
+    const attrs = buildGridImageAttrs(
+      { src: thumb, thumbSrc: thumb, thumbWidth: 1440, fullSrc: full, fullWidth: 2048 },
+      362,
+    );
+    expect(attrs.src).toBe(thumb);
+    expect(attrs.srcSet).toBe(`${thumb} 1440w, ${full} 2048w`);
+    expect(attrs.sizes).toBe("362px");
+  });
+
+  test("stored grid variants lead the srcset, smallest first, and a width the thumb already has is listed once", () => {
+    const attrs = buildGridImageAttrs(
+      {
+        src: thumb,
+        variants: [{ url: "https://r2.example/v/a-960.webp", width: 960 }, { url: "https://r2.example/v/a-480.webp", width: 480 }],
+        thumbSrc: thumb, thumbWidth: 1440, fullSrc: full, fullWidth: 2048,
+      },
+      362,
+    );
+    expect(attrs.srcSet).toBe(`https://r2.example/v/a-480.webp 480w, https://r2.example/v/a-960.webp 960w, ${thumb} 1440w, ${full} 2048w`);
+    const narrow = buildGridImageAttrs({ src: thumb, variants: [{ url: thumb, width: 540 }], thumbSrc: thumb, thumbWidth: 540, fullSrc: full, fullWidth: 1080 });
+    expect(narrow.srcSet).toBe(`${thumb} 540w, ${full} 1080w`);
+  });
+
+  test("a soft thumb still goes in the srcset: the browser picks by the tile's width", () => {
+    const attrs = buildGridImageAttrs(
+      { src: full, thumbSrc: thumb, thumbWidth: 640, fullSrc: full, fullWidth: 1280 },
+      300,
+    );
+    expect(attrs.src).toBe(full);
+    expect(attrs.srcSet).toBe(`${thumb} 640w, ${full} 1280w`);
+  });
+
+  test("no srcset without two distinct renditions of known width", () => {
+    expect(buildGridImageAttrs({ src: full, fullSrc: full, fullWidth: 1280 }).srcSet).toBeUndefined();
+    expect(buildGridImageAttrs({ src: full, thumbSrc: full, thumbWidth: 1280, fullSrc: full, fullWidth: 1280 }).srcSet).toBeUndefined();
+    expect(buildGridImageAttrs({ src: thumb, thumbSrc: thumb, fullSrc: full, fullWidth: 1280 }).srcSet).toBeUndefined();
+    expect(buildGridImageAttrs({ src: thumb, thumbSrc: thumb, thumbWidth: 0, fullSrc: full, fullWidth: 1280 }).srcSet).toBeUndefined();
+  });
+
+  test("sizes is the laid-out tile width when known, else the breakpoint estimate", () => {
+    expect(gridImageSizes(417.6)).toBe("418px");
+    expect(gridImageSizes(undefined)).toBe(GRID_IMAGE_SIZES);
+    expect(gridImageSizes(undefined, "video")).toBe(GRID_VIDEO_SIZES);
+    expect(gridImageSizes(Number.NaN)).toBe(GRID_IMAGE_SIZES);
+  });
+
+  test("above 2x the tile asks for what a 2x screen would, so a 3x phone takes 960w, not 1440w", () => {
+    expect(gridImageSizes(355, "image", 3)).toBe("237px");
+    expect(gridImageSizes(355, "image", 2)).toBe("355px");
+    expect(gridImageSizes(355, "image", 1)).toBe("355px");
+    expect(gridImageSizes(355, "image", 2.625)).toBe("270px");
+    expect(gridImageSizes(undefined, "image", 3)).toBe(GRID_IMAGE_SIZES);
+    const attrs = buildGridImageAttrs(
+      {
+        src: thumb,
+        variants: [{ url: "https://r2.example/v/a-480.webp", width: 480 }, { url: "https://r2.example/v/a-960.webp", width: 960 }],
+        thumbSrc: thumb, thumbWidth: 1440, fullSrc: full, fullWidth: 2048,
+      },
+      355,
+      "image",
+      3,
+    );
+    expect(attrs.sizes).toBe("237px");
+    // 237 css px x 3 = 711 device px: the 960w rendition is the smallest that covers it.
+    const needed = 237 * 3;
+    const widths = (attrs.srcSet ?? "").split(", ").map((entry) => Number(entry.split(" ")[1].replace("w", "")));
+    expect(widths.find((width) => width >= needed)).toBe(960);
+  });
+
+  test("gallery entries carry the two renditions for the tile", () => {
+    const [entry] = buildGalleryEntries({
+      sortOrder: "newest",
+      assets: [
+        {
+          _id: "a1",
+          kind: "image",
+          url: full,
+          thumbUrl: thumb,
+          width: 2048,
+          height: 1365,
+          thumbWidth: 1440,
+          thumbHeight: 960,
+          createdAt: 1,
+        },
+      ],
+    });
+    expect(entry).toMatchObject({ src: thumb, fullSrc: full, thumbSrc: thumb, thumbWidth: 1440, fullWidth: 2048 });
+    expect(entry.previewImages[0]).toMatchObject({ thumbSrc: thumb, thumbWidth: 1440, fullWidth: 2048 });
+  });
+});

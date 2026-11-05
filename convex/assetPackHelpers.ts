@@ -137,7 +137,15 @@ export const syncPromptAssetPack = async (
     )
     .collect();
 
-  const orderedAssets = [...linkedAssets].sort(sortAssetsForPromptPack);
+  // Members of a stack Michael made stay in it: the prompt pack is built
+  // from the prompt's other assets only.
+  const stackPackIds = new Set<Id<"assetPacks">>();
+  for (const packId of new Set(linkedAssets.map((asset) => asset.assetPackId).filter((id): id is Id<"assetPacks"> => Boolean(id)))) {
+    if ((await ctx.db.get(packId))?.kind === "stack") stackPackIds.add(packId);
+  }
+  const orderedAssets = linkedAssets
+    .filter((asset) => !asset.assetPackId || !stackPackIds.has(asset.assetPackId))
+    .sort(sortAssetsForPromptPack);
   const existingPackIds = Array.from(
     new Set(
       orderedAssets

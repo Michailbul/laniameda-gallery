@@ -4,7 +4,10 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { FolderOpen, Pencil } from "lucide-react";
 import { fitChipsInRows } from "@/lib/chip-rows";
-import { compareCollectionSectionNames } from "@/lib/collection-sections";
+import {
+  groupChildCollections,
+  orderChildCollections,
+} from "@/lib/collection-groups";
 
 // A collection card's data: summary from folders.listCollectionSummaries
 // merged with the dashboard's live folderAssetCounts.
@@ -13,6 +16,9 @@ export interface CollectionCardData {
   name: string;
   description?: string;
   parentFolderId?: string;
+  /** Display group of a child inside its world, and its order. */
+  group?: string;
+  sortOrder?: number;
   count: number;
   previewAssets: Array<{
     assetId: string;
@@ -29,6 +35,12 @@ interface CollectionsGridProps {
   /** When set, cards grow a hover pencil for inline renaming. */
   onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
   loading?: boolean;
+  /**
+   * One world's children (the folders view opened inside a collection):
+   * cards under their display-group headings (Styles, Places, Cast…) in
+   * group order instead of one alphabetical run.
+   */
+  grouped?: boolean;
 }
 
 /**
@@ -42,6 +54,7 @@ export function CollectionsGrid({
   onOpenCollection,
   onRenameCollection,
   loading = false,
+  grouped = false,
 }: CollectionsGridProps) {
   const { roots, childrenByParent } = useMemo(() => {
     const ids = new Set(collections.map((c) => c._id));
@@ -57,11 +70,21 @@ export function CollectionsGrid({
       }
     }
     rootList.sort((a, b) => a.name.localeCompare(b.name));
-    for (const list of children.values()) {
-      list.sort((a, b) => compareCollectionSectionNames(a.name, b.name));
+    for (const [parentId, list] of children) {
+      children.set(parentId, orderChildCollections(list));
     }
     return { roots: rootList, childrenByParent: children };
   }, [collections]);
+  const sections = useMemo(() => {
+    if (!grouped) return [{ key: "all", label: "", members: roots }];
+    const { groups, ungrouped } = groupChildCollections(roots);
+    return [
+      ...groups,
+      ...(ungrouped.length > 0
+        ? [{ key: "other", label: groups.length > 0 ? "Other" : "", members: ungrouped }]
+        : []),
+    ];
+  }, [grouped, roots]);
 
   if (loading) {
     return (
@@ -110,8 +133,46 @@ export function CollectionsGrid({
 
   return (
     <div className="px-4 pb-24 pt-2 md:px-6">
-      {roots.length > 0 && (
-        <>
+      {sections.map((section) => (
+        <section
+          key={section.key}
+          aria-label={section.label ? `${section.label} collections` : undefined}
+          className={section.label ? "pt-3 first:pt-0" : undefined}
+        >
+          {section.label && (
+            <div
+              className="flex items-center gap-3 pb-3"
+              style={{ fontFamily: "var(--lm-font)" }}
+            >
+              <h3
+                className="m-0"
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 800,
+                  letterSpacing: "0.16em",
+                  textTransform: "uppercase",
+                  color: "var(--lm-text-secondary)",
+                }}
+              >
+                {section.label}
+              </h3>
+              <span
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  letterSpacing: "0.14em",
+                  color: "var(--lm-text-ghost)",
+                }}
+              >
+                {section.members.length}
+              </span>
+              <span
+                aria-hidden
+                className="h-px flex-1"
+                style={{ backgroundColor: "var(--lm-border)" }}
+              />
+            </div>
+          )}
           <div
             className="grid gap-6"
             style={{
@@ -119,7 +180,7 @@ export function CollectionsGrid({
                 "repeat(auto-fill, minmax(min(100%, 300px), 1fr))",
             }}
           >
-            {roots.map((collection) => (
+            {section.members.map((collection) => (
               <CollectionCard
                 key={collection._id}
                 collection={collection}
@@ -133,8 +194,8 @@ export function CollectionsGrid({
               />
             ))}
           </div>
-        </>
-      )}
+        </section>
+      ))}
     </div>
   );
 }

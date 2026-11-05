@@ -1,5 +1,8 @@
 #!/bin/sh
-# headersHelper for the laniameda-gallery server in the repo's .mcp.json.
+# headersHelper for the laniameda-gallery server in the repo's .mcp.json, and
+# nothing else. It is not part of the skill's no-connector fallback: that is
+# scripts/gallery.mjs, which reads the same gallery.env itself. Nothing on a
+# machine needs to reference this file; Claude Code runs it from .mcp.json.
 #
 # The static header there is `Bearer ${LANIAMEDA_GALLERY_AGENT_TOKEN}`. The
 # Claude desktop app starts Claude Code without the shell profile, so the

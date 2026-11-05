@@ -326,6 +326,7 @@ const saveXPost = async (ctx: ActionCtx, input: SaveXPostInput): Promise<SaveXPo
     thumbSize: thumb.size,
     thumbWidth: thumb.width,
     thumbHeight: thumb.height,
+    thumbVariants: thumb.thumbVariants,
     tagIds: systemTagIds,
     folderId: primaryFolderId,
     // Deliberately no contentHash: a post's preview must never collapse

@@ -37,6 +37,23 @@ export const sourceDomainOf = (url?: string | null) => {
   }
 };
 
+// A prompt long enough to describe its own picture. Image assets that carry
+// one skip the automatic description: the prompt already fills the text lane
+// and the pixel vector covers the look. Parameters (--ar 16:9, --sref …) and
+// URLs don't count; stubs like "This contains an image of:" fall below.
+export const DESCRIPTIVE_PROMPT_MIN_WORDS = 12;
+
+export const hasDescriptivePrompt = (promptText?: string | null) => {
+  if (!promptText) {
+    return false;
+  }
+  const prose = promptText
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/(^|\s)--[a-z]+(\s+[^-\s]\S*)*/gi, " ");
+  const words = prose.match(/\p{L}{2,}/gu) ?? [];
+  return words.length >= DESCRIPTIVE_PROMPT_MIN_WORDS;
+};
+
 export type AssetTextLaneSource = {
   agentDescription?: string;
   description?: string;

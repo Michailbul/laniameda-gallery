@@ -69,6 +69,7 @@ const HIDDEN_FILTER_TAGS = new Set([
   "recraft",
   "video",
   "ai-video",
+  "personalize",
 ]);
 
 export function isHiddenFilterTag(name: string): boolean {

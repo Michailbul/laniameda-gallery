@@ -13,7 +13,7 @@
 
   /* Sidebar — liquid glass system */
   --lm-sidebar-bg: #141413;
-  --lm-sidebar-width: 260px;
+  --lm-sidebar-width: 280px;
   --lm-sidebar-collapsed: 56px;
   --lm-sidebar-text: #f0e8e0;
   --lm-sidebar-text-muted: #a89888;
@@ -907,4 +907,9 @@
   letter-spacing: 0.18em;
   color: var(--lm-sidebar-text);
   text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}
+
+/* Move-to panel rows: the hit area lights up so a long tree stays scannable. */
+.lm-move-row:hover:not(:disabled) {
+  background: var(--lm-sidebar-hover-fill) !important;
 }

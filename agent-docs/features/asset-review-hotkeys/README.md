@@ -9,8 +9,9 @@ editable content, repeats, IME input and modifier combinations.
   pending pieces with a countdown and an accessible Restore action.
 - Double-clicking an archived frame or its tray preview restores it. The callback
   is guarded by a unique archive ticket, so restoring and re-archiving is safe.
-- C opens a private asset comment. V opens a scene or beat idea. Both save native
-  Stories linked to the current asset with `agent-review` and their type tag.
+- C opens a private asset comment. V opens a scene or beat idea. Comments use the native
+  asset-comment system and create agent Tasks. Scene ideas save native Stories
+  linked to the current asset with `agent-review` and `scene-note` tags.
   Cmd/Ctrl+Enter saves; Escape cancels. Focus stays in the editor while open.
 - Agent routines read pending review Stories and acknowledge them by removing
   `agent-review` with the existing revision guard. Text and links stay intact.

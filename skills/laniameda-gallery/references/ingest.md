@@ -6,7 +6,8 @@ direction governs filing/publication; a valid API payload alone is not permissio
 
 ## Media and collections
 
-1. Resolve existing names with list_collections. Creation must be requested or
+1. Resolve existing names from open_world's shelves or with list_collections
+   filtered by world (or parentFolderId / search). Creation must be requested or
    approved when a named collection is missing.
 2. Inspect the actual media. Provide agentDescription, sourceUrl where applicable,
    useful tags, assetRole, ingestSource: agent and a stable ingestKey.
@@ -30,6 +31,11 @@ not nest. Collection objects are folders internally. Piece types character,
 location, scene and inspiration are tags rather than section folders.
 Read the live update_collection schema for supported rename, parenting and other
 controls. Do not infer publication or cover changes from a collection save.
+A child collection can carry a display `group` (Styles, Places, Cast, Design,
+Moods, Footage; at most 40 characters) and a `sortOrder`, accepted by
+create_collection and update_collection and returned by list_collections.
+update_collection keeps the current name when `name` is omitted; `null` clears
+a group or order. Groups are display only: they never move assets.
 
 ## Update and partial results
 

@@ -11,6 +11,17 @@ Read these files first:
 
 ---
 
+## Michael is the human in the loop: plain words and pictures
+He reads at product and art-direction level, by looking, in seconds. Anything
+an agent shows him (task titles and summaries, questions, the newspaper, boards,
+the Human view of /tasks) is plain words plus frames: never ids, file paths,
+tool names, flags, seeds, scores, tables or experiment codes. A question is
+one line and 2–4 picture options he picks with a click (a task `ask`). The
+details for agents go in the brief and result (the Agent view). The backend
+refuses an agent's blocked task without an ask, and a title or summary with
+ids, paths, tool names, flags or markdown. Rule and examples:
+`skills/laniameda-gallery/references/tasks.md`. Set 1 Nov 2026.
+
 ## Using the gallery itself from an agent session
 To read from or save into Michael's gallery (not to change this codebase), follow
 `skills/laniameda-gallery/SKILL.md`. Access, in order: the gallery MCP tools if
@@ -19,6 +30,12 @@ otherwise `bun skills/laniameda-gallery/scripts/gallery.mjs <tool> '<json>'`,
 which needs only `LANIAMEDA_GALLERY_AGENT_TOKEN` and network access to
 `gallery.laniameda.space`. That is the path in a cloud sandbox. Start with
 `gallery.mjs check`. If the token is missing, ask Michael; never print it.
+When Michael sends inspiration (a link, a reel, screenshots, photos), with or
+without a project name, run the intake procedure in
+`skills/laniameda-gallery/references/intake.md`: clean source saved as
+inspiration, processed stills for worlds with a locked style, and for a video
+or scene he likes, the full pipeline from source analysis to treatment,
+pre-production and a packaged storybook.
 
 ---
 
@@ -132,6 +149,29 @@ bun run typecheck    # TypeScript check
 bun run convex:dev   # Local Convex backend; does not publish the real gallery
 ```
 
+## Speed is rule one (set 30 Oct 2026)
+
+Michael's words: the gallery must feel and be fast, with no lag; it is the number one rule.
+It is read on a phone, one thumb, often on a slow link. So, for every change:
+
+- Measure before you merge. Lighthouse mobile (performance only) on `/`, `/w/dear-annete`,
+  `/tasks`, `/inbox`, plus the route you touched; `npm run build` route sizes; the byte size of
+  the Convex payloads you subscribe to. A route that gets slower does not ship.
+- Grids are paginated; the dashboard never holds the whole vault in React state. Far tiles rely
+  on native lazy loading and `content-visibility`; windowing was measured unnecessary on 1 Nov
+  (`agent-docs/perf/report-2026-11-01.md`). Re-measure before adding it.
+- The first websocket frame carries what the first screen draws (grid page, shelf, skill cards);
+  sidebar and support queries subscribe after the grid's first page is in.
+- Queries return the fields the screen draws (thumb URL, size, id, title) and nothing else; no
+  `await` inside a loop over rows when one indexed query would do; no subscription for a tab
+  that is not on screen.
+- Images: the 480/960 WebP variants with `srcset`/`sizes` that match the column width, the
+  original never in a grid, `loading="lazy"` below the fold, `fetchpriority="high"` on the first
+  row, reserved aspect ratios so nothing shifts, a colour under every picture before it lands.
+- JavaScript: tabs, modals, editors and readers are `dynamic()` imports; no heavy library in the
+  first-load JS of `/` and `/w`; no inline object or closure per card per render; memoised rows.
+- The baseline and the per-PR measurements live under `agent-docs/perf/`.
+
 ## Verification
 Use lint, type checking, builds and native operational readbacks suited to the
 change. Follow the user's validation directions; the approved 8 October audit
@@ -198,6 +238,9 @@ locks. Public files only bootstrap private policy retrieval; do not publish priv
 world/anchor IDs. Current human direction governs intent. Preserve existing assets,
 flags and world routes. Use the current branch-local feature spec when one exists.
 Do not start an old handoff merely because a historical document names it active.
+Inspiration Michael sends (links, reels, screenshots) runs through the intake
+procedure in skills/laniameda-gallery/references/intake.md, up to a packaged
+storybook for a video or scene he names a world for.
 ## Runtime and verification
 Next authenticates Telegram sessions/agent tokens, derives the owner, and signs
 short-lived Convex actor JWTs. Private backend functions require signed owner auth;

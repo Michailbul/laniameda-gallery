@@ -7,7 +7,8 @@ import { api, internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import { makeFunctionReference } from "convex/server";
 import { storeBlobToR2 } from "./r2_store";
-import { encodeCardThumbnail, storeCardThumbnail } from "./thumbnails";
+import { encodeCardThumbnail, storeCardThumbnail, storeThumbVariants } from "./thumbnails";
+import type { ThumbVariant } from "../lib/card-thumbnail";
 import { readImageDimensions, readVideoDimensions } from "./imageDimensions";
 import {
   assetRoleValidator,
@@ -19,6 +20,7 @@ import {
   generationTypeValidator,
   ingestSourceValidator,
   lineageRoleValidator,
+  midjourneyMetadataValidator,
   modelProviderValidator,
   optionalPillarValidator,
   promptProfileValidator,
@@ -427,9 +429,10 @@ type ProcessedMedia = {
   thumbSize?: number;
   thumbWidth?: number;
   thumbHeight?: number;
+  thumbVariants?: ThumbVariant[];
 };
 
-const processMediaInput = async (
+export const processMediaInput = async (
   ctx: ActionCtx,
   input: {
     file?: { base64: string; fileName?: string; contentType?: string };
@@ -486,6 +489,7 @@ const processMediaInput = async (
   let thumbSize: number | undefined;
   let thumbWidth: number | undefined;
   let thumbHeight: number | undefined;
+  let thumbVariants: ThumbVariant[] | undefined;
   let width: number | undefined;
   let height: number | undefined;
 
@@ -498,6 +502,7 @@ const processMediaInput = async (
       thumbSize = thumb.size;
       thumbWidth = thumb.width;
       thumbHeight = thumb.height;
+      thumbVariants = thumb.thumbVariants;
     }
 
     // When no decoder can read the file, width/height stay unset and the
@@ -541,6 +546,7 @@ const processMediaInput = async (
     thumbSize,
     thumbWidth,
     thumbHeight,
+    thumbVariants,
   };
 };
 
@@ -570,6 +576,7 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
     // Where the piece came from (post permalink, page URL). Defaults to `url`
     // when the media itself was fetched from a URL.
     sourceUrl: v.optional(v.string()),
+    midjourneyMetadata: midjourneyMetadataValidator,
     modelProvider: modelProviderValidator,
     pillar: pillarValidator,
     generationType: generationTypeValidator,
@@ -720,6 +727,7 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
         let thumbSize: number | undefined;
         let thumbWidth: number | undefined;
         let thumbHeight: number | undefined;
+        let thumbVariants: ThumbVariant[] | undefined;
         let fileName: string | undefined;
         let r2KeyForRow: string | undefined;
         let r2BucketForRow: string | undefined;
@@ -754,6 +762,7 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
               thumbSize = cardThumb.size;
               thumbWidth = cardThumb.width;
               thumbHeight = cardThumb.height;
+              thumbVariants = await storeThumbVariants(ctx, cardThumb);
             } else {
               const posterBlob = new Blob([new Uint8Array(posterBuffer)], {
                 type: args.posterFile.contentType ?? "image/jpeg",
@@ -787,6 +796,7 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
           thumbSize = media.thumbSize;
           thumbWidth = media.thumbWidth;
           thumbHeight = media.thumbHeight;
+          thumbVariants = media.thumbVariants;
           fileName = media.fileName;
           contentHash = media.contentHash;
         }
@@ -811,12 +821,14 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
           thumbSize,
           thumbWidth,
           thumbHeight,
+          thumbVariants,
           promptId,
           tagIds,
           folderId: args.folderId,
           ingestKey: args.ingestKey,
           contentHash,
           modelName: args.modelName,
+          midjourneyMetadata: args.midjourneyMetadata,
           pillar: args.pillar,
           generationType: args.generationType,
           assetRole: args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole,
@@ -1040,6 +1052,7 @@ export const updateFromApi: ReturnType<typeof action> = ownerAction({
             thumbSize: media.thumbSize,
             thumbWidth: media.thumbWidth,
             thumbHeight: media.thumbHeight,
+            thumbVariants: media.thumbVariants,
           });
           assetId = resolvedAssetId;
         } else {

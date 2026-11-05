@@ -9,11 +9,13 @@ export function CopyLinkButton({
   path,
   label,
   className,
+  style,
   iconOnly,
 }: {
   path: string | (() => string);
   label: string;
   className?: string;
+  style?: React.CSSProperties;
   iconOnly?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
@@ -45,6 +47,7 @@ export function CopyLinkButton({
     <button
       type="button"
       className={className ?? "yt-button"}
+      style={style}
       onClick={copy}
       aria-label={label}
       title={label}

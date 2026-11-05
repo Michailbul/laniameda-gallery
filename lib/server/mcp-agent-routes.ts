@@ -12,9 +12,29 @@ import { POST as presetsPost } from "@/app/api/agent/presets/route";
 import { POST as instructionsPost } from "@/app/api/agent/instructions/route";
 import { POST as posterPost } from "@/app/api/agent/poster/route";
 import { POST as skillsPost } from "@/app/api/agent/skills/route";
+import { POST as srefsPost } from "@/app/api/agent/srefs/route";
+import { POST as charactersPost } from "@/app/api/agent/characters/route";
+import { POST as moodboardsPost } from "@/app/api/agent/moodboards/route";
+import { POST as commentsPost } from "@/app/api/agent/comments/route";
+import { POST as editsPost } from "@/app/api/agent/edits/route";
+import { POST as inboxPost } from "@/app/api/agent/inbox/route";
+import { POST as worldsPost } from "@/app/api/agent/worlds/route";
+import { POST as stylesPost } from "@/app/api/agent/styles/route";
+import { POST as tasksPost } from "@/app/api/agent/tasks/route";
+import { POST as newspaperPost } from "@/app/api/agent/newspaper/route";
 
 // The /api/agent/* handlers the hosted MCP calls in-process, keyed by path.
 export const AGENT_ROUTES: Record<string, (request: Request) => Promise<Response>> = {
+  "/api/agent/srefs": srefsPost,
+  "/api/agent/characters": charactersPost,
+  "/api/agent/moodboards": moodboardsPost,
+  "/api/agent/comments": commentsPost,
+  "/api/agent/edits": editsPost,
+  "/api/agent/inbox": inboxPost,
+  "/api/agent/worlds": worldsPost,
+  "/api/agent/styles": stylesPost,
+  "/api/agent/tasks": tasksPost,
+  "/api/agent/newspaper": newspaperPost,
   "/api/agent/skills": skillsPost,
   "/api/agent/instructions": instructionsPost,
   "/api/agent/poster": posterPost,

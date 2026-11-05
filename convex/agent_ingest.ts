@@ -248,6 +248,7 @@ const createThumbnail = async (
       thumbSize: undefined,
       thumbWidth: undefined,
       thumbHeight: undefined,
+      thumbVariants: undefined,
       width: undefined,
       height: undefined,
     };
@@ -260,6 +261,7 @@ const createThumbnail = async (
     thumbSize: thumb?.size,
     thumbWidth: thumb?.width,
     thumbHeight: thumb?.height,
+    thumbVariants: thumb?.thumbVariants,
     width: thumb?.sourceWidth,
     height: thumb?.sourceHeight,
   };
@@ -432,6 +434,7 @@ export const ingestFromAgentPayload = ownerAction({
           thumbSize,
           thumbWidth,
           thumbHeight,
+          thumbVariants,
           width,
           height,
         } = await createThumbnail(ctx, buffer, media.mimeType);
@@ -450,6 +453,7 @@ export const ingestFromAgentPayload = ownerAction({
           thumbSize,
           thumbWidth,
           thumbHeight,
+          thumbVariants,
           promptId: linkedPromptId,
           tagIds: assetTagIds,
           ingestKey: `run:${args.runId}:media:${mediaId}`,

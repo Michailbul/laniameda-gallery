@@ -5,12 +5,13 @@ import {
   galleryAssetResultValidator,
   hydrateGalleryAssetResults,
 } from "./galleryAssetResults";
-import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
+import { buildR2PublicUrl, resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   canActorAccessOwnerUserId,
   resolveUserIdCandidates,
 } from "./authz";
 import { ownerQuery } from "./actor";
+import { STORYBOOK_HEAD_CHARS, storybookHook } from "../lib/storybook-meta";
 
 // How many member thumbnails the masonry stack card gets.
 const STACK_PREVIEW_LIMIT = 4;
@@ -27,12 +28,24 @@ const storybookPreviewValidator = v.object({
   height: v.optional(v.number()),
   thumbWidth: v.optional(v.number()),
   thumbHeight: v.optional(v.number()),
+  // Grid renditions (480/960 wide) so the shelf's cover and strip dots can
+  // pick a small file through srcset instead of the 1440 card thumb.
+  thumbVariants: v.optional(
+    v.array(v.object({ width: v.number(), height: v.number(), url: v.string() })),
+  ),
 });
 
 const storybookSummaryValidator = v.object({
   _id: v.id("folders"),
   name: v.string(),
-  story: v.optional(v.string()),
+  // The shelf reads the status/runtime/medium lines (first 600 characters)
+  // and the first beat; the full story loads in the storybook modal
+  // (getStorybook). Sending only these keeps ~65 KB out of the first frame.
+  storyHead: v.optional(v.string()),
+  storyHook: v.optional(v.string()),
+  // The world a storybook sits in (its parent collection), so the shelf can
+  // read "WORLD · Title" before the folder tree has loaded.
+  worldName: v.optional(v.string()),
   count: v.number(),
   createdAt: v.optional(v.number()),
   updatedAt: v.optional(v.number()),
@@ -90,6 +103,14 @@ export const listStorybooks = ownerQuery({
               resolveAssetUrl(ctx, asset),
               resolveAssetThumbUrl(ctx, asset),
             ]);
+            const thumbVariants = (asset.thumbVariants ?? [])
+              .flatMap((variant) => {
+                const variantUrl = buildR2PublicUrl(variant.r2Key);
+                return variantUrl
+                  ? [{ width: variant.width, height: variant.height, url: variantUrl }]
+                  : [];
+              })
+              .sort((left, right) => left.width - right.width);
             return {
               assetId: asset._id,
               kind: asset.kind,
@@ -100,13 +121,19 @@ export const listStorybooks = ownerQuery({
               height: asset.height,
               thumbWidth: asset.thumbWidth,
               thumbHeight: asset.thumbHeight,
+              ...(thumbVariants.length > 0 ? { thumbVariants } : {}),
             };
           }),
         );
+        const parent = folder.parentFolderId
+          ? await ctx.db.get(folder.parentFolderId)
+          : null;
         return {
           _id: folder._id,
           name: folder.name,
-          story: folder.description,
+          ...(parent ? { worldName: parent.name } : {}),
+          storyHead: folder.description?.slice(0, STORYBOOK_HEAD_CHARS),
+          storyHook: storybookHook(folder.description) ?? undefined,
           count: members.length,
           createdAt: folder.createdAt,
           updatedAt: folder.updatedAt,

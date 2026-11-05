@@ -3,22 +3,49 @@
   "minimum_chrome_version": "114",
   "name": "Save to Gallery",
   "description": "Save web captures, X posts, or local files and folders into your laniameda collections",
-  "version": "0.12.1",
+  "version": "0.18.2",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "permissions": ["storage", "activeTab", "contextMenus", "scripting", "sidePanel"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "contextMenus",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["image-convert.js", "image-qualification.js", "midjourney-adapter.js", "krea-adapter.js", "higgsfield-adapter.js", "pinterest-adapter.js", "shotdeck-adapter.js", "x-adapter.js", "content.js"],
-      "css": ["styles.css"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "image-convert.js",
+        "image-qualification.js",
+        "midjourney-adapter.js",
+        "midjourney-copy-list.js",
+        "moodboard-dock.js",
+        "prompt-packs-data.js",
+        "prompt-packs.js",
+        "krea-adapter.js",
+        "higgsfield-adapter.js",
+        "pinterest-adapter.js",
+        "shotdeck-adapter.js",
+        "x-adapter.js",
+        "content.js"
+      ],
+      "css": [
+        "styles.css",
+        "prompt-packs.css"
+      ],
       "run_at": "document_idle"
     }
   ],
@@ -30,12 +57,36 @@
     }
   },
   "commands": {
-    "add-selected-asset": {
+    "save-last-settings": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P",
+        "mac": "Command+Shift+P"
+      },
+      "description": "Save the image under the pointer with your last save settings (no menu)"
+    },
+    "add-dear-annete": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+D",
+        "mac": "Command+Shift+D"
+      },
+      "description": "Add the selected Midjourney image to Dear Annete"
+    },
+    "add-as-location": {
       "suggested_key": {
         "default": "Ctrl+Shift+L",
         "mac": "Command+Shift+L"
       },
-      "description": "Add the selected Midjourney image to the gallery"
+      "description": "Add the selected image to Dear Annete as a location"
+    },
+    "add-as-scene": {
+      "description": "Add the selected image to Dear Annete as a scene"
+    },
+    "add-with-comment": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+M",
+        "mac": "Command+Shift+M"
+      },
+      "description": "Add the selected image to Dear Annete with a comment"
     }
   },
   "side_panel": {

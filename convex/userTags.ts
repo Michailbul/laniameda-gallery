@@ -9,6 +9,7 @@ import {
 } from "./validators";
 import { resolveUserIdCandidates } from "./authz";
 import { ownerMutation, ownerQuery } from "./actor";
+import { filterTags, pageRows, projectSlimTag, sortTagsByUsage } from "../lib/agent-read-projections";
 
 type TagCategory = Doc<"tags">["category"];
 type TagSource = Doc<"tags">["source"];
@@ -181,17 +182,16 @@ const hydrateTags = async (ctx: QueryCtx, tagIds: Iterable<Id<"tags">>) => {
   return result;
 };
 
-export const listUserTags = ownerQuery({
-  args: {
-    ownerUserId: v.string(),
-    includeArchived: v.optional(v.boolean()),
-  },
-  returns: v.array(userTagResultValidator),
-  handler: async (ctx, args) => {
-    const ownerUserId = args.ownerUserId.trim();
-    if (!ownerUserId) {
-      throw new ConvexError("ownerUserId is required.");
-    }
+type UserTagRow = {
+  _id?: Id<"userTags">; tagId: Id<"tags">; ownerUserId: string; name: string; label: string; normalizedLabel: string;
+  description?: string; category: TagCategory; pillar: Doc<"tags">["pillar"]; source: TagSource; color?: string;
+  sortOrder: number; archivedAt?: number; createdAt: number; updatedAt: number; usageCount: number; isCustomized: boolean;
+};
+
+// Every tag the owner has customized or used, with its usage count: the rows
+// behind list_tags, unsorted. Reads the whole asset table for the counts, so
+// callers filter and page the result rather than calling this per tag.
+const collectUserTagRows = async (ctx: QueryCtx, ownerUserId: string, includeArchived: boolean | undefined): Promise<UserTagRow[]> => {
 
     const [customTags, usageCounts] = await Promise.all([
       ctx.db
@@ -204,7 +204,7 @@ export const listUserTags = ownerQuery({
     ]);
 
     const activeCustomTags = customTags.filter(
-      (tag) => args.includeArchived || !tag.archivedAt,
+      (tag) => includeArchived || !tag.archivedAt,
     );
     const tagIds = new Set<Id<"tags">>();
     for (const tag of activeCustomTags) {
@@ -216,7 +216,7 @@ export const listUserTags = ownerQuery({
 
     const tagDocs = await hydrateTags(ctx, tagIds);
     const customByTagId = new Map(activeCustomTags.map((tag) => [tag.tagId, tag]));
-    const rows = [];
+    const rows: UserTagRow[] = [];
 
     for (const customTag of activeCustomTags) {
       const tag = tagDocs.get(customTag.tagId);
@@ -266,11 +266,93 @@ export const listUserTags = ownerQuery({
       });
     }
 
+    return rows;
+};
+
+export const listUserTags = ownerQuery({
+  args: {
+    ownerUserId: v.string(),
+    includeArchived: v.optional(v.boolean()),
+  },
+  returns: v.array(userTagResultValidator),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const rows = await collectUserTagRows(ctx, ownerUserId, args.includeArchived);
     return rows.sort((left, right) => {
       const orderDiff = left.sortOrder - right.sortOrder;
       if (orderDiff !== 0) return orderDiff;
       return left.label.localeCompare(right.label);
     });
+  },
+});
+
+const slimTagValidator = v.object({
+  name: v.string(), label: v.optional(v.string()), category: v.optional(v.string()), description: v.optional(v.string()),
+  usageCount: v.number(), customized: v.optional(v.literal(true)), archived: v.optional(v.literal(true)),
+});
+
+// The vocabulary for the agent's list_tags: every tag that is used or that
+// Michael customized, with usageCount read from the tag row itself
+// (bumpTagUsage keeps it in step with assets, prompts and designs). Reading
+// the counts by scanning the owner's assets, as listUserTags does, crossed
+// Convex's 16 MB read limit once the gallery passed a few thousand pieces.
+const collectTagVocabulary = async (ctx: QueryCtx, ownerUserId: string, includeArchived: boolean | undefined): Promise<UserTagRow[]> => {
+  const [customTags, tags] = await Promise.all([
+    ctx.db.query("userTags").withIndex("by_owner_sortOrder", (q) => q.eq("ownerUserId", ownerUserId).gte("sortOrder", 0)).collect(),
+    ctx.db.query("tags").withIndex("by_normalized", (q) => q.gte("normalized", "")).collect(),
+  ]);
+  const customByTagId = new Map(customTags.filter((tag) => includeArchived || !tag.archivedAt).map((tag) => [tag.tagId, tag]));
+  const rows: UserTagRow[] = [];
+  for (const tag of tags) {
+    const custom = customByTagId.get(tag._id);
+    if (!custom && tag.usageCount <= 0) continue;
+    rows.push(custom
+      ? {
+        _id: custom._id, tagId: tag._id, ownerUserId, name: tag.name, label: custom.label, normalizedLabel: custom.normalizedLabel,
+        description: custom.description, category: custom.category ?? tag.category, pillar: custom.pillar ?? tag.pillar, source: custom.source ?? tag.source,
+        color: custom.color, sortOrder: custom.sortOrder, archivedAt: custom.archivedAt, createdAt: custom.createdAt, updatedAt: custom.updatedAt,
+        usageCount: tag.usageCount, isCustomized: true,
+      }
+      : {
+        tagId: tag._id, ownerUserId, name: tag.name, label: tag.name, normalizedLabel: tag.normalized, description: undefined,
+        category: tag.category, pillar: tag.pillar, source: tag.source, color: undefined, sortOrder: 1000, archivedAt: undefined,
+        createdAt: tag._creationTime, updatedAt: tag._creationTime, usageCount: tag.usageCount, isCustomized: false,
+      });
+  }
+  return rows;
+};
+
+// The agent's list_tags: filtered, most used first, paged, slim by default.
+// The vocabulary runs to about a thousand tags, so an unfiltered full read is
+// the wrong tool; the cursor is the next offset into the filtered order.
+export const listUserTagsPage = ownerQuery({
+  args: {
+    ownerUserId: v.string(),
+    includeArchived: v.optional(v.boolean()),
+    search: v.optional(v.string()),
+    category: v.optional(v.string()),
+    minUsage: v.optional(v.number()),
+    limit: v.optional(v.number()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    fields: v.optional(v.union(v.literal("slim"), v.literal("full"))),
+  },
+  returns: v.object({
+    tags: v.array(v.union(slimTagValidator, userTagResultValidator)),
+    count: v.number(), total: v.number(), limit: v.number(),
+    cursor: v.union(v.string(), v.null()), isDone: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const ownerUserId = args.ownerUserId.trim();
+    if (!ownerUserId) {
+      throw new ConvexError("ownerUserId is required.");
+    }
+    const rows = await collectTagVocabulary(ctx, ownerUserId, args.includeArchived);
+    const matching = sortTagsByUsage(filterTags(rows, { search: args.search, category: args.category, minUsage: args.minUsage }));
+    const { page, ...paging } = pageRows(matching, args.cursor, args.limit);
+    return { tags: args.fields === "full" ? page : page.map(projectSlimTag), ...paging };
   },
 });
 

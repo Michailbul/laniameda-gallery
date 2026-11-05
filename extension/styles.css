@@ -231,7 +231,8 @@
 .stg-mj-quick-save--hover-reveal.stg-mj-quick-save--menu-open,
 .stg-mj-quick-save--hover-reveal:has(.stg-badge--saving),
 .stg-mj-quick-save--hover-reveal:has(.stg-badge--saved),
-.stg-mj-quick-save--hover-reveal:has(.stg-badge--error) {
+.stg-mj-quick-save--hover-reveal:has(.stg-badge--error),
+.stg-mj-quick-save--hover-reveal:has(.stg-mj-copy-add--in-list) {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
@@ -288,6 +289,287 @@
 .stg-mj-save-arrow:hover {
   background: rgba(255, 122, 100, 0.92);
   color: #fffaf5;
+}
+
+/* Copy list. A segment of its own beside Save: this one saves nothing. */
+.stg-mj-quick-save--with-copy .stg-mj-save-arrow {
+  border-radius: 0;
+}
+
+.stg-mj-copy-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 34px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid rgba(26, 20, 16, 0.12);
+  border-radius: 0 7px 7px 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.stg-mj-copy-add[hidden] {
+  display: none;
+}
+
+.stg-mj-copy-add svg {
+  width: 14px;
+  height: 14px;
+}
+
+.stg-mj-copy-add:hover {
+  background: #191919;
+  color: #fff4ea;
+}
+
+.stg-mj-copy-add--in-list,
+.stg-mj-copy-add--in-list:hover {
+  background: #191919;
+  color: #79b791;
+}
+
+/* A widget whose copy segment is hidden still ends in a rounded arrow. */
+.stg-mj-quick-save--with-copy:has(.stg-mj-copy-add[hidden]) .stg-mj-save-arrow {
+  border-radius: 0 7px 7px 0;
+}
+
+.stg-mj-copylist {
+  position: fixed;
+  right: 18px;
+  bottom: 62px;
+  z-index: 2147483646;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  color: #1a1410;
+  font-family: "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+
+.stg-mj-copylist__bar {
+  display: flex;
+  align-items: stretch;
+  height: 36px;
+  overflow: hidden;
+  background: rgba(250, 246, 241, 0.94);
+  border: 1px solid rgba(26, 20, 16, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 16px 40px rgba(13, 13, 13, 0.24);
+  backdrop-filter: blur(16px) saturate(155%);
+  -webkit-backdrop-filter: blur(16px) saturate(155%);
+}
+
+.stg-mj-copylist__toggle,
+.stg-mj-copylist__copy {
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+
+.stg-mj-copylist__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 10px;
+}
+
+.stg-mj-copylist__toggle svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.stg-mj-copylist__toggle svg:last-child {
+  transition: transform 0.14s ease;
+  transform: rotate(180deg);
+}
+
+.stg-mj-copylist--open .stg-mj-copylist__toggle svg:last-child {
+  transform: none;
+}
+
+.stg-mj-copylist__toggle:hover {
+  background: rgba(26, 20, 16, 0.07);
+}
+
+.stg-mj-copylist__copy {
+  min-width: 76px;
+  padding: 0 12px;
+  background: #191919;
+  color: #fff4ea;
+}
+
+.stg-mj-copylist__copy:hover {
+  background: rgba(255, 122, 100, 0.96);
+  color: #fffaf5;
+}
+
+.stg-mj-copylist__copy--done,
+.stg-mj-copylist__copy--done:hover {
+  background: #79b791;
+  color: #191919;
+}
+
+.stg-mj-copylist__panel {
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100vw - 36px));
+  max-height: min(62vh, 560px);
+  overflow: hidden;
+  background: rgba(250, 246, 241, 0.97);
+  border: 1px solid rgba(26, 20, 16, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 24px 60px rgba(13, 13, 13, 0.32);
+}
+
+.stg-mj-copylist__panel[hidden] {
+  display: none;
+}
+
+.stg-mj-copylist__rows {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.stg-mj-copylist__row {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr) 24px;
+  gap: 10px;
+  padding: 10px;
+  border-bottom: 1px solid rgba(26, 20, 16, 0.08);
+}
+
+.stg-mj-copylist__thumb {
+  width: 52px;
+  height: 52px;
+  object-fit: cover;
+  background: rgba(26, 20, 16, 0.08);
+  border-radius: 4px;
+}
+
+.stg-mj-copylist__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.stg-mj-copylist__link {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.stg-mj-copylist__link:hover {
+  color: #c9483f;
+  text-decoration: underline;
+}
+
+.stg-mj-copylist__prompt {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: rgba(26, 20, 16, 0.7);
+  font-size: 11px;
+  line-height: 1.35;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.stg-mj-copylist__codes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-top: 1px;
+}
+
+.stg-mj-copylist__code {
+  padding: 1px 4px;
+  background: rgba(26, 20, 16, 0.07);
+  border-radius: 3px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.stg-mj-copylist__remove {
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: rgba(26, 20, 16, 0.5);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.stg-mj-copylist__remove:hover {
+  background: rgba(229, 83, 75, 0.14);
+  color: #a8322b;
+}
+
+.stg-mj-copylist__foot {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding: 6px;
+}
+
+.stg-mj-copylist__clear {
+  height: 26px;
+  margin: 0;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: rgba(26, 20, 16, 0.58);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.stg-mj-copylist__clear:hover {
+  background: rgba(26, 20, 16, 0.07);
+  color: #1a1410;
+}
+
+.stg-mj-copylist__clear--armed,
+.stg-mj-copylist__clear--armed:hover {
+  background: #e5534b;
+  color: #fffaf5;
+}
+
+.stg-mj-copylist__clipboard {
+  position: fixed;
+  left: -9999px;
+  top: 0;
 }
 
 .stg-mj-save-main.stg-badge--saving,
@@ -2002,4 +2284,300 @@ html.stg-x-capturing .stg-badge {
 .stg-x-popover__submit:hover {
   background: #2e8f8b;
   border-color: #2e8f8b;
+}
+
+/* ── Midjourney moodboard dock ── */
+
+.stg-mb-dock {
+  position: fixed;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 8px 8px;
+  color: #d8d4cf;
+  background: #191919;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  font: 12px/1.3 system-ui, -apple-system, sans-serif;
+  font-style: normal;
+  pointer-events: auto;
+}
+
+.stg-mb-dock[hidden] {
+  display: none;
+}
+
+.stg-mb-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.stg-mb-world {
+  max-width: 55%;
+  padding: 2px 4px;
+  color: inherit;
+  background: #232323;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.stg-mb-refresh {
+  padding: 1px 6px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.stg-mb-refresh:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.stg-mb-active {
+  margin-left: auto;
+  overflow: hidden;
+  color: #ff8c42;
+  font: 11px ui-monospace, "JetBrains Mono", monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stg-mb-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.stg-mb-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.stg-mb-chip {
+  flex: none;
+  padding: 3px 9px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stg-mb-chip:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.stg-mb-chip--on {
+  color: #191919;
+  background: #fff4ea;
+  border-color: #ff8c42;
+}
+
+/* Remembered for the next prompt, not in this one yet. */
+.stg-mb-chip--armed,
+.stg-mb-pchip--armed {
+  border-color: #ff8c42;
+  border-style: dashed;
+}
+
+.stg-mb-active--next {
+  color: #9a958f;
+}
+
+.stg-mb-snap {
+  position: fixed;
+  z-index: 2147483647;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: max-content;
+  max-width: min(980px, calc(100vw - 24px));
+  padding: 10px;
+  color: #d8d4cf;
+  background: #191919;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.stg-mb-snap[hidden] {
+  display: none;
+}
+
+.stg-mb-snap-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  width: min(920px, calc(100vw - 48px));
+}
+
+.stg-mb-snap-img {
+  display: block;
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  background: #232323;
+  border-radius: 8px;
+}
+
+.stg-mb-snap-empty {
+  padding: 4px 0;
+  color: #9a958f;
+}
+
+.stg-mb-snap-meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stg-mb-snap-name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stg-mb-snap-code {
+  flex: none;
+  color: #ff8c42;
+  font: 11px ui-monospace, "JetBrains Mono", monospace;
+}
+
+/* Profiles: taste codes that stack in the same -p flag as the board. Square
+   chips with a teal edge so they never read as a moodboard. */
+.stg-mb-prow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.stg-mb-prow[hidden] {
+  display: none;
+}
+
+.stg-mb-plabel {
+  flex: none;
+  padding-top: 4px;
+  color: #6f6b66;
+  font: 10px ui-monospace, "JetBrains Mono", monospace;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.stg-mb-pstrip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stg-mb-pchip {
+  flex: none;
+  padding: 3px 8px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid rgba(121, 183, 145, 0.45);
+  border-radius: 4px;
+  font: 11px ui-monospace, "JetBrains Mono", monospace;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stg-mb-pchip:hover {
+  background: rgba(121, 183, 145, 0.12);
+}
+
+.stg-mb-pchip--on {
+  color: #191919;
+  background: #79b791;
+  border-color: #79b791;
+}
+
+.stg-mb-pcard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 420px;
+}
+
+.stg-mb-pcard-role {
+  color: #bfb8b0;
+  line-height: 1.45;
+  white-space: normal;
+}
+
+.stg-mb-pcard-kind {
+  color: #79b791;
+  font: 10px ui-monospace, "JetBrains Mono", monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stg-mb-status {
+  color: #9a958f;
+}
+
+.stg-mb-status--error {
+  color: #f26157;
+}
+
+.stg-comment {
+  position: fixed;
+  z-index: 2147483647;
+  left: 50%;
+  top: 72px;
+  width: min(420px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  box-sizing: border-box;
+  padding: 10px;
+  color: #f3efe8;
+  background: #191919;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  font: 13px/1.35 system-ui, sans-serif;
+}
+
+.stg-comment[hidden] {
+  display: none;
+}
+
+.stg-comment__label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #b7b1a8;
+}
+
+.stg-comment__input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 8px;
+  color: inherit;
+  background: #111;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  font: inherit;
+  resize: vertical;
+}
+
+.stg-comment__hint {
+  margin: 6px 0 0;
+  color: #8d877e;
+  font-size: 11px;
 }

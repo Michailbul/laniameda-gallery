@@ -21,8 +21,13 @@ import {
   Play,
   Star,
 } from "lucide-react";
-import { useQuery } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { BookmarkDetail } from "@/components/gallery/bookmark-detail";
+import { AssetComments } from "./asset-comments";
+import { EditInPlace } from "./edit-in-place";
+import { BeforeAfterWipe, type EditCompare } from "./before-after-wipe";
+import { MidjourneyMetadataBlock } from "./midjourney-metadata-block";
+import type { MidjourneyMetadata } from "@/lib/midjourney-metadata";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { PackDeckTabs } from "@/components/gallery/pack-deck";
 import { triggerAssetDownload } from "@/lib/download-image";
@@ -95,6 +100,8 @@ interface GalleryDetailPanelProps {
     ingestSource?: string;
     tagNames?: string[];
     sourceUrl?: string;
+    /** Absent until the live single-asset read arrives. */
+    midjourneyMetadata?: MidjourneyMetadata;
     description?: string;
     fileName?: string;
     createdAt?: number;
@@ -128,6 +135,8 @@ interface GalleryDetailPanelProps {
   ownerUserId?: string;
   /** Opens the Skill document this asset's prompt is a step of. */
   onOpenSkill?: (skillId: string) => void;
+  /** The address of this view with the piece open (…?asset=<id>): "Copy link". */
+  shareHref?: string;
   onClose: () => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -200,6 +209,7 @@ export function GalleryDetailPanel({
   onSlideIndexChange,
   ownerUserId,
   onOpenSkill,
+  shareHref,
   onClose,
   onPrev,
   onNext,
@@ -436,6 +446,9 @@ export function GalleryDetailPanel({
   const review = useAssetReview();
   const isArchived = review.archived.some(item => item.assetId === currentAssetId);
   const tagDatalistId = `asset-tag-suggestions-${currentAssetId}`;
+  // A landed in-place edit wiped against its source on the stage.
+  const [compare, setCompare] = useState<EditCompare | null>(null);
+  useEffect(() => setCompare(null), [currentAssetId]);
   const canEditThis = Boolean(canEditDetails && !isDesignView);
 
   // The prompt as a module: sections, the files that share it, and the
@@ -446,6 +459,14 @@ export function GalleryDetailPanel({
     api.prompts.getPromptContext,
     activePromptId && !isDesignView
       ? { id: activePromptId as Id<"prompts">, ownerUserId }
+      : "skip",
+  );
+  // Named people this piece is linked to in the character registry.
+  const { isAuthenticated } = useConvexAuth();
+  const assetCharacters = useQuery(
+    api.characters.listCharactersForAsset,
+    isAuthenticated && ownerUserId && canEditDetails && !isDesignView && currentAssetId
+      ? { assetId: currentAssetId as Id<"assets">, ownerUserId }
       : "skip",
   );
   const promptSections = useMemo(
@@ -523,6 +544,13 @@ export function GalleryDetailPanel({
   const handleCopyUrl = async () => {
     await navigator.clipboard.writeText(currentSlide.fullSrc);
     showToast("URL COPIED");
+  };
+
+  // The gallery address of this piece, for Michael to paste or an agent to open.
+  const handleCopyLink = async () => {
+    if (!shareHref) return;
+    await navigator.clipboard.writeText(new URL(shareHref, window.location.origin).toString());
+    showToast("LINK COPIED");
   };
 
   const handleCopyGalleryId = async (
@@ -906,6 +934,10 @@ export function GalleryDetailPanel({
             </>
           )}
 
+          {compare && currentSlide.kind !== "video" && (
+            <BeforeAfterWipe compare={compare} fit={isModal ? "contain" : "cover"} />
+          )}
+
           {/* Sidebar: the pack's tabs ride on the image, with small arrows. */}
           {isCarousel && !isModal && (
             <>
@@ -1070,6 +1102,23 @@ export function GalleryDetailPanel({
                 </button>
               </>
             )}
+            {shareHref && (
+              <button
+                type="button"
+                onClick={() => void handleCopyLink()}
+                className="flex items-center justify-center transition-colors hover:bg-black/5"
+                aria-label="Copy link to this piece"
+                title="Copy link to this piece"
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  color: "var(--lm-text-tertiary)",
+                  borderRadius: "6px",
+                }}
+              >
+                <LinkIcon className="h-3.5 w-3.5" />
+              </button>
+            )}
             <div ref={copyMenuRef} className="relative">
               <button
                 type="button"
@@ -1124,6 +1173,13 @@ export function GalleryDetailPanel({
                       backgroundColor: "var(--lm-border)",
                     }}
                   />
+                  {shareHref && (
+                    <CopyMenuItem
+                      icon={LinkIcon}
+                      label="Copy link to this piece"
+                      onClick={() => void handleCopyLink()}
+                    />
+                  )}
                   <CopyMenuItem
                     icon={LinkIcon}
                     label="Copy image URL"
@@ -1574,6 +1630,27 @@ export function GalleryDetailPanel({
                 </>
               )}
 
+              {/* Edit in place: a targeted edit on this image, its takes and the wipe. */}
+              {canEditDetails && ownerUserId && !isDesignView && currentAssetId && currentSlide.kind !== "video" &&
+                (!image.galleryItemType || image.galleryItemType === "asset" || image.galleryItemType === "pack") && (
+                <EditInPlace
+                  key={currentAssetId}
+                  assetId={currentAssetId}
+                  ownerUserId={ownerUserId}
+                  width={currentSlide.width}
+                  height={currentSlide.height}
+                  assetUrl={currentSlide.fullSrc}
+                  compare={compare}
+                  onCompare={setCompare}
+                />
+              )}
+
+              {/* Comments: Michael's notes on this piece, agents' replies. */}
+              {canEditDetails && ownerUserId && !isDesignView && currentAssetId &&
+                (!image.galleryItemType || image.galleryItemType === "asset" || image.galleryItemType === "pack") && (
+                <AssetComments assetId={currentAssetId} ownerUserId={ownerUserId} />
+              )}
+
               {/* Tags — one editable line, comma separated. */}
               <Field
                 label="Tags"
@@ -1645,6 +1722,27 @@ export function GalleryDetailPanel({
                 )}
               </Field>
 
+              {assetCharacters && assetCharacters.length > 0 && (
+                <Field label="Characters">
+                  <div className="flex flex-wrap gap-1.5">
+                    {assetCharacters.map((entry) => (
+                      <span
+                        key={entry.characterId}
+                        title={`${entry.code}${entry.costumeCode ? `-${entry.costumeCode}` : ""} · ${entry.role}`}
+                        className="inline-flex items-center gap-1.5 rounded-[4px] border px-1.5 py-[3px] text-[10px] font-semibold uppercase leading-none tracking-[0.1em]"
+                        style={{ fontFamily: "var(--lm-font)", borderColor: "var(--lm-border)", color: "var(--lm-text-secondary)" }}
+                      >
+                        <span style={{ color: "var(--lm-coral)" }}>{entry.code}</span>
+                        {entry.name}
+                        <span style={{ color: "var(--lm-text-ghost)" }}>
+                          {entry.role}{entry.costumeCode ? ` ${entry.costumeCode}` : ""}
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+                </Field>
+              )}
+
               {(modelName || image.sourceUrl) && !isDesignView && (
                 <Field label="Origin">
                   <div className="flex flex-col gap-1">
@@ -1668,6 +1766,12 @@ export function GalleryDetailPanel({
                       </a>
                     )}
                   </div>
+                </Field>
+              )}
+
+              {image.midjourneyMetadata && !isDesignView && (
+                <Field label="Midjourney">
+                  <MidjourneyMetadataBlock metadata={image.midjourneyMetadata} />
                 </Field>
               )}
 

@@ -4,6 +4,9 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { AgentAuthError, requireAgentAuth } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { requireSkillForOwner } from "@/lib/server/agent-skills";
+import { clientErrorMessage } from "@/lib/server/route-error";
+import { collectionPageUrl } from "@/lib/gallery-routes";
+import { filterCollections, projectCollectionRow } from "@/lib/agent-read-projections";
 
 type AgentScope = "gallery:read" | "gallery:write" | "gallery:delete";
 
@@ -23,6 +26,17 @@ const stringValue = (value: unknown) =>
 
 const numberValue = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+// A collection's display group and order: omitted keeps the stored value,
+// null (or a blank group) clears it.
+const groupValue = (value: unknown) =>
+  value === null || (typeof value === "string" && !value.trim())
+    ? null
+    : typeof value === "string"
+      ? value
+      : undefined;
+const sortOrderValue = (value: unknown) =>
+  value === null ? null : numberValue(value);
 
 const tagInputArray = (value: unknown) =>
   Array.isArray(value)
@@ -73,11 +87,19 @@ export async function POST(request: Request) {
     const client = getServerConvexClient(agent.ownerUserId);
 
     if (action === "listTags") {
-      const tags = await client.query(api.userTags.listUserTags, {
+      // Filtered, most used first, paged and slim by default: the vocabulary
+      // is about a thousand tags, so the whole catalogue is never the answer.
+      const page = await client.query(api.userTags.listUserTagsPage, {
         ownerUserId: agent.ownerUserId,
         includeArchived: data.includeArchived === true,
+        search: stringValue(data.search) ?? stringValue(data.prefix),
+        category: stringValue(data.category),
+        minUsage: numberValue(data.minUsage),
+        limit: numberValue(data.limit),
+        cursor: typeof data.cursor === "string" ? data.cursor : undefined,
+        fields: data.fields === "full" ? "full" : "slim",
       });
-      return NextResponse.json({ tags });
+      return NextResponse.json(page);
     }
 
     if (action === "upsertTag") {
@@ -139,7 +161,27 @@ export async function POST(request: Request) {
       const folders = await client.query(api.folders.listFolders, {
         ownerUserId: agent.ownerUserId,
       });
-      return NextResponse.json({ folders });
+      // `world` narrows to one world's root and shelves (same resolver as
+      // open_world); parentFolderId, rootsOnly, kind and search narrow further.
+      const worldRef = stringValue(data.world);
+      const world = worldRef
+        ? await client.query(api.worlds.resolveWorldRef, { ownerUserId: agent.ownerUserId, world: worldRef })
+        : undefined;
+      const kind = data.kind === "storybook" || data.kind === "plain" ? data.kind : undefined;
+      const matching = filterCollections(folders, {
+        ids: world?.folderIds,
+        parentFolderId: stringValue(data.parentFolderId),
+        rootsOnly: data.rootsOnly === true,
+        search: stringValue(data.search),
+        kind,
+      });
+      // Each collection's page in the gallery: /w/<worldKey|rootId>[/<shelfId>].
+      return NextResponse.json({
+        count: matching.length,
+        total: folders.length,
+        ...(world ? { world: { id: world.worldId, key: world.key, name: world.name } } : {}),
+        folders: matching.map((folder) => projectCollectionRow({ ...folder, url: collectionPageUrl(folders, folder) })),
+      });
     }
 
     if (action === "listMenuFilters") {
@@ -154,6 +196,8 @@ export async function POST(request: Request) {
         description: stringValue(data.description),
         parentFolderId: stringValue(data.parentFolderId) as Id<"folders"> | undefined,
         kind: data.kind === "storybook" ? "storybook" : undefined,
+        group: groupValue(data.group),
+        sortOrder: sortOrderValue(data.sortOrder),
       });
       return NextResponse.json(result);
     }
@@ -162,9 +206,12 @@ export async function POST(request: Request) {
       const result = await client.mutation(api.folders.updateFolder, {
         ownerUserId: agent.ownerUserId,
         folderId: stringValue(data.folderId) as Id<"folders">,
-        name: stringValue(data.name) ?? "",
+        // Omitted keeps the current name; a blank one is still refused.
+        name: typeof data.name === "string" ? data.name : undefined,
         description: stringValue(data.description),
         parentFolderId: data.parentFolderId === null ? null : stringValue(data.parentFolderId) as Id<"folders"> | undefined,
+        group: groupValue(data.group),
+        sortOrder: sortOrderValue(data.sortOrder),
       });
       return NextResponse.json({ folderId: result });
     }
@@ -231,7 +278,6 @@ export async function POST(request: Request) {
     if (error instanceof AgentAuthError) {
       return NextResponse.json({ error: error.message }, { status: error.status });
     }
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: clientErrorMessage(error, "Gallery request failed.") }, { status: 400 });
   }
 }

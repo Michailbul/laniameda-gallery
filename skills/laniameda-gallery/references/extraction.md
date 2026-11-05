@@ -127,6 +127,29 @@ Michael's browser extension already saves from these and tags them `midjourney`
 saves from the same places, use the same tag names so both paths land in one
 bucket. His own generations are `generated_output` with the prompt attached.
 
+**Midjourney copy list.** Michael picks images on midjourney.com and pastes the
+extension's copy list to an agent, meaning "go and take these". Nothing on it is
+in the gallery yet: the list and the gallery save are separate actions, so save
+only if he asks. Each numbered entry is one image, and every line below the link
+is optional because it was only added if the page had it:
+
+```text
+Midjourney copy list: 2 images
+
+1. https://www.midjourney.com/jobs/<job-id>?index=2
+   Prompt: an art deco station at dusk --ar 2:3 --profile abc123 --v 8
+   Moodboard: abc123 (DA DECO)
+   Profile: def456 (Main)
+   Code: ghi789
+
+2. https://www.midjourney.com/jobs/<job-id>?index=0
+```
+
+`index` is the tile, counted from 0. The tile's original is
+`https://cdn.midjourney.com/<job-id>/0_<index>.png`. `Code` is a `--profile` code
+whose kind the page did not show. If the prompt is missing, read it from the job
+page.
+
 ### Local files and Michael's own renders
 
 The ordinary ingest path in `references/ingest.md`. Video goes through the

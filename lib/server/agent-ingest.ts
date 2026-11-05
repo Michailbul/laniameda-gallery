@@ -76,18 +76,21 @@ export const ingestForAgent = async (agent: AgentAuthContext, data: Record<strin
         contentType: optionalString(rest.contentType),
       })
     : undefined;
-  if (media) {
-    delete rest.fileName;
-    delete rest.contentType;
-  }
+  // The MCP schema advertises a top-level fileName/contentType, but
+  // ingest:ingestFromApi only takes mediaFileName (and file.* for base64). An
+  // upload folds them into its media fields; a url save keeps the name and lets
+  // the fetched bytes decide the type.
+  const { fileName, contentType: _contentType, ...forwarded } = rest;
+  const mediaFileName = optionalString(forwarded.mediaFileName) ?? optionalString(fileName);
+  if (!media && mediaFileName) forwarded.mediaFileName = mediaFileName;
 
   const payload = {
-    ...rest,
-    ...(rest.assetRole === "workflow_asset" ? { assetRole: "skill_example" } : {}),
+    ...forwarded,
+    ...(forwarded.assetRole === "workflow_asset" ? { assetRole: "skill_example" } : {}),
     ...(media ?? {}),
     ...(requestedPrimaryFolderId ? { folderId: requestedPrimaryFolderId } : {}),
     ownerUserId: agent.ownerUserId,
-    ingestSource: typeof rest.ingestSource === "string" ? rest.ingestSource : "agent",
+    ingestSource: typeof forwarded.ingestSource === "string" ? forwarded.ingestSource : "agent",
   };
 
   const result = await client.action(ingestAction, payload);

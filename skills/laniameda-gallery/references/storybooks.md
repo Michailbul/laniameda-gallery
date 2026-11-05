@@ -7,7 +7,7 @@ a paragraph of text is not a storybook. A board whose images do not match its
 story is worse than an empty one, because it looks finished.
 
 Storage: a collection with `kind: "storybook"` (root, never nested). The story
-text lives in the collection `description` and is edited in the storybook modal.
+text lives in the collection `description` and is edited on the book's "Agent's text" tab in the Storybooks view (/storybooks/<id>).
 Member assets are the images and clips the episode uses. The source or longer
 text, if any, lives in a native Story (references/stories.md) linked by
 `storybookId`.
@@ -25,7 +25,8 @@ every book reads the same way.
 2. **STORY.** The episode in plain language, 4 to 8 numbered beats. Each beat is
    one visible action a camera can film, with the place and who is in it. About
    5 to 8 seconds per beat. No abstract feeling that cannot be seen.
-3. **CAST.** One entry per character who appears: name, one line on look and
+3. **CAST.** One entry per character who appears: name, character code with
+   costume (`DA-CH-007-C01`, from list_characters), one line on look and
    wardrobe, the `asset:<id>` of the character sheet, and the sheet's status.
 4. **LOCATIONS.** One entry per place: name, a description (time of day, light,
    key props, layout, what is in the background), and the `asset:<id>` of each
@@ -152,6 +153,13 @@ that is, when no blocking flag remains. Advice flags stay listed.
   in the book.
 - Assets keep their world, piece type, tags and source. Adding to a storybook is
   additive membership. Never remove an asset from its other collections.
+- A storybook belongs to one world. To move it to another world (a world
+  split), use `world_move { world, shelf: <storybook id>, dryRun: true }`, then
+  run it with a `session`. It keeps its id, so covers, stories and links keep
+  working; its pieces leave the old world with it, and the result lists those
+  that also left other shelves there. Stories filed elsewhere in the old world
+  that point at the storybook come back in `storiesToRepoint`: set their
+  `folderId` to a collection of the new world with `update_story`.
 - Source WebP originals, Pinterest captures and outside inspiration are never
   members of a production storybook. Derived thumbnails are exempt.
 

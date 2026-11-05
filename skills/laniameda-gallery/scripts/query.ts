@@ -384,8 +384,17 @@ function parseGalleryId(value: string, expectedKind?: GalleryIdKind) {
     return { kind: expectedKind, id: trimmed };
   }
 
+  const prefix = separatorIndex > 0 ? trimmed.slice(0, separatorIndex) : "";
+  const elsewhere: Record<string, string> = {
+    moodboard: "get_moodboard { moodboardId }", story: "get_story { id }", character: "get_character { character }",
+    stack: "list_inbox_decisions { stackId }", card: "list_inbox_decisions on its stack", task: "get_task { taskId }",
+    video: "get_video_ref { id }", world: "open_world { world }", collection: "list_collections / open_world (bare folderId)",
+  };
+  if (prefix && elsewhere[prefix]) {
+    throw new Error(`${prefix}:<id> is read with ${elsewhere[prefix]}, not getById (asset:<id>, skill:<id> or pack:<id>). Typed-ID table: references/data-model.md.`);
+  }
   throw new Error(
-    "Typed gallery ID is required. Use asset:<id>, pack:<id>, design:<id> or skill:<id>.",
+    "Typed gallery ID is required: asset:<id>, skill:<id> or pack:<id> (design:<id> is read-only legacy). A bare id is usually an asset: asset:<id>. Typed-ID table: references/data-model.md.",
   );
 }
 

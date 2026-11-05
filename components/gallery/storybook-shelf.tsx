@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import Image from "next/image";
+import { useMemo, useState } from "react";
 import {
   BookOpen,
   ChevronDown,
@@ -11,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { hasAssetDragPayload, readAssetDragPayload } from "@/lib/asset-drag";
+import { buildGridImageAttrs } from "@/lib/grid-image";
 import {
   parseStorybookMeta,
   type StorybookMedium,
@@ -21,17 +21,94 @@ import {
 export type ShelfBook = {
   id: string;
   name: string;
+  /** The story's head (status, runtime and medium lines). */
   story?: string;
+  /** First story beat, sent by the server so the shelf needs no full text. */
+  hook?: string | null;
   count: number;
-  previews: Array<{ src: string; kind?: "image" | "video" }>;
+  previews: Array<ShelfPreview>;
 };
 
-type StatusFilter = "active" | StorybookStatus;
+export type ShelfPreview = {
+  src: string;
+  kind?: "image" | "video";
+  /** Renditions for srcset (lib/grid-image.ts), when the asset has them. */
+  variants?: ReadonlyArray<{ url: string; width: number }>;
+  thumbSrc?: string;
+  thumbWidth?: number;
+  fullSrc?: string;
+  fullWidth?: number;
+};
+
+// The shelf opens from the books of the last visit, so it has its final
+// height in the first frame instead of arriving with the Convex data and
+// pushing the whole grid down (home CLS 0.545 on 30 Oct and 1 Nov 2026).
+// The live list replaces it as soon as it lands.
+const shelfCacheKey = (ownerUserId: string) => `lm.storybookShelf.books.v1.${ownerUserId}`;
+
+export function readShelfCache(ownerUserId: string): ShelfBook[] {
+  if (typeof window === "undefined" || !ownerUserId) return [];
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(shelfCacheKey(ownerUserId)) ?? "[]");
+    return Array.isArray(parsed) ? (parsed as ShelfBook[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function writeShelfCache(ownerUserId: string, books: ShelfBook[]) {
+  if (typeof window === "undefined" || !ownerUserId) return;
+  try {
+    window.localStorage.setItem(shelfCacheKey(ownerUserId), JSON.stringify(books));
+  } catch {
+    /* storage full or blocked: the shelf just waits for the live list */
+  }
+}
+
+const readCollapsed = () => {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+// The shelf card is clamp(240px, 24vw, 292px) wide. The strip dots are 30px.
+const SHELF_COVER_SIZES =
+  "(max-width: 1000px) 240px, (max-width: 1216px) 24vw, 292px";
+const STRIP_SIZES = "30px";
+
+function ShelfImage({
+  preview,
+  sizes,
+  className,
+}: {
+  preview: ShelfPreview;
+  sizes: string;
+  className: string;
+}) {
+  const attrs = buildGridImageAttrs(preview);
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- srcset over R2 renditions, see lib/grid-image.ts
+    <img
+      src={attrs.src}
+      srcSet={attrs.srcSet}
+      sizes={attrs.srcSet ? sizes : undefined}
+      alt=""
+      loading="lazy"
+      decoding="async"
+      className={`absolute inset-0 h-full w-full ${className}`}
+    />
+  );
+}
+
+export type StatusFilter = "active" | StorybookStatus;
 
 const COLLAPSE_KEY = "lm.storybookShelf.collapsed";
 const READY = "#79B791";
 
-const STATUS_OPTIONS: Array<{ id: StatusFilter; label: string }> = [
+export const STATUS_OPTIONS: Array<{ id: StatusFilter; label: string }> = [
   { id: "active", label: "All" },
   { id: "ready", label: "Ready" },
   { id: "not-ready", label: "Not ready" },
@@ -39,61 +116,25 @@ const STATUS_OPTIONS: Array<{ id: StatusFilter; label: string }> = [
   { id: "archived", label: "Archived" },
 ];
 
-const MEDIUM_OPTIONS: Array<{ id: StorybookMedium; label: string }> = [
+export const MEDIUM_OPTIONS: Array<{ id: StorybookMedium; label: string }> = [
   { id: "animated", label: "Animated" },
   { id: "live-action", label: "Live action" },
 ];
 
-type Entry = { book: ShelfBook; meta: StorybookMeta };
+export type ShelfEntry = { book: ShelfBook; meta: StorybookMeta };
 
-export function StorybookShelf({
-  books,
-  mode,
-  onOpen,
-  onCreate,
-  onSeeAll,
-  onDropAssets,
-}: {
-  books: ShelfBook[];
-  mode: "shelf" | "grid";
-  onOpen: (storybookId: string) => void;
-  onCreate?: (name: string) => Promise<string | null>;
-  onSeeAll?: () => void;
-  onDropAssets?: (storybookId: string, assetIds: string[]) => void;
-}) {
+/** Status, world and medium filters over the books; the home shelf and the
+ *  Storybooks view share them. "All" leaves archived books out. */
+export function useStorybookFilters(books: ShelfBook[]) {
   const [status, setStatus] = useState<StatusFilter>("active");
   const [world, setWorld] = useState<string | null>(null);
   const [medium, setMedium] = useState<StorybookMedium | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    try {
-      setCollapsed(window.localStorage.getItem(COLLAPSE_KEY) === "1");
-    } catch {
-      /* storage can be blocked; the shelf just starts open */
-    }
-  }, []);
-
-  const toggleCollapsed = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try {
-        window.localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
-
-  const entries = useMemo<Entry[]>(
+  const entries = useMemo<ShelfEntry[]>(
     () =>
       books.map((book) => ({
         book,
-        meta: parseStorybookMeta(book.name, book.story),
+        meta: parseStorybookMeta(book.name, book.story, book.hook),
       })),
     [books],
   );
@@ -112,19 +153,67 @@ export function StorybookShelf({
       id === "active" ? meta.status !== "archived" : meta.status === id,
     ).length;
 
-  const visible = entries.filter(({ meta }) => {
-    if (status === "active" ? meta.status === "archived" : meta.status !== status)
-      return false;
-    if (world && meta.world !== world) return false;
-    if (medium && meta.medium !== medium) return false;
-    return true;
-  });
+  const visible = useMemo(
+    () =>
+      entries.filter(({ meta }) => {
+        if (status === "active" ? meta.status === "archived" : meta.status !== status)
+          return false;
+        if (world && meta.world !== world) return false;
+        if (medium && meta.medium !== medium) return false;
+        return true;
+      }),
+    [entries, medium, status, world],
+  );
 
   const filtering = status !== "active" || world !== null || medium !== null;
   const clear = () => {
     setStatus("active");
     setWorld(null);
     setMedium(null);
+  };
+
+  return {
+    entries, worlds, visible, statusCount, filtering, clear,
+    status, setStatus, world, setWorld, medium, setMedium,
+  };
+}
+
+/** The storybook shelf on the home page: a row of cards; a card opens its
+ *  book in the Storybooks view. */
+export function StorybookShelf({
+  books,
+  onOpen,
+  onCreate,
+  onSeeAll,
+  onDropAssets,
+}: {
+  books: ShelfBook[];
+  onOpen: (storybookId: string) => void;
+  onCreate?: (name: string) => Promise<string | null>;
+  onSeeAll?: () => void;
+  onDropAssets?: (storybookId: string, assetIds: string[]) => void;
+}) {
+  const {
+    worlds, visible, statusCount, filtering, clear,
+    status, setStatus, world, setWorld, medium, setMedium,
+  } = useStorybookFilters(books);
+  // Read before the first paint: a shelf that folds after mounting shifts
+  // the grid under it.
+  const [collapsed, setCollapsed] = useState(readCollapsed);
+  const [creating, setCreating] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const toggleCollapsed = () => {
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
   };
 
   const submit = async () => {
@@ -143,8 +232,6 @@ export function StorybookShelf({
     }
   };
 
-  const isShelf = mode === "shelf";
-
   return (
     <section
       aria-label="Storybooks"
@@ -152,8 +239,6 @@ export function StorybookShelf({
       style={{ fontFamily: "var(--lm-font)" }}
     >
       <div
-        className="mx-auto"
-        style={{ maxWidth: isShelf ? "1180px" : "1480px" }}
       >
         {/* Header */}
         <div className="flex items-center gap-3 pb-3 pt-2">
@@ -190,11 +275,10 @@ export function StorybookShelf({
                 New
               </HeaderButton>
             ) : null}
-            {isShelf && onSeeAll ? (
+            {onSeeAll ? (
               <HeaderButton onClick={onSeeAll}>See all →</HeaderButton>
             ) : null}
-            {isShelf ? (
-              <HeaderButton
+            <HeaderButton
                 onClick={toggleCollapsed}
                 label={collapsed ? "Show storybooks" : "Hide storybooks"}
               >
@@ -204,7 +288,6 @@ export function StorybookShelf({
                   <ChevronUp className="h-3.5 w-3.5" aria-hidden />
                 )}
               </HeaderButton>
-            ) : null}
           </div>
         </div>
 
@@ -245,7 +328,7 @@ export function StorybookShelf({
           </form>
         ) : null}
 
-        {!collapsed || !isShelf ? (
+        {!collapsed ? (
           <>
             {/* Filters: three separate groups */}
             <div
@@ -336,25 +419,17 @@ export function StorybookShelf({
               </p>
             ) : (
               <div
-                className={isShelf ? "flex gap-4 overflow-x-auto pb-3" : "grid gap-4"}
-                style={
-                  isShelf
-                    ? {
-                        scrollSnapType: "x proximity",
-                        scrollbarWidth: "thin",
-                      }
-                    : {
-                        gridTemplateColumns:
-                          "repeat(auto-fill, minmax(260px, 1fr))",
-                      }
-                }
+                className="flex gap-4 overflow-x-auto pb-3"
+                style={{
+                  scrollSnapType: "x proximity",
+                  scrollbarWidth: "thin",
+                }}
               >
                 {visible.map(({ book, meta }) => (
                   <Tile
                     key={book.id}
                     book={book}
                     meta={meta}
-                    fixedWidth={isShelf}
                     onOpen={onOpen}
                     onDropAssets={onDropAssets}
                   />
@@ -385,12 +460,13 @@ function HeaderButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className="flex items-center gap-1 px-3 py-1.5 transition-colors"
+      className="flex shrink-0 items-center gap-1 px-3 py-1.5 transition-colors"
       style={{
         fontSize: "9px",
         fontWeight: 800,
         letterSpacing: "0.14em",
         textTransform: "uppercase",
+        whiteSpace: "nowrap",
         color: active ? "var(--lm-text-primary)" : "var(--lm-text-secondary)",
         border: active
           ? "2px solid var(--lm-coral)"
@@ -547,13 +623,11 @@ function StatusBadge({ meta }: { meta: StorybookMeta }) {
 function Tile({
   book,
   meta,
-  fixedWidth,
   onOpen,
   onDropAssets,
 }: {
   book: ShelfBook;
   meta: StorybookMeta;
-  fixedWidth: boolean;
   onOpen: (storybookId: string) => void;
   onDropAssets?: (storybookId: string, assetIds: string[]) => void;
 }) {
@@ -606,10 +680,10 @@ function Tile({
       }
       className="group flex cursor-pointer flex-col overflow-hidden outline-none focus-visible:ring-2 focus-visible:ring-[var(--coral)]"
       style={{
-        width: fixedWidth ? "clamp(240px, 24vw, 292px)" : undefined,
-        flex: fixedWidth ? "0 0 auto" : undefined,
+        width: "clamp(240px, 24vw, 292px)",
+        flex: "0 0 auto",
         scrollSnapAlign: "start",
-        borderRadius: "16px",
+        borderRadius: "var(--lm-radius)",
         border: over
           ? "2px solid var(--lm-coral)"
           : "2px solid var(--lm-border)",
@@ -623,12 +697,9 @@ function Tile({
         style={{ aspectRatio: "16 / 10", backgroundColor: "var(--surface-3)" }}
       >
         {cover ? (
-          <Image
-            src={cover.src}
-            alt=""
-            fill
-            unoptimized
-            sizes="300px"
+          <ShelfImage
+            preview={cover}
+            sizes={SHELF_COVER_SIZES}
             className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
           />
         ) : (
@@ -673,12 +744,9 @@ function Tile({
                   border: "1px solid rgba(255,244,234,0.55)",
                 }}
               >
-                <Image
-                  src={frame.src}
-                  alt=""
-                  fill
-                  unoptimized
-                  sizes="30px"
+                <ShelfImage
+                  preview={frame}
+                  sizes={STRIP_SIZES}
                   className="object-cover"
                 />
               </div>

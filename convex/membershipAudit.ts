@@ -2,6 +2,7 @@ import { internalMutation } from "./_generated/server";
 import { recountFolderMembers } from "./folderHelpers";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
+import { syncPublicCollectionMembership } from "./publicCollectionCounts";
 
 // ---------------------------------------------------------------------------
 // Membership invariant audit.
@@ -40,7 +41,10 @@ export const run = internalMutation({
       const folder = await ctx.db.get(asset.folderId);
       if (!folder) {
         danglingPrimaryCleared += 1;
-        if (!dryRun) await ctx.db.patch(asset._id, { folderId: undefined });
+        if (!dryRun) {
+          await ctx.db.patch(asset._id, { folderId: undefined });
+          await syncPublicCollectionMembership(ctx, asset._id);
+        }
         continue;
       }
       const link = await ctx.db
@@ -59,6 +63,7 @@ export const run = internalMutation({
             createdAt: now,
           });
           touchedFolderIds.add(asset.folderId);
+          await syncPublicCollectionMembership(ctx, asset._id);
         }
       }
     }

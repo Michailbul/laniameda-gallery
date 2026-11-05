@@ -24,6 +24,36 @@ Save the story, whatever its source and shape.
 Status: `idea` for a raw capture, `draft` while it is being shaped, `ready` when
 Michael calls it done, `archived` to shelve it. Keep the story's own wording.
 
+## What Stories refuses (2 Nov 2026)
+
+The Stories tab is Michael's to read, so the backend keeps clutter out:
+
+- **Agent tickets** (a title like `GAL-DA-WARD-N186 · …`, any `CODE-CODE ·`
+  prefix) are refused. Tickets are tasks: `create_task` on the tasks wall.
+- **Test saves** (`zz …`, `test …`, "undo test") are refused. Nothing is saved
+  in Stories to check a write.
+- **Version copies** (`[replaced] …`, `[history, superseded …]`, `ARCHIVED · …`,
+  `Copy of …`) are refused. Revise the story itself with `update_story`: every
+  earlier text stays in its revision history. Archive with `status: "archived"`.
+- **Pictures the text does not name.** Every picture you link in `assetIds`
+  must appear in `body` as `asset:<id>`, on the line about it (the cast line,
+  the beat, the example). The tab shows each picture under the line that names
+  it, so a dump of frames the text never mentions is refused. Links a story
+  already had stay; a link to a picture deleted since is dropped on the next save.
+
+These rules apply when a story is created or its title changes, so an old
+record can always be edited or archived.
+
+## How Michael reads it
+
+The tab is markdown first. **Human** renders the body as markdown, puts each
+named picture in a strip under its line and leaves out agent codes
+(DA-CH-001-C02). **Agent** shows a front-matter block (story id, kind, status,
+world and storybook folder ids, tags, revision, ingestKey) above the raw
+markdown, and Copy md copies both. So write the body as markdown: `##` headings
+for parts, `-` lists for cast and beats, one picture reference per line it
+belongs to. Archived records are out of the list, under Archive.
+
 ## Capture rules for found stories
 
 - Save the original wording as found, in `body`. Do not summarize it away, rewrite
@@ -60,8 +90,16 @@ bun skills/laniameda-gallery/scripts/gallery.mjs list_stories '{"search":"tram",
 bun skills/laniameda-gallery/scripts/gallery.mjs get_story '{"id":"story:<id>"}'
 ```
 
-`list_stories` filters by `search`, `folderId`, `kind`, `status`, and `limit`
-(1–500, default 200). Results include full text. The browser offers world,
+`list_stories` filters by `search`, `world` (or `folderId`), `kind`, `status`
+and `limit` (1–500, default 200). Rows carry the record without `searchText`,
+owner or creation time: title, kind, status, logline, hook, styleTag, tagNames,
+assetIds, ingestKey, revision, updatedAt, `url`, `bodyChars` and a 300-character
+`excerpt`; `includeBody: true` returns the full `body` instead (a world's
+scripts can run to hundreds of KB). The result carries `count`, `limit`,
+`truncated` and, when truncated, `next.updatedBefore`: pass it as
+`updatedBefore` for the following page. `get_story` reads one record in full.
+`get_story`, `save_story` and `update_story` return the story with its gallery page as `url`
+(`https://gallery.laniameda.space/stories/<id>`), for Michael to open. The browser offers world,
 status, and type filters and keyword search over the returned texts.
 
 ## From story to storybook
@@ -99,6 +137,9 @@ and actual anchor `assetIds`. Update the same record as the direction evolves,
 using `expectedRevision`. Read it and the authenticated content of
 `references/worlds.md` before creating scenes or sheets. Style locks belong to
 worlds; inspiration stories do not.
+
+To package a found recipe as a lock in one call (examples checked, moodboard
+linked, cited or flagged), use `package_style`: references/styles.md.
 
 The private world policy records the current world map and exact rendering
 lanes. Read its current content rather than copying world identities into this

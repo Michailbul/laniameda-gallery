@@ -89,6 +89,34 @@ the settings. You can then choose a collection and drop images, videos, or an
 entire folder into the panel; supported media inside folders is queued
 recursively before upload.
 
+The extension is loaded unpacked from this repo's `extension/` folder. After a
+pull, open `chrome://extensions` and press the reload arrow on **Save to
+Gallery**; there is no build step.
+
+On midjourney.com the extension adds three things for Dear Annete work:
+
+- **Moodboard dock.** Under the Imagine prompt box, one chip per gallery
+  moodboard of the chosen world (`GET /api/extension/moodboards?world=…`). A
+  click sets that board's `--profile <code>` in the prompt and keeps the taste
+  profiles; clicking the active chip clears it. Hovering a chip shows six
+  full-size pictures of the board. Codes are read from the gallery on every
+  refresh (45 s, tab focus, the ↻ button) and never cached, so a board whose
+  code changed after a Midjourney sync shows the new code at once. Only the
+  world choice is stored.
+- **Hotkeys** on a selected Midjourney image (Mac, `Ctrl` elsewhere):
+  `⌘⇧D` adds it to the Dear Annete world, `⌘⇧L` as a `location`, `⌘⇧P` as a
+  `scene`, `⌘⇧M` adds it and opens a comment box. The targets live in
+  `extension/save-targets.js`; comments post to `/api/extension/comments`.
+- **Prompt packs.** A bar of short phrases from the world's lexicon (style
+  openers and the 35mm film block, architecture by city level, exterior and
+  interior rooms, light, camera, wardrobe by class, world markers, the fantasy
+  elements). A click inserts the phrase at the cursor, or before or after your
+  own words (the mode switch on the bar); a second click removes it. Flags such
+  as `--profile` and `--ar` are never touched. The phrases are in
+  `extension/prompt-packs-data.js` and carry no real place, river, artist or
+  brand names; the gallery world (`open_world dear-annete`, docs/midjourney.md)
+  is their source.
+
 See [`agent-docs/ENV_MATRIX.md`](agent-docs/ENV_MATRIX.md) for the complete env reference
 and [`agent-docs/AUTH.md`](agent-docs/AUTH.md) for the full Telegram login setup.
 

@@ -2,31 +2,7 @@
 
 import { internalAction } from "./_generated/server";
 import { v } from "convex/values";
-
-const resolveTelegramChatId = (ownerUserId: string) => {
-  const normalized = ownerUserId.trim();
-  if (!normalized) {
-    return null;
-  }
-
-  if (normalized.startsWith("telegram:")) {
-    const telegramId = normalized.slice("telegram:".length).trim();
-    return telegramId || null;
-  }
-
-  return normalized;
-};
-
-const resolveTelegramNotificationBotToken = () => {
-  const explicitNotifyToken = process.env.TELEGRAM_NOTIFY_BOT_TOKEN?.trim();
-  if (explicitNotifyToken) {
-    return explicitNotifyToken;
-  }
-
-  // Backward-compatible fallback while migrating existing environments.
-  const legacyToken = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  return legacyToken || null;
-};
+import { resolveTelegramChatId, resolveTelegramNotificationBotToken, sendTelegramMessage } from "./telegram";
 
 export const notifyKBIngest = internalAction({
   args: {
@@ -67,27 +43,7 @@ export const notifyKBIngest = internalAction({
     const status = args.isDuplicate ? "⚠️ Duplicate" : "✅ Saved";
     const text = `${status} → [${args.pillar}] ${preview}${model}${tags}`;
 
-    try {
-      const response = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text,
-        }),
-      });
-
-      if (!response.ok) {
-        const bodyText = await response.text().catch(() => "");
-        console.warn("Telegram KB ingest notification failed", {
-          status: response.status,
-          bodyText,
-        });
-      }
-    } catch (error) {
-      console.warn("Failed to send Telegram KB ingest notification", error);
-    }
-
+    await sendTelegramMessage(token, chatId, text, "KB ingest");
     return null;
   },
 });

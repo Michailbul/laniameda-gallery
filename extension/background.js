@@ -1,17 +1,27 @@
 // Save to Gallery — Background service worker
 
 // Capture-time conversion plus collection-derived type classification.
-importScripts("image-convert.js", "collection-classification.js");
+// Saved-status lookups are batched, cached and backed off (asset-status.js).
+importScripts(
+  "image-convert.js",
+  "collection-classification.js",
+  "asset-status.js",
+  "save-targets.js",
+  "midjourney-adapter.js",
+  "midjourney-copy-list.js",
+);
 
-const collectionClassification = globalThis.SaveToGalleryCollectionClassification;
+const saveTargets = globalThis.SaveToGallerySaveTargets;
 
 const CANONICAL_API_HOST = "gallery.laniameda.space";
 const SAVE_ROUTE_PATH = "/api/extension/save";
 const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
 const FOLDERS_ROUTE_PATH = "/api/extension/folders";
 const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
+const MOODBOARDS_ROUTE_PATH = "/api/extension/moodboards";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const X_POST_ROUTE_PATH = "/api/extension/x-post";
+const COMMENTS_ROUTE_PATH = "/api/extension/comments";
 const DEFAULT_API_URL = `https://${CANONICAL_API_HOST}${SAVE_ROUTE_PATH}`;
 // Installs that stored an older host rewrite themselves to CANONICAL_API_HOST on
 // the next call, so nobody has to re-enter the API URL after a domain move.
@@ -24,11 +34,16 @@ const LAST_FOLDER_ID_KEY = "lastFolderId";
 // Written by content.js on every save. See readSavePreset there — the presence
 // of the array (not its length) marks an explicit "no collection" save.
 const LAST_FOLDER_IDS_KEY = "lastFolderIds";
-const UPLOAD_FOLDER_ID_KEY = "uploadFolderId";
-const UPLOAD_ASSET_TYPE_TAG_KEY = "uploadAssetTypeTag";
-const UPLOAD_STYLE_TAG_KEY = "uploadStyleTag";
-const UPLOAD_TAG_NAMES_KEY = "uploadTagNames";
-const ADD_SELECTED_COMMAND = "add-selected-asset";
+const QUICK_SAVE_COMMANDS = {
+  "add-dear-annete": "world",
+  "add-as-location": "location",
+  "add-as-scene": "scene",
+};
+const COMMENT_SAVE_COMMAND = "add-with-comment";
+// ⌘⇧P: the hovered image (or Midjourney's open one) with the last save's settings.
+const LAST_SETTINGS_SAVE_COMMAND = "save-last-settings";
+const CONTENT_SCRIPT_FILES = chrome.runtime.getManifest().content_scripts?.[0]?.js ?? [];
+const CONTENT_STYLE_FILES = chrome.runtime.getManifest().content_scripts?.[0]?.css ?? [];
 const SAVE_IMAGE_CONTEXT_MENU_ID = "save-image-to-laniameda";
 const OPEN_SAVE_MENU_CONTEXT_MENU_ID = "open-save-menu-laniameda";
 // Pinterest's hover layer covers the <img>, so a right-click on a pin rarely
@@ -183,55 +198,6 @@ async function getSavePresetFolderIds() {
   return seed ? [seed] : [];
 }
 
-async function addSelectedMidjourneyFromShortcut() {
-  const [tabs, syncCfg, localCfg, folderResponse] = await Promise.all([
-    chrome.tabs.query({ active: true, lastFocusedWindow: true }),
-    chrome.storage.sync.get([UPLOAD_FOLDER_ID_KEY]),
-    chrome.storage.local.get([
-      UPLOAD_ASSET_TYPE_TAG_KEY,
-      UPLOAD_STYLE_TAG_KEY,
-      UPLOAD_TAG_NAMES_KEY,
-    ]),
-    getFolders(),
-  ]);
-  const tab = tabs[0];
-  if (typeof tab?.id !== "number" || !isTabMessageUrl(tab.url)) {
-    return { ok: false, error: "Open a Midjourney job page first." };
-  }
-
-  const folderId = String(syncCfg[UPLOAD_FOLDER_ID_KEY] || "").trim();
-  const impliedAssetTypeTag = collectionClassification.resolveFolderAssetTypeTag(
-    folderId,
-    folderResponse?.folders,
-  );
-  const seenTags = new Set();
-  const tagNames = collectionClassification.applyImpliedAssetTypeTag(
-    [
-      impliedAssetTypeTag || localCfg[UPLOAD_ASSET_TYPE_TAG_KEY],
-      localCfg[UPLOAD_STYLE_TAG_KEY],
-      ...(Array.isArray(localCfg[UPLOAD_TAG_NAMES_KEY])
-        ? localCfg[UPLOAD_TAG_NAMES_KEY]
-        : []),
-    ],
-    impliedAssetTypeTag,
-  ).reduce((tags, value) => {
-    const tag = String(value || "").trim();
-    const key = tag.toLowerCase();
-    if (!tag || seenTags.has(key)) return tags;
-    seenTags.add(key);
-    tags.push(tag);
-    return tags;
-  }, []);
-
-  return chrome.tabs.sendMessage(tab.id, {
-    action: "saveActiveMidjourneyAsset",
-    folderId: folderId || undefined,
-    folderIds: folderId ? [folderId] : [],
-    tagNames,
-    triggeredByShortcut: true,
-  });
-}
-
 async function saveToGallery(payload) {
   const config = await getConfig();
   const folderIds = normalizeFolderIds(payload.folderIds);
@@ -251,6 +217,7 @@ async function saveToGallery(payload) {
         collectionPillar: payload.collectionPillar || undefined,
         promptText: payload.promptText || undefined,
         modelName: payload.modelName || undefined,
+        midjourneyMetadata: payload.midjourneyMetadata || undefined,
         tagNames: payload.tagNames || [],
         file: payload.file || undefined,
         ingestKey: payload.ingestKey || undefined,
@@ -561,7 +528,128 @@ async function saveOriginalMidjourneyAsset(payload) {
     imageHeight: uploaded.imageHeight,
     mediaType: "image",
   });
-  return { ...response, contentType: uploaded.mediaContentType };
+  const comment = String(payload.comment || "").trim();
+  if (!response.ok || !comment) {
+    return { ...response, contentType: uploaded.mediaContentType };
+  }
+  const assetId = response.result?.assetId;
+  const noted = await addExtensionComment(assetId, comment);
+  return {
+    ...response,
+    contentType: uploaded.mediaContentType,
+    commentSaved: noted.ok,
+    commentError: noted.ok ? undefined : noted.error,
+  };
+}
+
+// Only the page's own world can see the React props that hold a job's typed
+// personalization codes, seed and speed. Asked for at save time, so nothing of
+// ours stays running in the page.
+async function readMidjourneyPageJob(jobId, sender) {
+  const tabId = sender?.tab?.id;
+  if (typeof tabId !== "number" || !/^[0-9a-f-]{20,}$/i.test(String(jobId || ""))) {
+    return null;
+  }
+  if (!isMidjourneyDocumentUrl(sender.tab.url)) return null;
+  const [injection] = await chrome.scripting.executeScript({
+    target: { tabId, frameIds: [sender.frameId ?? 0] },
+    world: "MAIN",
+    func: globalThis.SaveToGalleryMidjourney.readJobFromPageWorld,
+    args: [jobId],
+  });
+  return injection?.result ?? null;
+}
+
+// The one writer of the copy list, so two Midjourney tabs cannot overwrite each
+// other. Tabs follow the list through chrome.storage.onChanged.
+const midjourneyCopyList = globalThis.SaveToGalleryMidjourneyCopyList.createStore(
+  chrome.storage.local,
+);
+const MIDJOURNEY_COPY_LIST_ACTIONS = {
+  copyListAdd: (message) => midjourneyCopyList.add(message.entry),
+  copyListAddDetails: (message) =>
+    midjourneyCopyList.addDetails(message.key, message.details),
+  copyListRemove: (message) => midjourneyCopyList.remove(message.key),
+  copyListClear: () => midjourneyCopyList.clear(),
+};
+
+async function addExtensionComment(assetId, body) {
+  const id = String(assetId || "").trim();
+  const text = String(body || "").trim();
+  if (!id) return { ok: false, error: "The save did not return an asset." };
+  if (!text) return { ok: false, error: "Comment is empty." };
+  const config = await getConfig();
+  const url = normalizeRouteUrl(config.apiUrl, COMMENTS_ROUTE_PATH);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: apiHeaders(config),
+      body: JSON.stringify({ assetId: id, body: text }),
+    });
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+  if (!response.ok || !data?.ok) {
+    return { ok: false, error: data?.error || `HTTP ${response.status}` };
+  }
+  return { ok: true };
+}
+
+let dearAnneteWorldId = "";
+
+async function dearAnneteTarget(kind) {
+  if (!dearAnneteWorldId) {
+    const listed = await listMoodboards("");
+    if (!listed?.ok) {
+      throw new Error(listed?.error || "Could not load gallery worlds.");
+    }
+    dearAnneteWorldId = saveTargets.worldIdFromList(listed.worlds);
+  }
+  return saveTargets.buildQuickSave(kind, dearAnneteWorldId);
+}
+
+async function activeMidjourneyTab() {
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  const tab = tabs[0];
+  if (typeof tab?.id !== "number" || !isTabMessageUrl(tab.url)) {
+    throw new Error("Open a Midjourney image first.");
+  }
+  if (!isMidjourneyDocumentUrl(tab.url)) {
+    throw new Error("Open a Midjourney image first.");
+  }
+  return tab;
+}
+
+async function quickSaveMidjourney(kind) {
+  const target = await dearAnneteTarget(kind);
+  const tab = await activeMidjourneyTab();
+  return chrome.tabs.sendMessage(tab.id, {
+    action: "saveActiveMidjourneyAsset",
+    folderId: target.folderId,
+    folderIds: target.folderIds,
+    tagNames: target.tagNames,
+    savedLabel: target.label,
+    triggeredByShortcut: true,
+  });
+}
+
+async function openMidjourneyComment() {
+  const target = await dearAnneteTarget("world");
+  const tab = await activeMidjourneyTab();
+  return chrome.tabs.sendMessage(tab.id, {
+    action: "openGalleryComment",
+    folderId: target.folderId,
+    folderIds: target.folderIds,
+    tagNames: target.tagNames,
+    savedLabel: target.label,
+  });
 }
 
 // A capture comes back either as inline base64 or, when it was too large for
@@ -674,6 +762,7 @@ const CONTENT_SCRIPT_JS_FILES = [
   "image-convert.js",
   "image-qualification.js",
   "midjourney-adapter.js",
+  "midjourney-copy-list.js",
   "krea-adapter.js",
   "higgsfield-adapter.js",
   "pinterest-adapter.js",
@@ -966,17 +1055,17 @@ async function saveXPost(payload, tab) {
 }
 
 // Read-only "already saved?" lookup — powers the In-gallery state on the
-// Midjourney viewer save widget.
-async function checkAssetStatus(payload) {
-  const imageUrls = Array.isArray(payload.imageUrls)
-    ? payload.imageUrls
-        .filter((url) => typeof url === "string" && url.trim())
-        .slice(0, 8)
-    : [];
-  if (imageUrls.length === 0) {
-    return { ok: false, error: "imageUrls is required." };
-  }
+// Midjourney viewer save widget. One request carries every url asked for
+// within a short window; answers are cached (see asset-status.js).
+const assetStatus = globalThis.SaveToGalleryAssetStatus.createAssetStatusClient({
+  fetchStatuses: (imageUrls) => fetchAssetStatuses(imageUrls),
+});
 
+function checkAssetStatus(payload) {
+  return assetStatus.check(Array.isArray(payload.imageUrls) ? payload.imageUrls : []);
+}
+
+async function fetchAssetStatuses(imageUrls) {
   const config = await getConfig();
   const statusUrl = normalizeRouteUrl(config.apiUrl, ASSET_STATUS_ROUTE_PATH);
 
@@ -1011,6 +1100,36 @@ async function checkAssetStatus(payload) {
   }
 
   return { ok: true, statuses: Array.isArray(data?.statuses) ? data.statuses : [] };
+}
+
+// ── Moodboards (gallery moodboard codes for the Midjourney dock) ──
+
+async function listMoodboards(world) {
+  const config = await getConfig();
+  let url = normalizeRouteUrl(config.apiUrl, MOODBOARDS_ROUTE_PATH);
+  if (world) {
+    url += `?world=${encodeURIComponent(world)}`;
+  }
+  let response;
+  try {
+    response = await fetch(url, { method: "GET", headers: apiHeaders(config) });
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}` };
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    // body wasn't JSON
+  }
+  if (!response.ok || !data) {
+    return {
+      ok: false,
+      status: response.status,
+      error: data?.error || `HTTP ${response.status}`,
+    };
+  }
+  return data;
 }
 
 // ── Collections (stored as `folders` rows) ──
@@ -1187,18 +1306,44 @@ async function requestUploadSession(payload) {
   };
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const copyListAction = MIDJOURNEY_COPY_LIST_ACTIONS[message.action];
+  if (copyListAction) {
+    copyListAction(message)
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => {
+        console.warn("[Save to Gallery] copy list write failed:", err?.message);
+        sendResponse({ ok: false, error: err?.message || "Could not update the copy list." });
+      });
+    return true;
+  }
+
+  if (message.action === "readMidjourneyPageJob") {
+    readMidjourneyPageJob(message.jobId, sender)
+      .then(sendResponse)
+      .catch((err) => {
+        console.warn("[Save to Gallery] page job read failed:", err?.message);
+        sendResponse(null);
+      });
+    return true;
+  }
+
   if (message.action === "saveOriginalMidjourneyAsset") {
     saveOriginalMidjourneyAsset({
       imageUrl: message.imageUrl,
       sourceUrl: message.sourceUrl,
       promptText: message.promptText,
       modelName: message.modelName,
+      midjourneyMetadata: message.midjourneyMetadata,
       folderId: message.folderId,
       folderIds: message.folderIds,
       tagNames: message.tagNames,
+      comment: message.comment,
     })
-      .then(sendResponse)
+      .then((result) => {
+        if (result?.ok) assetStatus.markSaved(message.imageUrl);
+        sendResponse(result);
+      })
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
@@ -1209,6 +1354,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sourceUrl: message.sourceUrl,
       promptText: message.promptText,
       modelName: message.modelName,
+      midjourneyMetadata: message.midjourneyMetadata,
       folderId: message.folderId,
       folderIds: message.folderIds,
       collectionPillar: message.collectionPillar,
@@ -1227,7 +1373,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       mediaType: message.mediaType,
       inputImages: message.inputImages,
     })
-      .then(sendResponse)
+      .then((result) => {
+        if (result?.ok) assetStatus.markSaved(message.imageUrl);
+        sendResponse(result);
+      })
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
   }
@@ -1343,6 +1492,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === "listMoodboards") {
+    listMoodboards(message.world)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "getDearAnneteTarget") {
+    dearAnneteTarget("world")
+      .then((target) => sendResponse({ ok: true, ...target }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
   if (message.action === "createFolder") {
     createFolder({
       name: message.name,
@@ -1380,9 +1543,48 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
     console.warn("[Save to Gallery] context menu handler failed:", err);
   });
 });
+// A tab opened before the extension was (re)loaded has no content script yet:
+// inject it once, then deliver the message.
+async function sendToActiveTab(message) {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) throw new Error("No active tab.");
+  try {
+    return await chrome.tabs.sendMessage(tab.id, message);
+  } catch {
+    await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: CONTENT_STYLE_FILES }).catch(() => undefined);
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: CONTENT_SCRIPT_FILES });
+    return chrome.tabs.sendMessage(tab.id, message);
+  }
+}
+
+// The extension is loaded unpacked from the gallery repo. When a pull changes
+// the files on disk, the running worker is stale: compare the manifest on disk
+// with the one this worker started from and reload. Checked at most once a minute.
+let lastUpdateCheck = 0;
+async function reloadIfUpdatedOnDisk() {
+  if (Date.now() - lastUpdateCheck < 60_000) return;
+  lastUpdateCheck = Date.now();
+  try {
+    const onDisk = await (await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" })).json();
+    if (onDisk?.version && onDisk.version !== chrome.runtime.getManifest().version) chrome.runtime.reload();
+  } catch {
+    /* an unreadable manifest mid-write: try again next time */
+  }
+}
+chrome.tabs.onActivated.addListener(() => { void reloadIfUpdatedOnDisk(); });
+
 chrome.commands.onCommand.addListener((command) => {
-  if (command !== ADD_SELECTED_COMMAND) return;
-  addSelectedMidjourneyFromShortcut().catch((err) => {
-    console.warn("[Save to Gallery] add shortcut failed:", err);
+  void reloadIfUpdatedOnDisk();
+  const kind = QUICK_SAVE_COMMANDS[command];
+  const run = command === LAST_SETTINGS_SAVE_COMMAND
+    ? sendToActiveTab({ action: "saveWithLastSettings" })
+    : kind
+      ? quickSaveMidjourney(kind)
+      : command === COMMENT_SAVE_COMMAND
+        ? openMidjourneyComment()
+        : null;
+  if (!run) return;
+  run.catch((err) => {
+    console.warn("[Save to Gallery] shortcut failed:", err);
   });
 });

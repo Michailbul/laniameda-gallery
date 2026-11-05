@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { createGalleryClient, GalleryError } from "../skills/laniameda-gallery/scripts/gallery-client.mjs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createGalleryClient, GalleryError, galleryEnvFilePath, readGalleryTokenFile, resolveGalleryToken } from "../skills/laniameda-gallery/scripts/gallery-client.mjs";
 
 const wrapped = (result: unknown) => ({ content: [{ type: "text", text: JSON.stringify(result) }] });
 describe("agent-written local code Gallery client", () => {
@@ -74,5 +77,23 @@ describe("agent-written local code Gallery client", () => {
     expect((await client.videoRefs.inventory()).videos).toEqual([{ _id: "v" }]);
     expect(await client.skills.delete("s")).toMatchObject({ mediaPreserved: true });
     expect(called).toEqual(["list_video_refs_page", "delete_skill"]);
+  });
+  test("token falls back to the export line in ~/.config/laniameda/gallery.env", () => {
+    const home = mkdtempSync(join(tmpdir(), "gallery-client-home-"));
+    const env = { HOME: home } as Record<string, string>;
+    expect(galleryEnvFilePath(env)).toBe(join(home, ".config", "laniameda", "gallery.env"));
+    expect(resolveGalleryToken(env)).toBe("");
+    mkdirSync(join(home, ".config", "laniameda"), { recursive: true });
+    const file = join(home, ".config", "laniameda", "gallery.env");
+    writeFileSync(file, "# gallery\nexport LANIAMEDA_GALLERY_API_URL=https://x\nexport LANIAMEDA_GALLERY_AGENT_TOKEN='lgat_file.token'  # note\n");
+    expect(readGalleryTokenFile(file)).toBe("lgat_file.token");
+    expect(resolveGalleryToken(env)).toBe("lgat_file.token");
+    expect(resolveGalleryToken({ ...env, LANIAMEDA_GALLERY_AGENT_TOKEN: " lgat_env " })).toBe("lgat_env");
+    writeFileSync(file, 'export LANIAMEDA_GALLERY_AGENT_TOKEN="two words"\n');
+    expect(resolveGalleryToken(env)).toBe("");
+    const other = join(home, "other.env");
+    writeFileSync(other, "LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_other\n");
+    expect(resolveGalleryToken({ ...env, LANIAMEDA_GALLERY_ENV_FILE: other })).toBe("lgat_other");
+    expect(() => createGalleryClient({ token: "" })).toThrow(/gallery\.env/);
   });
 });

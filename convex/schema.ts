@@ -2,9 +2,18 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { presetFiltersValidator, storyFields } from "./storyValidators";
 import {
+  characterCostumeValidator, characterLaneValidator, characterLinkRoleValidator, characterStatusValidator,
+} from "./characterValidators";
+import { moodboardCodeHistoryEntryValidator, moodboardStatusValidator } from "./moodboardValidators";
+import { inboxCardFields, inboxCountFields, inboxDecisionFields, inboxStackFields } from "./inboxValidators";
+import { taskEventFields, taskFields } from "./taskValidators";
+import { newspaperFields } from "./newspaperValidators";
+import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
+import {
   agentTokenScopeValidator,
   storedAssetRoleValidator,
   cinemaMetadataValidator,
+  midjourneyMetadataValidator,
   designCaptureKindValidator,
   designInspirationStatusValidator,
   designInspirationTypeValidator,
@@ -27,7 +36,19 @@ import {
   bookmarkPostFields,
   tagSourceValidator,
   workflowTypeValidator,
+  thumbVariantValidator,
 } from "./validators";
+import { SEMANTIC_VECTOR_DIMENSIONS } from "./semanticStorage";
+
+// A split-storage vector row: the lane's vector plus the scope keys the
+// vector filter needs. Everything else about the source lives in its entry.
+const semanticVectorFields = {
+  scopeKey: v.string(),
+  scopePillarKey: v.optional(v.string()),
+  publicScopeKey: v.optional(v.string()),
+  publicScopePillarKey: v.optional(v.string()),
+  embedding: v.array(v.float64()),
+};
 
 export default defineSchema({
   assetArchive: defineTable({
@@ -41,6 +62,73 @@ export default defineSchema({
     ownerUserId: v.string(), resourcePath: v.string(), content: v.string(),
     version: v.string(), sha256: v.string(), createdAt: v.number(), updatedAt: v.number(),
   }).index("by_owner_path", ["ownerUserId", "resourcePath"]),
+  // A world's own files: WORLD.md (its CLAUDE.md), LEARNINGS.md and a few
+  // docs/<name>.md. Size caps live in lib/world-docs.ts; every write is a
+  // worldChanges entry holding the before and after text.
+  worldDocs: defineTable({
+    ownerUserId: v.string(), worldFolderId: v.id("folders"), path: v.string(),
+    body: v.string(), revision: v.number(), updatedBy: v.string(),
+    createdAt: v.number(), updatedAt: v.number(),
+  }).index("by_owner_world_path", ["ownerUserId", "worldFolderId", "path"]),
+  // The world journal: every change made through a world write, with the
+  // state before and after it (JSON text) so it can be undone.
+  worldChanges: defineTable({
+    ownerUserId: v.string(), worldFolderId: v.id("folders"),
+    op: v.string(), targetType: v.string(), targetId: v.string(), summary: v.string(),
+    actor: v.string(), session: v.optional(v.string()),
+    before: v.optional(v.string()), after: v.optional(v.string()),
+    // Set on an undo entry: the change it reverted.
+    revertOf: v.optional(v.id("worldChanges")),
+    // Set on a reverted change: the undo entry that reverted it.
+    revertedBy: v.optional(v.id("worldChanges")),
+    createdAt: v.number(),
+  })
+    .index("by_owner_world_createdAt", ["ownerUserId", "worldFolderId", "createdAt"])
+    .index("by_owner_session_createdAt", ["ownerUserId", "session", "createdAt"])
+    .index("by_owner_target_createdAt", ["ownerUserId", "targetId", "createdAt"]),
+  // A Midjourney personalization profile (taste, trained by Michael's
+  // rankings), used with --profile <code>. Owner-level: one profile can serve
+  // several worlds, each with its own role; a world sees only its own uses.
+  mjProfiles: defineTable({
+    ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
+    code: v.string(), mjProfileId: v.optional(v.string()),
+    status: v.union(v.literal("active"), v.literal("retired")),
+    notes: v.optional(v.string()),
+    codeHistory: v.array(v.object({ code: v.string(), at: v.number(), note: v.optional(v.string()) })),
+    uses: v.array(v.object({
+      worldFolderId: v.id("folders"), role: v.string(), styleTag: v.optional(v.string()),
+    })),
+    revision: v.number(), createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_normalizedName", ["ownerUserId", "normalizedName"])
+    .index("by_owner_code", ["ownerUserId", "code"]),
+  // One named style of a world (Ink Noir, Lacquer & Brass, Long Sun): how a
+  // frame is made, whatever it shows. Its frames are the members of its
+  // shelf (a child collection in the group Styles); the record holds what the
+  // shelf cannot: a one-line description, the cover frames, the recipes
+  // (moodboards and profiles in stack order, parameters, a prompt template)
+  // and what raises or lowers the look. The long recipe text stays in the
+  // style lock (a style-lock Story), linked by lockStoryId.
+  worldStyles: defineTable({
+    ownerUserId: v.string(), worldFolderId: v.id("folders"),
+    name: v.string(), slug: v.string(),
+    line: v.optional(v.string()),
+    // Carousel group inside the universe ("Film", "Art Deco", "3D").
+    family: v.optional(v.string()),
+    status: worldStyleStatusValidator,
+    shelfFolderId: v.optional(v.id("folders")),
+    coverAssetIds: v.array(v.id("assets")),
+    recipes: v.array(worldStyleRecipeValidator),
+    raises: v.array(v.string()),
+    lowers: v.array(v.string()),
+    lockStoryId: v.optional(v.id("stories")),
+    notes: v.optional(v.string()),
+    mergedIntoStyleId: v.optional(v.id("worldStyles")),
+    sortOrder: v.optional(v.number()),
+    revision: v.number(), createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_world_slug", ["ownerUserId", "worldFolderId", "slug"])
+    .index("by_owner_shelf", ["ownerUserId", "shelfFolderId"]),
   // Text is a first-class private save; no placeholder media or prompt needed.
   stories: defineTable({
     ownerUserId: v.string(), ...storyFields,
@@ -55,6 +143,267 @@ export default defineSchema({
     ownerUserId: v.string(), storyId: v.id("stories"), ...storyFields,
     revision: v.number(), savedAt: v.number(),
   }).index("by_story_revision", ["storyId", "revision"]),
+  // Named people of a world. `code` (DA-CH-001) is the stable ID agents and
+  // storybook CAST blocks cite; costumes are -C01, -C02 variants on the row.
+  characters: defineTable({
+    ownerUserId: v.string(), worldFolderId: v.id("folders"),
+    code: v.string(), prefix: v.string(), number: v.number(),
+    name: v.string(), alias: v.optional(v.string()), normalizedName: v.string(),
+    otherNames: v.array(v.string()), role: v.optional(v.string()),
+    lane: v.optional(characterLaneValidator), status: characterStatusValidator,
+    sheetAssetId: v.optional(v.id("assets")), faceAssetId: v.optional(v.id("assets")),
+    nameTag: v.optional(v.string()), notes: v.optional(v.string()),
+    costumes: v.array(characterCostumeValidator), lastCostumeNumber: v.number(),
+    // Count of characterAssets rows, kept by every link write and the asset
+    // delete cascade so listing the cast never reads every link.
+    linkCount: v.number(),
+    revision: v.number(), createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_code", ["ownerUserId", "code"])
+    .index("by_owner_world_number", ["ownerUserId", "worldFolderId", "number"])
+    .index("by_owner_world_normalizedName", ["ownerUserId", "worldFolderId", "normalizedName"])
+    .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"]),
+  // Per-world code prefix and counter, so a deleted character's number is
+  // never handed out again and two worlds never share a prefix.
+  characterWorlds: defineTable({
+    ownerUserId: v.string(), folderId: v.id("folders"), prefix: v.string(),
+    lastNumber: v.number(), createdAt: v.number(), updatedAt: v.number(),
+  })
+    .index("by_owner_folder", ["ownerUserId", "folderId"])
+    .index("by_owner_prefix", ["ownerUserId", "prefix"]),
+  // Typed asset-to-character link. One row per (character, asset); a sheet or
+  // face pointer on the character always has a row here.
+  characterAssets: defineTable({
+    ownerUserId: v.string(), characterId: v.id("characters"), assetId: v.id("assets"),
+    role: characterLinkRoleValidator, costumeCode: v.optional(v.string()),
+    note: v.optional(v.string()), createdAt: v.number(),
+  })
+    .index("by_character_createdAt", ["characterId", "createdAt"])
+    .index("by_character_asset", ["characterId", "assetId"])
+    .index("by_asset", ["assetId"]),
+  // An ordered set of gallery assets that defines one look, mirrored to a
+  // Midjourney moodboard (personalization code). Belongs to one plain
+  // collection: a world root or one of its children, never a storybook.
+  moodboards: defineTable({
+    ownerUserId: v.string(),
+    folderId: v.id("folders"),
+    name: v.string(),
+    // Unique per (owner, folder); a retried create returns the same board.
+    normalizedName: v.string(),
+    // What the board carries and when to use it.
+    description: v.optional(v.string()),
+    // Lowercase hyphenated style key, e.g. "da-film".
+    styleTag: v.optional(v.string()),
+    status: moodboardStatusValidator,
+    // Short personalization code ("88ji6bg"), kept as a string as given.
+    mjCode: v.optional(v.string()),
+    // Midjourney's moodboard id; prompts can use --profile m<id>.
+    mjMoodboardId: v.optional(v.string()),
+    mjUrl: v.optional(v.string()),
+    mjSyncedAt: v.optional(v.number()),
+    mjSyncedItemCount: v.optional(v.number()),
+    mjCodeHistory: v.optional(v.array(moodboardCodeHistoryEntryValidator)),
+    // Agent and owner notes: like rates, recipe partners ("+ DARI h2eu2z6").
+    notes: v.optional(v.string()),
+    coverAssetId: v.optional(v.id("assets")),
+    // Kept exact by every item write and the asset delete cascade.
+    itemCount: v.number(),
+    revision: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_owner_folder_normalizedName", ["ownerUserId", "folderId", "normalizedName"])
+    .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"])
+    .index("by_owner_mjCode", ["ownerUserId", "mjCode"]),
+  // One asset on one board. `position` ascends in display order; an append
+  // takes the last position + 1. One row per (board, asset).
+  moodboardItems: defineTable({
+    ownerUserId: v.string(),
+    moodboardId: v.id("moodboards"),
+    assetId: v.id("assets"),
+    position: v.number(),
+    note: v.optional(v.string()),
+    addedAt: v.number(),
+  })
+    .index("by_moodboard_position", ["moodboardId", "position"])
+    .index("by_moodboard_asset", ["moodboardId", "assetId"])
+    .index("by_asset", ["assetId"]),
+  // Notes on one asset, newest last: Michael's comments from the detail panel
+  // and agents' replies. Agents read them with the asset and act on them.
+  assetComments: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    // Empty when the comment is a voice note only.
+    body: v.string(),
+    author: v.union(v.literal("owner"), v.literal("agent")),
+    // A voice note in Convex file storage (Michael's notes from the Inbox).
+    audioStorageId: v.optional(v.id("_storage")),
+    audioDurationMs: v.optional(v.number()),
+    audioContentType: v.optional(v.string()),
+    // Where it was written; absent = the detail panel or an agent.
+    source: v.optional(v.literal("inbox")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_asset_createdAt", ["assetId", "createdAt"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
+  // In-place edits: one row per model per take sent on an asset from the
+  // detail panel, the Inbox zoom or an agent. Runs on fal or Pika along the
+  // model's route (lib/edit-models.ts); the result lands as a new asset in
+  // the source's collections with edit_source lineage. See convex/editJobs.ts.
+  editJobs: defineTable({
+    ownerUserId: v.string(),
+    sourceAssetId: v.id("assets"),
+    // The source's collections when the edit was sent; the result joins them.
+    folderIds: v.array(v.id("folders")),
+    worldFolderId: v.optional(v.id("folders")),
+    prompt: v.string(),
+    model: v.string(),
+    modelName: v.string(),
+    // The route in use (or the one that landed) and its request at the provider.
+    provider: v.string(),
+    endpoint: v.string(),
+    requestId: v.optional(v.string()),
+    statusUrl: v.optional(v.string()),
+    responseUrl: v.optional(v.string()),
+    attempts: v.array(v.object({
+      provider: v.string(),
+      endpoint: v.string(),
+      requestId: v.optional(v.string()),
+      error: v.optional(v.string()),
+      outOfCredit: v.optional(v.boolean()),
+      at: v.number(),
+    })),
+    // Bumped by every Retry that sends a new request (a fresh idempotency key).
+    retries: v.number(),
+    status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
+    error: v.optional(v.string()),
+    errorKind: v.optional(v.union(
+      v.literal("out_of_credit"), v.literal("provider"), v.literal("timeout"), v.literal("ingest"),
+    )),
+    estimateUsd: v.number(),
+    chargedUsd: v.optional(v.number()),
+    // True when the provider reported the charge (Pika billing); false = the estimate.
+    chargedExact: v.optional(v.boolean()),
+    batch: v.string(),
+    take: v.number(),
+    of: v.number(),
+    refAssetIds: v.array(v.id("assets")),
+    refNames: v.array(v.string()),
+    refsDropped: v.number(),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    resultAssetId: v.optional(v.id("assets")),
+    resultUrl: v.optional(v.string()),
+    createdBy: v.union(v.literal("owner"), v.literal("agent")),
+    pollCount: v.number(),
+    submittedAt: v.optional(v.number()),
+    finishedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_source_createdAt", ["sourceAssetId", "createdAt"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_result", ["resultAssetId"]),
+  // Provider keys and sign-ins set in Settings (fal and Pika API keys, the
+  // Magnific connection). `sealed` is AES-GCM ciphertext (convex/providerVault.ts);
+  // nothing here is ever returned to a client except `hint` and `account`.
+  providerCredentials: defineTable({
+    ownerUserId: v.string(),
+    provider: v.union(v.literal("fal"), v.literal("pika"), v.literal("magnific")),
+    sealed: v.string(),
+    // Last four characters of a key, or nothing for a sign-in.
+    hint: v.optional(v.string()),
+    // Who a sign-in belongs to (Magnific account email or name).
+    account: v.optional(v.string()),
+    checkedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_owner_provider", ["ownerUserId", "provider"]),
+  // The world Inbox ("Decisions"): stacks of cards agents post for Michael,
+  // one decision per card. See convex/inbox.ts.
+  inboxStacks: defineTable(inboxStackFields)
+    .index("by_owner_status_createdAt", ["ownerUserId", "status", "createdAt"])
+    .index("by_world_status_createdAt", ["worldFolderId", "status", "createdAt"])
+    .index("by_owner_world_ingestKey", ["ownerUserId", "worldFolderId", "ingestKey"]),
+  inboxCards: defineTable(inboxCardFields)
+    .index("by_stack_position", ["stackId", "position"])
+    .index("by_stack_key", ["stackId", "key"]),
+  inboxCounts: defineTable(inboxCountFields)
+    .index("by_stack", ["stackId"])
+    .index("by_owner_status", ["ownerUserId", "status"]),
+  // One perceptual hash (dHash, 16 hex) per image, for Group similar and the
+  // duplicates routine. Small rows of their own so grouping never reads asset
+  // rows. See convex/assetHashes.ts and convex/perceptualHash.ts.
+  assetHashes: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    dHash: v.string(),
+    createdAt: v.number(),
+  })
+    .index("by_asset", ["assetId"])
+    .index("by_owner", ["ownerUserId"]),
+  // What the auto-tagger (Jev at version 1, gpt-6-luna from version 2)
+  // answered about a picture and the tags that added. One row per asset;
+  // addedTagIds is exactly what undoClassificationTags takes back.
+  // See lib/facet-tags.ts and convex/tagClassify.ts.
+  assetClassifications: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    model: v.string(),
+    version: v.number(),
+    status: v.union(v.literal("done"), v.literal("error"), v.literal("no_image")),
+    answers: v.optional(v.record(v.string(), v.object({
+      choice: v.optional(v.string()),
+      confidence: v.optional(v.number()),
+      p: v.optional(v.number()),
+    }))),
+    addedTagIds: v.array(v.id("tags")),
+    error: v.optional(v.string()),
+    classifiedAt: v.number(),
+  })
+    .index("by_asset", ["assetId"])
+    .index("by_owner_classifiedAt", ["ownerUserId", "classifiedAt"]),
+  // Auto-shelving (convex/shelfClassify.ts, rule lib/shelf-rules.ts): which of
+  // its world's Places / World building / Moods shelves a new picture was put
+  // on, with the answers behind it, so a bad pick can be taken back.
+  assetShelfFilings: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    worldId: v.id("folders"),
+    model: v.string(),
+    version: v.number(),
+    status: v.union(v.literal("done"), v.literal("error")),
+    answers: v.optional(v.record(v.string(), v.object({
+      choice: v.optional(v.string()),
+      confidence: v.optional(v.number()),
+      p: v.optional(v.number()),
+    }))),
+    addedFolderIds: v.array(v.id("folders")),
+    error: v.optional(v.string()),
+    filedAt: v.number(),
+  })
+    .index("by_asset", ["assetId"])
+    .index("by_owner_filedAt", ["ownerUserId", "filedAt"]),
+  inboxDecisions: defineTable(inboxDecisionFields)
+    .index("by_stack", ["stackId"])
+    .index("by_card", ["cardId"]),
+  // The agent task queue ("Tasks"): work Michael or an agent files, an agent
+  // claims and completes, Michael reviews. A world task belongs to a root
+  // collection; a task without one is studio-wide. See convex/tasks.ts.
+  tasks: defineTable(taskFields)
+    .index("by_owner_status_createdAt", ["ownerUserId", "status", "createdAt"])
+    .index("by_world_status_createdAt", ["worldFolderId", "status", "createdAt"])
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"]),
+  // A task's timeline: claims, releases, status changes and comments.
+  taskEvents: defineTable(taskEventFields)
+    .index("by_task_createdAt", ["taskId", "createdAt"]),
+  // The morning newspaper: one edition per owner per Prague date, compiled by
+  // the daily cron (or on demand) from the tables above; facts as JSON, the
+  // agent's prose beside them. See convex/newspaper.ts.
+  newspapers: defineTable(newspaperFields)
+    .index("by_owner_date", ["ownerUserId", "date"]),
   galleryPresets: defineTable({
     ownerUserId: v.string(), name: v.string(), normalizedName: v.string(),
     filters: presetFiltersValidator, createdAt: v.number(), updatedAt: v.number(),
@@ -170,10 +519,29 @@ export default defineSchema({
     // everything, and search still finds its pieces. Hiding a root collection
     // hides its sub-collections too. Undefined = shown.
     hiddenFromGallery: v.optional(v.boolean()),
+    // Display group of a child collection inside its world ("Styles",
+    // "Places", "Cast"), at most 40 characters. Accepted on roots, ignored
+    // there. Undefined = ungrouped (listed after the groups, as before).
+    group: v.optional(v.string()),
+    // Order of a child inside its group, and of the group by its smallest
+    // member. Lower first; undefined after any set value.
+    sortOrder: v.optional(v.number()),
     // Denormalized count of assetFolders links pointing here. Maintained by
     // recountFolderMembers (self-healing recount after membership writes) —
     // never ±1 bookkeeping. Backfill: folders:recountAllFolderMembers.
     memberCount: v.optional(v.number()),
+    // Marks a root collection as a world: a separate story universe whose
+    // children (style branches, shelves, storybooks) belong to it alone.
+    // Lowercase hyphenated, unique per owner ("dear-annete"). Undefined = not
+    // a world (ART, LOVE and other shared shelves).
+    worldKey: v.optional(v.string()),
+    // A world root that is part of another world's universe: DEAR ANNETE —
+    // 3D, — ART DECO and IRON STAGE point at DEAR ANNETE, so one styles page
+    // shows every style of the story universe. Membership stays per world.
+    universeRootId: v.optional(v.id("folders")),
+    // Exact public assets, deduped across links + the legacy primary pointer.
+    // Only readable as complete after publicCollectionCountBackfill is done.
+    publicMemberCount: v.optional(v.number()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
@@ -184,7 +552,23 @@ export default defineSchema({
     .index("by_showcased", ["showcased"])
     .index("by_slug", ["slug"])
     .index("by_tasteCollection", ["tasteCollection"])
-    .index("by_parent", ["parentFolderId"]),
+    .index("by_publicMemberCount", ["publicMemberCount"])
+    .index("by_parent", ["parentFolderId"])
+    .index("by_owner_worldKey", ["ownerUserId", "worldKey"]),
+
+  // The counted contribution of each public asset. Reconciliation applies
+  // set differences in the same transaction as the source mutation, so
+  // retries, duplicate links and backfill/live-write overlap cannot drift.
+  publicCollectionMemberships: defineTable({
+    assetId: v.id("assets"),
+    folderIds: v.array(v.id("folders")),
+  }).index("by_asset", ["assetId"]),
+  publicCollectionCountBackfill: defineTable({
+    key: v.literal("v1"),
+    cursor: v.union(v.string(), v.null()),
+    complete: v.boolean(),
+    scanned: v.number(),
+  }).index("by_key", ["key"]),
 
   // Curated filter pills on the main gallery menu. The owner manages these
   // from the filter bar's admin panel — the raw tag cloud never surfaces
@@ -278,6 +662,10 @@ export default defineSchema({
     thumbSize: v.optional(v.number()),
     thumbWidth: v.optional(v.number()),
     thumbHeight: v.optional(v.number()),
+    // Smaller grid renditions of the card thumb (480 and 960 wide, WebP) for
+    // the tile srcset; made at ingest and by the thumbnail backfill. Absent
+    // on videos without a poster and on images narrower than the widths.
+    thumbVariants: v.optional(v.array(thumbVariantValidator)),
     promptId: v.optional(v.id("prompts")),
     designInspirationId: v.optional(v.id("designInspirations")),
     // The saved social post this asset belongs to. A post's own preview has
@@ -310,6 +698,10 @@ export default defineSchema({
     // Optional owner note on why this one is starred. Only surfaced while the
     // asset is starred; kept on unstar so an accidental toggle loses nothing.
     starNote: v.optional(v.string()),
+    // Owner's SUPER LIKE (styles page, key ⇧1): a stronger like that stays
+    // private. Unlike the curator's star it never publishes or features the
+    // piece. Super liking also sets isLiked. Unset = not super liked.
+    superLikedAt: v.optional(v.number()),
     curatedByUserId: v.optional(v.string()),
     curatedAt: v.optional(v.number()),
     pillar: optionalPillarValidator,
@@ -319,6 +711,7 @@ export default defineSchema({
     assetPackId: v.optional(v.id("assetPacks")),
     packSlotIndex: v.optional(v.number()),
     cinemaMetadata: cinemaMetadataValidator,
+    midjourneyMetadata: midjourneyMetadataValidator,
     // Agent-written description: one or two plain sentences on what the piece
     // shows and why it was kept. Separate from `description` (Michael's own
     // caption) so user metadata and agent-derived metadata never mix. Indexed
@@ -344,6 +737,9 @@ export default defineSchema({
     .index("by_createdAt", ["createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_owner_name", ["ownerUserId", "name"])
+    // "Is this in the gallery?" for local boards: prefix ranges over
+    // mj-<job>-<index>.png and other saved file names (worldStyles.findAssets).
+    .index("by_owner_fileName", ["ownerUserId", "fileName"])
     .index("by_owner_isLiked_createdAt", ["ownerUserId", "isLiked", "createdAt"])
     // Backs the starred-first prepend: a small set read on its own so a starred
     // asset leads the grid even when its natural page hasn't streamed in yet.
@@ -357,6 +753,9 @@ export default defineSchema({
     .index("by_assetPack_packSlotIndex", ["assetPackId", "packSlotIndex"]),
   assetPacks: defineTable({
     ownerUserId: v.optional(v.string()),
+    // "stack": alternates Michael collapsed under one cover (Inbox duplicates).
+    // Prompt syncing never moves a stack's members. Absent = a prompt pack.
+    kind: v.optional(v.literal("stack")),
     title: v.string(),
     description: v.optional(v.string()),
     pillar: optionalPillarValidator,
@@ -700,6 +1099,77 @@ export default defineSchema({
         "publicScopePillarKey",
       ],
     }),
+  // Small, transactional projection for vector-hit hydration. Reading a
+  // semanticDocuments row just to resolve its source otherwise also reads
+  // both 3072-dimensional vectors. Legacy rows fall back until backfilled.
+  semanticDocumentIdentities: defineTable({
+    semanticDocumentId: v.id("semanticDocuments"),
+    semanticDocumentCreationTime: v.number(),
+    ownerUserId: v.string(),
+    sourceType: semanticSourceTypeValidator,
+    sourceId: v.string(),
+    assetId: v.optional(v.id("assets")),
+    skillId: v.optional(v.id("skills")),
+    pillar: optionalPillarValidator,
+    isPublic: v.boolean(),
+    kind: v.optional(v.union(v.literal("image"), v.literal("video"))),
+    modality: semanticModalityValidator,
+  }).index("by_semanticDocument", ["semanticDocumentId"]),
+  // Split semantic storage (SEMANTIC_STORAGE=dual|split, convex/semanticStorage.ts).
+  // One slim entry per asset or Skill maps a vector hit to its source and
+  // holds each lane's content hash; each lane's vector is a row of its own,
+  // so mapping hits, reindexing and authorizing a similarity search never read
+  // a vector they do not use. No entry for prompts or design inspirations:
+  // nothing searches them.
+  semanticEntries: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.optional(v.id("assets")),
+    skillId: v.optional(v.id("skills")),
+    pillar: optionalPillarValidator,
+    isPublic: v.boolean(),
+    modality: semanticModalityValidator,
+    // Only real image embeddings; an imageless asset is found by its words.
+    pixelVectorId: v.optional(v.id("semanticPixelVectors")),
+    // Absent beside a vector = kept for search but due for re-embedding.
+    pixelHash: v.optional(v.string()),
+    textVectorId: v.optional(v.id("semanticTextVectors")),
+    textHash: v.optional(v.string()),
+  })
+    .index("by_asset", ["assetId"])
+    .index("by_skill", ["skillId"])
+    .index("by_pixelVector", ["pixelVectorId"])
+    .index("by_textVector", ["textVectorId"]),
+  semanticPixelVectors: defineTable(semanticVectorFields)
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: SEMANTIC_VECTOR_DIMENSIONS,
+      filterFields: ["scopeKey", "scopePillarKey", "publicScopeKey", "publicScopePillarKey"],
+    }),
+  semanticTextVectors: defineTable(semanticVectorFields)
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: SEMANTIC_VECTOR_DIMENSIONS,
+      filterFields: ["scopeKey", "scopePillarKey", "publicScopeKey", "publicScopePillarKey"],
+    }),
+  // Cached agent inventory (convex/inventoryExport.ts): the complete default
+  // asset listing written to R2 as JSON parts, so an agent downloads one
+  // snapshot instead of paging every asset with its prompt, tags and
+  // collections. One row per owner; a rebuild writes new objects, then
+  // deletes the previous ones.
+  inventoryExports: defineTable({
+    ownerUserId: v.string(),
+    generatedAt: v.optional(v.number()),
+    assetCount: v.number(),
+    folderCount: v.number(),
+    byteSize: v.number(),
+    parts: v.array(v.object({ key: v.string(), count: v.number(), bytes: v.number() })),
+    // Newest asset createdAt in the snapshot: later reads append assets saved
+    // since without reading the rest again.
+    newestCreatedAt: v.optional(v.number()),
+    // Set while a rebuild runs, so concurrent requests do not build twice.
+    buildingSince: v.optional(v.number()),
+    updatedAt: v.number(),
+  }).index("by_owner", ["ownerUserId"]),
   // Cache of query-text embeddings so repeat searches (especially from the
   // public showcase) never re-hit the Gemini embedding endpoint, whose RPM
   // quota is small enough that live per-search calls 429 under light bursts.

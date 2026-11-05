@@ -14,34 +14,46 @@ owner-issued bearer token. Call get_skill_instructions for the needed reference,
 check_connection, then discover tools/input schemas. get_skill reads a saved
 reusable Skill; get_skill_instructions reads this instruction package.
 
-Without a connector, download both public client modules into the same directory:
+Without a connector, download both public client modules into the same directory
+and run them with `node` (20 or newer) or `bun`; neither needs packages:
 
 ```bash
 curl --fail --silent --show-error https://gallery.laniameda.space/skills/laniameda-gallery/scripts/gallery.mjs --output gallery.mjs
 curl --fail --silent --show-error https://gallery.laniameda.space/skills/laniameda-gallery/scripts/gallery-client.mjs --output gallery-client.mjs
-bun gallery.mjs check
-bun gallery.mjs tools
-bun gallery.mjs schema save_assets
-bun gallery.mjs all_assets '{"pageSize":200}' --out ./inventory
-bun gallery.mjs all_video_refs '{"pageSize":200}' --out ./youtube-inventory
+node gallery.mjs check
+node gallery.mjs tools
+node gallery.mjs schema save_assets
+node gallery.mjs all_assets --out ./inventory
+node gallery.mjs all_video_refs '{"pageSize":200}' --out ./youtube-inventory
 ```
 
-LANIAMEDA_GALLERY_AGENT_TOKEN comes from the owner's /agents token management.
-LANIAMEDA_GALLERY_API_URL can select a local preview or otherwise defaults to the
-canonical host. Never print tokens, paste them into URLs or include them in files
-destined for public Git. Public instructions grant no private data/write permission.
+The token is read from `LANIAMEDA_GALLERY_AGENT_TOKEN`. When that variable is
+empty, the client reads the `export LANIAMEDA_GALLERY_AGENT_TOKEN=…` line in
+`~/.config/laniameda/gallery.env` (the file Michael's shell profile sources;
+`LANIAMEDA_GALLERY_ENV_FILE` names another path). Only that line is parsed,
+nothing is executed. When both are empty the script exits 2 and names the file.
+Tokens come from the owner's /agents token management; in a cloud sandbox they
+belong in the environment's variables. LANIAMEDA_GALLERY_API_URL can select a
+local preview or otherwise defaults to the canonical host. Never print tokens,
+paste them into URLs or include them in files destined for public Git. Public
+instructions grant no private data/write permission.
 
 ## Custom scripts
 
-Import createGalleryClient from scripts/gallery-client.mjs in Bun. Configure
+Import createGalleryClient from scripts/gallery-client.mjs in Node or Bun. Configure
 token/apiUrl/fetch/timeoutMs/maxCalls as needed (or authenticated callTool/listTools
 bridges); discover/schema/call expose live
 tools. Resource namespaces include assets, collections, menuFilters, Skills, Stories,
-bookmarks, YouTube references and presets. Use
+characters, moodboards, inbox, bookmarks, YouTube references and presets. Use
 assets.pages()/assets.all() and videoRefs.pages()/videoRefs.all() for complete reads and filter/aggregate locally
 before printing concise results. assets.inventory() also returns completion, page
 count and scan metadata. The CLI --out takes a directory; all_assets writes
-<directory>/assets.json. Avoid printing private full inventory data unless
+<directory>/assets.json. Without filters all_assets reads the cached export
+(POST /api/agent/inventory: one snapshot rebuilt at most daily, with assets
+saved since appended; {"refresh":true} rebuilds it if older than 15 minutes,
+{"maxAgeMinutes":60} tightens the age). The snapshot does not reflect later
+edits or deletions: read single records with get_gallery_item before changing
+them. assets.pages()/all() page live and cost a full read every time. Avoid printing private full inventory data unless
 that export is requested. Read the actual module and tool schema for option names.
 
 ```javascript
@@ -58,7 +70,7 @@ const byKind = inventory.assets.reduce((counts, asset) => {
 console.log({ complete: inventory.complete, count: inventory.assets.length, byKind });
 ```
 
-Run this with Bun and the token in the environment. The code aggregates private
+Run this with Node or Bun; the token comes from the environment or gallery.env. The code aggregates private
 reads locally; no arbitrary server code or raw database access is required.
 A partial write throws GalleryError with the result/persisted IDs attached;
 inspect that state before repeating a write.
@@ -70,6 +82,10 @@ private world map/locks/IDs; references/maintenance.md returns setup and deploym
 policy. They require gallery:read, the configured owner and allowed MCP access.
 HTTP resource reads use Authorization: Bearer and private no-store responses.
 Do not guess rules from old installed copies if access is unavailable.
+update_skill_instructions (owner, gallery:write) replaces one of these two
+resources: pass the whole new text and the sha256 of the version you read;
+a stale sha256 is refused with 409. Over HTTP it is POST /api/agent/instructions
+with {action: "write", resource, content, expectedSha256}.
 
 ## Object operations and completion
 
@@ -80,6 +96,15 @@ Do not guess rules from old installed copies if access is unavailable.
   is an internal table/wire name only.
 - Collections: list/create/update; parentFolderId supports plain children and
   kind: storybook supports root visual books. Worlds are root collections.
+  Children can carry a display group and sortOrder.
+- Moodboards: list/get/save plus add/remove/reorder items; get_moodboard
+  returns image URLs in order for Midjourney and set_moodboard_midjourney
+  records the code after a sync (references/moodboards.md).
+- Inbox: post_inbox_cards posts decision cards (sort, duplicates, artifact,
+  ab, choose, rule) into a world's stack; list_inbox_decisions reads Michael's
+  answers, comments, voice notes and image notes; close_stack when acted on;
+  find_similar_groups finds near-identical images by perceptual hash
+  (references/inbox.md).
 - Native Stories: save/list/get/update; changes require the last-read revision.
 - Bookmarks and YouTube references have separate tools; ordinary media search
   does not search all objects. Motion/Cinematography use tagged assets/Skills.
@@ -87,8 +112,9 @@ Do not guess rules from old installed copies if access is unavailable.
 - Video posters: supply posterUploadId on creation; set_video_poster edits only
   the thumbnail while preserving the owned video and its links.
 
-list_assets remains bounded; follow list_assets_page until isDone true for an
-audit. Include descendants when reading a world root. Empty matching pages can
+list_assets remains bounded; follow list_assets_page until isDone true for a
+filtered or exact live audit, and use the cached export (all_assets) for a
+complete unfiltered inventory. Include descendants when reading a world root. Empty matching pages can
 have a continuation. Plain keyword matching and semantic search differ; inspect
 the schema rather than assuming every field is in every read/search surface.
 

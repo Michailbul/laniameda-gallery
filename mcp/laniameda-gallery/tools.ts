@@ -1,8 +1,32 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { storyInputSchema, storyPatchSchema, presetFiltersSchema } from "../../lib/story-contract";
+import {
+  buildStyleLockBody, matchBoards, MISSING_BOARD_FLAG, stylePackageIngestKey, stylePackageSchema, type BoardRow, type StyleExample,
+} from "../../lib/style-package";
 import { createSkillInputSchema } from "../../lib/skill-contract";
+import {
+  assetLookupSchema, styleFileSchema, styleGetSchema, styleListSchema, styleMergeSchema, styleSaveSchema, styleUniverseSchema,
+} from "../../lib/style-contract";
 import { galleryAssetPageInputSchema } from "../../lib/gallery-pagination";
+import {
+  characterCostumeSchema, characterCreateSchema, characterLinkSchema, characterListSchema, characterRefSchema,
+  characterRemoveCostumeSchema, characterUnlinkSchema, characterUpdateSchema,
+} from "../../lib/character-contract";
+import {
+  moodboardAddSchema, moodboardGenerationsSchema, moodboardListSchema, moodboardMidjourneySchema, moodboardRefSchema,
+  moodboardRemoveSchema, moodboardReorderSchema, moodboardSaveSchema,
+} from "../../lib/moodboard-contract";
+import { commentAddSchema, commentListSchema } from "../../lib/asset-comment-contract";
+import { editListSchema, editRetrySchema, editStartSchema } from "../../lib/asset-edit-contract";
+import { inboxCloseSchema, inboxListSchema, inboxPostSchema, inboxStackRefSchema, similarGroupsSchema } from "../../lib/inbox-contract";
+import {
+  taskClaimSchema, taskCommentSchema, taskCompleteSchema, taskCreateSchema, taskEditSchema, taskListSchema, taskRefSchema, taskReleaseSchema,
+} from "../../lib/tasks-contract";
+import { newspaperCompileSchema, newspaperGetSchema, newspaperWriteSchema } from "../../lib/newspaper-contract";
+import {
+  worldFileSchema, worldJournalSchema, worldMarkSchema, worldMoveSchema, worldOpenSchema, worldProfileSchema, worldRecountSchema, worldShelfSchema, worldUndoSchema,
+} from "../../lib/world-contract";
 
 // The gallery's MCP tool surface, shared by the local stdio server (server.ts)
 // and the hosted endpoint (app/api/mcp/route.ts). Every tool is a thin call into
@@ -27,15 +51,27 @@ export type GalleryToolOptions = {
 
 export const GALLERY_MCP_INSTRUCTIONS = [
   "laniameda.gallery is Michael's vault of the work he makes and the work he likes.",
+  "Worlds are separate story universes (DEAR ANNETE, ANDROMEDA — ANYA …). For any world work call open_world first: it returns the world's WORLD.md rules, learnings, styles and locks, shelves, storybooks, moodboards, Midjourney profiles and recent changes. Search and preview with world to stay inside it. Change things through world_doc, world_file, world_shelf, world_move, mj_profiles and the moodboard and story tools with a session label; every change is in world_journal and world_undo reverts it. An asset never belongs to two worlds.",
   "Fetch the current canonical skill from https://gallery.laniameda.space/llms.txt (entry: /skills/laniameda-gallery/SKILL.md; manifest.json lists its version and resources). Private world and maintenance references require the same owner-allowed gallery:read bearer token as MCP.",
   "Textual story ideas, scripts and versioned world style locks are private story records: save_story needs text and a stable ingestKey, never placeholder media. list_stories and get_story retrieve them; update_story preserves revisions. Gallery filter presets have list_filter_presets and save_filter_preset.",
-  "Collections (folders) are one level deep; resolve names with list_collections before filing.",
+  "When Michael sends inspiration (a link, a reel, screenshots, photos) with or without a project name, follow references/intake.md: save a clean source as inspiration, take a video or scene apart into frames, beats and a source-analysis story, and when he names a world, carry it through treatment and pre-production into a storybook (references/storybooks.md).",
+  "Named people are characters: one record per person per world with a stable code (DA-CH-001), costumes as -C01/-C02, a canonical sheet and face, and typed asset links. list_characters and get_character read the cast; create_character, update_character, save_character_costume and link_character_assets maintain it. Cite the code in captions and storybook CAST blocks. Read references/characters.md.",
+  "Moodboards are ordered sets of gallery images that each define one look and mirror a Midjourney moodboard (a personalization code); each belongs to a collection. list_moodboards and get_moodboard read them (get_moodboard returns full image URLs, in order, to push into Midjourney); save_moodboard, add_moodboard_items and reorder_moodboard_items maintain them; record the Midjourney code after a sync with set_moodboard_midjourney. Read references/moodboards.md.",
+  "A world holds several named styles (how a frame is made: medium, rendering, light, palette). list_styles reads a world's universe of styles with covers and recipe names; get_style one style with its moodboards, profiles, template, raises and lowers; save_style creates, renames, recovers or re-covers one; file_style puts frames on it; merge_styles folds two; world_universe joins sibling worlds (DEAR ANNETE — 3D into DEAR ANNETE) so they show on one styles page (/w/<world>/styles). find_assets answers 'is this Midjourney frame in the gallery?' for up to 500 job ids, file names or URLs at once.",
+  "A look worth keeping is packaged with package_style: one style-lock Story with the recipe, a copy-ready prompt, the example frames and their full prompts, the moodboards behind its codes (linked, cited from another world, or flagged MOODBOARD NOT CREATED YET) and what raises or lowers it. Run it with dryRun first. Read references/styles.md.",
+  "Each world has an Inbox (Decisions in the gallery, /inbox/<worldId>): stacks of cards where Michael decides and agents never judge taste. post_inbox_cards posts sort, duplicates, artifact, ab, choose or rule cards with facts as evidence; list_inbox_decisions reads his answers, comments and voice notes (transcribe them yourself) and his notes on single images; close_stack once you have applied and learned from a stack. Read references/inbox.md.",
+  "Collections (folders) are one level deep. Resolve names from open_world's shelves or with list_collections filtered by world (or parentFolderId, rootsOnly, search) before filing; an unfiltered list_collections is the whole vault. A child collection can carry a display group (Styles, Places, Cast) and sortOrder.",
   "What a piece IS is a tag: character, location, scene or inspiration. The animation tag marks animated work; no tag means live action.",
   "Every saved asset should carry sourceUrl when it came from the web, and an agentDescription: one or two plain sentences (max ~45 words) on what it shows and why it was kept.",
-  "Reuse existing tags (list_tags) before inventing new ones. Never star or publish anything unless asked. Ask before deleting.",
+  "Reuse existing tags before inventing new ones: read the world's docs/tags.md (open_world), trust the save-time canonical folding (case, -, _ and punctuation are one tag) and add_tag_aliases, and call list_tags filtered (search, category, minUsage; slim and paged) rather than whole. upsert_tags does not match aliases. Never star or publish anything unless asked. Ask before deleting.",
   "To see pieces rather than read URLs, use preview_assets; then get_gallery_item for the full record and prompt.",
+  "Michael comments on assets in the detail panel to steer the work. get_gallery_item returns an asset's comments; list_asset_comments reads one thread or the newest across the vault. Act on them, then reply with add_asset_comment saying what was done.",
+  "The gallery keeps a task queue (Tasks, /tasks). Michael's asset comments and Inbox answers become tasks by themselves; open_world lists a world's open tasks. Start a session or a cron run with list_tasks {status: 'open'}; claim_task before working; comment_task for progress; complete_task with a result that names the asset:/story:/stack: ids produced, or blocked: true with an ask: a one-line question and 2–4 picture options he picks with a click. Never stop silently. Read references/tasks.md.",
+  "Michael is the human in the loop and reads at product and art-direction level, by looking. Everything you show him (task titles and summaries, a question, the newspaper, a board) is plain words plus pictures: never ids, file paths, tool names, flags, seeds, scores, tables or experiment codes. Ask him one plain question with 2–4 picture options he picks with a click (complete_task ask). Put the reasoning and the details for agents in the brief or result: /tasks shows them only in its Agent view. Read references/tasks.md.",
+  "Every morning at 07:30 Prague the gallery compiles the newspaper (/newspaper): per world, what the journal says changed, what was saved, which tasks finished and which wait on Michael, the open Inbox stacks and the draft boards. get_newspaper reads the facts (latest, or by date); write_newspaper adds the narrative paragraph. The paper never stars, publishes or deletes anything. Read references/newspapers.md.",
   "YouTube videos kept as research (competitors, formats, animation styles) are video references, not assets: list_video_refs to read them, save_video_refs to add them.",
   "A post on X is saved as a bookmark with save_bookmarks: send the link, the gallery reads the author, text, media and counts itself, and links any piece already saved from that post. list_bookmarks reads saved posts as text; the tag `bookmark` narrows list_assets and search_gallery to them.",
+  "Liked Midjourney srefs live in the Midjourney Srefs collection. list_srefs reads exact recipes with version settings and examples; save_sref saves a private text recipe. Save all actual source attachments with their full ALT prompts, then link the bookmark. Read references/midjourney-srefs.md.",
   "To add local files (e.g. from ~/Downloads): prepare_uploads with up to 50 file names, run the curl commands it returns, then save_assets with up to 50 uploadIds. Public URLs go straight into save_assets. Inspect ok/partial and persisted IDs; do not automatically retry an unknown write outcome.",
 ].join(" ");
 
@@ -123,6 +159,18 @@ const commonIngestShape = {
   upstreamInputs: z.array(z.record(z.string(), z.unknown())).optional(),
 };
 
+// A world scopes a listing or search to its root collection and every shelf.
+const worldFilterShape = z
+  .string()
+  .describe("World key (dear-annete), name or root id: searches the world root and all its shelves. Use instead of folderId.")
+  .optional();
+// Journaled writes group by session so Michael can read and undo a piece of work as a unit.
+const sessionShape = z
+  .string()
+  .max(80)
+  .describe("Label for this piece of work (e.g. da-tram-stop-2026-10-23); the world journal groups and undoes by it.")
+  .optional();
+
 const namedFilterShape = {
   tagNames: z
     .array(z.string())
@@ -146,24 +194,36 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
   const { apiFetch, apiUrl, readLocalFile } = options;
 
   const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  server.registerTool("list_srefs", {
+    title: "List Midjourney srefs", annotations: readAnnotations,
+    description: "Read every reusable Midjourney sref recipe in an owned collection, grouped by exact codes, weights and versions. Includes saved example images, full prompts, notes and source links. Resolve the Midjourney Srefs collection with list_collections first.",
+    inputSchema: { folderId: z.string(), search: z.string().optional() },
+  }, async input => jsonText(await apiFetch("/api/agent/srefs", { action: "list", ...input })));
+  server.registerTool("save_sref", {
+    title: "Save Midjourney sref",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description: "Save a private reusable Midjourney sref recipe in a collection. Accepts numeric codes, weighted mixtures or image URLs with optional --sw, --sv and --v. Exact retries retain the first note. Save actual examples separately with save_assets and their full source prompts; this text recipe needs no placeholder image. Never publishes or stars anything.",
+    inputSchema: { folderId: z.string(), parameters: z.string().min(1).max(2000), title: z.string().max(200).optional(), note: z.string().max(2000).optional(), sourceUrl: z.url().optional() },
+  }, async input => jsonText(await apiFetch("/api/agent/srefs", { action: "save", ...input })));
   server.registerTool("get_gallery_contract", {
     description: "Discover the deployed scoped agent contract, paging guarantees, resources and client script. Read this before a complete inventory or code-driven workflow.",
     inputSchema: {}, annotations: readAnnotations,
   }, async () => jsonText({
-    contractVersion: "2026-10-08.3", serverVersion: "0.3.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
+    contractVersion: "2026-10-23.1", serverVersion: "1.0.0", apiUrl, clientResource: "scripts/gallery-client.mjs",
     transport: "Local JavaScript composes authenticated MCP tools; HTTP accepts the same scoped bearer token. Backend functions define resource access; raw SQL and arbitrary server code execution are unavailable.",
     scopes: { read: "gallery:read", writes: "gallery:write", deletion: "gallery:delete", deletionApproval: "Delete scope grants technical access only. Obtain explicit user approval for the named collection/preset or listed batch before deletion. Existing approval for those targets in the current session persists.", identity: "Owner comes from the authenticated token; caller-supplied owners are rejected for cursor listings." },
     pagination: { tool: "list_assets_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", includeSkillExamples: { default: false, true: "adds Skill-step assets, which otherwise stay inside their Skill unless requested by assetRole" }, hiddenCollections: "included", folderScope: "folderId alone selects direct members; includeDescendants:true adds its immediate owned children. No folderId covers all owned assets.", consistency: "Live records; no snapshot isolation. Restart after changing filters; client deduplicates IDs." },
+    inventoryExport: { endpoint: "POST /api/agent/inventory", client: "bun gallery.mjs all_assets --out <dir>", contents: "the default list_assets_page inventory (no filters) plus folders, as a snapshot rebuilt at most daily, with assets saved since appended", freshness: "maxAgeMinutes (default 1440); refresh:true rebuilds when the snapshot is older than 15 minutes; edits and deletions after generatedAt are not reflected", prefer: "Use it for complete inventories instead of paging every asset; page list_assets_page for filtered or exact live reads." },
     videoReferencePagination: { tool: "list_video_refs_page", pageSize: { min: 1, max: 200, default: 100 }, completion: "isDone=true, never an empty page", order: "owner-candidate-createdAt-desc", sorting: "Sort the completed inventory locally; convenience list_video_refs defaults to views." },
-    limits: { saveAssets: 50, prepareUploads: 50, saveBookmarks: 12, saveVideoRefs: 12, listAssets: "bounded convenience results; use list_assets_page for complete traversal", listSkills: 200, listStories: 500, listBookmarks: 500, listVideoRefs: 2000, sdkCalls: "default 1000 configurable calls; exceeding any traversal budget throws incomplete" },
-    resources: ["assets", "collections", "menuFilters", "skills", "stories", "presets", "bookmarks", "videoRefs"],
+    limits: { saveAssets: 50, prepareUploads: 50, saveBookmarks: 12, saveVideoRefs: 12, listAssets: "bounded convenience results; use list_assets_page for complete traversal", listSkills: 200, listStories: { default: 200, max: 500, includeBody: "false by default: a 300-character excerpt plus bodyChars; the result carries count, limit, truncated and next.updatedBefore" }, listTags: { default: 100, max: 500, fields: "slim by default; cursor pages" }, listCollections: "the owner's whole tree unless filtered by world, parentFolderId, rootsOnly, kind or search", listCharacters: 1000, linkCharacterAssets: 100, moodboardItems: 1000, addMoodboardItems: 100, listMoodboardGenerations: 60, postInboxCards: 100, inboxStackCards: 300, inboxTargets: "2–9", listBookmarks: 500, listVideoRefs: 2000, sdkCalls: "default 1000 configurable calls; exceeding any traversal budget throws incomplete" },
+    resources: ["worlds", "worldDocs", "worldJournal", "mjProfiles", "assets", "collections", "menuFilters", "skills", "stories", "characters", "moodboards", "inbox", "tasks", "newspapers", "presets", "bookmarks", "videoRefs"],
     policy: { source: "get_skill_instructions or authenticated canonical /skills/laniameda-gallery/ manifest resources", privateWorldRules: "references/worlds.md", sourceOfTruth: "Deployed schemas and scoped backend functions; instructions explain filing policy. Collections and menu filters are distinct from raw tags." },
   }));
 
   server.registerTool("list_assets_page", {
-    description: "Cursor page of owned assets with complete traversal, including hidden collections. Skill-step assets are left out unless includeSkillExamples is true or assetRole selects them. Keep the same filters and follow cursor until isDone, even through empty filtered pages. Search includes captions, agent descriptions, prompts, tags and bookmark text. Results are stable within owner spellings, newest-first; records are live, not a frozen snapshot.",
+    description: "Cursor page of owned assets with complete traversal, including hidden collections. Skill-step assets are left out unless includeSkillExamples is true or assetRole selects them. Keep the same filters and follow cursor until isDone, even through empty filtered pages. Search includes captions, agent descriptions, prompts, tags and bookmark text. Results are stable within owner spellings, newest-first; records are live, not a frozen snapshot. For a complete unfiltered inventory from a shell, the cached export (gallery.mjs all_assets) reads the gallery once a day instead of on every traversal.",
     annotations: readAnnotations,
-    inputSchema: galleryAssetPageInputSchema.shape,
+    inputSchema: { ...galleryAssetPageInputSchema.shape, world: worldFilterShape },
   }, async input => jsonText(await apiFetch("/api/agent/gallery", { action: "listAssetsPage", ...input })));
 
   server.registerTool("list_menu_filters", { description: "Read curated menu-filter IDs, labels, mappings, resolved tag IDs, counts and missing-folder flags. These IDs are used by filter presets; tag IDs are a different resource.", inputSchema: {}, annotations: readAnnotations }, async () => jsonText(await apiFetch("/api/agent/customize", { action: "listMenuFilters" })));
@@ -182,11 +242,277 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     inputSchema: { resource: z.string().min(1).max(160).describe("Allowlisted skill-relative path: SKILL.md (default), manifest.json, references/worlds.md, references/video-refs.md, or another reference listed by the manifest.").optional() },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   }, async (input) => jsonText(await apiFetch("/api/agent/instructions", input)));
+  server.registerTool("update_skill_instructions", {
+    title: "Update Gallery Instructions",
+    description: "Replace one of the owner-only instruction resources (references/worlds.md: the world table, shared shelves and gallery-wide filing rules; references/maintenance.md) that get_skill_instructions serves. Owner only, gallery:write. Read the resource first and pass its sha256 as expectedSha256: a stale one is refused (409), so nothing is overwritten unseen. content replaces the whole text (1 to 200,000 characters); version defaults to the deployed skill version. The manifest hash covers SKILL.md only, so no skill version bump is needed. A world's own rules live in its WORLD.md (world_doc), not here.",
+    inputSchema: {
+      resource: z.enum(["references/worlds.md", "references/maintenance.md"]),
+      content: z.string().min(1).max(200_000).describe("The whole new text of the resource."),
+      expectedSha256: z.string().regex(/^[0-9a-f]{64}$/).describe("sha256 from get_skill_instructions for this resource. Required when the resource exists.").optional(),
+      version: z.string().trim().min(1).max(40).describe("Recorded on the resource; default the deployed skill version.").optional(),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  }, async (input) => jsonText(await apiFetch("/api/agent/instructions", { action: "write", ...input })));
 
-  server.registerTool("save_story", { description: "Save a private textual idea, script or world style lock. No image required. Stable ingestKey deduplicates retries. Resolve world/format and source asset IDs first. Returns the persisted record.", inputSchema: { ...storyInputSchema.shape, ingestKey: z.string().min(1), expectedRevision: z.number().int().nonnegative().optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "save", ...input })));
-  server.registerTool("list_stories", { description: "Find private text ideas, scripts and style locks by keyword, world/format collection, kind or status. Up to 500 records; full text included.", inputSchema: { search: z.string().optional(), folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(), limit: z.number().int().min(1).max(500).optional() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "list", ...input })));
+  // Worlds: open one, read and edit its files, file pieces, shape shelves and
+  // storybooks, keep Midjourney profiles, and read or undo the journal.
+  // Compact JSON: a big world's context must fit in one tool result.
+  const worlds = (action: string) => async (input: JsonRecord) => ({
+    content: [{ type: "text" as const, text: JSON.stringify(await apiFetch("/api/agent/worlds", { action, ...input })) }],
+  });
+  const worldWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false };
+  server.registerTool("open_world", {
+    title: "Open World",
+    annotations: readAnnotations,
+    description: "Start here for any world work. No arguments: the list of worlds (key, name, counts). With a world: everything an agent needs in one call: WORLD.md (the world's rules), LEARNINGS.md, its other docs, style tags with their style locks, worldStyles (the world's named styles; list_styles reads the universe with covers) and universe (the sibling worlds read together; world.stylesUrl is the styles page), shelves and storybooks (with their stories), moodboards with codes and Midjourney sync state, Midjourney profiles with their role here, characters and the recent journal. Its ids are bare (no prefix): a shelf or storybook id is the folderId the filing tools take; a moodboard id goes to get_moodboard {moodboardId}; a story id to get_story {id}; a character by its code to get_character {character}; a profile to mj_profiles {profile}. Worlds are separate: nothing is filed, linked or boarded across them.",
+    inputSchema: worldOpenSchema.shape,
+  }, worlds("open"));
+  server.registerTool("world_doc", {
+    title: "World Doc",
+    annotations: worldWrite,
+    description: "Read and edit a world's files. op list | read | write | delete | history. Paths: WORLD.md (the world's CLAUDE.md; at most 8,000 characters), LEARNINGS.md (one dated line per learning with its source; at most 40 entries), docs/<kebab-name>.md (at most 8, 12,000 characters each). write replaces the whole text: read first and pass expectedRevision. Over a cap the write is refused: promote confirmed learnings into WORLD.md rules and delete superseded ones. Every write is journaled and can be undone.",
+    inputSchema: { world: z.string(), op: z.enum(["list", "read", "write", "delete", "history"]), path: z.string().optional(), body: z.string().optional(), expectedRevision: z.number().int().min(0).optional(), note: z.string().optional(), limit: z.number().int().optional(), session: sessionShape },
+  }, worlds("doc"));
+  server.registerTool("world_file", {
+    title: "File Into World",
+    annotations: worldWrite,
+    description: "Move, add or remove up to 100 assets between a world's shelves and add or remove tags, in one journaled change. addTo/removeFrom take shelf names or ids of this world (\"root\" is the world collection). An asset that lives in another world is refused unless move: true, which takes it out of the other world. Shared shelves outside worlds (ART, LOVE …) are kept. Undo with world_undo.",
+    inputSchema: worldFileSchema.shape,
+  }, worlds("file"));
+  server.registerTool("world_shelf", {
+    title: "World Shelf",
+    annotations: worldWrite,
+    description: "Create, rename, describe or regroup a shelf or storybook inside a world (groups: Styles, Places, Cast, World building, Moods, Footage, Storybooks). A storybook is a child of its world. Give shelf with a root collection's id to bring that collection into the world. Journaled; an empty shelf created by mistake is removed by world_undo.",
+    inputSchema: worldShelfSchema.shape,
+  }, worlds("shelf"));
+  server.registerTool("world_move", {
+    title: "Move To Another World",
+    annotations: worldWrite,
+    description: "The one deliberate way to move a shelf, storybook or moodboard from one world to another (update_collection and save_moodboard refuse to cross worlds). It keeps its ID, so boards, stories, covers and saved views that point at it keep working. A shelf or storybook goes under the target world's root and its pieces follow it: each leaves every other shelf of the source world, as world_file move does, and the result lists them. A moodboard goes into a plain collection of the target world (into); items of another world need items: move (they come along) or drop (they stay behind, listed). Its Midjourney code and sync record are kept. Refuses a world root, a target that is not a world or is the same world. Run dryRun: true first. Journaled in both worlds; world_undo reverts the whole move, pieces included.",
+    inputSchema: worldMoveSchema.shape,
+  }, worlds("move"));
+  server.registerTool("mj_profiles", {
+    title: "Midjourney Profiles",
+    annotations: worldWrite,
+    description: "Midjourney personalization profiles: Michael's taste, applied with --profile <code> after the moodboards. op list (with world: only its profiles and their role there) or save (world required: create with name + code + role, or change code, role, notes, status of an existing profile). A new code keeps the old one in codeHistory. Journaled in that world.",
+    inputSchema: worldProfileSchema.shape,
+  }, worlds("profiles"));
+  server.registerTool("world_journal", {
+    title: "World Journal",
+    annotations: readAnnotations,
+    description: "What changed in the worlds: every doc edit, filing, shelf, moodboard, profile and story change, newest first, with actor and session. Filter by world or session; page back with before. changeId returns one change in full with its before and after state.",
+    inputSchema: worldJournalSchema.shape,
+  }, worlds("journal"));
+  server.registerTool("world_undo", {
+    title: "Undo World Change",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    description: "Revert one journal change (changeId) or a whole session, newest first. Run with dryRun: true first: it lists what would be undone and what is blocked because something changed since. A session stops at the first blocked change. The undo is journaled too, so it can be undone.",
+    inputSchema: worldUndoSchema.shape,
+  }, worlds("undo"));
+  server.registerTool("world_recount", {
+    title: "Recount World",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description: "Repair a world's stored collection counts (memberCount and publicMemberCount, the numbers in the sidebar and Instructions view) from the real membership rows, for the root and every shelf and storybook. Every filing path keeps them exact, so use it only when a count looks wrong: dryRun: true first lists each collection with its stored and recounted counts. A real run patches the ones that differ and journals them in one change per pass. Before calling a count wrong, page list_assets_page {folderId} until isDone: a filtered page can be empty while the shelf is not.",
+    inputSchema: worldRecountSchema.shape,
+  }, worlds("recount"));
+  server.registerTool("mark_world", {
+    title: "Mark World",
+    annotations: worldWrite,
+    description: "Mark a root collection as a world (a separate story universe) or clear the mark. Only when Michael creates a new world. Journaled.",
+    inputSchema: worldMarkSchema.shape,
+  }, worlds("mark"));
+
+  const characterWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  const characters = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/characters", { action, ...input }));
+  // Character and Inbox schemas are passed whole (not as shapes): they are
+  // strict objects, so a key a tool does not take is refused with its name.
+  server.registerTool("list_characters", { title: "List Characters", annotations: readAnnotations, description: "Read the named cast: each person's code (DA-CH-001), name and alias, world, role, lane, status, costumes, canonical sheet/face asset IDs with thumbnails and link count. Filter by world (key such as dear-annete, name or root collection id; worldFolderId is an alias), status or search text (codes, names, former names, costumes). Without world the whole vault's cast comes back, several worlds mixed: a world's cast is read with its world.", inputSchema: characterListSchema }, characters("list"));
+  server.registerTool("get_character", { title: "Get Character", annotations: readAnnotations, description: "Read one character by code (DA-CH-001) or character:<id> (character, or id as an alias): full record, revision, costumes and every linked asset with its role (concept, sheet, face, costume, appears-in, reference), costume code and URLs.", inputSchema: characterRefSchema }, characters("get"));
+  server.registerTool("create_character", { title: "Create Character", annotations: characterWrite, description: "Register a named person in a world (world: key, name or root collection id; worldFolderId is an alias) and mint the next code for that world, e.g. DA-CH-007. Name plus alias is unique per world: repeating it returns the existing record with created:false instead of a second code. Codes are never reused. Status defaults to concept; set approved or sheeted only when Michael approved it. Optional sheet/face asset IDs become linked.", inputSchema: characterCreateSchema }, characters("create"));
+  server.registerTool("update_character", { title: "Update Character", annotations: characterWrite, description: "Change a character's name, alias, other names, role, lane, status, canonical sheet/face, name tag or notes. Supply expectedRevision from get_character. Omitted fields are kept; null clears. The code and world never change.", inputSchema: characterUpdateSchema }, characters("update"));
+  server.registerTool("save_character_costume", { title: "Save Character Costume", annotations: characterWrite, description: "Add a costume (next code C01, C02… never reused) or edit one by code. A costume holds its own sheet and face asset IDs, which become linked. Re-sending an existing costume name returns that costume.", inputSchema: characterCostumeSchema }, characters("costume"));
+  server.registerTool("remove_character_costume", { title: "Remove Character Costume", annotations: { ...characterWrite, destructiveHint: true }, description: "Remove one costume from a character after the user asks. Its assets stay linked to the person without a costume code; the code is not reissued.", inputSchema: characterRemoveCostumeSchema }, characters("removeCostume"));
+  server.registerTool("link_character_assets", { title: "Link Character Assets", annotations: characterWrite, description: "Link up to 100 owned assets to a character with a role (concept, sheet, face, costume, appears-in, reference) and optional costume code. One link per asset per character; relinking changes its role. An asset may link to several characters (a two-person scene). Does not change the asset's tags, captions or collections.", inputSchema: characterLinkSchema }, characters("link"));
+  server.registerTool("unlink_character_assets", { title: "Unlink Character Assets", annotations: { ...characterWrite, destructiveHint: true }, description: "Remove up to 100 asset links from a character, e.g. a face filed under the wrong person. Clears a sheet/face pointer that named the asset. The assets themselves are kept.", inputSchema: characterUnlinkSchema }, characters("unlink"));
+  server.registerTool("delete_character", { title: "Delete Character", annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }, description: "Delete a character record and its asset links only after the user names it for deletion. Media is kept and the code is never reissued. Requires gallery:delete. Prefer status retired to keep history.", inputSchema: characterRefSchema }, characters("delete"));
+
+  const moodboardWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  const moodboards = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/moodboards", { action, ...input }));
+  server.registerTool("list_moodboards", { title: "List Moodboards", annotations: readAnnotations, description: "List moodboards: ordered sets of gallery images that each define one look and mirror a Midjourney moodboard (personalization code). Pass a collection folderId, with includeChildren for a world root, or nothing for every board. Each row has id (moodboard:<id>), name, owning collection, status (draft, in-midjourney, archived), mjCode with its --profile flag, item count, revision and up to 6 preview images. Archived boards are left out unless status or includeArchived asks for them.", inputSchema: { ...moodboardListSchema.shape, world: worldFilterShape } }, moodboards("list"));
+  server.registerTool("get_moodboard", { title: "Get Moodboard", annotations: readAnnotations, description: "Read one moodboard (moodboardId: moodboard:<id> or the bare id from open_world; id is accepted as an alias) in full: every item in position order with its asset:<id>, full-size image url, width, height, kind, prompt excerpt, tags and agent description; imageUrls lists the image URLs alone, in order, ready to push into a Midjourney moodboard. Also returns the recorded code, Midjourney id and URL, code history, revision and sync state (images added or removed since the last recorded sync).", inputSchema: moodboardRefSchema.shape }, moodboards("get"));
+  server.registerTool("save_moodboard", { title: "Save Moodboard", annotations: moodboardWrite, description: "Create a moodboard in a plain collection (folderId + name), or patch one by moodboardId. Create is idempotent on the name inside its collection: repeating it returns the existing board with created:false and only fills fields that are still empty. A patch keeps omitted fields; null clears description, styleTag, notes, mjCode, mjMoodboardId or mjUrl; folderId moves the board; expectedRevision from get_moodboard guards concurrent edits. Changing mjCode here keeps the old code in history but records no sync: after an actual Midjourney sync use set_moodboard_midjourney.", inputSchema: { ...moodboardSaveSchema.shape, session: sessionShape } }, moodboards("save"));
+  server.registerTool("add_moodboard_items", { title: "Add Moodboard Items", annotations: moodboardWrite, description: "Append up to 100 owned assets to a moodboard in the given order. Assets already on it are skipped and reported. The first image becomes the cover when none is set. A board holds at most 1000 items. The assets' tags, captions and collections do not change.", inputSchema: { ...moodboardAddSchema.shape, session: sessionShape } }, moodboards("add"));
+  server.registerTool("remove_moodboard_items", { title: "Remove Moodboard Items", annotations: { ...moodboardWrite, destructiveHint: true }, description: "Take up to 100 assets off a moodboard. The assets themselves are kept; a removed cover falls back to the first remaining item.", inputSchema: { ...moodboardRemoveSchema.shape, session: sessionShape } }, moodboards("remove"));
+  server.registerTool("reorder_moodboard_items", { title: "Reorder Moodboard Items", annotations: moodboardWrite, description: "Set a moodboard's full display order: send every current item's asset ID exactly once, in the new order (get_moodboard lists them). A set that differs from the board's items is refused.", inputSchema: { ...moodboardReorderSchema.shape, session: sessionShape } }, moodboards("reorder"));
+  server.registerTool("set_moodboard_midjourney", { title: "Record Midjourney Sync", annotations: moodboardWrite, description: "Record a sync after creating or updating the Midjourney moodboard: the personalization code Midjourney shows (mjCode, e.g. 88ji6bg), the Midjourney moodboard id (prompts can use --profile m<id>), its URL and how many board images it now holds (syncedItemCount, default the board's item count). A changed code goes onto the board's code history. Sets status in-midjourney and the sync time. Read references/moodboards.md for the Midjourney steps.", inputSchema: { ...moodboardMidjourneySchema.shape, session: sessionShape } }, moodboards("set_midjourney"));
+  server.registerTool("list_moodboard_generations", { title: "List Moodboard Generations", annotations: readAnnotations, description: "Made with this board: the owner's gallery assets whose linked prompt carries the board's code, an earlier code or its --profile m<id>, newest first (limit up to 60). Each result names the matched code and whether it is already on the board. Empty until the board has a code or Midjourney id.", inputSchema: moodboardGenerationsSchema.shape }, moodboards("generations"));
+  server.registerTool("delete_moodboard", { title: "Delete Moodboard", annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }, description: "Delete a moodboard and its item list only after the user names it for deletion. The assets are kept and the Midjourney moodboard is not touched. Requires gallery:delete. Prefer status archived to keep a board out of the way.", inputSchema: { ...moodboardRefSchema.shape, session: sessionShape } }, moodboards("delete"));
+
+  const comments = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/comments", { action, ...input }));
+  server.registerTool("list_asset_comments", { title: "List Asset Comments", annotations: readAnnotations, description: "Read comments on gallery assets. Michael leaves them in an asset's detail panel or as notes in the Inbox to steer the work (fix this, more like this, file it there); agents reply. A voice note has audioUrl, audioDurationMs and audioContentType (body may be empty): download and transcribe it yourself. With assetId: that asset's whole thread, oldest first. Without: the newest comments across the vault, newest first, filtered by since (ms) and author (owner or agent). Each row has asset:<id>, author, body and times. get_gallery_item also returns an asset's thread.", inputSchema: commentListSchema.shape }, comments("list"));
+  server.registerTool("add_asset_comment", { title: "Reply On Asset", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }, description: "Add an agent reply to an asset's comment thread, e.g. what was done about Michael's comment and where the result is (asset:<id> of a new version). Plain text, one reply per call; it shows in the detail panel marked Agent.", inputSchema: commentAddSchema.shape }, comments("add"));
+  const edits = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/edits", { action, ...input }));
+  server.registerTool("edit_asset", { title: "Edit Asset In Place", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, description: "Run a targeted edit on one gallery image, the same in-place edit Michael runs from the detail panel or the Inbox zoom (key E). One job per model per take along the routing table, Magnific first on Michael's own sign-in where it has the model (krea-3 Magnific then fal; ideogram-precise Magnific; seedream-5 Magnific, Pika, fal; gpt-flare Magnific, fal, Pika; gpt-sunburst fal then Pika; nano-21 Magnific then Pika; kontext-max fal), skipping a provider with no key or sign-in and falling through on out-of-credit. Costs real money: each take is priced before it runs (Krea 3 about $0.07 on Magnific, 90 credits) and a send of $30 or more is refused. The image is <image-1>; refs (a character's canonical sheet or face from list_characters) are <image-2> and on. Each result lands as a new asset in the source's collections with its tags, edit_source lineage and the prompt, model and cost in its generation notes. Returns the job ids and the estimate; poll list_asset_edits.", inputSchema: editStartSchema.shape }, edits("start"));
+  server.registerTool("list_asset_edits", { title: "List Asset Edits", annotations: readAnnotations, description: "With assetId: that image's in-place edit takes, newest send first, each with status (queued, running, done, error), model, provider, estimate and charged USD (chargedExact when the provider billed it), error (out of credits names the provider), resultAssetId and resultUrl when it landed; also editOf when the image is itself an edit, the world's cast with canonical sheet and face asset ids to pass as refs, and which providers have a key or are out of credit. Without: the newest edits across the vault.", inputSchema: editListSchema.shape }, edits("list"));
+  server.registerTool("retry_asset_edit", { title: "Retry Asset Edit", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true }, description: "Run a failed edit take again (e.g. after a top-up), or pick up one stalled for 20 minutes. A take the provider already accepted (timed out, or landed but not filed) is polled again by its request id and never charged twice; anything else is sent as a new request.", inputSchema: editRetrySchema.shape }, edits("retry"));
+  const inbox = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/inbox", { action, ...input }));
+  server.registerTool("post_inbox_cards", { title: "Post Inbox Cards", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }, description: "Post up to 100 decision cards into a world's Inbox (world: key such as dear-annete, name or root collection id; worldFolderId is an alias), as a new stack (stackTitle) or appended to one (stackId, or the same ingestKey). Card types: sort (1 image, 2–9 targets: moodboard, collection, option or out; keys 1–9), duplicates (2–8 near-identical images with evidence.matches: same job, same prompt, hash distance, similarity; he keeps, deletes, stacks under a cover or keeps all), artifact (1 image with evidence.defect.box in 0–1 coordinates, note and priceUsd; fix, keep or out), ab (2 images, optional labels; winner or neither), choose (2–12 options; pick one), rule (ruleText with evidence and 0–12 images; yes, no, not yet). Evidence states facts only: never rank, recommend or say which is better. Card keys make re-posting safe. Returns the stack id (stack:<id>), card ids and url.", inputSchema: inboxPostSchema }, inbox("post"));
+  server.registerTool("list_inbox_stacks", { title: "List Inbox Stacks", annotations: readAnnotations, description: "List Inbox stacks, newest first: open by default or status closed, for one world (world: key, name or root collection id; worldFolderId is an alias) or all. Each row has id (stack:<id>), world, title, note, posting agent, card types, cards, decided and open counts, and url.", inputSchema: inboxListSchema }, inbox("list"));
+  server.registerTool("list_inbox_decisions", { title: "List Inbox Decisions", annotations: readAnnotations, description: "Read one stack (stackId: stack:<id> or bare; id is accepted as an alias) with Michael's answers: every card with its images (asset:<id>, url, caption, missing when deleted), evidence, targets, the decision (choice, target, picked or cover image, images to delete, what it changed in the gallery), images deleted for good, the card comment (text, audioUrl with audioDurationMs; download and transcribe it yourself) and his notes on each image (text or voice). Also progress and allDecided. Apply what is his to apply, learn from the pattern, then close_stack.", inputSchema: inboxStackRefSchema }, inbox("decisions"));
+  server.registerTool("close_stack", { title: "Close Inbox Stack", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false }, description: "Close an Inbox stack once you have read and acted on its decisions: it leaves the world's Inbox and its answers can no longer change. What the decisions changed stays. reopen: true opens it again.", inputSchema: inboxCloseSchema }, inbox("close"));
+  server.registerTool("delete_inbox_stack", { title: "Delete Inbox Stack", annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false }, description: "Delete an Inbox stack with its cards, decisions and card voice comments, only after the user names it for deletion. What the decisions changed in the gallery stays, and so do notes on images. Requires gallery:delete. Prefer close_stack.", inputSchema: inboxStackRefSchema }, inbox("delete"));
+  server.registerTool("find_similar_groups", { title: "Find Similar Groups", annotations: readAnnotations, description: "Find groups of near-identical images in a world (world: key, name or root id, shelves included) or a collection (folderId; with includeChildren, its style branches and shelves), largest first, from each image's perceptual hash: the takes of one job, a prompt rerun, a repaired copy beside its original, one picture saved twice. maxDistance sets how close (bits of 64: 4 ≈ the takes of one job, default 6; 10 ≈ the same shot reworked; 20 ≈ the same subject). Each group lists its images (asset:<id>, thumbUrl, prompt id), its widest distance, size, samePrompt, and assetIds (the first 8) ready for a duplicates card in post_inbox_cards. One call scans at most 1,300 pieces, newest first; when truncated is true, scan the shelves one by one. Images saved in the last minute may not be hashed yet. State the match as evidence; never say which to keep.", inputSchema: similarGroupsSchema }, inbox("similar_groups"));
+
+  // Tasks: the loop between Michael's review and the agents' work.
+  const tasks = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/tasks", { action, ...input }));
+  const taskWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  server.registerTool("list_tasks", { title: "List Tasks", annotations: readAnnotations, description: "The work waiting in the gallery, queue order: tasks that need Michael (blocked) first, then in flight (claimed, with claimedBy and lease), then open by priority (1 now, 2 next, 3 later). status active (default) = open + claimed + blocked; one status; or all. Filter by world (key, name or id), assignee or source (comment = Michael's asset comments, inbox = his Inbox answers, manual, newspaper). Each row has task:<id>, world (or studio), title, brief, status, priority, createdBy, claimedBy, result, links (asset:/story:/stack: refs), age and url. Call it at the start of a session or from a cron, then claim_task before working.", inputSchema: taskListSchema.shape }, tasks("list"));
+  server.registerTool("get_task", { title: "Get Task", annotations: readAnnotations, description: "One task in full: brief (markdown), result, links resolved to titles and thumbnails (missing when the object is gone), and its timeline of claims, status changes and comments, oldest first. Read Michael's comments here; his comment on a done task reopened it with needsRework.", inputSchema: taskRefSchema.shape }, tasks("get"));
+  server.registerTool("create_task", { title: "Create Task", annotations: taskWrite, description: "File work for later or for another agent. Two layers: what Michael reads (title in plain words under 80 characters, summary = one plain line on why it matters or what he gets, frames as asset links) and what the agent reads (markdown brief with the asset:/story: ids, paths, tools and settings). A title or summary with ids, paths, tool names, flags or markdown is refused. Also: priority (1 now, 2 next, 3 later), optional world (omit for studio-wide), assignee, typed links and dueAt. A stable ingestKey makes re-creating a no-op and returns the existing task. The task is createdBy this token's agent label and shows in /tasks for Michael.", inputSchema: taskCreateSchema.shape }, tasks("create"));
+  server.registerTool("claim_task", { title: "Claim Task", annotations: taskWrite, description: "Take a task before working on it: an open one, or one whose claim lapsed. Holds a lease (default 120 minutes, renewed by comment_task and by claiming again); another agent's live claim is refused with who holds it and until when. A done, blocked or archived task cannot be claimed. Default assignee is this token's agent label.", inputSchema: taskClaimSchema.shape }, tasks("claim"));
+  server.registerTool("release_task", { title: "Release Task", annotations: taskWrite, description: "Give a claimed task back to the queue (status open) with an optional note on why, e.g. when you cannot do it this session. The claimant, Michael, or anyone once the lease lapsed.", inputSchema: taskReleaseSchema.shape }, tasks("release"));
+  server.registerTool("complete_task", { title: "Complete Task", annotations: taskWrite, description: "Finish a task. Default: status done with summary (one plain line for Michael, what he will see now; required), a markdown result for agents that says what was done and names the asset:/story:/stack: ids produced, and the frames as links so the wall shows them. With blocked: true: status blocked, shown under Needs you in /tasks; pass ask = {question: one plain line he answers by looking, options: 2–4 {label: a few words, assetIds: the frames that show it, recommended?}}. He picks an option with one click and the task reopens with his pick. At least one frame is required; a text question, a table or experiment jargon is refused or ignored. Put the reasoning in result: he sees it only under Details. A question for Michael is complete_task with blocked: true, never a silent stop. Pass the journal session so the world journal shows the work next to the task.", inputSchema: taskCompleteSchema.shape }, tasks("complete"));
+  server.registerTool("edit_task", { title: "Edit Task", annotations: taskWrite, description: "Rewrite a task's title or summary in plain words for Michael (the wall's Human view), or replace its agent brief. Use it when a title carries ids, paths, codes or jargon. The same plain-words check as create_task applies.", inputSchema: taskEditSchema.shape }, tasks("edit"));
+  server.registerTool("comment_task", { title: "Comment On Task", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }, description: "Add a note to a task's timeline: progress, a finding, what you tried. The claimant's comment renews the lease. Michael's comments arrive here too; read them with get_task.", inputSchema: taskCommentSchema.shape }, tasks("comment"));
+
+  // The morning newspaper: facts compiled daily, prose written by an agent.
+  const newspaper = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/newspaper", { action, ...input }));
+  server.registerTool("get_newspaper", { title: "Get Newspaper", annotations: readAnnotations, description: "Read the morning newspaper: the latest edition, or one date (YYYY-MM-DD, Europe/Prague). An edition is compiled at 07:30 Prague from the gallery's own tables for the 24 hours before: per world, the journal's changes grouped by op with the top summaries, new assets (count and up to 12 thumbnails with asset:<id>), new or changed storybooks, moodboards (with sync drift against Midjourney) and characters, task counts; studio-wide, the tasks done, created and blocked (the questions for Michael), the open Inbox stacks with card and decided counts, and needsYou: the stacks, blocked tasks and draft boards with candidates that wait on him, each with its url. Also the agent's prose when one was written. Read it before writing; null when nothing was compiled yet (compile_newspaper).", inputSchema: newspaperGetSchema.shape }, newspaper("get"));
+  server.registerTool("write_newspaper", { title: "Write Newspaper", annotations: taskWrite, description: "Add the narrative to an edition (date YYYY-MM-DD, Europe/Prague): markdown prose that says what mattered since yesterday, what you propose and at most three questions for Michael, naming asset:/task:/stack: ids. The compile is pure facts; this is the editorial. Replaces earlier prose and marks the edition written. The edition must exist (get_newspaper or compile_newspaper first). Never star, publish, feature or delete anything while writing the paper.", inputSchema: newspaperWriteSchema.shape }, newspaper("write"));
+  server.registerTool("compile_newspaper", { title: "Compile Newspaper", annotations: taskWrite, description: "Compile today's edition now (or a given date's), from the gallery's tables, without waiting for the 07:30 Prague cron. Recompiling a date replaces its facts and keeps its prose. Returns the edition as get_newspaper does.", inputSchema: newspaperCompileSchema.shape }, newspaper("compile"));
+
+  server.registerTool("save_story", { description: "Save a private textual idea, script or world style lock as markdown. No image required. Stable ingestKey deduplicates retries. Resolve world/format and source asset IDs first; every linked asset must be named in the body as asset:<id> on the line about it. Refused: agent-ticket titles (GAL-…, use create_task), test saves, and [replaced]/[history] copies (revise with update_story instead). Returns the persisted record.", inputSchema: { ...storyInputSchema.shape, ingestKey: z.string().min(1), expectedRevision: z.number().int().nonnegative().optional(), session: sessionShape } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "save", ...input })));
+  server.registerTool("list_stories", {
+    title: "List Stories", annotations: readAnnotations,
+    description: "Find private text ideas, scripts and style locks by keyword, world (or its collection), kind or status, newest first. Each row has story:<id> fields, title, kind, status, logline, hook, styleTag, tagNames, assetIds, revision, updatedAt, url, bodyChars and a 300-character excerpt; includeBody: true returns the full text instead (a world's scripts can run to hundreds of KB, so ask for it only when you will read it). Default limit 200, max 500; the result carries count, limit and truncated, and when truncated, next.updatedBefore to pass for the following page. get_story reads one record in full.",
+    inputSchema: {
+      search: z.string().optional(), world: worldFilterShape, folderId: z.string().optional(),
+      kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(),
+      includeBody: z.boolean().describe("true: full body on every row (large). Default false: excerpt plus bodyChars.").optional(),
+      limit: z.number().int().min(1).max(500).describe("Rows per call (default 200, max 500).").optional(),
+      updatedBefore: z.number().describe("Continue a truncated list: the next.updatedBefore of the previous result (only rows updated before it).").optional(),
+    },
+  }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "list", ...input })));
   server.registerTool("get_story", { description: "Read a full private text record, its world, style and asset links. Accepts story:<id> or bare ID.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "get", ...input })));
-  server.registerTool("update_story", { description: "Revise a private story or style lock, preserving the previous text in history. Supply expectedRevision from get_story to prevent overwriting concurrent edits.", inputSchema: { ...storyPatchSchema.shape, id: z.string(), expectedRevision: z.number().int().positive() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "update", ...input })));
+  server.registerTool("update_story", { description: "Revise a private story or style lock, preserving the previous text in history. Supply expectedRevision from get_story to prevent overwriting concurrent edits.", inputSchema: { ...storyPatchSchema.shape, id: z.string(), expectedRevision: z.number().int().positive(), session: sessionShape } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "update", ...input })));
+  server.registerTool("package_style", {
+    title: "Package Style",
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    description: "Turn a found Midjourney recipe into a world style lock in one call: checks the example frames live in the world and reads their full prompts, matches each moodboard code to its gallery board (linked when it is in this world, cited when it lives in another world, flagged MOODBOARD NOT CREATED YET when no board has it), files the examples on the style shelf, and saves a kind style-lock Story with the recipe, a copy-ready prompt, the examples and what raises or lowers the look. Same ingestKey = same lock; changing it needs expectedRevision. dryRun returns the body and checks without writing. Never builds or edits a moodboard and never touches Midjourney. Read references/styles.md.",
+    inputSchema: { ...stylePackageSchema.shape, session: sessionShape },
+  }, async (raw) => {
+    const input = stylePackageSchema.parse(raw);
+    const opened = await apiFetch("/api/agent/worlds", { action: "open", world: input.world, journalLimit: 0 });
+    const world = opened.world as { id: string; key: string; name: string } | undefined;
+    if (!world) throw new Error(`No world matches "${input.world}". open_world with no arguments lists them.`);
+    const shelves = (opened.shelves ?? []) as { id: string; name: string; group?: string }[];
+    const worldFolderIds = new Set([world.id, ...shelves.map((shelf) => shelf.id)]);
+    const shelf = input.shelf
+      ? shelves.find((row) => row.id === input.shelf) ?? shelves.find((row) => row.name.toLowerCase() === input.shelf!.toLowerCase())
+      : undefined;
+    if (input.shelf && !shelf) throw new Error(`"${input.shelf}" is not a shelf of ${world.name}. Create it with world_shelf (group Styles) first.`);
+
+    const examples: StyleExample[] = [];
+    const outside: string[] = [];
+    for (const ref of input.exampleAssetIds) {
+      const id = ref.replace(/^asset:/, "");
+      const read = await apiFetch("/api/agent/gallery", { action: "getById", id: `asset:${id}` });
+      const asset = (read.asset ?? read) as { _id?: string; folderIds?: string[]; promptText?: string; agentDescription?: string; sourceUrl?: string; thumbUrl?: string };
+      if (!asset._id) throw new Error(`asset:${id} was not found.`);
+      if (!(asset.folderIds ?? []).some((folderId) => worldFolderIds.has(folderId))) outside.push(`asset:${id}`);
+      examples.push({ id, prompt: asset.promptText, description: asset.agentDescription, sourceUrl: asset.sourceUrl, thumbUrl: asset.thumbUrl });
+    }
+    if (outside.length) throw new Error(`Examples must live in ${world.name}: ${outside.join(", ")} do not. File them with world_file first (move: true only when Michael said so).`);
+
+    const codes = input.recipe.moodboardCodes;
+    const boards = codes.length
+      ? matchBoards(codes, ((await apiFetch("/api/agent/moodboards", { action: "list", includeArchived: true })).moodboards ?? []) as BoardRow[], worldFolderIds)
+      : [];
+    for (const match of boards) {
+      if (match.state !== "other-world") continue;
+      const read = await apiFetch("/api/agent/moodboards", { action: "get", moodboardId: match.board._id });
+      match.worldName = (read.parentFolderName ?? read.folderName) as string | undefined;
+    }
+
+    const ingestKey = input.ingestKey ?? stylePackageIngestKey(world.key, input.name);
+    const body = buildStyleLockBody({ input, worldName: world.name, worldKey: world.key, ingestKey, boards, examples, date: new Date().toISOString().slice(0, 10) });
+    const title = input.title ?? `${world.name} · ${input.name} · Midjourney recipe`;
+    const moodboards = boards.map((match) => match.state === "missing"
+      ? { code: match.code, state: match.state, flag: MISSING_BOARD_FLAG }
+      : { code: match.code, state: match.state, moodboardId: `moodboard:${match.board._id}`, name: match.board.name, url: match.board.url, ...(match.state === "other-world" ? { world: match.worldName } : {}) });
+    const toFile = shelf && input.fileExamples !== false ? examples.map((example) => example.id) : [];
+    const report = { world: world.key, ingestKey, title, styleTag: input.styleTag, shelf: shelf ? { id: shelf.id, name: shelf.name } : null, moodboards, examples: examples.map((example) => `asset:${example.id}`) };
+    if (input.dryRun) return jsonText({ ok: true, dryRun: true, ...report, wouldFile: toFile.length, body });
+
+    const filed = toFile.length
+      ? await apiFetch("/api/agent/worlds", { action: "file", world: world.key, assetIds: toFile, addTo: [shelf!.id], note: `Examples of the style ${input.name}`, session: input.session })
+      : null;
+    let saved: JsonRecord;
+    try {
+      saved = await apiFetch("/api/agent/stories", {
+        action: "save", ingestKey, title, body, kind: "style-lock", status: input.status ?? "draft", logline: input.logline,
+        folderId: shelf?.id ?? world.id, styleTag: input.styleTag, tagNames: ["style-lock", input.styleTag],
+        assetIds: examples.map((example) => example.id), expectedRevision: input.expectedRevision, session: input.session,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/revision|changed/i.test(message)) throw error;
+      const locks = ((await apiFetch("/api/agent/stories", { action: "list", world: world.key, kind: "style-lock", limit: 500 })).stories ?? []) as { _id: string; ingestKey?: string; revision: number }[];
+      const current = locks.find((lock) => lock.ingestKey === ingestKey);
+      throw new Error(current ? `${message} The lock is story:${current._id} at revision ${current.revision}; pass expectedRevision: ${current.revision} to update it.` : message);
+    }
+    const story = (saved.story ?? {}) as { _id?: string; url?: string; title?: string; status?: string; revision?: number; folderId?: string; assetIds?: string[] };
+    return jsonText({
+      ok: true, ...report, filed, created: saved.created, revision: saved.revision,
+      story: { id: story._id ? `story:${story._id}` : undefined, url: story.url, title: story.title, status: story.status, revision: story.revision, folderId: story.folderId, assetIds: story.assetIds },
+    });
+  });
+  // Named styles of a world, read across its universe (world_styles page).
+  const styles = (action: string) => async (input: JsonRecord) => jsonText(await apiFetch("/api/agent/styles", { action, ...input }));
+  const styleWrite = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  server.registerTool("list_styles", {
+    title: "List Styles",
+    annotations: readAnnotations,
+    description: "The named styles of a world's universe (DEAR ANNETE with its 3D, Art Deco and Iron Stage worlds): each style's name, one-line look, family, status, world, frame count, main recipe in names (moodboards + profiles), cover thumbnails and its page (url). unrecordedShelves lists shelves in the group Styles that have no style record yet. A style is how a frame is made (medium, rendering, light, palette), never a place or motif. Read references/styles.md.",
+    inputSchema: styleListSchema.shape,
+  }, styles("list"));
+  server.registerTool("get_style", {
+    title: "Get Style",
+    annotations: readAnnotations,
+    description: "One style in full: its line, covers, shelf, every recipe (moodboards with code, sync status and the world they live in; profiles with code and role; unnamed codes; parameters; prompt template; frames made), raises, lowers, notes, the style lock story, merges and revision. frames: N adds the newest N frames with prompt excerpts. style:<id>, or the name with world.",
+    inputSchema: styleGetSchema.shape,
+  }, styles("get"));
+  server.registerTool("save_style", {
+    title: "Save Style",
+    annotations: styleWrite,
+    description: "Create a style in a world or change one: name (a rename follows onto its shelf), line, family, status (ready only on Michael's word), shelf (create: the same-named shelf or a new one in the group Styles; adopt an existing Styles shelf by naming it), covers (coverAssetIds replaces, addCoverAssetIds puts first), recipes (moodboards and profiles by id in stack order, unknown codes, parameters, template, frames), raises, lowers, lock story, notes, sortOrder. Pass expectedRevision from get_style when changing. Journaled; world_undo reverts it. Never publishes, stars or deletes.",
+    inputSchema: styleSaveSchema.shape,
+  }, styles("save"));
+  server.registerTool("file_style", {
+    title: "File Into Style",
+    annotations: styleWrite,
+    description: "Put frames into a style (onto its shelf), or take them off with remove: true. Any number of assets, filed 100 per journaled world_file change. covers: true also makes them the first covers. Frames must belong to the style's world; move: true takes them out of another world (only on Michael's word). Use find_assets first to turn Midjourney job ids or file names into asset ids.",
+    inputSchema: styleFileSchema.shape,
+  }, styles("file"));
+  server.registerTool("merge_styles", {
+    title: "Merge Styles",
+    annotations: { ...styleWrite, idempotentHint: false },
+    description: "Fold one style into another: its frames move onto the kept style's shelf, its recipes, covers, raises and lowers join, and it stays as a merged record pointing at the kept style; its empty shelf moves to the group Merged (nothing is deleted). Across two worlds of one universe only with move: true. Run dryRun: true first. Journaled; world_undo with the session reverts it all.",
+    inputSchema: styleMergeSchema.shape,
+  }, styles("merge"));
+  server.registerTool("world_universe", {
+    title: "World Universe",
+    annotations: worldWrite,
+    description: "Put a world into another world's universe (DEAR ANNETE — 3D joins dear-annete) so one styles page and list_styles show every style of the story universe together; null takes it out. Membership, filing and moodboards stay per world. One level: a universe's own world joins nothing. Journaled.",
+    inputSchema: styleUniverseSchema.shape,
+  }, styles("universe"));
+  server.registerTool("find_assets", {
+    title: "Find Assets",
+    annotations: readAnnotations,
+    description: "Is this frame in the gallery? Up to 500 references per call, any mix: Midjourney job URLs or CDN URLs, file names (mj-<job>-<i>.png), a local board's short id (<first 8 of job>-<tile>), a bare job id (every tile), asset:<id>, other source URLs, ingestKeys. Each comes back found or not, with the matching asset ids, tile, worlds and styles it is in and a thumbnail. check_sources stays for exact post permalinks.",
+    inputSchema: assetLookupSchema.shape,
+  }, styles("lookup"));
+
   server.registerTool("get_story_revisions", { description: "Read the preserved older versions of a textual story or world style lock.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "revisions", ...input })));
   server.registerTool("delete_story", { description: "Permanently delete a private textual record and its history, only when the user authorizes deletion.", inputSchema: { id: z.string() } }, async (input) => jsonText(await apiFetch("/api/agent/stories", { action: "delete", ...input })));
   server.registerTool("list_filter_presets", { description: "List the owner's reusable gallery filters including No skills, Inspirations, animation and game-view presets.", inputSchema: {} }, async () => jsonText(await apiFetch("/api/agent/presets", { action: "list" })));
@@ -436,7 +762,8 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         promptText: z.string().optional(),
         tagNames: z.array(z.string()).optional(),
         folderId: z.union([z.string(), z.null()]).optional(),
-        folderIds: z.array(z.string()).optional(),
+        folderIds: z.array(z.string()).optional().describe("REPLACES the asset's full collection set."),
+        addFolderIds: z.array(z.string()).optional().describe("Adds the asset to these collections (a world shelf or a storybook) and keeps every membership it already has."),
         modelName: z.union([z.string(), z.null()]).optional(),
         description: z.union([z.string(), z.null()]).optional(),
         agentDescription: z
@@ -480,7 +807,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "List Assets",
       annotations: readAnnotations,
-      description: "List the authenticated user's gallery assets.",
+      description: "List the authenticated user's gallery assets, newest first (bounded; list_assets_page for a complete traversal). Rows carry asset ids, kind, size, url and thumbUrl, caption, agentDescription, tagNames, folderIds, model, flags and a 300-character promptText excerpt (promptTruncated, promptChars when cut); get_gallery_item has the full prompt and record.",
       inputSchema: {
         kind: z.enum(["image", "video"]).optional(),
         folderId: z.string().optional(),
@@ -510,7 +837,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       title: "Search Gallery",
       annotations: { ...readAnnotations, openWorldHint: true },
       description:
-        "Semantic search over the user's gallery. Hybrid by default: matches what pieces look like (pixels) AND what they are about (agent description, caption, prompt, tags). Narrow with tag / piece-type / medium / liked / starred / collection filters. Results carry agentDescription, score, visualScore and textScore.",
+        "Semantic search over the user's gallery. Hybrid by default: matches what pieces look like (pixels) AND what they are about (agent description, caption, prompt, tags). Narrow with tag / piece-type / medium / liked / starred / collection / world filters. Results (default 24, max 96) carry asset ids, agentDescription, caption, tagNames, folderIds, url, thumbUrl, a 300-character promptText excerpt, score, visualScore and textScore; get_gallery_item has the full prompt and record.",
       inputSchema: {
         query: z.string(),
         mode: z
@@ -519,6 +846,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
           .optional(),
         kind: z.enum(["image", "video"]).optional(),
         folderId: z.string().optional(),
+        world: worldFilterShape,
         modelName: z.string().optional(),
         assetRole: z.string().optional(),
         ...namedFilterShape,
@@ -550,6 +878,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         mode: z.enum(["hybrid", "visual", "text"]).optional(),
         kind: z.enum(["image", "video"]).optional(),
         folderId: z.string().optional(),
+        world: worldFilterShape,
         ...namedFilterShape,
         limit: z.number().optional(),
       },
@@ -634,6 +963,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         mode: z.enum(["hybrid", "visual", "text"]).optional(),
         kind: z.enum(["image", "video"]).optional(),
         folderId: z.string().optional(),
+        world: worldFilterShape,
         includeDescendants: z.boolean().optional(),
         modelName: z.string().optional(),
         assetRole: z.string().optional(),
@@ -753,9 +1083,9 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "Get Gallery Item",
       annotations: readAnnotations,
-      description: "Read a gallery asset, asset pack or skill by typed ID, such as asset:<id>, pack:<id> or skill:<id>.",
+      description: "Read one gallery asset in full (record, prompt, characters, comments) by asset:<id>; also reads skill:<id> (a Skill, as get_skill does) and pack:<id> (a legacy asset pack or duplicates stack). Other objects have their own read tool and argument: moodboard:<id> get_moodboard {moodboardId}, story:<id> get_story {id}, character get_character {character: DA-CH-001}, stack:<id> list_inbox_decisions {stackId}, task:<id> get_task {taskId}, video:<id> get_video_ref {id}; a world or collection id is bare and goes to open_world / list_collections. The typed-ID table is in references/data-model.md. design:<id> is read-only legacy.",
       inputSchema: {
-        id: z.string(),
+        id: z.string().describe("asset:<id>, skill:<id> or pack:<id>. A bare id is refused: add the prefix (a bare gallery id is almost always asset:<id>)."),
       },
     },
     async (input) =>
@@ -772,8 +1102,14 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "List Tags",
       annotations: readAnnotations,
-      description: "List the authenticated user's customized and used tags.",
+      description: "The tag vocabulary, most used first, filtered and paged. Always narrow it: search (substring of the name or label), category (style, environment, lighting, content_type …) or minUsage; the whole vocabulary is about a thousand tags and never the answer. Rows are slim by default (name, label when it differs, category, description, usageCount, customized, archived); fields: 'full' adds ids, colour, sort order and times. Default 100 rows, max 500; follow cursor until isDone. Before inventing a tag read the world's docs/tags.md (open_world) and remember that saves fold case, '-', '_' and punctuation into one tag and add_tag_aliases redirects spellings.",
       inputSchema: {
+        search: z.string().max(80).describe("Substring of the tag name or label, case-insensitive (a prefix works too).").optional(),
+        category: z.string().max(40).describe("Only this category, e.g. style, environment, lighting, content_type, custom.").optional(),
+        minUsage: z.number().int().min(0).describe("Only tags on at least this many assets.").optional(),
+        limit: z.number().int().min(1).max(500).describe("Rows per page (default 100, max 500).").optional(),
+        cursor: z.string().nullable().describe("From the previous page; omit for the first page.").optional(),
+        fields: z.enum(["slim", "full"]).describe("slim (default) or full rows.").optional(),
         includeArchived: z.boolean().optional(),
       },
     },
@@ -869,13 +1205,20 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       title: "List Collections",
       annotations: readAnnotations,
       description:
-        "List the authenticated user's collections. Collections are owner-scoped folders used to organize saved assets and prompts.",
-      inputSchema: {},
+        "The owner's collections (folders): one level deep, worlds are marked roots. Narrow it: world (key, name or root id: that world's root and shelves, the same list open_world gives), parentFolderId (one root's children), rootsOnly, kind or search; with no filter it is the whole vault (about 220 rows). Each row: _id (the folderId every save and filing tool takes, bare), name, parentFolderId, group and sortOrder (display order inside a world), kind (storybook or plain), worldKey and isWorld, memberCount, description (excerpt), slug, hidden, url. The result carries count and total.",
+      inputSchema: {
+        world: worldFilterShape,
+        parentFolderId: z.string().describe("Only the children of this root collection.").optional(),
+        rootsOnly: z.boolean().describe("Only root collections (worlds and shared shelves).").optional(),
+        kind: z.enum(["storybook", "plain"]).describe("Only storybooks, or only plain collections.").optional(),
+        search: z.string().max(80).describe("Words that must all appear in the name, description, world key or slug.").optional(),
+      },
     },
-    async () =>
+    async (input) =>
       jsonText(
         await apiFetch("/api/agent/customize", {
           action: "listFolders",
+          ...input,
         }),
       ),
   );
@@ -891,6 +1234,8 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         description: z.string().optional(),
         parentFolderId: z.string().describe("Owned root collection for a plain child folder; storybooks remain roots.").optional(),
         kind: z.literal("storybook").optional(),
+        group: z.string().max(40).nullable().describe("Display group of a child inside its world, e.g. Styles, Places, Cast, Design, Moods, Footage. Ignored on roots. Applied to an existing collection of the same name too; null clears.").optional(),
+        sortOrder: z.number().nullable().describe("Order inside the group (and of the group by its smallest member); lower first. null clears.").optional(),
       },
     },
     async (input) =>
@@ -906,12 +1251,14 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     "update_collection",
     {
       title: "Update Collection",
-      description: "Rename or update a collection (folder) for the authenticated user.",
+      description: "Rename or update a collection (folder) for the authenticated user. Omitted fields, including name, keep their current value, so a group change needs only folderId and group.",
       inputSchema: {
         folderId: z.string().describe("The collection id to update — the raw folderId from list_collections/create_collection."),
-        name: z.string(),
+        name: z.string().describe("New name. Omit to keep the current one.").optional(),
         description: z.string().optional(),
         parentFolderId: z.string().nullable().describe("Owned root parent; null moves a child to root. Omission preserves parentage.").optional(),
+        group: z.string().max(40).nullable().describe("Display group of a child inside its world, e.g. Styles. Ignored on roots; null clears.").optional(),
+        sortOrder: z.number().nullable().describe("Order inside the group; lower first. null clears.").optional(),
       },
     },
     async (input) =>
@@ -929,7 +1276,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       title: "Delete Collection",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
       description:
-        "Delete an owned collection shell only after explicit user approval for that named collection or listed batch. Approval already given for those targets in this session persists. Requires gallery:delete; the scope alone does not approve deletion. Clears its asset/prompt/Skill membership, keeps media and linked story text, and promotes child collections to root. Story links may require repair; the collection's route disappears.",
+        "Delete an owned collection shell only after explicit user approval for that named collection or listed batch. Approval already given for those targets in this session persists. Requires gallery:delete; the scope alone does not approve deletion. Clears its asset/prompt/Skill membership, keeps media and linked story text, and promotes child collections to root. A child collection's moodboards move to its world; a root's moodboards are deleted (their assets stay). Story links may require repair; the collection's route disappears.",
       inputSchema: {
         folderId: z.string().describe("The collection id to delete — the raw folderId from list_collections/create_collection."),
       },

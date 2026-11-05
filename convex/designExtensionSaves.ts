@@ -158,6 +158,7 @@ const createThumbMetadata = async (ctx: ActionCtx, fileBuffer: Buffer) => {
     thumbWidth: thumb.width,
     thumbHeight: thumb.height,
     thumbSize: thumb.size,
+    thumbVariants: thumb.thumbVariants,
   };
 };
 

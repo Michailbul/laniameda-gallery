@@ -67,6 +67,8 @@ mock.module("@/lib/server/agent-auth", () => ({
 const uploads = await import("../lib/server/agent-uploads");
 const { ingestForAgent } = await import("../lib/server/agent-ingest");
 const batchRoute = await import("../app/api/agent/ingest/batch/route");
+const { registerGalleryTools } = await import("../mcp/laniameda-gallery/tools");
+const { ingestFromApi } = await import("../convex/ingest");
 
 const png = (width: number, height: number) =>
   sharp({ create: { width, height, channels: 3, background: { r: 200, g: 80, b: 60 } } })
@@ -196,6 +198,43 @@ describe("agent uploads", () => {
     expect(body.failed).toBe(2);
     expect(body.results.map((entry) => entry.ok)).toEqual([true, false, true, false]);
     expect(body.results[1]!.error).toBe("ingest exploded");
+  });
+
+  test("hosted save_assets maps a url item's fileName onto fields ingest:ingestFromApi accepts", async () => {
+    // The hosted MCP server: no readLocalFile, and apiFetch lands on the real batch route.
+    const handlers = new Map<string, (input: Record<string, unknown>) => Promise<{ content: Array<{ text: string }> }>>();
+    const server = { registerTool: (name: string, _config: unknown, handler: never) => handlers.set(name, handler) };
+    registerGalleryTools(server as never, {
+      apiUrl: "https://gallery.test",
+      apiFetch: async (path, body) => {
+        const response = await batchRoute.POST(
+          new Request(`https://gallery.test${path}`, {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: "Bearer lgat_x" },
+            body: JSON.stringify(body),
+          }),
+        );
+        return (await response.json()) as Record<string, unknown>;
+      },
+    });
+
+    const output = await handlers.get("save_assets")!({
+      items: [
+        { url: "https://cdn.test/still.png", fileName: "still.png", contentType: "image/png", tagNames: ["inspiration"] },
+        { url: "https://cdn.test/plain.png" },
+      ],
+    });
+    const body = JSON.parse(output.content[0]!.text) as { ok: boolean; saved: number };
+    expect(body).toMatchObject({ ok: true, saved: 2 });
+
+    const accepted = new Set(Object.keys(JSON.parse(ingestFromApi.exportArgs()).value));
+    for (const payload of state.ingestPayloads) {
+      expect(Object.keys(payload).filter((key) => !accepted.has(key))).toEqual([]);
+    }
+    expect(state.ingestPayloads[0]).toMatchObject({ url: "https://cdn.test/still.png", mediaFileName: "still.png" });
+    expect(state.ingestPayloads[0]).not.toHaveProperty("fileName");
+    expect(state.ingestPayloads[0]).not.toHaveProperty("contentType");
+    expect(state.ingestPayloads[1]).not.toHaveProperty("mediaFileName");
   });
 
   test("batch route refuses more than 50 items", async () => {

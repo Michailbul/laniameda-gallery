@@ -192,7 +192,8 @@ Use the canonical Skill for supported tool schemas and complete examples. Media
 saves need actual bytes/URL, provenance and agentDescription; reusable text recipes
 use create_skill, native scripts use save_story. Do not overload prompts/assets
 with a different object or expose retired pillars as choices. Complete media
-inventory uses list_assets_page until isDone. Private world policy is an
+inventory uses the cached export (gallery.mjs all_assets), or list_assets_page
+until isDone when filtered or live. Private world policy is an
 authenticated agentInstructions resource, not a code-hardcoded world list.
 Collection races can return persisted HTTP207 partial results: read and repair
 that ID; don't retry with a fresh key. Asset image replacement is not poster edit.

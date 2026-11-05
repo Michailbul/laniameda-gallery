@@ -89,6 +89,7 @@ KB_OWNER_USER_ID=<your_telegram_id>
 
 Notes:
 - `convex/notifications.ts` sends Telegram "Saved" notifications after ingest.
+- `convex/newspaper.ts` compiles the morning newspaper for `KB_OWNER_USER_ID` (or the comma-separated `NEWSPAPER_OWNER_USER_IDS`, optional) at 05:30 UTC and sends "Morning newspaper <date>: N done, M need you — <link>" through the same `TELEGRAM_NOTIFY_BOT_TOKEN`. Without the token it logs one line and skips the message; without an owner it compiles nothing.
 - Curation authorization in `convex/assets.ts` depends on Convex-side `CURATION_ADMIN_*` vars.
 
 ## 4) Agent MCP env

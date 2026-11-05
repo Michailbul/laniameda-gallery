@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   archiveUserTag,
   listUserTags,
+  listUserTagsPage,
   upsertUserTag,
 } from "@/convex/userTags";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
@@ -83,5 +84,38 @@ describe("user tags", () => {
       usageCount: 1,
       isCustomized: false,
     });
+  });
+
+  test("the agent page filters, sorts by usage, pages and projects slim rows", async () => {
+    const harness = createMockConvexMutationCtx();
+    const ctx = harness.ctx as never;
+    const insertTag = (name: string, category: string, uses: number) => harness.db.insert("tags", { name, normalized: name.toLowerCase(), usageCount: uses, category, source: "agent" });
+    const [golden, cinematic, street] = await Promise.all([insertTag("golden-hour", "lighting", 2), insertTag("cinematic", "style", 3), insertTag("street", "environment", 1)]);
+    const uses: Record<string, number> = { [golden]: 2, [cinematic]: 3, [street]: 1 };
+    for (const [tagId, count] of Object.entries(uses)) {
+      for (let index = 0; index < count; index += 1) {
+        await harness.db.insert("assets", { ownerUserId: "user-1", kind: "image", tagIds: [tagId], createdAt: Date.now() + index });
+      }
+    }
+    await callAsOwner(upsertUserTag)(ctx, { ownerUserId: "user-1", name: "cinematic", label: "Cinematic", description: "film look", category: "style" });
+
+    const all = await callAsOwner(listUserTagsPage)(ctx, { ownerUserId: "user-1" });
+    expect(all).toMatchObject({ count: 3, total: 3, limit: 100, cursor: null, isDone: true });
+    expect(all.tags.map((tag) => tag.name)).toEqual(["cinematic", "golden-hour", "street"]);
+    expect(all.tags[0]).toEqual({ name: "cinematic", label: "Cinematic", category: "style", description: "film look", usageCount: 3, customized: true });
+    expect(all.tags[1]).toEqual({ name: "golden-hour", category: "lighting", usageCount: 2 });
+
+    expect((await callAsOwner(listUserTagsPage)(ctx, { ownerUserId: "user-1", search: "gold" })).tags.map((tag) => tag.name)).toEqual(["golden-hour"]);
+    expect((await callAsOwner(listUserTagsPage)(ctx, { ownerUserId: "user-1", category: "environment" })).tags.map((tag) => tag.name)).toEqual(["street"]);
+    expect((await callAsOwner(listUserTagsPage)(ctx, { ownerUserId: "user-1", minUsage: 2 })).count).toBe(2);
+
+    const first = await callAsOwner(listUserTagsPage)(ctx, { ownerUserId: "user-1", limit: 2 });
+    expect(first).toMatchObject({ count: 2, total: 3, cursor: "2", isDone: false });
+    const second = await callAsOwner(listUserTagsPage)(ctx, { ownerUserId: "user-1", limit: 2, cursor: first.cursor });
+    expect(second).toMatchObject({ count: 1, isDone: true, cursor: null });
+    expect(second.tags[0]!.name).toBe("street");
+
+    const full = await callAsOwner(listUserTagsPage)(ctx, { ownerUserId: "user-1", fields: "full", limit: 1 });
+    expect(full.tags[0]).toMatchObject({ name: "cinematic", tagId: cinematic, isCustomized: true, usageCount: 3, sortOrder: expect.any(Number) });
   });
 });

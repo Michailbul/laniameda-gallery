@@ -2,12 +2,13 @@ import { internalQuery, type QueryCtx } from "./_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { dedupeIds } from "./helpers";
-import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
+import { buildR2PublicUrl, resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import {
   assetRoleValidator,
   agentDescriptionSourceValidator,
   bookmarkSummaryValidator,
   cinemaMetadataValidator,
+  midjourneyMetadataValidator,
   generationTypeValidator,
   ingestSourceValidator,
   optionalPillarValidator,
@@ -64,9 +65,13 @@ export const galleryAssetResultValidator = v.object({
   assetPackId: v.optional(v.id("assetPacks")),
   packSlotIndex: v.optional(v.number()),
   cinemaMetadata: cinemaMetadataValidator,
+  // Set by getGalleryAsset only, so grid pages stay slim.
+  midjourneyMetadata: midjourneyMetadataValidator,
   createdAt: v.number(),
   url: v.optional(v.string()),
   thumbUrl: v.optional(v.string()),
+  // Grid renditions below the card thumb, smallest first, for the tile srcset.
+  thumbVariants: v.optional(v.array(v.object({ width: v.number(), height: v.number(), url: v.string() }))),
 });
 
 export const scoredGalleryAssetResultValidator = v.object({
@@ -188,6 +193,7 @@ const resolveFolderIdsMap = async (ctx: QueryCtx, assets: Doc<"assets">[]) => {
 export const hydrateGalleryAssetResults = async (
   ctx: QueryCtx,
   assets: Doc<"assets">[],
+  options: { folderIdsByAssetId?: Map<Id<"assets">, Id<"folders">[]> } = {},
 ) => {
   if (assets.length === 0) {
     return [];
@@ -196,7 +202,7 @@ export const hydrateGalleryAssetResults = async (
   const [promptTextById, tagNameById, folderIdsByAssetId, bookmarkById] = await Promise.all([
     resolvePromptTextMap(ctx, assets),
     resolveTagNameMap(ctx, assets),
-    resolveFolderIdsMap(ctx, assets),
+    options.folderIdsByAssetId ?? resolveFolderIdsMap(ctx, assets),
     resolveBookmarkMap(ctx, assets),
   ]);
 
@@ -217,6 +223,12 @@ export const hydrateGalleryAssetResults = async (
         resolveAssetUrl(ctx, asset),
         resolveAssetThumbUrl(ctx, asset),
       ]);
+      const thumbVariants = (asset.thumbVariants ?? [])
+        .flatMap((variant) => {
+          const variantUrl = buildR2PublicUrl(variant.r2Key);
+          return variantUrl ? [{ width: variant.width, height: variant.height, url: variantUrl }] : [];
+        })
+        .sort((left, right) => left.width - right.width);
 
       return {
         _id: asset._id,
@@ -271,6 +283,7 @@ export const hydrateGalleryAssetResults = async (
         createdAt: asset.createdAt,
         url,
         thumbUrl,
+        ...(thumbVariants.length > 0 ? { thumbVariants } : {}),
       };
     }),
   );

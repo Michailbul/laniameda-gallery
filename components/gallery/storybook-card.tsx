@@ -29,7 +29,7 @@ interface StorybookCardProps {
 /**
  * Masonry stack card for a storybook collection: the cover image sits on a
  * fanned deck of the next member images. Hover reveals the storybook name;
- * click opens the expanded storybook modal.
+ * click opens the book in the Storybooks view.
  */
 export const StorybookCard = memo(function StorybookCard({
   storybook,

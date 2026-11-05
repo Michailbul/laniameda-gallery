@@ -1,38 +1,37 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element */
-import { useCallback, useMemo, useState } from "react";
+import { Fragment, useCallback, useMemo, useState } from "react";
 import {
-  ArrowLeft,
-  Clapperboard,
+  ChevronRight,
   FolderClosed,
-  LayoutGrid,
-  List as ListIcon,
-  MapPin,
+  FolderMinus,
+  Orbit,
   Plus,
-  Users,
+  Search,
   X,
 } from "lucide-react";
 import { hasAssetDragPayload, readAssetDragPayload } from "@/lib/asset-drag";
-import { resolveImpliedAssetTypeTag } from "@/lib/collection-sections";
+import {
+  collectionGroupKey,
+  normalizeCollectionGroup,
+  orderChildCollections,
+} from "@/lib/collection-groups";
+import {
+  collectionNameMatches,
+  compareRootCollections,
+} from "@/lib/collection-worlds";
 
 /**
  * "Move to" — the one place assets get sorted.
  *
  * A floating, non-modal panel: the gallery stays scrollable and drag-and-drop
- * keeps working while it's open. Every destination is both a click target
- * (files the current selection) and a drop target. Asset type is exclusive;
- * collection membership is additive and multi-select.
- *
- * Two views:
- *   Folders — big cover tiles, sized for dropping onto. The default.
- *   List    — dense rows, for when you know the name.
- * A collection's folders drill IN (rather than nesting): the corner arrow on a
- * collection tile opens it, where its folders get the same full-size tiles and
- * a New folder tile files the selection straight into a fresh sub-collection.
+ * keeps working while it's open. It reads as one tree: worlds first, then the
+ * shared collections, each root unfolding in place to its folders. Every row
+ * is a click target (adds the selection, or takes it out when all of it is
+ * already there) and a drop target (adds what was dropped). "Already in"
+ * lists where the selection lives now, each with an explicit Remove.
  */
-
-export type PanelAssetType = "character" | "location" | "scene";
 
 export type PanelPreview = { thumbUrl?: string; url?: string };
 
@@ -42,32 +41,27 @@ export type PanelCollection = {
   description?: string;
   count?: number;
   parentId?: string;
+  /** A world root: listed first. */
+  isWorld?: boolean;
+  pinned?: boolean;
+  /** Display group of a child inside its root ("Styles"), and its order. */
+  group?: string;
+  sortOrder?: number;
   previews?: PanelPreview[];
   /** How many assets in the current selection already belong here. */
   selectedCount?: number;
 };
 
-const ASSET_TYPES: {
-  key: PanelAssetType;
-  label: string;
-  icon: typeof Users;
-}[] = [
-  { key: "character", label: "Character", icon: Users },
-  { key: "location", label: "Location", icon: MapPin },
-  { key: "scene", label: "Scene", icon: Clapperboard },
-];
-
-type View = "folders" | "list";
+type Busy = string | null;
 
 export function AddToPanel({
   open,
   onClose,
   selectedAssetIds,
-  assetTypeCounts,
   collections,
-  onAssignAssetType,
   onAddToFolder,
   onToggleFolder,
+  onRemoveFromFolder,
   onCreateCollection,
   onCreateSubCollection,
   onUpdateDescription,
@@ -76,14 +70,11 @@ export function AddToPanel({
   open: boolean;
   onClose: () => void;
   selectedAssetIds: string[];
-  assetTypeCounts: Record<PanelAssetType, number>;
   collections: PanelCollection[];
-  onAssignAssetType: (
-    assetType: PanelAssetType,
-    assetIds: string[],
-  ) => Promise<void> | void;
   onAddToFolder: (folderId: string, assetIds: string[]) => Promise<void> | void;
   onToggleFolder: (folderId: string) => Promise<void> | void;
+  /** Takes the selected members out of this collection. */
+  onRemoveFromFolder: (folderId: string) => Promise<void> | void;
   onCreateCollection: (name: string, assetIds: string[]) => Promise<void> | void;
   /** Creates a folder inside a root collection and files the ids into it. */
   onCreateSubCollection: (
@@ -97,21 +88,17 @@ export function AddToPanel({
   ) => Promise<void> | void;
   topOffset?: number;
 }) {
-  const [view, setView] = useState<View>("folders");
-  const [drillId, setDrillId] = useState<string | null>(null);
-  const [folderDrafting, setFolderDrafting] = useState(false);
+  const [query, setQuery] = useState("");
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [folderDraftFor, setFolderDraftFor] = useState<string | null>(null);
   const [folderName, setFolderName] = useState("");
+  const [describing, setDescribing] = useState<string | null>(null);
   const [collectionDrafting, setCollectionDrafting] = useState(false);
   const [collectionName, setCollectionName] = useState("");
-  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState<Busy>(null);
   const [flash, setFlash] = useState<string | null>(null);
 
-  // A target acts on whatever was dropped on it; failing that, on the selection.
-  const resolveIds = useCallback(
-    (dropped?: string[]) =>
-      dropped && dropped.length > 0 ? dropped : selectedAssetIds,
-    [selectedAssetIds],
-  );
+  const count = selectedAssetIds.length;
 
   const run = useCallback(
     async (key: string, message: string, action: () => Promise<void> | void) => {
@@ -130,41 +117,222 @@ export function AddToPanel({
     [],
   );
 
-  const drilled = useMemo(
-    () =>
-      collections.find((entry) => entry.id === drillId && !entry.parentId) ??
-      null,
-    [collections, drillId],
-  );
+  const toggleExpanded = useCallback((id: string, next?: boolean) => {
+    setExpanded((prev) => {
+      const isOpen = next ?? !prev.has(id);
+      if (isOpen === prev.has(id)) return prev;
+      const copy = new Set(prev);
+      if (isOpen) copy.add(id);
+      else copy.delete(id);
+      return copy;
+    });
+  }, []);
 
-  const rootCollections = useMemo(
-    () => collections.filter((entry) => !entry.parentId),
-    [collections],
-  );
-  const childrenByParent = useMemo(() => {
-    const map = new Map<string, PanelCollection[]>();
+  const { roots, childrenByParent, byId } = useMemo(() => {
+    const ids = new Set(collections.map((entry) => entry.id));
+    const children = new Map<string, PanelCollection[]>();
+    const rootList: PanelCollection[] = [];
     for (const entry of collections) {
-      if (!entry.parentId) continue;
-      const list = map.get(entry.parentId) ?? [];
-      list.push(entry);
-      map.set(entry.parentId, list);
+      if (entry.parentId && ids.has(entry.parentId)) {
+        const list = children.get(entry.parentId) ?? [];
+        list.push(entry);
+        children.set(entry.parentId, list);
+      } else {
+        rootList.push(entry);
+      }
     }
-    return map;
-  }, [collections]);
-  const impliedAssetTypeTag = useMemo(() => {
-    if (selectedAssetIds.length === 0) return null;
-    return resolveImpliedAssetTypeTag(
-      collections
-        .filter(
-          (entry) => entry.selectedCount === selectedAssetIds.length,
-        )
-        .map((entry) => entry.name),
+    for (const [parentId, list] of children) {
+      children.set(parentId, orderChildCollections(list));
+    }
+    const sortable = (entry: PanelCollection) => ({
+      name: entry.name,
+      // compareRootCollections reads the world flag from these two fields.
+      group: entry.isWorld ? "World" : undefined,
+      pinnedAt: entry.pinned ? 1 : undefined,
+      sortOrder: entry.sortOrder,
+    });
+    rootList.sort((left, right) =>
+      compareRootCollections(sortable(left), sortable(right)),
     );
-  }, [collections, selectedAssetIds.length]);
+    return {
+      roots: rootList,
+      childrenByParent: children,
+      byId: new Map(collections.map((entry) => [entry.id, entry])),
+    };
+  }, [collections]);
+
+  // Search keeps a root when it or a folder matches, and opens it on a
+  // folder match.
+  const searching = query.trim().length > 0;
+  const visibleRoots = useMemo(
+    () =>
+      roots.flatMap((root) => {
+        const children = childrenByParent.get(root.id) ?? [];
+        if (!searching) return [{ root, children, forcedOpen: false }];
+        const childMatches = children.filter((child) =>
+          collectionNameMatches(child.name, query),
+        );
+        if (!collectionNameMatches(root.name, query) && childMatches.length === 0) {
+          return [];
+        }
+        return [
+          {
+            root,
+            children: childMatches.length > 0 ? childMatches : children,
+            forcedOpen: childMatches.length > 0,
+          },
+        ];
+      }),
+    [roots, childrenByParent, query, searching],
+  );
+  const worlds = visibleRoots.filter((entry) => entry.root.isWorld);
+  const plain = visibleRoots.filter((entry) => !entry.root.isWorld);
+
+  // Where the selection already lives, worlds first, each root before its
+  // folders.
+  const memberships = useMemo(() => {
+    if (count === 0) return [];
+    return roots.flatMap((root) =>
+      [root, ...(childrenByParent.get(root.id) ?? [])].filter(
+        (entry) => (entry.selectedCount ?? 0) > 0,
+      ),
+    );
+  }, [childrenByParent, count, roots]);
 
   if (!open) return null;
 
-  const count = selectedAssetIds.length;
+  const activate = (entry: PanelCollection, dropped?: string[]) => {
+    if (dropped && dropped.length > 0) {
+      return run(entry.id, `Added to ${entry.name}`, () =>
+        onAddToFolder(entry.id, dropped),
+      );
+    }
+    if (count === 0) {
+      setFlash("Select pieces first, or drag them onto a row");
+      return;
+    }
+    const all = (entry.selectedCount ?? 0) === count;
+    return run(
+      entry.id,
+      all ? `Removed from ${entry.name}` : `Added to ${entry.name}`,
+      () => onToggleFolder(entry.id),
+    );
+  };
+
+  const renderRoot = ({
+    root,
+    children,
+    forcedOpen,
+  }: {
+    root: PanelCollection;
+    children: PanelCollection[];
+    forcedOpen: boolean;
+  }) => {
+    const isOpen = forcedOpen || expanded.has(root.id);
+    const allChildren = childrenByParent.get(root.id) ?? [];
+    return (
+      <div key={root.id} style={{ marginBottom: 2 }}>
+        <Row
+          entry={root}
+          level="root"
+          busy={busyKey === root.id}
+          selectionTotal={count}
+          folderCount={allChildren.length}
+          expanded={allChildren.length > 0 ? isOpen : undefined}
+          onToggleExpand={() => toggleExpanded(root.id, !isOpen)}
+          onDragHover={() => {
+            if (allChildren.length > 0) toggleExpanded(root.id, true);
+          }}
+          onActivate={(dropped) => activate(root, dropped)}
+        />
+        {isOpen && (
+          <div style={{ position: "relative", padding: "2px 0 8px" }}>
+            <span
+              aria-hidden
+              style={{
+                position: "absolute",
+                left: 27,
+                top: 0,
+                bottom: 14,
+                width: 1,
+                background: "var(--lm-sidebar-divider)",
+              }}
+            />
+            {children.map((child, index) => {
+              const groupKey = collectionGroupKey(child.group);
+              const previousKey = collectionGroupKey(children[index - 1]?.group);
+              const groupLabel =
+                groupKey && groupKey !== previousKey
+                  ? normalizeCollectionGroup(child.group)
+                  : !groupKey && previousKey
+                    ? "Other"
+                    : undefined;
+              return (
+                <Fragment key={child.id}>
+                  {groupLabel && <p style={groupLabelStyle}>{groupLabel}</p>}
+                  <Row
+                    entry={child}
+                    level="child"
+                    busy={busyKey === child.id}
+                    selectionTotal={count}
+                    onActivate={(dropped) => activate(child, dropped)}
+                  />
+                </Fragment>
+              );
+            })}
+            <div style={{ display: "flex", gap: 14, padding: "6px 0 0 44px" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setFolderDraftFor(root.id);
+                  setFolderName("");
+                }}
+                style={inlineActionStyle}
+              >
+                <Plus size={11} /> New folder
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setDescribing((prev) => (prev === root.id ? null : root.id))
+                }
+                style={{ ...inlineActionStyle, color: "var(--lm-sidebar-text-muted)" }}
+              >
+                {describing === root.id ? "Done" : "Description"}
+              </button>
+            </div>
+            {folderDraftFor === root.id && (
+              <div style={{ padding: "0 0 0 44px" }}>
+                <InlineCreate
+                  placeholder={`Folder inside ${root.name}…`}
+                  value={folderName}
+                  onChange={setFolderName}
+                  onCancel={() => setFolderDraftFor(null)}
+                  onSubmit={async () => {
+                    const name = folderName.trim();
+                    if (!name) return;
+                    await run(`new-folder:${root.id}`, `Created ${name}`, () =>
+                      onCreateSubCollection(root.id, name, selectedAssetIds),
+                    );
+                    setFolderDraftFor(null);
+                    setFolderName("");
+                  }}
+                />
+              </div>
+            )}
+            {describing === root.id && (
+              <div style={{ padding: "0 0 0 44px" }}>
+                <DescriptionEditor
+                  value={root.description ?? ""}
+                  onSave={(text) => onUpdateDescription(root.id, text)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <aside
@@ -177,7 +345,7 @@ export function AddToPanel({
         top: `max(${topOffset + 16}px, env(safe-area-inset-top))`,
         right: 16,
         bottom: 16,
-        width: "min(440px, calc(100vw - 32px))",
+        width: "min(420px, calc(100vw - 32px))",
         zIndex: 65,
         display: "flex",
         flexDirection: "column",
@@ -190,524 +358,378 @@ export function AddToPanel({
     >
       <header
         style={{
-          padding: "14px 16px 12px",
+          padding: "14px 14px 12px 16px",
           borderBottom: "1px solid var(--lm-sidebar-divider)",
         }}
       >
         <div
           style={{
             display: "flex",
-            alignItems: "center",
+            alignItems: "flex-start",
             justifyContent: "space-between",
             gap: 12,
           }}
         >
-          <div>
+          <div style={{ minWidth: 0 }}>
             <p style={kickerStyle}>Move to</p>
             <p
               style={{
-                margin: "4px 0 0",
+                margin: "5px 0 0",
+                fontFamily: "var(--lm-font)",
+                fontSize: 15,
+                fontWeight: 800,
+                letterSpacing: "-0.01em",
+                color: count > 0 ? "var(--lm-sidebar-text)" : "var(--lm-sidebar-text-muted)",
+              }}
+            >
+              {count > 0
+                ? `${count} ${count === 1 ? "piece" : "pieces"} selected`
+                : "Nothing selected"}
+            </p>
+            <p
+              aria-live="polite"
+              style={{
+                margin: "2px 0 0",
+                minHeight: 15,
                 fontFamily: "var(--lm-font)",
                 fontSize: 11.5,
-                color:
-                  count > 0 ? "var(--lm-coral)" : "var(--lm-sidebar-text-ghost)",
+                color: flash ? "var(--lm-coral)" : "var(--lm-sidebar-text-ghost)",
               }}
             >
               {flash ??
                 (count > 0
-                  ? `${count} selected`
-                  : "Select assets, or drag them into a bin")}
+                  ? "Click a row to add. Click a checked row to take them out."
+                  : "Select pieces, or drag them onto a row.")}
             </p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <ViewToggle view={view} onChange={setView} />
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close move-to panel"
+            style={iconButtonStyle}
+          >
+            <X size={16} />
+          </button>
+        </div>
+        <label style={searchStyle}>
+          <Search size={13} style={{ color: "var(--lm-sidebar-text-ghost)", flexShrink: 0 }} />
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setQuery("");
+            }}
+            placeholder="Find a world, collection or folder"
+            aria-label="Find a world, collection or folder"
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              color: "var(--lm-sidebar-text)",
+              fontFamily: "var(--lm-font)",
+              fontSize: 12.5,
+            }}
+          />
+          {query && (
             <button
               type="button"
-              onClick={onClose}
-              aria-label="Close move-to panel"
-              style={iconButtonStyle}
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+              style={{ ...iconButtonStyle, padding: 0 }}
             >
-              <X size={15} />
+              <X size={12} />
             </button>
-          </div>
-        </div>
+          )}
+        </label>
       </header>
 
-      <div style={{ overflowY: "auto", flex: 1, padding: "12px 14px 32px" }}>
-        {drilled ? (
-          <>
+      <div style={{ overflowY: "auto", flex: 1, padding: "6px 10px 28px" }}>
+        {memberships.length > 0 && !searching && (
+          <section style={{ marginBottom: 6 }}>
+            <SectionTitle label="Already in" count={memberships.length} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {memberships.map((entry) => {
+                const parent = entry.parentId ? byId.get(entry.parentId) : undefined;
+                const members = entry.selectedCount ?? 0;
+                return (
+                  <div key={entry.id} style={memberRowStyle}>
+                    <span style={{ minWidth: 0, flex: 1 }}>
+                      {parent && (
+                        <span style={memberParentStyle}>{parent.name}</span>
+                      )}
+                      <span style={memberNameStyle}>{entry.name}</span>
+                    </span>
+                    <span style={memberCountStyle}>
+                      {members === count ? "all" : `${members}/${count}`}
+                    </span>
+                    <button
+                      type="button"
+                      disabled={busyKey === `remove:${entry.id}`}
+                      onClick={() =>
+                        void run(
+                          `remove:${entry.id}`,
+                          `Removed from ${entry.name}`,
+                          () => onRemoveFromFolder(entry.id),
+                        )
+                      }
+                      aria-label={`Remove the selection from ${entry.name}`}
+                      title={`Take ${members === 1 ? "it" : "them"} out of ${entry.name}. The pieces stay in the gallery.`}
+                      style={removeButtonStyle}
+                    >
+                      <FolderMinus size={12} /> Remove
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {worlds.length > 0 && (
+          <section>
+            <SectionTitle icon={Orbit} label="Worlds" count={worlds.length} />
+            {worlds.map(renderRoot)}
+          </section>
+        )}
+
+        {plain.length > 0 && (
+          <section>
+            <SectionTitle icon={FolderClosed} label="Collections" count={plain.length} />
+            {plain.map(renderRoot)}
+          </section>
+        )}
+
+        {searching && visibleRoots.length === 0 && (
+          <Hint>Nothing called &ldquo;{query.trim()}&rdquo;.</Hint>
+        )}
+        {!searching && roots.length === 0 && <Hint>No collections yet.</Hint>}
+
+        <div style={{ marginTop: 12, paddingLeft: 6 }}>
+          {collectionDrafting ? (
+            <InlineCreate
+              placeholder="Collection name…"
+              value={collectionName}
+              onChange={setCollectionName}
+              onCancel={() => setCollectionDrafting(false)}
+              onSubmit={async () => {
+                const name = collectionName.trim();
+                if (!name) return;
+                await run("new-collection", `Created ${name}`, () =>
+                  onCreateCollection(name, selectedAssetIds),
+                );
+                setCollectionDrafting(false);
+                setCollectionName("");
+              }}
+            />
+          ) : (
             <button
               type="button"
               onClick={() => {
-                setDrillId(null);
-                setFolderDrafting(false);
+                setCollectionDrafting(true);
+                setCollectionName("");
               }}
-              style={backButtonStyle}
+              style={{ ...inlineActionStyle, fontSize: 10.5 }}
             >
-              <ArrowLeft size={13} /> All destinations
+              <Plus size={12} /> New collection
             </button>
-            <h3 style={groupTitleStyle}>{drilled.name}</h3>
-            <DescriptionEditor
-              value={drilled.description ?? ""}
-              onSave={(text) => onUpdateDescription(drilled.id, text)}
-            />
-
-            <p style={{ ...kickerStyle, margin: "14px 0 8px" }}>Folders</p>
-            <Grid view={view}>
-              {(childrenByParent.get(drilled.id) ?? []).map((child) => (
-                <Target
-                  key={child.id}
-                  view={view}
-                  icon={FolderClosed}
-                  label={child.name}
-                  count={child.count}
-                  previews={child.previews}
-                  busy={busyKey === child.id}
-                  selectedCount={child.selectedCount}
-                  selectionTotal={count}
-                  selectionKind="checkbox"
-                  onActivate={(ids) => {
-                    if (ids && ids.length > 0) {
-                      return run(child.id, `Added to ${child.name}`, () =>
-                        onAddToFolder(child.id, ids),
-                      );
-                    }
-                    if (count === 0) return;
-                    return run(child.id, `Updated ${child.name}`, () =>
-                      onToggleFolder(child.id),
-                    );
-                  }}
-                />
-              ))}
-              <Target
-                view={view}
-                icon={Plus}
-                label="New folder"
-                accent
-                onActivate={() => {
-                  setFolderDrafting(true);
-                  setFolderName("");
-                }}
-              />
-            </Grid>
-            {folderDrafting && (
-              <InlineCreate
-                placeholder={`Folder in ${drilled.name}…`}
-                value={folderName}
-                onChange={setFolderName}
-                onCancel={() => setFolderDrafting(false)}
-                onSubmit={async () => {
-                  const name = folderName.trim();
-                  if (!name) return;
-                  await run(`new-folder:${drilled.id}`, `Created ${name}`, () =>
-                    onCreateSubCollection(drilled.id, name, selectedAssetIds),
-                  );
-                  setFolderDrafting(false);
-                  setFolderName("");
-                }}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            {!impliedAssetTypeTag && (
-              <>
-                <p style={{ ...kickerStyle, margin: "0 0 8px" }}>Asset type</p>
-                <p style={helperStyle}>
-                  Only needed for general collections. Characters, Locations
-                  and Scenes destinations classify automatically.
-                </p>
-                <Grid view={view} compact>
-                  {ASSET_TYPES.map((assetType) => (
-                    <Target
-                      key={assetType.key}
-                      view={view}
-                      icon={assetType.icon}
-                      label={assetType.label}
-                      busy={busyKey === `type:${assetType.key}`}
-                      selectedCount={assetTypeCounts[assetType.key]}
-                      selectionTotal={count}
-                      selectionKind="checkbox"
-                      hint="Assign type"
-                      onActivate={(ids) => {
-                        const assetIds = resolveIds(ids);
-                        if (assetIds.length === 0) return;
-                        void run(
-                          `type:${assetType.key}`,
-                          `Filed ${assetIds.length} as ${assetType.label}`,
-                          () => onAssignAssetType(assetType.key, assetIds),
-                        );
-                      }}
-                    />
-                  ))}
-                </Grid>
-              </>
-            )}
-
-            <p
-              style={{
-                ...kickerStyle,
-                margin: impliedAssetTypeTag ? "0 0 8px" : "18px 0 8px",
-              }}
-            >
-              Collections
-            </p>
-            {rootCollections.length === 0 && <Hint>No collections yet.</Hint>}
-            <Grid view={view}>
-              {rootCollections.map((entry) => (
-                <Target
-                  key={entry.id}
-                  view={view}
-                  icon={FolderClosed}
-                  label={entry.name}
-                  count={entry.count}
-                  previews={entry.previews}
-                  busy={busyKey === entry.id}
-                  selectedCount={entry.selectedCount}
-                  selectionTotal={count}
-                  selectionKind="checkbox"
-                  openLabel={
-                    childrenByParent.has(entry.id)
-                      ? `${childrenByParent.get(entry.id)!.length} folders`
-                      : "Folders"
-                  }
-                  onOpen={() => setDrillId(entry.id)}
-                  onActivate={(ids) => {
-                    if (ids && ids.length > 0) {
-                      return run(entry.id, `Added to ${entry.name}`, () =>
-                        onAddToFolder(entry.id, ids),
-                      );
-                    }
-                    if (count === 0) return;
-                    return run(entry.id, `Updated ${entry.name}`, () =>
-                      onToggleFolder(entry.id),
-                    );
-                  }}
-                />
-              ))}
-              <Target
-                view={view}
-                icon={Plus}
-                label="New collection"
-                accent
-                onActivate={() => {
-                  setCollectionDrafting(true);
-                  setCollectionName("");
-                }}
-              />
-            </Grid>
-            {collectionDrafting && (
-              <InlineCreate
-                placeholder="Collection name…"
-                value={collectionName}
-                onChange={setCollectionName}
-                onCancel={() => setCollectionDrafting(false)}
-                onSubmit={async () => {
-                  const name = collectionName.trim();
-                  if (!name) return;
-                  await run("new-collection", `Created ${name}`, () =>
-                    onCreateCollection(name, selectedAssetIds),
-                  );
-                  setCollectionDrafting(false);
-                  setCollectionName("");
-                }}
-              />
-            )}
-          </>
-        )}
+          )}
+        </div>
       </div>
     </aside>
   );
 }
 
-function Grid({
-  view,
-  compact = false,
-  children,
-}: {
-  view: View;
-  compact?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      style={
-        view === "folders"
-          ? {
-              display: "grid",
-              gridTemplateColumns: `repeat(auto-fill, minmax(${compact ? 104 : 140}px, 1fr))`,
-              gap: 10,
-            }
-          : { display: "flex", flexDirection: "column", gap: 2 }
-      }
-    >
-      {children}
-    </div>
-  );
-}
-
 /**
- * One destination. In folder view it's a tall cover tile — a big, forgiving
- * drop target; in list view a dense row. `onActivate` receives the dropped
- * ids when it was a drop, and nothing when it was a click.
+ * One destination row. A root carries a cover, its full name (two lines
+ * before it clips) and how many pieces and folders it holds; a folder is a
+ * lighter row on the root's spine. `onActivate` receives the dropped ids
+ * when it was a drop, and nothing when it was a click.
  */
-function Target({
-  view,
-  icon: Icon,
-  label,
-  count,
-  previews,
+function Row({
+  entry,
+  level,
+  busy,
+  selectionTotal,
+  folderCount = 0,
+  expanded,
+  onToggleExpand,
+  onDragHover,
   onActivate,
-  accent = false,
-  emphasis = false,
-  busy = false,
-  hint,
-  selectedCount = 0,
-  selectionTotal = 0,
-  selectionKind,
-  onOpen,
-  openLabel,
 }: {
-  view: View;
-  icon?: typeof Users;
-  label: string;
-  count?: number;
-  previews?: PanelPreview[];
+  entry: PanelCollection;
+  level: "root" | "child";
+  busy: boolean;
+  selectionTotal: number;
+  folderCount?: number;
+  expanded?: boolean;
+  onToggleExpand?: () => void;
+  onDragHover?: () => void;
   onActivate: (droppedIds?: string[]) => void;
-  accent?: boolean;
-  emphasis?: boolean;
-  busy?: boolean;
-  hint?: string;
-  selectedCount?: number;
-  selectionTotal?: number;
-  selectionKind?: "checkbox" | "radio";
-  /** Secondary action: drill into this destination's folders. */
-  onOpen?: () => void;
-  openLabel?: string;
 }) {
   const [over, setOver] = useState(false);
-  const openControl = onOpen ? (
-    <span
-      role="button"
-      tabIndex={0}
-      onClick={(event) => {
-        event.stopPropagation();
-        onOpen();
+  const root = level === "root";
+  const selected = entry.selectedCount ?? 0;
+  const complete = selectionTotal > 0 && selected === selectionTotal;
+  const marked = selectionTotal > 0 && selected > 0;
+  const cover = entry.previews?.[0]?.thumbUrl ?? entry.previews?.[0]?.url;
+  const thumb = root ? 38 : 26;
+
+  return (
+    <div
+      onDragOver={(event) => {
+        if (!hasAssetDragPayload(event.dataTransfer)) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = "copy"; // every destination ADDS
+        if (!over) onDragHover?.();
+        setOver(true);
       }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          event.stopPropagation();
-          onOpen();
-        }
+      onDragLeave={() => setOver(false)}
+      onDrop={(event) => {
+        if (!hasAssetDragPayload(event.dataTransfer)) return;
+        event.preventDefault();
+        setOver(false);
+        onActivate(readAssetDragPayload(event.dataTransfer));
       }}
-      aria-label={`Open ${label}`}
-      title={`Open ${label} — its folders`}
-      style={openControlStyle}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        paddingLeft: root ? 0 : 38,
+        borderRadius: 10,
+        border: "1px solid",
+        borderColor: over ? "var(--lm-coral)" : "transparent",
+        background: over || complete ? "var(--lm-sidebar-active-fill)" : "transparent",
+        transition: "background-color 120ms ease, border-color 120ms ease",
+      }}
     >
-      {openLabel ?? "Open"} ›
-    </span>
-  ) : null;
-  const cover = previews?.[0]?.thumbUrl ?? previews?.[0]?.url;
-  const selectionMarked = selectionTotal > 0 && selectedCount > 0;
-  const selectionComplete =
-    selectionTotal > 0 && selectedCount === selectionTotal;
-  const selectionState = selectionComplete
-    ? true
-    : selectionMarked
-      ? "mixed"
-      : false;
-
-  const dropProps = {
-    onDragOver: (event: React.DragEvent) => {
-      if (!hasAssetDragPayload(event.dataTransfer)) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "copy"; // every destination ADDS
-      setOver(true);
-    },
-    onDragLeave: () => setOver(false),
-    onDrop: (event: React.DragEvent) => {
-      if (!hasAssetDragPayload(event.dataTransfer)) return;
-      event.preventDefault();
-      setOver(false);
-      onActivate(readAssetDragPayload(event.dataTransfer));
-    },
-  };
-
-  if (view === "list") {
-    return (
+      {root && (
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          disabled={expanded === undefined}
+          aria-label={
+            expanded === undefined
+              ? undefined
+              : expanded
+                ? `Collapse ${entry.name}`
+                : `Show folders in ${entry.name}`
+          }
+          aria-expanded={expanded}
+          style={{
+            display: "grid",
+            placeItems: "center",
+            width: 22,
+            height: 38,
+            flexShrink: 0,
+            border: "none",
+            background: "none",
+            padding: 0,
+            cursor: expanded === undefined ? "default" : "pointer",
+            color: "var(--lm-sidebar-text-muted)",
+            visibility: expanded === undefined ? "hidden" : "visible",
+          }}
+        >
+          <ChevronRight
+            size={14}
+            style={{
+              transform: expanded ? "rotate(90deg)" : undefined,
+              transition: "transform 140ms ease",
+            }}
+          />
+        </button>
+      )}
       <button
         type="button"
-        role={selectionKind ?? undefined}
-        aria-checked={selectionKind ? selectionState : undefined}
+        role="checkbox"
+        aria-checked={complete ? true : marked ? "mixed" : false}
         onClick={() => onActivate()}
         disabled={busy}
-        {...dropProps}
+        title={
+          complete
+            ? `In ${entry.name}. Click to take the selection out.`
+            : `Add the selection to ${entry.name}`
+        }
+        className="lm-move-row"
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 9,
-          width: "100%",
-          textAlign: "left",
-          padding: "8px 10px",
-          border: "1px solid",
-          borderColor:
-            over || selectionMarked ? "var(--lm-coral)" : "transparent",
+          gap: 10,
+          flex: 1,
+          minWidth: 0,
+          padding: root ? "5px 8px 5px 2px" : "4px 8px 4px 0",
+          border: "none",
           borderRadius: 8,
-          background: over ? "var(--lm-sidebar-active-fill)" : "transparent",
-          color: accent ? "var(--lm-coral)" : "var(--lm-sidebar-text)",
-          fontFamily: "var(--lm-font)",
-          fontSize: 12.5,
-          fontWeight: emphasis ? 700 : 500,
+          background: "transparent",
+          textAlign: "left",
           cursor: "pointer",
           opacity: busy ? 0.5 : 1,
         }}
       >
-        {Icon && <Icon size={14} style={{ flexShrink: 0 }} aria-hidden />}
-        <span style={ellipsis}>{label}</span>
-        {openControl}
-        {count !== undefined && <span style={countStyle}>{count}</span>}
-        {selectionKind && (
-          <SelectionMark count={selectedCount} total={selectionTotal} />
-        )}
-      </button>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      role={selectionKind ?? undefined}
-      aria-checked={selectionKind ? selectionState : undefined}
-      onClick={() => onActivate()}
-      disabled={busy}
-      {...dropProps}
-      title={label}
-      style={{
-        position: "relative",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "flex-end",
-        alignItems: "stretch",
-        height: 118,
-        padding: 0,
-        overflow: "hidden",
-        border: "2px solid",
-        borderColor: over || selectionMarked
-          ? "var(--lm-coral)"
-          : accent
-            ? "color-mix(in srgb, var(--lm-coral) 45%, transparent)"
-            : "var(--lm-sidebar-border)",
-        borderRadius: 10,
-        background: over || selectionComplete
-          ? "var(--lm-sidebar-active-fill)"
-          : "var(--lm-sidebar-hover-fill)",
-        cursor: "pointer",
-        opacity: busy ? 0.5 : 1,
-        transition: "border-color 120ms ease, transform 120ms ease",
-        transform: over ? "scale(1.015)" : "none",
-        textAlign: "left",
-      }}
-    >
-      {cover && (
-        <img
-          src={cover}
-          alt=""
-          loading="lazy"
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            objectFit: "cover",
-            opacity: 0.5,
-          }}
-        />
-      )}
-      {/* Keeps the label readable over any cover. */}
-      <span
-        aria-hidden
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: cover
-            ? "linear-gradient(to top, rgba(0,0,0,0.86) 0%, rgba(0,0,0,0.28) 62%, rgba(0,0,0,0.1) 100%)"
-            : "none",
-        }}
-      />
-      {Icon && (
-        <Icon
-          size={15}
+        <span
           aria-hidden
           style={{
-            position: "absolute",
-            top: 9,
-            left: 10,
-            color: accent ? "var(--lm-coral)" : "var(--lm-sidebar-text-muted)",
-          }}
-        />
-      )}
-      {selectionKind ? (
-        <span style={{ position: "absolute", top: 8, right: 9, zIndex: 2 }}>
-          <SelectionMark count={selectedCount} total={selectionTotal} />
-        </span>
-      ) : count !== undefined ? (
-        <span
-          style={{
-            position: "absolute",
-            top: 8,
-            right: 9,
-            ...countStyle,
+            width: thumb,
+            height: thumb,
+            flexShrink: 0,
+            borderRadius: root ? 8 : 6,
+            overflow: "hidden",
+            display: "grid",
+            placeItems: "center",
+            background: "var(--lm-sidebar-hover-fill)",
+            border: "1px solid var(--lm-sidebar-border)",
+            color: "var(--lm-sidebar-text-ghost)",
           }}
         >
-          {count}
+          {cover ? (
+            <img
+              src={cover}
+              alt=""
+              loading="lazy"
+              style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            />
+          ) : (
+            <FolderClosed size={root ? 14 : 11} />
+          )}
         </span>
-      ) : null}
-      <span
-        style={{
-          position: "relative",
-          padding: "8px 10px 9px",
-          fontFamily: "var(--lm-font)",
-          fontSize: 11.5,
-          fontWeight: emphasis ? 800 : 600,
-          lineHeight: 1.25,
-          // Light only when it sits on a cover's dark gradient; a coverless
-          // tile is just the panel surface, so it takes the panel's own text
-          // colour (light-on-light was invisible in the light theme).
-          color: accent
-            ? "var(--lm-coral)"
-            : cover
-              ? "#f0e8e0"
-              : "var(--lm-sidebar-text)",
-          display: "-webkit-box",
-          WebkitLineClamp: 2,
-          WebkitBoxOrient: "vertical",
-          overflow: "hidden",
-        }}
-      >
-        {label}
-        {hint && (
+        <span style={{ flex: 1, minWidth: 0 }}>
           <span
             style={{
-              display: "block",
-              marginTop: 2,
-              fontSize: 9.5,
-              fontWeight: 700,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
-              color: "var(--lm-coral)",
+              display: "-webkit-box",
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              wordBreak: "break-word",
+              fontFamily: "var(--lm-font)",
+              color: "var(--lm-sidebar-text)",
+              ...(root
+                ? {
+                    fontSize: 11.5,
+                    fontWeight: 800,
+                    letterSpacing: "0.05em",
+                    textTransform: "uppercase" as const,
+                    lineHeight: 1.25,
+                  }
+                : { fontSize: 12.5, fontWeight: 500, lineHeight: 1.3 }),
             }}
           >
-            {hint} →
+            {entry.name}
           </span>
-        )}
-      </span>
-      {openControl && (
-        <span style={{ position: "absolute", top: 7, left: Icon ? 30 : 8, zIndex: 2 }}>
-          {openControl}
+          {root && (
+            <span style={metaStyle}>
+              {entry.count ?? 0} pieces
+              {folderCount > 0 &&
+                ` · ${folderCount} ${folderCount === 1 ? "folder" : "folders"}`}
+            </span>
+          )}
         </span>
-      )}
-    </button>
+        {!root && entry.count !== undefined && (
+          <span style={{ ...metaStyle, marginTop: 0 }}>{entry.count}</span>
+        )}
+        <SelectionMark count={selected} total={selectionTotal} />
+      </button>
+    </div>
   );
 }
 
@@ -719,20 +741,23 @@ function SelectionMark({ count, total }: { count: number; total: number }) {
       aria-hidden
       style={{
         display: "inline-flex",
-        minWidth: 22,
-        height: 22,
+        minWidth: 20,
+        height: 20,
+        flexShrink: 0,
         alignItems: "center",
         justifyContent: "center",
+        padding: mixed ? "0 4px" : 0,
         border: `1.5px solid ${
           complete || mixed ? "var(--lm-coral)" : "var(--lm-sidebar-border)"
         }`,
-        borderRadius: 7,
-        background: complete ? "var(--lm-coral)" : "rgba(0,0,0,0.42)",
-        color: complete ? "#000" : "var(--lm-coral)",
+        borderRadius: 6,
+        background: complete ? "var(--lm-coral)" : "transparent",
+        color: complete ? "#191919" : "var(--lm-coral)",
         fontFamily: "var(--lm-font)",
         fontSize: 9,
         fontWeight: 800,
         fontVariantNumeric: "tabular-nums",
+        visibility: total > 0 ? "visible" : "hidden",
       }}
     >
       {complete ? "✓" : mixed ? `${count}/${total}` : ""}
@@ -740,58 +765,32 @@ function SelectionMark({ count, total }: { count: number; total: number }) {
   );
 }
 
-function ViewToggle({
-  view,
-  onChange,
+function SectionTitle({
+  icon: Icon,
+  label,
+  count,
 }: {
-  view: View;
-  onChange: (next: View) => void;
+  icon?: typeof Orbit;
+  label: string;
+  count: number;
 }) {
   return (
     <div
-      role="radiogroup"
-      aria-label="Destination view"
       style={{
-        display: "inline-flex",
-        border: "1px solid var(--lm-sidebar-border)",
-        borderRadius: 8,
-        overflow: "hidden",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "14px 6px 8px",
+        color: "var(--lm-sidebar-text-ghost)",
       }}
     >
-      {([
-        { key: "folders" as const, icon: LayoutGrid, label: "Folders" },
-        { key: "list" as const, icon: ListIcon, label: "List" },
-      ]).map((option) => {
-        const active = view === option.key;
-        const Icon = option.icon;
-        return (
-          <button
-            key={option.key}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            aria-label={option.label}
-            title={option.label}
-            onClick={() => onChange(option.key)}
-            style={{
-              display: "grid",
-              placeItems: "center",
-              width: 30,
-              height: 26,
-              border: "none",
-              cursor: "pointer",
-              background: active
-                ? "var(--lm-sidebar-active-fill)"
-                : "transparent",
-              color: active
-                ? "var(--lm-coral)"
-                : "var(--lm-sidebar-text-muted)",
-            }}
-          >
-            <Icon size={13} />
-          </button>
-        );
-      })}
+      {Icon && <Icon size={12} aria-hidden />}
+      <span style={kickerStyle}>{label}</span>
+      <span
+        aria-hidden
+        style={{ flex: 1, height: 1, background: "var(--lm-sidebar-divider)" }}
+      />
+      <span style={{ ...kickerStyle, letterSpacing: "0.04em" }}>{count}</span>
     </div>
   );
 }
@@ -808,6 +807,7 @@ function DescriptionEditor({
 
   return (
     <textarea
+      autoFocus
       value={dirty ? draft : value}
       onChange={(event) => {
         setDraft(event.target.value);
@@ -880,7 +880,7 @@ function Hint({ children }: { children: React.ReactNode }) {
   return (
     <p
       style={{
-        margin: "0 0 8px",
+        margin: "12px 6px",
         fontFamily: "var(--lm-font)",
         fontSize: 11.5,
         color: "var(--lm-sidebar-text-ghost)",
@@ -891,21 +891,48 @@ function Hint({ children }: { children: React.ReactNode }) {
   );
 }
 
-const ellipsis = {
-  flex: 1,
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  whiteSpace: "nowrap" as const,
+const kickerStyle = {
+  margin: 0,
+  fontFamily: "var(--lm-font)",
+  fontSize: 9.5,
+  fontWeight: 800,
+  letterSpacing: "0.18em",
+  textTransform: "uppercase" as const,
+  color: "var(--lm-sidebar-text-ghost)",
 };
 
-const countStyle = {
+const metaStyle = {
+  display: "block",
+  marginTop: 2,
+  fontFamily: "var(--lm-font-mono, var(--lm-font))",
+  fontSize: 9.5,
+  fontWeight: 600,
+  letterSpacing: "0.04em",
+  fontVariantNumeric: "tabular-nums" as const,
+  color: "var(--lm-sidebar-text-ghost)",
+};
+
+const groupLabelStyle = {
+  margin: 0,
+  padding: "8px 0 3px 44px",
   fontFamily: "var(--lm-font)",
-  fontSize: 10,
-  fontWeight: 700,
-  color: "#f0e8e0",
-  background: "rgba(0,0,0,0.5)",
-  padding: "2px 6px",
-  borderRadius: 4,
+  fontSize: 8.5,
+  fontWeight: 800,
+  letterSpacing: "0.18em",
+  textTransform: "uppercase" as const,
+  color: "var(--lm-sidebar-text-ghost)",
+};
+
+const searchStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  marginTop: 12,
+  height: 34,
+  padding: "0 10px",
+  borderRadius: 10,
+  border: "1px solid var(--lm-sidebar-border)",
+  background: "var(--lm-sidebar-hover-fill)",
 };
 
 const iconButtonStyle = {
@@ -918,59 +945,77 @@ const iconButtonStyle = {
   lineHeight: 0,
 };
 
-const groupTitleStyle = {
-  margin: "10px 0 0",
-  fontFamily: "var(--lm-font-display)",
-  fontSize: 20,
-  fontWeight: 800,
-  letterSpacing: "-0.02em",
-  color: "var(--lm-sidebar-text)",
-};
-
-const backButtonStyle = {
+const inlineActionStyle = {
   display: "inline-flex",
   alignItems: "center",
-  gap: 6,
+  gap: 5,
   border: "none",
   background: "none",
   padding: 0,
   cursor: "pointer",
   fontFamily: "var(--lm-font)",
-  fontSize: 10.5,
-  fontWeight: 700,
-  letterSpacing: "0.14em",
-  textTransform: "uppercase" as const,
-  color: "var(--lm-sidebar-text-muted)",
-};
-
-const kickerStyle = {
-  margin: 0,
-  fontFamily: "var(--lm-font)",
   fontSize: 9.5,
   fontWeight: 800,
-  letterSpacing: "0.18em",
+  letterSpacing: "0.14em",
   textTransform: "uppercase" as const,
-  color: "var(--lm-sidebar-text-ghost)",
+  color: "var(--lm-coral)",
 };
 
-const helperStyle = {
-  margin: "0 0 10px",
-  fontFamily: "var(--lm-font)",
-  fontSize: 11,
-  lineHeight: 1.45,
-  color: "var(--lm-sidebar-text-muted)",
+const memberRowStyle = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  padding: "7px 8px 7px 10px",
+  borderRadius: 10,
+  border: "1px solid color-mix(in srgb, var(--lm-coral) 35%, transparent)",
+  background: "color-mix(in srgb, var(--lm-coral) 7%, transparent)",
 };
 
-const openControlStyle = {
-  flexShrink: 0,
-  padding: "1px 6px",
-  borderRadius: 6,
+const memberParentStyle = {
+  display: "block",
   fontFamily: "var(--lm-font)",
-  fontSize: 9.5,
+  fontSize: 9,
   fontWeight: 700,
   letterSpacing: "0.12em",
   textTransform: "uppercase" as const,
+  color: "var(--lm-sidebar-text-ghost)",
+  whiteSpace: "nowrap" as const,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+};
+
+const memberNameStyle = {
+  display: "block",
+  fontFamily: "var(--lm-font)",
+  fontSize: 12.5,
+  fontWeight: 600,
+  color: "var(--lm-sidebar-text)",
+  overflowWrap: "anywhere" as const,
+};
+
+const memberCountStyle = {
+  flexShrink: 0,
+  fontFamily: "var(--lm-font-mono, var(--lm-font))",
+  fontSize: 10,
+  fontWeight: 700,
   color: "var(--lm-coral)",
-  background: "color-mix(in srgb, var(--lm-sidebar-bg) 72%, transparent)",
+};
+
+const removeButtonStyle = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 5,
+  flexShrink: 0,
+  height: 26,
+  padding: "0 9px",
+  borderRadius: 8,
+  border: "1px solid var(--lm-sidebar-border)",
+  background: "var(--lm-sidebar-bg)",
   cursor: "pointer",
+  fontFamily: "var(--lm-font)",
+  fontSize: 9.5,
+  fontWeight: 800,
+  letterSpacing: "0.1em",
+  textTransform: "uppercase" as const,
+  color: "var(--lm-sidebar-text)",
 };

@@ -1,10 +1,12 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Instrument_Serif } from "next/font/google";
 import { GeistSans } from "geist/font/sans";
 import { GeistMono } from "geist/font/mono";
 import "./globals.css";
 import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { TelegramAuthProvider } from "@/components/TelegramAuthProvider";
+import { FeedbackButton } from "@/components/feedback/feedback-button";
 import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/theme";
 
 const instrumentSerif = Instrument_Serif({
@@ -37,7 +39,11 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <TelegramAuthProvider>
-          <ConvexClientProvider>{children}</ConvexClientProvider>
+          <ConvexClientProvider>
+            {children}
+            {/* Feedback for the agent from any page: files a task the reviewer picks up. */}
+            <Suspense fallback={null}><FeedbackButton /></Suspense>
+          </ConvexClientProvider>
         </TelegramAuthProvider>
       </body>
     </html>

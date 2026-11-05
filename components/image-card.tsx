@@ -1,9 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Check, Copy, Download, FolderMinus, Heart, ImageIcon, Loader2, Play, Quote, Star, Trash2, BookOpenText, Film, X } from "lucide-react";
+import { Check, Copy, Download, FolderMinus, ImageIcon, Loader2, Star, Trash2, BookOpenText, Film, X } from "lucide-react";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import {
   PackDeckLayers,
@@ -12,6 +11,7 @@ import {
   usePackRotation,
 } from "@/components/gallery/pack-deck";
 import { resolveLayoutAspect, resolveLayoutKind } from "@/lib/masonry-layout";
+import { buildGridImageAttrs, gridImageSizes } from "@/lib/grid-image";
 import { triggerAssetDownload } from "@/lib/download-image";
 import { hasMeaningfulPrompt } from "@/lib/prompt";
 import { SKILL_SECTION_COPY, isCinematographySkill } from "@/lib/cinematography";
@@ -27,9 +27,11 @@ import { useAssetReview } from "@/components/gallery/asset-review-controls";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
-// Two collection badges is the most a tile carries before the row eats the
-// image; the rest collapse into a +N.
+// Labels on a tile, the board way: one line of small dark chips along the
+// bottom edge (styles in globals.css, .lm-chips). Two collection names at
+// most, then +N; three removable tags on hover, then +N.
 const MAX_COLLECTION_BADGES = 2;
+const MAX_TAG_CHIPS = 3;
 
 type CinemaMetadataLite = {
   movieTitle: string;
@@ -57,6 +59,11 @@ interface ImageCardProps {
     promptId?: string;
     src: string;
     fullSrc: string;
+    /** The thumb and the original with their widths, for the tile's srcset. */
+    thumbSrc?: string;
+    thumbWidth?: number;
+    fullWidth?: number;
+    thumbVariants?: { url: string; width: number }[];
     prompt: string;
     name?: string;
     agentDescription?: string;
@@ -98,10 +105,14 @@ interface ImageCardProps {
     previewImages: GalleryEntryPreview[];
   };
   eager?: boolean;
-  /** Native `loading` for the tile's <img>. The masonry grid windows its own
-      rows, so it asks for "eager": a mounted tile should fetch at once
-      instead of waiting for the browser's lazy threshold. */
+  /** Native `loading` for the tile's <img>. The masonry grid asks for
+      "eager" on the first screen and "lazy" below it, so a fast scroll past
+      a mounted batch does not fetch every thumb in it. */
   mediaLoading?: "eager" | "lazy";
+  /** The tile's laid-out width in px, when the grid knows it: it becomes the
+      <img>'s `sizes`, so the browser picks the thumb or the original by the
+      space the tile really has. */
+  tileWidth?: number;
   onSelect?: (image: {
     id: string;
     packId?: string;
@@ -171,6 +182,8 @@ interface ImageCardProps {
   onCreateCollection?: (name: string) => Promise<string | null>;
   /** Rename a collection from the card's collection menu. */
   onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
+  /** "Add to moodboard…" from the card's collection menu. */
+  onAddToMoodboard?: (imageId: string, anchor: DOMRect | null) => void;
   /** Owner-only: hover surfaces the asset's tags as chips; clicking one
       removes that tag from the asset. */
   onRemoveTag?: (imageId: string, tagName: string) => void;
@@ -183,6 +196,9 @@ interface ImageCardProps {
   /** The scope's folder, when it is one: the button only shows on tiles that
       are actually filed there, so a click always does something. */
   excludeFolderId?: string;
+  /** A short label laid over the card (e.g. "On board" while choosing images
+      for a moodboard). A marked card is shown as already taken. */
+  marked?: string;
 }
 
 const VIDEO_HOVER_DELAY_MS = 250;
@@ -192,6 +208,7 @@ export const ImageCard = memo(function ImageCard({
   image,
   eager = false,
   mediaLoading = "lazy",
+  tileWidth,
   onSelect,
   selectedId,
   initiallyLoaded = false,
@@ -220,10 +237,12 @@ export const ImageCard = memo(function ImageCard({
   onRemoveFromCollection,
   onCreateCollection,
   onRenameCollection,
+  onAddToMoodboard,
   onRemoveTag,
   onExcludeFromView,
   excludeLabel,
   excludeFolderId,
+  marked,
 }: ImageCardProps) {
   const review = useAssetReview();
   const isSelected = image.id === selectedId;
@@ -250,6 +269,10 @@ export const ImageCard = memo(function ImageCard({
           galleryItemType: "asset" as const,
           src: image.src,
           fullSrc: image.fullSrc,
+          thumbSrc: image.thumbSrc,
+          thumbWidth: image.thumbWidth,
+          fullWidth: image.fullWidth,
+          thumbVariants: image.thumbVariants,
           prompt: image.prompt,
           name: image.name,
           agentDescription: image.agentDescription,
@@ -298,6 +321,9 @@ export const ImageCard = memo(function ImageCard({
   const displayedTags = displayedMember.tagNames ?? [];
   const displayedCollections = displayedMember.collectionLabels ?? [];
   const displayedTypeLabel = displayedMember.typeLabel;
+  // Removable tag chips (owner only), minus any that repeat a badge beside them.
+  const badgeWords = new Set([displayedTypeLabel, ...displayedCollections].filter(Boolean).map((label) => label!.toLowerCase()));
+  const chipTags = onRemoveTag ? displayedTags.filter((tag) => !badgeWords.has(tag.toLowerCase())) : [];
   const displayLabel = isPackDeck
     ? activePreview.agentDescription || activePreview.name || activePreview.prompt || "Gallery asset"
     : image.agentDescription || image.name || activePreview.prompt || "Gallery asset";
@@ -423,11 +449,40 @@ export const ImageCard = memo(function ImageCard({
     setPosterSettled(true);
   };
 
-  // `priority` already implies eager; passing both trips a Next warning.
-  const imgLoading = eager ? undefined : mediaLoading;
-  const responsiveSizes = isVideo
-    ? "(max-width: 640px) 100vw, (max-width: 1024px) 66vw, (max-width: 1280px) 50vw, 40vw"
-    : "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw";
+  const imgLoading: "eager" | "lazy" = eager ? "eager" : mediaLoading;
+  const fetchPriority = eager ? ("high" as const) : undefined;
+  // The still's srcset: thumb and original at their real widths, chosen by
+  // the tile's width. Once a thumb has failed and the card fell back to the
+  // original, only the original is offered.
+  const gridAttrs = useMemo(
+    () =>
+      currentSrc === activePreview.src
+        ? buildGridImageAttrs(
+            {
+              src: currentSrc,
+              variants: activePreview.thumbVariants,
+              thumbSrc: activePreview.thumbSrc,
+              thumbWidth: activePreview.thumbWidth,
+              fullSrc: activePreview.fullSrc,
+              fullWidth: activePreview.fullWidth,
+            },
+            tileWidth,
+            isVideo ? "video" : "image",
+          )
+        : { src: currentSrc, sizes: gridImageSizes(tileWidth, isVideo ? "video" : "image") },
+    [
+      activePreview.fullSrc,
+      activePreview.fullWidth,
+      activePreview.src,
+      activePreview.thumbSrc,
+      activePreview.thumbVariants,
+      activePreview.thumbWidth,
+      currentSrc,
+      isVideo,
+      tileWidth,
+    ],
+  );
+  const posterSizes = gridImageSizes(tileWidth, "video");
 
   const entranceDelay =
     index < ENTRANCE_ANIMATION_LIMIT ? `${index * 30}ms` : "0ms";
@@ -511,13 +566,14 @@ export const ImageCard = memo(function ImageCard({
 
   const shouldAnimateEntrance = index < ENTRANCE_ANIMATION_LIMIT;
   const cardClasses = [
-    "group relative h-full w-full cursor-pointer overflow-hidden card-base rounded-xl",
+    "group relative h-full w-full cursor-pointer overflow-hidden card-base rounded-[var(--lm-radius)]",
     shouldAnimateEntrance && "animate-card-entrance",
     isStarred && "card-starred",
     isSelected && "card-selected",
     dimmed && "card-dimmed",
     exiting && "animate-card-exit",
-    selectable && selected && "ring-2 ring-[var(--lm-coral)] ring-offset-2 ring-offset-[var(--lm-surface-0)]",
+    selectable && selected && "card-picked",
+    likeable && displayedLiked && "card-kept",
   ].filter(Boolean).join(" ");
 
   const handleToggleSelect = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -734,21 +790,23 @@ export const ImageCard = memo(function ImageCard({
                 <ImageIcon className="h-6 w-6" style={{ color: "var(--text-ghost)" }} />
               </div>
             )}
-            <Image
-              src={currentSrc || "/placeholder.svg"}
+            {/* eslint-disable-next-line @next/next/no-img-element -- R2 renditions with their own srcset; next/image adds nothing here */}
+            <img
+              src={gridAttrs.src || "/placeholder.svg"}
+              srcSet={gridAttrs.srcSet}
+              sizes={gridAttrs.sizes}
               alt={displayLabel}
-              fill
-              sizes={responsiveSizes}
-              priority={eager}
               loading={imgLoading}
-              className={`object-cover transition-transform duration-500 group-hover:scale-[1.03] ${
+              fetchPriority={fetchPriority}
+              decoding="async"
+              draggable={false}
+              className={`absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03] ${
                 isLoading ? "opacity-0" : "opacity-100"
               }`}
               style={{ transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)" }}
               ref={attachImageNode}
               onLoad={handleImageLoad}
               onError={handleImageError}
-              unoptimized
             />
             <div className="skill-card-scrim" aria-hidden />
           </div>
@@ -937,14 +995,16 @@ export const ImageCard = memo(function ImageCard({
         ) : isVideo ? (
           <>
             {hasThumb && (
-              <Image
+              // eslint-disable-next-line @next/next/no-img-element -- the poster is an R2 still; next/image adds nothing here
+              <img
                 src={activeThumbSrc || "/placeholder.svg"}
+                sizes={posterSizes}
                 alt={displayLabel}
-                fill
-                sizes={responsiveSizes}
-                priority={eager}
                 loading={imgLoading}
-                className={`object-contain transition-opacity duration-150 ${
+                fetchPriority={fetchPriority}
+                decoding="async"
+                draggable={false}
+                className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-150 ${
                   isLoading ? "opacity-0" : "opacity-100"
                 }`}
                 ref={attachPosterNode}
@@ -953,7 +1013,6 @@ export const ImageCard = memo(function ImageCard({
                   setPosterSettled(true);
                 }}
                 onError={handleVideoPosterError}
-                unoptimized
               />
             )}
             {(videoScrub.active || !hasThumb || (mountVideoAtRest && posterSettled)) && (
@@ -976,51 +1035,26 @@ export const ImageCard = memo(function ImageCard({
             )}
           </>
         ) : (
-          <Image
-            src={currentSrc || "/placeholder.svg"}
+          // eslint-disable-next-line @next/next/no-img-element -- R2 renditions with their own srcset; next/image adds nothing here
+          <img
+            src={gridAttrs.src || "/placeholder.svg"}
+            srcSet={gridAttrs.srcSet}
+            sizes={gridAttrs.sizes}
             alt={displayLabel}
-            fill
-            sizes={responsiveSizes}
-            priority={eager}
             loading={imgLoading}
-            className={`object-cover transition-transform duration-200 group-hover:scale-[1.03] ${
+            fetchPriority={fetchPriority}
+            decoding="async"
+            draggable={false}
+            className={`absolute inset-0 h-full w-full object-cover ${
               isLoading ? "opacity-0" : "opacity-100"
             }`}
-            style={{
-              transitionTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-            }}
             ref={attachImageNode}
             onLoad={handleImageLoad}
             onError={handleImageError}
-            unoptimized
           />
         )}
       </div>
 
-      {/* Video play mark — a quiet glass chip. It identifies video cards at
-          rest and fades away while the pointer previews its frames. */}
-      {isVideo && (
-        <div
-          className={`pointer-events-none absolute right-2 z-20 grid h-6 w-6 place-items-center rounded-full backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-0 ${
-            starNote ? "bottom-9" : "bottom-2"
-          }`}
-          style={{
-            background: "var(--image-card-badge-bg)",
-            color: "var(--image-card-badge-text)",
-            border:
-              "1px solid color-mix(in srgb, var(--image-card-badge-text) 25%, transparent)",
-          }}
-        >
-          <Play className="ml-px h-2.5 w-2.5" fill="currentColor" />
-        </div>
-      )}
-
-      {/* Top-left action cluster — flex keeps the gaps uniform no matter which
-          buttons are present. pointer-events-none on the wrapper leaves the
-          gaps between buttons click-through to the card underneath. Each
-          cluster is capped at half the tile and wraps: on a narrow tile the
-          two clusters would otherwise grow into each other and the top one
-          would swallow clicks meant for the button underneath it. */}
       {/* Pack deck tabs — one per frame, the current one filling up. */}
       {isPackDeck && (
         <PackDeckTabs
@@ -1032,237 +1066,301 @@ export const ImageCard = memo(function ImageCard({
         />
       )}
 
+      {/* Top bar, the board way: the ID chip and tools on the left, the
+          curation marks on the right. Revealed on hover; a kept, starred or
+          picked tile keeps its own mark showing. pointer-events-none on the
+          bar leaves the gaps click-through to the card underneath. The right
+          group never shrinks; the left one wraps under it on a narrow tile. */}
       <div
-        className={`card-toolbar pointer-events-none absolute left-2 z-30 flex max-w-[calc(50%-0.375rem)] flex-wrap items-center gap-1.5 ${toolbarTop}`}
-        data-crowded={canExclude ? "true" : undefined}
+        className={`card-toolbar pointer-events-none absolute inset-x-1.5 z-40 flex items-start gap-1 ${toolbarTop}`}
       >
-        {selectable && (
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          {selectable && (
+            <button
+              type="button"
+              onClick={handleToggleSelect}
+              className={`card-icon-btn pointer-events-auto ${
+                selected
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              }`}
+              data-active={selected ? "dark" : undefined}
+              aria-label={selected ? "Deselect asset" : "Select asset"}
+              aria-pressed={selected}
+              title={selected ? "Deselect" : "Select"}
+            >
+              {selected ? (
+                <Check className="h-3 w-3" strokeWidth={3} />
+              ) : (
+                <span className="card-check" />
+              )}
+            </button>
+          )}
+
           <button
             type="button"
-            onClick={handleToggleSelect}
-            className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg border ${
-              selected
-                ? "opacity-100"
-                : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-            }`}
-            data-active={selected ? "dark" : undefined}
-            aria-label={selected ? "Deselect asset" : "Select asset"}
-            aria-pressed={selected}
-            title={selected ? "Deselect" : "Select"}
+            onClick={(event) => {
+              void handleIdCopy(event);
+            }}
+            className="card-chip-btn pointer-events-auto opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            aria-label={`Copy ${galleryItemType} ID`}
+            title={`Copy ${galleryItemType} ID`}
           >
-            {selected ? (
-              <Check className="h-4 w-4" strokeWidth={3} />
-            ) : (
-              <span
-                className="block h-3.5 w-3.5"
-                style={{
-                  border: "1.5px solid currentColor",
-                  borderRadius: "4px",
-                }}
-              />
-            )}
+            {galleryItemId.slice(-8)}
           </button>
-        )}
 
-        <button
-          type="button"
-          onClick={(event) => {
-            void handleIdCopy(event);
-          }}
-          className="card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg border opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          aria-label={`Copy ${galleryItemType} ID`}
-          title={`Copy ${galleryItemType} ID`}
-        >
-          <Copy className="h-3.5 w-3.5" />
-        </button>
+          {/* Prompt — hovering it drops the prompt sheet; a click copies. */}
+          {!isCinema && hasPrompt && showPromptChip && (
+            <button
+              type="button"
+              onClick={(event) => {
+                void handlePromptCopy(event);
+              }}
+              onMouseEnter={openPromptSheet}
+              onMouseLeave={schedulePromptClose}
+              onFocus={openPromptSheet}
+              onBlur={schedulePromptClose}
+              className={`card-chip-btn pointer-events-auto ${
+                promptOpen
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              }`}
+              data-active={promptOpen ? "true" : undefined}
+              aria-label="Show prompt — click to copy"
+              title="Hover to read, click to copy the prompt"
+            >
+              Prompt
+            </button>
+          )}
 
-        {/* One-click download — appears on hover. Images save as JPG. */}
-        <button
-          type="button"
-          onClick={handleDownload}
-          className="card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-lg border opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          aria-label={isVideo ? "Download file" : "Download as JPG"}
-          title={isVideo ? "Download file" : "Download as JPG"}
-        >
-          <Download className="h-3.5 w-3.5" />
-        </button>
+          {/* One-click download. Images save as JPG. */}
+          <button
+            type="button"
+            onClick={handleDownload}
+            className="card-icon-btn pointer-events-auto opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+            aria-label={isVideo ? "Download file" : "Download as JPG"}
+            title={isVideo ? "Download file" : "Download as JPG"}
+          >
+            <Download className="h-3 w-3" />
+          </button>
 
-        {/* Move/copy to collection — hover control with a floating menu. */}
-        {collections && onMoveToCollection && onCopyToCollection && (
-          <CardCollectionButton
-            imageId={displayedAssetId}
-            currentFolderIds={memberFolderIds}
-            collections={collections}
-            onMove={onMoveToCollection}
-            onCopy={onCopyToCollection}
-            onRemove={onRemoveFromCollection}
-            onCreate={onCreateCollection}
-            onRename={onRenameCollection}
-            positionClassName="pointer-events-auto z-20"
-          />
-        )}
+          {collections && onMoveToCollection && onCopyToCollection && (
+            <CardCollectionButton
+              imageId={displayedAssetId}
+              currentFolderIds={memberFolderIds}
+              collections={collections}
+              onMove={onMoveToCollection}
+              onCopy={onCopyToCollection}
+              onRemove={onRemoveFromCollection}
+              onCreate={onCreateCollection}
+              onRename={onRenameCollection}
+              onAddToMoodboard={onAddToMoodboard}
+              positionClassName="pointer-events-auto"
+            />
+          )}
+        </div>
+
+        <div className="ml-auto flex min-w-0 max-w-[65%] shrink-0 items-center justify-end gap-1">
+          {/* Provenance caption — the public surface says which world a
+              featured piece comes from. Only where no owner marks render. */}
+          {image.overlayLabel && !canDelete && !likeable && (
+            <span className="card-chip-btn min-w-0 truncate opacity-0 group-hover:opacity-100">
+              {image.overlayLabel}
+            </span>
+          )}
+
+          {canExclude && (
+            <button
+              type="button"
+              onClick={(event) => {
+                void handleExclude(event);
+              }}
+              disabled={excluding}
+              className={`card-icon-btn pointer-events-auto disabled:cursor-not-allowed ${
+                excluding
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              }`}
+              aria-label={`Remove from ${excludeLabel}`}
+              title={`Not relevant — remove from ${excludeLabel}`}
+            >
+              {excluding ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <FolderMinus className="h-3 w-3" strokeWidth={2.25} />
+              )}
+            </button>
+          )}
+
+          {canDelete && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={deleting}
+              className={`card-icon-btn pointer-events-auto disabled:cursor-not-allowed ${
+                deleting
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              }`}
+              data-danger="true"
+              aria-label={deleting ? "Deleting image" : "Delete image"}
+              title="Delete"
+            >
+              {deleting ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Trash2 className="h-3 w-3" />
+              )}
+            </button>
+          )}
+
+          {/* Star — stays lit at rest so a featured piece reads as featured. */}
+          {starrable && (
+            <button
+              type="button"
+              onClick={handleToggleStar}
+              className={`card-icon-btn pointer-events-auto ${
+                isStarred
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              }`}
+              data-active={isStarred ? "star" : undefined}
+              aria-label={isStarred ? "Unfeature asset" : "Feature asset"}
+              aria-pressed={isStarred}
+              title={
+                isStarred
+                  ? "Featured on the taste profile — click to take it off"
+                  : "Feature on the taste profile"
+              }
+            >
+              <Star
+                className="h-3 w-3"
+                strokeWidth={2.25}
+                fill={isStarred ? "currentColor" : "none"}
+              />
+            </button>
+          )}
+
+          {/* KEEP / KEPT — the private like, as the board's pick pill. */}
+          {likeable && (
+            <button
+              type="button"
+              onClick={handleToggleLike}
+              className={`card-keep pointer-events-auto ${
+                displayedLiked
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+              }`}
+              data-on={displayedLiked ? "true" : undefined}
+              aria-label={displayedLiked ? "Kept — click to unkeep" : "Keep"}
+              aria-pressed={displayedLiked}
+              title={displayedLiked ? "Kept — click to unkeep" : "Keep"}
+            >
+              {displayedLiked ? "Kept" : "Keep"}
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* Pack badge — top-right. A deck says the same with its tabs. */}
-      {!isPackDeck &&
-        image.packMemberCount !== undefined &&
-        image.packMemberCount > 1 && (
+      {/* Prompt sheet — drops down from the Prompt chip, feathered at its
+          lower edge, shown only while the chip or the sheet is hovered.
+          A click anywhere on the text copies it. */}
+      {!isCinema && hasPrompt && showPromptChip && promptOpen && (
         <div
-          className="absolute right-2 top-2 z-10 flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
-          style={{
-            backgroundColor: "var(--image-card-badge-bg)",
-            color: "var(--coral)",
-            border:
-              "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
-          }}
+          className={`absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden px-3 pb-6 lm-animate-fade-in ${
+            isPackDeck ? "pt-12" : "pt-9"
+          }`}
+          style={{ maxHeight: isVideo ? "45%" : "65%" }}
+          onMouseEnter={cancelPromptClose}
+          onMouseLeave={schedulePromptClose}
         >
-          ▤ {image.packMemberCount}
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background: "var(--image-card-prompt-drop-bg)",
+              backdropFilter: "blur(4px)",
+              WebkitBackdropFilter: "blur(4px)",
+              maskImage:
+                "linear-gradient(to top, transparent 0%, black 28%, black 100%)",
+              WebkitMaskImage:
+                "linear-gradient(to top, transparent 0%, black 28%, black 100%)",
+            }}
+          />
+
+          <button
+            type="button"
+            onClick={(event) => {
+              void handlePromptCopy(event);
+            }}
+            className="relative z-10 min-h-0 flex-1 overflow-y-auto pr-2 text-left text-[10.5px] font-mono leading-snug overscroll-contain"
+            style={{ color: "var(--image-card-overlay-text)", scrollbarWidth: "thin" }}
+            aria-label="Copy prompt to clipboard"
+          >
+            {activePreview.prompt}
+          </button>
         </div>
       )}
 
-      {/* Provenance caption — top-right, revealed on hover. The public surface
-          uses it to say which world a featured piece comes from. Sits where the
-          owner's delete/like cluster would be, so the two never both render. */}
-      {image.overlayLabel && !canDelete && !likeable && (
+      {/* Labels, the board way: one line of small dark chips on the bottom
+          edge, readable at rest. Where it is filed (the first collection in
+          linen), what it is, the model, public; on hover the owner's tags join
+          the line (a click removes one). One line that never wraps, so chips
+          never sit on top of each other. A star note owns the bottom edge at
+          rest, so there the line waits for hover. */}
+      {!isCinema && (
         <div
-          className={`pointer-events-none absolute right-2 z-20 max-w-[70%] ${toolbarTop} truncate px-2 py-1 text-[9px] font-mono font-bold uppercase tracking-wider opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100`}
-          style={{
-            backgroundColor: "var(--image-card-badge-bg-soft)",
-            backdropFilter: "blur(6px)",
-            // Always light: this sits on the image, not on the page surface.
-            color: "var(--lm-ink)",
-            borderRadius: 3,
-          }}
-        >
-          {image.overlayLabel}
-        </div>
-      )}
-
-      {/* Model + filing badges — bottom-left, revealed on hover so the tile
-          reads clean at rest. When a Prompt chip renders in the same corner
-          the row sits to its right. Suppressed on cinema-inspiration. */}
-      {!isCinema &&
-        (image.modelName ||
-          displayedTypeLabel ||
-          (displayedCollections?.length ?? 0) > 0 ||
-          (showPublicBadge && displayedMember.isPublic)) && (
-        <div
-          className={`absolute bottom-2 z-10 flex max-w-[70%] flex-wrap items-center gap-1.5 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100 ${
-            hasPrompt && showPromptChip ? "left-[5.75rem]" : "left-2"
+          className={`lm-chips pointer-events-none absolute bottom-1.5 left-1.5 right-1.5 z-30 transition-opacity duration-[var(--duration-normal)] ${
+            promptOpen ? "opacity-0" : starNote ? "opacity-0 group-hover:opacity-100" : ""
           }`}
         >
-          {/* What the piece IS — character / location / scene. Coral so it
-              reads apart from the neutral provenance badges beside it. */}
-          {displayedTypeLabel && (
-            <div
-              className="px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--coral)",
-                border:
-                  "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
-              }}
-            >
-              {displayedTypeLabel}
-            </div>
+          {isVideo && <span className="v">Video</span>}
+          {!isPackDeck &&
+            image.packMemberCount !== undefined &&
+            image.packMemberCount > 1 && (
+              <span className="c">{image.packMemberCount} frames</span>
+            )}
+          {displayedCollections.slice(0, MAX_COLLECTION_BADGES).map((label, i) => (
+            <span key={label} className={i === 0 ? "g" : undefined} title={`In collection "${label}"`}>
+              {label}
+            </span>
+          ))}
+          {displayedCollections.length > MAX_COLLECTION_BADGES && (
+            <span title={displayedCollections.join(" · ")}>
+              +{displayedCollections.length - MAX_COLLECTION_BADGES}
+            </span>
           )}
-          {/* Where it's filed. Two collections fit; the rest collapse into a
-              +N whose tooltip names them. */}
-          {(displayedCollections ?? [])
-            .slice(0, MAX_COLLECTION_BADGES)
-            .map((label) => (
-              <div
-                key={label}
-                className="max-w-[140px] truncate px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
-                style={{
-                  backgroundColor: "var(--image-card-badge-bg)",
-                  color: "var(--image-card-badge-text)",
-                  border: "1px solid var(--image-card-badge-border)",
-                }}
-                title={`In collection "${label}"`}
-              >
-                {label}
-              </div>
-            ))}
-          {(displayedCollections?.length ?? 0) > MAX_COLLECTION_BADGES && (
-            <div
-              className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--image-card-badge-text)",
-                border: "1px solid var(--image-card-badge-border)",
-              }}
-              title={displayedCollections!.join(" · ")}
-            >
-              +{displayedCollections!.length - MAX_COLLECTION_BADGES}
-            </div>
-          )}
-          {image.modelName && (
-            <div
-              className="px-2 py-0.5 text-[9px] font-mono font-medium uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--image-card-badge-text)",
-                border: "1px solid var(--image-card-badge-border)",
-              }}
-            >
-              {image.modelName}
-            </div>
-          )}
+          {displayedTypeLabel && <span>{displayedTypeLabel}</span>}
+          {image.modelName && <span>{image.modelName}</span>}
           {showPublicBadge && displayedMember.isPublic && (
-            <div
-              className="flex items-center gap-1 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--coral)",
-                border: "1px solid color-mix(in srgb, var(--coral) 42%, transparent)",
-              }}
-              title="Already public"
-            >
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: "var(--coral)" }}
-              />
-              Public
-            </div>
+            <span className="p" title="Already public">Public</span>
           )}
-        </div>
-      )}
-
-      {/* Tag chips — owner-only, bottom-right on hover. Clicking a chip
-          removes that tag from the asset (the reactive query refreshes the
-          row). The play chip fades out on hover, so the corner is free. */}
-      {!isCinema && onRemoveTag && (displayedTags?.length ?? 0) > 0 && (
-        <div className="pointer-events-none absolute bottom-2 right-2 z-30 flex max-w-[72%] flex-wrap justify-end gap-1 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:pointer-events-auto group-hover:opacity-100">
-          {displayedTags!.map((tag) => (
+          {chipTags.slice(0, MAX_TAG_CHIPS).map((tag) => (
             <button
               key={tag}
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                onRemoveTag(displayedAssetId, tag);
+                onRemoveTag?.(displayedAssetId, tag);
               }}
-              className="flex items-center gap-1 px-1.5 py-0.5 text-[8px] font-mono font-medium uppercase tracking-wider"
-              style={{
-                backgroundColor: "var(--image-card-badge-bg)",
-                color: "var(--image-card-badge-text)",
-                border: "1px solid var(--image-card-badge-border)",
-                cursor: "pointer",
-              }}
+              className="t"
               title={`Remove tag "${tag}"`}
               aria-label={`Remove tag ${tag} from this asset`}
             >
               {tag}
-              <X className="h-2 w-2" style={{ color: "var(--coral)" }} />
+              <X className="h-2 w-2" />
             </button>
           ))}
+          {chipTags.length > MAX_TAG_CHIPS && (
+            <span className="t" title={chipTags.slice(MAX_TAG_CHIPS).join(" · ")}>
+              +{chipTags.length - MAX_TAG_CHIPS}
+            </span>
+          )}
         </div>
       )}
 
       {/* Star note — the owner's line on why this piece is starred. Visible at
           rest (that's the whole point of writing it) and fades on hover so the
-          prompt chip and tag chips get the bottom band back. Carries its own
-          scrim: at rest there is no hover gradient to sit on. */}
+          label line gets the bottom edge back. Carries its own scrim. */}
       {starNote && (
         <div
           className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-2.5 pb-2 pt-6 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-0"
@@ -1285,82 +1383,6 @@ export const ImageCard = memo(function ImageCard({
             />
             {starNote}
           </p>
-        </div>
-      )}
-
-      {/* Hover gradient — pure visual (icon legibility); never intercepts the
-          pointer, so wheel scrolling passes through the card untouched. */}
-      {!isCinema && (
-        <div
-          className="pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-[var(--duration-normal)] group-hover:opacity-100"
-          style={{
-            background: "var(--image-card-overlay-gradient)",
-          }}
-        />
-      )}
-
-      {/* "Prompt" chip — bottom-left on card hover. Hovering it reveals the
-          prompt sheet; clicking copies the prompt. */}
-      {!isCinema && hasPrompt && showPromptChip && (
-        <button
-          type="button"
-          onClick={(event) => {
-            void handlePromptCopy(event);
-          }}
-          onMouseEnter={openPromptSheet}
-          onMouseLeave={schedulePromptClose}
-          onFocus={openPromptSheet}
-          onBlur={schedulePromptClose}
-          className={`card-icon-btn absolute bottom-2 left-2 z-40 flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-[9px] font-mono font-bold uppercase tracking-wider ${
-            promptOpen
-              ? "opacity-100"
-              : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          }`}
-          aria-label="Show prompt — click to copy"
-          title="Hover to preview, click to copy prompt"
-        >
-          <Quote className="h-3 w-3" />
-          Prompt
-        </button>
-      )}
-
-      {/* Prompt sheet — feathered blur panel, shown only while hovering the
-          chip or the sheet itself. Click anywhere on the text copies. */}
-      {!isCinema && hasPrompt && showPromptChip && promptOpen && (
-        <div
-          className="absolute inset-x-0 bottom-0 z-30 flex flex-col overflow-hidden p-3 pb-11 pt-5 lm-animate-fade-in"
-          style={{ maxHeight: isVideo ? "40%" : "62%" }}
-          onMouseEnter={cancelPromptClose}
-          onMouseLeave={schedulePromptClose}
-        >
-          <div
-            className="pointer-events-none absolute inset-0"
-            style={{
-              background: "var(--image-card-prompt-sheet-bg)",
-              backdropFilter: "blur(4px)",
-              WebkitBackdropFilter: "blur(4px)",
-              maskImage:
-                "linear-gradient(to bottom, transparent 0%, black 32%, black 100%)",
-              WebkitMaskImage:
-                "linear-gradient(to bottom, transparent 0%, black 32%, black 100%)",
-            }}
-          />
-
-          <button
-            type="button"
-            onClick={(event) => {
-              void handlePromptCopy(event);
-            }}
-            className="relative z-10 min-h-0 flex-1 overflow-y-auto pr-2 text-left text-[10px] font-mono leading-snug tracking-wide overscroll-contain"
-            style={{
-              color: "var(--image-card-overlay-text)",
-              textShadow: "var(--image-card-text-shadow)",
-              scrollbarWidth: "thin",
-            }}
-            aria-label="Copy prompt to clipboard"
-          >
-            {activePreview.prompt}
-          </button>
         </div>
       )}
 
@@ -1392,121 +1414,23 @@ export const ImageCard = memo(function ImageCard({
           </div>
         </div>
       )}
-
-      {/* Top-right action cluster — destructive/curation actions kept apart
-          from the left cluster; flex keeps the buttons evenly spaced. */}
-      {(canDelete || likeable || starrable || canExclude) && (
+      {marked && (
         <div
-          className={`card-toolbar pointer-events-none absolute right-2 z-30 flex max-w-[calc(50%-0.375rem)] flex-wrap items-center justify-end gap-1.5 ${toolbarTop}`}
-          data-crowded={canExclude ? "true" : undefined}
+          className="pointer-events-none absolute inset-0 z-40 flex items-start justify-end p-2"
+          style={{ background: "color-mix(in srgb, var(--lm-paper) 46%, transparent)" }}
         >
-          {/* Exclude — leads the cluster so star and like keep the positions
-              they have everywhere else (the row is right-anchored, so adding
-              here doesn't move them). */}
-          {canExclude && (
-            <button
-              type="button"
-              onClick={(event) => {
-                void handleExclude(event);
-              }}
-              disabled={excluding}
-              className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border disabled:cursor-not-allowed ${
-                excluding
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-              }`}
-              aria-label={`Remove from ${excludeLabel}`}
-              title={`Not relevant — remove from ${excludeLabel}`}
-            >
-              {excluding ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FolderMinus className="h-4 w-4" strokeWidth={2.25} />
-              )}
-            </button>
-          )}
-
-          {canDelete && (
-            <button
-              type="button"
-              onClick={handleDelete}
-              disabled={deleting}
-              className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border disabled:cursor-not-allowed ${
-                deleting
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-              }`}
-              style={{
-                borderColor: deleting
-                  ? "var(--image-card-delete-border-disabled)"
-                  : "var(--image-card-delete-border)",
-                backgroundColor: deleting
-                  ? "var(--image-card-delete-bg-disabled)"
-                  : "var(--image-card-delete-bg)",
-                color: deleting
-                  ? "var(--image-card-delete-text-disabled)"
-                  : "var(--image-card-delete-text)",
-                boxShadow: deleting ? "none" : "var(--image-card-delete-shadow)",
-              }}
-              aria-label={deleting ? "Deleting image" : "Delete image"}
-            >
-              {deleting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4" />
-              )}
-            </button>
-          )}
-
-          {/* Star — stays lit at rest so a starred piece is legible without
-              hovering; it doubles as the card's "this one matters" marker. */}
-          {starrable && (
-            <button
-              type="button"
-              onClick={handleToggleStar}
-              className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border ${
-                isStarred
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-              }`}
-              data-active={isStarred ? "dark" : undefined}
-              aria-label={isStarred ? "Unfeature asset" : "Feature asset"}
-              aria-pressed={isStarred}
-              title={
-                isStarred
-                  ? "Featured on the taste profile — click to take it off"
-                  : "Feature on the taste profile"
-              }
-            >
-              <Star
-                className="h-4 w-4"
-                strokeWidth={2.25}
-                fill={isStarred ? "currentColor" : "none"}
-              />
-            </button>
-          )}
-
-          {likeable && (
-            <button
-              type="button"
-              onClick={handleToggleLike}
-              className={`card-icon-btn pointer-events-auto flex h-8 w-8 items-center justify-center rounded-full border ${
-                displayedLiked
-                  ? "opacity-100"
-                  : "opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-              }`}
-              data-active={displayedLiked ? "light" : undefined}
-              aria-label={displayedLiked ? "Unlike asset" : "Like asset"}
-              aria-pressed={displayedLiked}
-              title={displayedLiked ? "Liked — click to unlike" : "Like"}
-            >
-              <Heart
-                className="h-4 w-4"
-                strokeWidth={2.25}
-                fill={displayedLiked ? "currentColor" : "none"}
-              />
-            </button>
-          )}
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-[3px] text-[9px] font-bold uppercase tracking-[0.14em]"
+            style={{
+              fontFamily: "var(--lm-font)",
+              borderRadius: "var(--lm-radius)",
+              background: "var(--lm-ink)",
+              color: "var(--lm-paper)",
+            }}
+          >
+            <Check className="h-2.5 w-2.5" strokeWidth={3} aria-hidden />
+            {marked}
+          </span>
         </div>
       )}
     </motion.div>

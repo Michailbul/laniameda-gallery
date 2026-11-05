@@ -28,11 +28,23 @@ const main = async () => {
     throw new Error("CONVEX_ADMIN_KEY or CONVEX_DEPLOY_KEY is required.");
   }
 
-  const batchSizeRaw = process.argv[2]?.trim();
+  // bun scripts/backfill-semantic-index.ts [batchSize] [--sources=asset,skill] [--text-only]
+  // Re-embeds through the deployment's normal reindex path, so it writes the
+  // layout SEMANTIC_STORAGE selects. Only assets and Skills are searched;
+  // prompt and design-inspiration vectors exist in legacy storage only.
+  const args = process.argv.slice(2);
+  const batchSizeRaw = args.find((arg) => !arg.startsWith("--"))?.trim();
   const batchSize = batchSizeRaw ? Number.parseInt(batchSizeRaw, 10) : 25;
   if (!Number.isFinite(batchSize) || batchSize <= 0) {
     throw new Error("Batch size must be a positive integer.");
   }
+  const sourceTypes = (args.find((arg) => arg.startsWith("--sources="))?.slice("--sources=".length) ?? "asset,skill")
+    .split(",").map((source) => source.trim()).filter(Boolean);
+  const allowed = new Set(["asset", "skill", "prompt", "designInspiration"]);
+  if (sourceTypes.length === 0 || sourceTypes.some((source) => !allowed.has(source))) {
+    throw new Error("--sources takes asset, skill, prompt and/or designInspiration.");
+  }
+  const textOnly = args.includes("--text-only");
 
   getRequiredEnv("SEMANTIC_EMBEDDINGS_ENABLED");
 
@@ -41,7 +53,7 @@ const main = async () => {
     adminKey,
   );
 
-  for (const sourceType of ["asset", "prompt", "designInspiration"] as const) {
+  for (const sourceType of sourceTypes) {
     let cursor: string | undefined;
     let done = false;
     let totalProcessed = 0;
@@ -55,6 +67,7 @@ const main = async () => {
         sourceType,
         cursor,
         batchSize,
+        ...(textOnly && sourceType === "asset" ? { textOnly: true } : {}),
       } as never)) as {
         processed: number;
         successCount: number;
@@ -66,6 +79,9 @@ const main = async () => {
       totalProcessed += batch.processed;
       totalSuccess += batch.successCount;
       totalFailure += batch.failureCount;
+      if (!batch.done && (!batch.nextCursor || batch.nextCursor === cursor)) {
+        throw new Error("Backfill returned a non-advancing cursor.");
+      }
       cursor = batch.nextCursor;
       done = batch.done;
 
@@ -73,9 +89,8 @@ const main = async () => {
         `[${sourceType}] processed=${batch.processed} success=${batch.successCount} failure=${batch.failureCount} cursor=${batch.nextCursor ?? "done"}`,
       );
 
-      if (batch.processed === 0) {
-        done = true;
-      }
+      // A bounded native page can contain no eligible legacy-cursor rows.
+      // Only the server's done flag indicates that the source is exhausted.
     }
 
     console.log(

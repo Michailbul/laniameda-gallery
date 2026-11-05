@@ -8,6 +8,7 @@ import {
   validateExtensionToken,
 } from "@/lib/server/extension-auth";
 import { normalizeCollectionSection } from "@/lib/collection-sections";
+import { sanitizeMidjourneyMetadata } from "@/lib/midjourney-metadata";
 
 const ingestAction = makeFunctionReference<"action">("ingest:ingestFromApi");
 const updateAction = makeFunctionReference<"action">("ingest:updateFromApi");
@@ -76,6 +77,11 @@ function inferPlatformTag(value: string | undefined) {
     return "x";
   }
   return undefined;
+}
+
+function isMidjourneySourceTag(value: string) {
+  const tag = value.trim().toLowerCase();
+  return tag.startsWith("midjourney") || tag === "personalize";
 }
 
 function isMidjourneyModel(value: string | undefined) {
@@ -260,45 +266,34 @@ export async function POST(request: Request) {
       tagNames.push(tagName);
     };
 
-    if (Array.isArray(data.tagNames)) {
-      for (const t of data.tagNames) {
-        if (typeof t === "string") addTagName(t);
-      }
-    }
-
-    const sourcePlatformTag = inferPlatformTag(sourceUrl) ?? inferPlatformTag(imageUrl);
-    if (sourcePlatformTag) addTagName(sourcePlatformTag);
-
+    const requestedTagNames: string[] = Array.isArray(data.tagNames)
+      ? (data.tagNames as unknown[]).filter((t): t is string => typeof t === "string")
+      : [];
     const sourceParts = getUrlParts(sourceUrl);
     const isMidjourneySave =
       isMidjourneyUrl(sourceUrl) ||
       isMidjourneyUrl(imageUrl) ||
       isMidjourneyModel(modelName) ||
-      tagNames.some((tagName) => tagName.toLowerCase().startsWith("midjourney"));
+      requestedTagNames.some((tagName) => tagName.toLowerCase().startsWith("midjourney"));
     const isHiggsfieldSave =
       sourceParts?.host.includes("higgsfield") ||
       getUrlParts(imageUrl)?.host.includes("higgsfield") ||
       modelName?.toLowerCase().includes("higgsfield") ||
-      tagNames.some((tagName) => tagName.toLowerCase().startsWith("higgsfield"));
+      requestedTagNames.some((tagName) => tagName.toLowerCase().startsWith("higgsfield"));
 
-    if (isMidjourneySave) {
-      addTagName("midjourney");
-      addTagName("midjourney-web");
-
-      if (sourceParts?.pathname.includes("/explore")) {
-        addTagName("midjourney-explore");
-      }
-      if (/\/profiles?(?:\/|$)/.test(sourceParts?.pathname ?? "")) {
-        addTagName("midjourney-profile");
-      }
-      if (
-        sourceParts?.pathname.includes("/personalize/") &&
-        sourceParts.pathname.includes("/teach")
-      ) {
-        addTagName("midjourney-teach");
-        addTagName("personalize");
-      }
+    // Midjourney source tags (midjourney, midjourney-teach, personalize, …) say
+    // nothing about the piece: the model field already records Midjourney.
+    // Older extension builds still send them, so they are dropped here too.
+    for (const tagName of requestedTagNames) {
+      if (isMidjourneySourceTag(tagName)) continue;
+      addTagName(tagName);
     }
+
+    const sourcePlatformTag = inferPlatformTag(sourceUrl) ?? inferPlatformTag(imageUrl);
+    if (sourcePlatformTag && !isMidjourneySourceTag(sourcePlatformTag)) {
+      addTagName(sourcePlatformTag);
+    }
+
     if (isHiggsfieldSave) {
       addTagName("higgsfield");
       addTagName("higgsfield-web");
@@ -306,6 +301,11 @@ export async function POST(request: Request) {
     }
     // What the piece IS, last, after the source tags.
     addTagName(sectionTag);
+
+    // Malformed metadata is dropped here: it must never fail the image save.
+    const midjourneyMetadata = isMidjourneySave
+      ? sanitizeMidjourneyMetadata(data.midjourneyMetadata)
+      : undefined;
 
     const effectiveModelName = isMidjourneySave
       ? "Midjourney"
@@ -436,6 +436,11 @@ export async function POST(request: Request) {
       tagNames,
       modelName: effectiveModelName,
       modelProvider: effectiveModelProvider,
+      // The job page is the asset's source. The page it was saved from still
+      // decides the tags above and stays on the prompt as `domain`.
+      ...(midjourneyMetadata
+        ? { midjourneyMetadata, sourceUrl: midjourneyMetadata.jobUrl }
+        : {}),
       folderId: folderId || undefined,
       generationType: effectiveGenerationType,
       promptType: isVideoSave ? "video_gen" : "image_gen",

@@ -4,7 +4,9 @@
 // other path (browser extension, Telegram, bulk upload, older rows) arrives
 // without one, so this pass looks at the asset's picture and writes a short,
 // search-oriented description, marked agentDescriptionSource: "auto". It never
-// overwrites a description an agent wrote. Off unless the deployment sets
+// overwrites a description an agent wrote. Images saved with a descriptive
+// prompt are skipped: the prompt already says what they show (videos are always
+// described, they have no pixel vector). Off unless the deployment sets
 // AGENT_DESCRIPTIONS_ENABLED=true.
 
 import {
@@ -16,7 +18,11 @@ import { v } from "convex/values";
 import { makeFunctionReference, paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
-import { normalizeAgentDescription, sourceDomainOf } from "./agentDescriptionText";
+import {
+  hasDescriptivePrompt,
+  normalizeAgentDescription,
+  sourceDomainOf,
+} from "./agentDescriptionText";
 import { dedupeIds } from "./helpers";
 
 const reindexAssetActionRef = makeFunctionReference<"action">(
@@ -296,6 +302,7 @@ export const describeAsset = internalAction({
       v.literal("missing"),
       v.literal("exists"),
       v.literal("no_image"),
+      v.literal("has_prompt"),
       v.literal("empty"),
       v.literal("error"),
     ),
@@ -328,6 +335,10 @@ export const describeAsset = internalAction({
     if (!source.imageUrl) {
       await indexAnyway();
       return { status: "no_image" as const };
+    }
+    if (source.kind === "image" && hasDescriptivePrompt(source.promptText)) {
+      await indexAnyway();
+      return { status: "has_prompt" as const };
     }
 
     try {
@@ -392,14 +403,22 @@ export const listAssetsMissingDescription = internalQuery({
       .order("asc")
       .paginate(args.paginationOpts);
 
-    const assetIds = page.page
+    const candidates = page.page
       .filter((asset) => hasDescribablePicture(asset))
       .filter((asset) =>
         args.replaceAuto
           ? !asset.agentDescription || asset.agentDescriptionSource === "auto"
           : !asset.agentDescription,
-      )
-      .map((asset) => asset._id);
+      );
+    // Same rule as describeAsset: images with a descriptive prompt are skipped.
+    const assetIds: Id<"assets">[] = [];
+    for (const asset of candidates) {
+      if (asset.kind === "image" && asset.promptId) {
+        const prompt = await ctx.db.get(asset.promptId);
+        if (hasDescriptivePrompt(prompt?.text)) continue;
+      }
+      assetIds.push(asset._id);
+    }
 
     return {
       assetIds,

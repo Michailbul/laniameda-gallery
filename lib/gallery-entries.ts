@@ -35,6 +35,8 @@ export type GalleryAssetRecord = {
   promptText?: string;
   fileName?: string;
   thumbWidth?: number;
+  /** Grid renditions below the card thumb, smallest first (lib/grid-image.ts). */
+  thumbVariants?: { width: number; height: number; url: string }[];
   width?: number;
   thumbHeight?: number;
   height?: number;
@@ -70,6 +72,13 @@ export type GalleryEntryPreview = {
   /** A still for a video member, when one exists. `src` can be the video
    *  file itself, which an <img> can't paint. */
   posterSrc?: string;
+  /** The card thumb and the original with their pixel widths, for the tile's
+   *  srcset (lib/grid-image.ts). `src` is whichever the card shows first. */
+  thumbSrc?: string;
+  thumbWidth?: number;
+  fullWidth?: number;
+  /** Grid renditions below the thumb (480, 960 wide), when stored. */
+  thumbVariants?: { url: string; width: number }[];
   prompt: string;
   name?: string;
   agentDescription?: string;
@@ -96,6 +105,11 @@ export type GalleryEntry = {
   promptId?: string;
   src: string;
   fullSrc: string;
+  /** See GalleryEntryPreview: the tile's srcset renditions. */
+  thumbSrc?: string;
+  thumbWidth?: number;
+  fullWidth?: number;
+  thumbVariants?: { url: string; width: number }[];
   prompt: string;
   author: string;
   likes: number;
@@ -252,6 +266,12 @@ const displaySrc = (asset: GalleryAssetRecord): string => {
   );
 };
 
+// The stored grid renditions as srcset candidates; undefined when there are none.
+const gridVariants = (asset: GalleryAssetRecord) =>
+  asset.thumbVariants && asset.thumbVariants.length > 0
+    ? asset.thumbVariants.map((variant) => ({ url: variant.url, width: variant.width }))
+    : undefined;
+
 const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   id: asset._id,
   galleryItemId: asset._id,
@@ -260,6 +280,10 @@ const toPreview = (asset: GalleryAssetRecord): GalleryEntryPreview => ({
   src: displaySrc(asset),
   fullSrc: asset.url ?? asset.sourceUrl ?? FALLBACK_SRC,
   posterSrc: asset.kind === "video" ? asset.thumbUrl : undefined,
+  thumbSrc: asset.thumbUrl,
+  thumbWidth: asset.thumbWidth,
+  fullWidth: asset.width,
+  thumbVariants: gridVariants(asset),
   prompt: asset.promptText ?? asset.fileName ?? "Untitled prompt",
   name: asset.name,
   agentDescription: asset.agentDescription,
@@ -319,6 +343,10 @@ const buildEntry = (
     promptId: cover.promptId ?? undefined,
     src: displaySrc(cover),
     fullSrc: cover.url ?? cover.sourceUrl ?? FALLBACK_SRC,
+    thumbSrc: cover.thumbUrl,
+    thumbWidth: cover.thumbWidth,
+    fullWidth: cover.width,
+    thumbVariants: gridVariants(cover),
     prompt: cover.promptText ?? cover.fileName ?? "Untitled prompt",
     author: "Agent",
     likes: 0,

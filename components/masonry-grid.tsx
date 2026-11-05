@@ -121,6 +121,13 @@ interface MasonryGridProps {
   ) => Promise<void> | void;
   onCreateCollection?: (name: string) => Promise<string | null>;
   onRenameCollection?: (folderId: string, name: string) => Promise<void> | void;
+  /** Owner-only: the card's collection menu offers "Add to moodboard…". */
+  onAddAssetToMoodboard?: (imageId: string, anchor: DOMRect | null) => void;
+  /** Assets shown as already taken (e.g. on the moodboard being filled);
+      they cannot be selected. */
+  markedAssetIds?: Set<string>;
+  /** The label laid over a marked card. */
+  markedLabel?: string;
   /** Owner-only: card hover surfaces tag chips; clicking one removes it. */
   onRemoveAssetTag?: (imageId: string, tagName: string) => void;
   /** One-click exclude on card hover: drops the piece from the collection
@@ -128,7 +135,7 @@ interface MasonryGridProps {
   onExcludeAssetFromView?: (imageId: string) => Promise<void> | void;
   excludeLabel?: string;
   excludeFolderId?: string;
-  /** Opens the storybook modal for entries with galleryItemType "storybook". */
+  /** Opens the book in the Storybooks view for entries with galleryItemType "storybook". */
   onStorybookOpen?: (storybookId: string) => void;
   /** Opens a nested collection entry. */
   onCollectionOpen?: (collectionId: string) => void;
@@ -193,9 +200,9 @@ interface MasonryGridProps {
   baseScale?: number;
 }
 
-// Rows mount in batches of this many tiles; every mounted tile fetches its
-// thumb at once (mediaLoading="eager"), so the window below is the only
-// throttle on how far ahead the grid loads.
+// Rows mount in batches of this many tiles. The first screen's tiles fetch
+// eagerly; the rest are lazy, so the browser's own viewport threshold throttles
+// a batch that mounted 2400 px ahead of the viewport.
 const BATCH_SIZE = 36;
 const EAGER_IMAGE_COUNT = 12;
 // Mount the next batch once the frontier sentinel is within this distance of
@@ -244,7 +251,7 @@ export function useColumnCount(compact: boolean): number {
 }
 
 /* ── Grid sizing ── */
-const DEFAULT_GAP_PX = 12;
+const DEFAULT_GAP_PX = 8; // the board gutter
 const PADDING_PX = 12;
 // Box-select auto-scroll: how close to the viewport edge the pointer has to
 // get before the page starts moving under it, and the fastest it may move.
@@ -337,6 +344,9 @@ export function MasonryGrid({
   onRemoveAssetFromCollection,
   onCreateCollection,
   onRenameCollection,
+  onAddAssetToMoodboard,
+  markedAssetIds,
+  markedLabel = "Taken",
   onRemoveAssetTag,
   onExcludeAssetFromView,
   excludeLabel,
@@ -769,7 +779,7 @@ export function MasonryGrid({
   return (
     // The gesture lives on the padded wrapper, not just the tile plane, so the
     // margin around the grid is draggable empty space too — otherwise the only
-    // no-modifier way in is the 12px gaps between tiles.
+    // no-modifier way in is the 8px gaps between tiles.
     <div
       ref={wrapperRef}
       style={{ padding: `${PADDING_PX}px` }}
@@ -900,7 +910,8 @@ export function MasonryGrid({
               <ImageCard
                 image={image}
                 eager={originalIndex < EAGER_IMAGE_COUNT}
-                mediaLoading="eager"
+                mediaLoading={originalIndex < EAGER_IMAGE_COUNT ? "eager" : "lazy"}
+                tileWidth={tile?.width}
                 showPromptChip={showPromptChip}
                 videoHoverDelayMs={videoHoverDelayMs}
                 mountVideoAtRest={mountVideoAtRest}
@@ -915,9 +926,11 @@ export function MasonryGrid({
                 index={originalIndex}
                 selectable={
                   selectable &&
+                  !markedAssetIds?.has(image.id) &&
                   (image.galleryItemType === "asset" ||
                     image.galleryItemType === undefined)
                 }
+                marked={markedAssetIds?.has(image.id) ? markedLabel : undefined}
                 selected={Boolean(selectedAssetIds?.has(image.id))}
                 selectionActive={Boolean(selectedAssetIds && selectedAssetIds.size > 0)}
                 onToggleSelect={onToggleAssetSelect}
@@ -945,6 +958,9 @@ export function MasonryGrid({
                 }
                 onRenameCollection={
                   isAssetCard ? onRenameCollection : undefined
+                }
+                onAddToMoodboard={
+                  isAssetCard ? onAddAssetToMoodboard : undefined
                 }
                 onRemoveTag={isAssetCard ? onRemoveAssetTag : undefined}
                 onExcludeFromView={

@@ -1,5 +1,10 @@
 # Semantic Search — Architecture & Implementation
 
+> **18 Oct 2026: read costs.** Vectors can live in split storage (slim
+> `semanticEntries` + one 768-value row per lane) chosen by `SEMANTIC_STORAGE`;
+> search asks each lane for fewer hits first and widens only when needed.
+> Numbers: `DATABASE_IO.md`; migration: `SEMANTIC_SPLIT_RUNBOOK.md`.
+>
 > **Updated 26 Sep 2026: two lanes.** Each asset now has a pixel lane
 > (`embedding`, gemini-embedding-2-preview) and a text lane (`textEmbedding`,
 > gemini-embedding-001: agent description, caption, prompt, tags, source).

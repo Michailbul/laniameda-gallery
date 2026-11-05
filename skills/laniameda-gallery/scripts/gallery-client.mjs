@@ -1,5 +1,10 @@
 // Scoped Gallery SDK for agent-written local JavaScript. No dependency, eval,
-// raw database credentials or server-side arbitrary code execution.
+// raw database credentials or server-side arbitrary code execution. Runs on
+// Node 20+ or Bun.
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 export class GalleryError extends Error {
   constructor(message, details = {}) {
     super(message);
@@ -18,12 +23,38 @@ const decode = (result) => {
   return result;
 };
 
+const TOKEN_VARIABLE = "LANIAMEDA_GALLERY_AGENT_TOKEN";
+
+/** Where the shell profile keeps the token on Michael's machines. */
+export const galleryEnvFilePath = (env = globalThis.process?.env ?? {}) =>
+  env.LANIAMEDA_GALLERY_ENV_FILE?.trim() || join(env.HOME?.trim() || homedir(), ".config", "laniameda", "gallery.env");
+
+// The file is a shell fragment: `export LANIAMEDA_GALLERY_AGENT_TOKEN=lgat_…`,
+// optionally quoted. Only the token line is read; nothing is executed. A
+// missing or unreadable file yields "", and so does a value that is not a
+// bearer token (RFC 6750 characters only), so a broken file cannot smuggle
+// anything into an Authorization header.
+export const readGalleryTokenFile = (path) => {
+  let text;
+  try { text = readFileSync(path, "utf8"); } catch { return ""; }
+  const pattern = new RegExp(`^\\s*(?:export\\s+)?${TOKEN_VARIABLE}=(?:"([^"]*)"|'([^']*)'|([^\\s#]*))\\s*(?:#.*)?$`, "m");
+  const match = pattern.exec(text);
+  const value = (match?.[1] ?? match?.[2] ?? match?.[3] ?? "").trim();
+  return /^[A-Za-z0-9._~+/=-]+$/.test(value) ? value : "";
+};
+
+/** The token for HTTP calls: the environment first, then gallery.env. */
+export const resolveGalleryToken = (env = globalThis.process?.env ?? {}) =>
+  (env[TOKEN_VARIABLE] ?? "").trim() || readGalleryTokenFile(galleryEnvFilePath(env));
+
 /**
- * Use an env-scoped bearer token for HTTP, or supply callTool(name,args) and
- * listTools() bridges from an already-authenticated MCP environment.
+ * Use an env-scoped bearer token for HTTP (LANIAMEDA_GALLERY_AGENT_TOKEN, or
+ * the export line in ~/.config/laniameda/gallery.env), or supply
+ * callTool(name,args) and listTools() bridges from an already-authenticated
+ * MCP environment.
  */
 export function createGalleryClient(options = {}) {
-  const token = options.token ?? globalThis.process?.env?.LANIAMEDA_GALLERY_AGENT_TOKEN;
+  const token = options.token ?? resolveGalleryToken();
   const apiUrl = (options.apiUrl ?? globalThis.process?.env?.LANIAMEDA_GALLERY_API_URL ?? "https://gallery.laniameda.space").replace(/\/+$/, "");
   const requestFetch = options.fetch ?? globalThis.fetch;
   const timeoutMs = options.timeoutMs ?? 300_000;
@@ -31,7 +62,7 @@ export function createGalleryClient(options = {}) {
   let calls = 0;
   let requestId = 0;
   let toolCache;
-  if (!options.callTool && !token?.trim()) throw new GalleryError("LANIAMEDA_GALLERY_AGENT_TOKEN is required, or provide an authenticated MCP callTool bridge.");
+  if (!options.callTool && !token?.trim()) throw new GalleryError(`LANIAMEDA_GALLERY_AGENT_TOKEN is required (set it, or put its export line in ${galleryEnvFilePath()}), or provide an authenticated MCP callTool bridge.`);
   if (!/^https?:\/\//.test(apiUrl)) throw new GalleryError("Gallery apiUrl must use http or https.");
   if (!Number.isInteger(maxCalls) || maxCalls < 1 || !Number.isFinite(timeoutMs) || timeoutMs < 1) throw new GalleryError("Invalid client call or timeout budget.");
 
@@ -146,12 +177,40 @@ export function createGalleryClient(options = {}) {
       search: (query, filters = {}) => call("search_gallery", { query, ...filters }), similar: byId("find_similar"),
       save: named("save_asset"), saveMany: items => call("save_assets", { items }), update: named("update_gallery_item"), delete: named("delete_gallery_item"),
       setPoster: (assetId, posterUploadId) => call("set_video_poster", { assetId, posterUploadId }),
+      find: items => call("find_assets", { items }),
     },
     collections: { list: named("list_collections"), create: named("create_collection"), update: named("update_collection"), setOption: named("set_collection_option"), delete: folderId => call("delete_collection", { folderId }) },
     menuFilters: { list: named("list_menu_filters") },
     tags: { list: named("list_tags"), upsert: named("upsert_tag"), upsertMany: named("upsert_tags"), archive: named("archive_tag"), aliases: named("add_tag_aliases") },
     skills: { list: named("list_skills"), get: byId("get_skill"), search: named("search_skills"), create: named("create_skill"), update: named("update_skill"), file: named("file_skill"), delete: byId("delete_skill") },
     stories: { list: named("list_stories"), get: byId("get_story"), save: named("save_story"), update: named("update_story"), revisions: byId("get_story_revisions"), delete: byId("delete_story") },
+    characters: {
+      list: named("list_characters"), get: character => call("get_character", { character }), create: named("create_character"),
+      update: named("update_character"), saveCostume: named("save_character_costume"), removeCostume: named("remove_character_costume"),
+      link: (character, links) => call("link_character_assets", { character, links }),
+      unlink: (character, assetIds) => call("unlink_character_assets", { character, assetIds }),
+      delete: character => call("delete_character", { character }),
+    },
+    styles: {
+      list: named("list_styles"), get: (style, fields = {}) => call("get_style", { style, ...fields }),
+      save: named("save_style"), file: named("file_style"), merge: named("merge_styles"),
+      universe: named("world_universe"), package: named("package_style"),
+    },
+    moodboards: {
+      list: named("list_moodboards"), get: moodboardId => call("get_moodboard", { moodboardId }), save: named("save_moodboard"),
+      add: (moodboardId, assetIds, note) => call("add_moodboard_items", { moodboardId, assetIds, ...(note ? { note } : {}) }),
+      remove: (moodboardId, assetIds) => call("remove_moodboard_items", { moodboardId, assetIds }),
+      reorder: (moodboardId, assetIds) => call("reorder_moodboard_items", { moodboardId, assetIds }),
+      setMidjourney: named("set_moodboard_midjourney"),
+      generations: (moodboardId, limit) => call("list_moodboard_generations", { moodboardId, ...(limit ? { limit } : {}) }),
+      delete: moodboardId => call("delete_moodboard", { moodboardId }),
+    },
+    inbox: {
+      post: named("post_inbox_cards"), stacks: named("list_inbox_stacks"), decisions: stackId => call("list_inbox_decisions", { stackId }),
+      close: (stackId, reopen) => call("close_stack", { stackId, ...(reopen ? { reopen } : {}) }),
+      delete: stackId => call("delete_inbox_stack", { stackId }),
+      similar: named("find_similar_groups"),
+    },
     presets: { list: named("list_filter_presets"), save: named("save_filter_preset"), delete: byId("delete_filter_preset") },
     bookmarks: { list: named("list_bookmarks"), save: named("save_bookmarks"), setNote: named("set_bookmark_note") },
     videoRefs: {

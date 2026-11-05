@@ -50,6 +50,7 @@ export function AssetReviewControls({
   const archive = useMutation(api.assetReview.archive);
   const restoreMutation = useMutation(api.assetReview.restore);
   const saveStory = useMutation(api.stories.saveStory);
+  const addComment = useMutation(api.assetComments.addAssetComment);
   const [trayOpen, setTrayOpen] = useState(false);
   const [editor, setEditor] = useState<{
     target: Target;
@@ -156,6 +157,20 @@ export function AssetReviewControls({
           "[data-review-detail][data-review-id]",
         ),
       ).find(visible);
+      // Keep the existing reviewer-note shortcut while inspecting an edit.
+      if (
+        key === "c" &&
+        detail
+          ?.querySelector<HTMLElement>('[aria-label="Note for the reviewer"]')
+          ?.getClientRects().length
+      )
+        return;
+      if (
+        detail?.querySelector<HTMLElement>(".lm-wipe")?.getClientRects()
+          .length &&
+        key === "d"
+      )
+        return;
       const pointed = pointer.current
         ? document
             .elementFromPoint(pointer.current.x, pointer.current.y)
@@ -218,21 +233,31 @@ export function AssetReviewControls({
     if (!editor || !text.trim() || busy) return;
     setBusy(true);
     try {
-      await saveStory({
-        ownerUserId: ownerUserId!,
-        ingestKey: editor.key,
-        title: text.trim().split("\n")[0].slice(0, 200),
-        body: text.trim(),
-        kind: "idea",
-        status: "idea",
-        tagNames: [
-          editor.kind === "comment" ? "asset-comment" : "scene-note",
-          "agent-review",
-        ],
-        assetIds: [editor.target.id as Id<"assets">],
-      });
+      if (editor.kind === "comment") {
+        await addComment({
+          ownerUserId: ownerUserId!,
+          assetId: editor.target.id as Id<"assets">,
+          body: text.trim(),
+          context: "Gallery hotkey comment on the displayed frame.",
+        });
+      } else {
+        await saveStory({
+          ownerUserId: ownerUserId!,
+          ingestKey: editor.key,
+          title: text.trim().split("\n")[0].slice(0, 200),
+          body: text.trim(),
+          kind: "idea",
+          status: "idea",
+          tagNames: ["scene-note", "agent-review"],
+          assetIds: [editor.target.id as Id<"assets">],
+        });
+      }
       setEditor(null);
-      setNotice("Saved in Stories / Scripts · ready for agent review");
+      setNotice(
+        editor.kind === "comment"
+          ? "Comment saved · queued for your agent"
+          : "Saved in Stories / Scripts · ready for agent review",
+      );
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Could not save note");
     } finally {
@@ -413,7 +438,7 @@ export function AssetReviewControls({
                       value={text}
                       onChange={(event) => setText(event.target.value)}
                       disabled={busy}
-                      maxLength={200000}
+                      maxLength={editor.kind === "comment" ? 4000 : 200000}
                     />
                     <footer>
                       <span>⌘ / Ctrl + Enter to save</span>

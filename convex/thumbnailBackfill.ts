@@ -1,6 +1,8 @@
-import { internalMutation, internalQuery } from "./_generated/server";
+import { internalMutation, internalQuery, type QueryCtx } from "./_generated/server";
+import type { Doc } from "./_generated/dataModel";
 import { v } from "convex/values";
-import { needsCardThumb, isCardThumbSharp } from "../lib/card-thumbnail";
+import { needsCardThumb, needsGridVariants, isCardThumbSharp } from "../lib/card-thumbnail";
+import { thumbVariantValidator } from "./validators";
 import { resolveAssetUrl } from "./r2_url";
 import { r2 } from "./r2";
 
@@ -8,17 +10,52 @@ import { r2 } from "./r2";
 // convex/thumbnails.ts, which needs the Node runtime for sharp.
 
 /** One page of the assets table, reduced to the images whose card thumb is
- *  missing, soft, or not yet a card-encoder WebP, each with the URL of its
- *  original. */
+ *  missing, soft, or not yet a card-encoder WebP, or that lack their grid
+ *  renditions, each with the URL of its original. */
+const backfillCandidateValidator = v.object({
+  assetId: v.id("assets"),
+  url: v.union(v.string(), v.null()),
+  /** The card thumb itself is fine: only the grid renditions are missing. */
+  variantsOnly: v.boolean(),
+});
+
+const backfillCandidate = async (ctx: QueryCtx, asset: Doc<"assets">) => {
+  if (asset.kind !== "image") return null;
+  const thumbMetadata = asset.thumbR2Key
+    ? await r2.getMetadata(ctx, asset.thumbR2Key)
+    : null;
+  const rebuildThumb = needsCardThumb(asset, thumbMetadata?.contentType);
+  if (!rebuildThumb && !needsGridVariants(asset)) return null;
+  return {
+    assetId: asset._id,
+    url: (await resolveAssetUrl(ctx, asset)) ?? null,
+    variantsOnly: !rebuildThumb,
+  };
+};
+
+/** The same candidates for a named set of assets (a targeted backfill, e.g.
+ *  the storybook shelf previews), without walking the whole table. */
+export const listThumbBackfillCandidates = internalQuery({
+  args: { assetIds: v.array(v.id("assets")) },
+  returns: v.array(backfillCandidateValidator),
+  handler: async (ctx, args) => {
+    const candidates = [];
+    for (const assetId of args.assetIds) {
+      const asset = await ctx.db.get(assetId);
+      const candidate = asset ? await backfillCandidate(ctx, asset) : null;
+      if (candidate) candidates.push(candidate);
+    }
+    return candidates;
+  },
+});
+
 export const listThumbBackfillPage = internalQuery({
   args: {
     cursor: v.union(v.string(), v.null()),
     numItems: v.number(),
   },
   returns: v.object({
-    candidates: v.array(
-      v.object({ assetId: v.id("assets"), url: v.union(v.string(), v.null()) }),
-    ),
+    candidates: v.array(backfillCandidateValidator),
     scanned: v.number(),
     continueCursor: v.string(),
     isDone: v.boolean(),
@@ -29,15 +66,8 @@ export const listThumbBackfillPage = internalQuery({
       .paginate({ cursor: args.cursor, numItems: args.numItems });
     const candidates = [];
     for (const asset of page.page) {
-      if (asset.kind !== "image") continue;
-      const thumbMetadata = asset.thumbR2Key
-        ? await r2.getMetadata(ctx, asset.thumbR2Key)
-        : null;
-      if (!needsCardThumb(asset, thumbMetadata?.contentType)) continue;
-      candidates.push({
-        assetId: asset._id,
-        url: (await resolveAssetUrl(ctx, asset)) ?? null,
-      });
+      const candidate = await backfillCandidate(ctx, asset);
+      if (candidate) candidates.push(candidate);
     }
     return {
       candidates,
@@ -73,6 +103,18 @@ export const listVideosNeedingPoster = internalQuery({
   },
 });
 
+/** Add grid renditions to an asset whose card thumb is kept as it is. */
+export const applyThumbVariants = internalMutation({
+  args: { assetId: v.id("assets"), thumbVariants: v.array(thumbVariantValidator) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset) return null;
+    await ctx.db.patch(args.assetId, { thumbVariants: args.thumbVariants });
+    return null;
+  },
+});
+
 /** Point an asset at a freshly encoded card thumb. Fills the asset's own
  *  width/height only when the row never had them. */
 export const applyCardThumbnail = internalMutation({
@@ -82,6 +124,7 @@ export const applyCardThumbnail = internalMutation({
     thumbWidth: v.number(),
     thumbHeight: v.number(),
     thumbSize: v.number(),
+    thumbVariants: v.optional(v.array(thumbVariantValidator)),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
   },
@@ -96,6 +139,7 @@ export const applyCardThumbnail = internalMutation({
       thumbWidth: args.thumbWidth,
       thumbHeight: args.thumbHeight,
       thumbSize: args.thumbSize,
+      ...(args.thumbVariants ? { thumbVariants: args.thumbVariants } : {}),
       ...(fillDimensions ? { width: args.width, height: args.height } : {}),
     });
     return null;

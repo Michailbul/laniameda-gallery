@@ -23,7 +23,11 @@ Quick reference for all docs in this folder.
 | `ENV_MATRIX.md` | Local vs Vercel vs Convex vs OpenClaw env variables + production smoke tests |
 | `BACKEND_CONVEX_SETUP.md` | Convex tables, run lifecycle, env vars, schema change workflow |
 | `SEMANTIC_SEARCH.md` | Semantic search — Gemini embeddings, vector search, indexing flow, UI integration |
+| `DATABASE_IO.md` | Convex Database I/O per function, before/after numbers, how to watch usage |
+| `SEMANTIC_SPLIT_RUNBOOK.md` | Deploying the read-cost changes and migrating to split semantic storage |
 | `DEVELOPMENT_WORKFLOWS.md` | Dev commands, env setup, test workflow |
+| `MCP_AGENT_ACCESS.md` | How agents connect: hosted MCP, tokens, scopes, delete approval |
+| `MCP_CAPABILITIES.html` | Visual map of all 102 MCP tools: what each reads or writes, its scope, where it stops |
 
 ---
 

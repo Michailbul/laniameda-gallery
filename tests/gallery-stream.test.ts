@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { appendGalleryEntries, reachedGalleryInserts } from "../lib/gallery-stream";
+import { appendGalleryEntries, reachedGalleryInserts, reuseUnchangedEntries } from "../lib/gallery-stream";
 
 const asset = (id: string, createdAt: number) => ({ id, createdAt });
 
@@ -39,5 +39,59 @@ describe("gallery pagination ordering", () => {
     const result = appendGalleryEntries(first, incoming);
     expect(result).toEqual([replacement, asset("last", 150), asset("added", 50)]);
     expect(result[0]).toBe(replacement);
+  });
+});
+
+describe("entry identity across rebuilds", () => {
+  const entry = (id: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    src: `${id}.jpg`,
+    tagNames: ["a"],
+    previewImages: [{ id: `${id}-p`, src: `${id}-p.jpg` }],
+    ...extra,
+  });
+
+  test("an append keeps every unchanged card's object and adds the new ones", () => {
+    const first = [entry("a"), entry("b")];
+    const rebuilt = [entry("a"), entry("b"), entry("c")];
+    const kept = reuseUnchangedEntries(first, rebuilt);
+    expect(kept[0]).toBe(first[0]);
+    expect(kept[1]).toBe(first[1]);
+    expect(kept[2]).toBe(rebuilt[2]);
+  });
+
+  test("a re-emit with no change returns the previous array", () => {
+    const first = [entry("a"), entry("b")];
+    expect(reuseUnchangedEntries(first, [entry("a"), entry("b")])).toBe(first);
+  });
+
+  test("a changed entry gets its new object so realtime updates reach the card", () => {
+    const first = [entry("a", { isLiked: false }), entry("b")];
+    const liked = reuseUnchangedEntries(first, [entry("a", { isLiked: true }), entry("b")]);
+    expect(liked[0]).not.toBe(first[0]);
+    expect(liked[1]).toBe(first[1]);
+    const retagged = reuseUnchangedEntries(first, [entry("a", { isLiked: false }), entry("b", { tagNames: ["a", "b"] })]);
+    expect(retagged[1]).not.toBe(first[1]);
+    const newThumb = reuseUnchangedEntries(first, [
+      entry("a", { isLiked: false }),
+      { ...entry("b"), previewImages: [{ id: "b-p", src: "b-p2.jpg" }] },
+    ]);
+    expect(newThumb[1]).not.toBe(first[1]);
+    const starred = reuseUnchangedEntries(first, [entry("a", { isLiked: false, starredAt: 5 }), entry("b")]);
+    expect(starred[0]).not.toBe(first[0]);
+  });
+
+  test("a card that finished loading does not count as a change", () => {
+    const first = [entry("a", { initiallyLoaded: false })];
+    const kept = reuseUnchangedEntries(first, [entry("a", { initiallyLoaded: true })]);
+    expect(kept).toBe(first);
+  });
+
+  test("reordering keeps objects but returns a new array", () => {
+    const first = [entry("a"), entry("b")];
+    const swapped = reuseUnchangedEntries(first, [entry("b"), entry("a")]);
+    expect(swapped).not.toBe(first);
+    expect(swapped[0]).toBe(first[1]);
+    expect(swapped[1]).toBe(first[0]);
   });
 });

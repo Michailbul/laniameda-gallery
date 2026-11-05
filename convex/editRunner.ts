@@ -1,0 +1,364 @@
+"use node";
+
+import { v } from "convex/values";
+import { internalAction, type ActionCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
+import type { Doc, Id } from "./_generated/dataModel";
+import { processMediaInput } from "./ingest";
+import { magnificAccessToken, resolveProviderKey } from "./providerVault";
+import {
+  buildEditInput, classifyProviderRefusal, editIdempotencyKey, editModelById, estimateEditUsd,
+  MAGNIFIC_SPECS, magnificGenerateArgs, magnificUsd, pikaCharge, readFalResult, readFalStatus, readPikaJob,
+  type EditPollResult, type EditProvider, type EditRoute,
+} from "../lib/edit-models";
+import {
+  MagnificAuthError, MagnificRefusal, magnificProjectFor, openMagnificSession, type MagnificSession,
+} from "../lib/magnific-mcp";
+
+// Runs one in-place edit job (convex/editJobs.ts): submit along the model's
+// route, poll by request id until it lands, then file the result as a new
+// asset next to its source. Ported from reviewer-kit/server.py (Fal, Pika,
+// Board._run). The source and references go to the provider as their public
+// gallery URLs, so nothing is uploaded first. Keys come from Settings
+// (providerCredentials) before the deployment's environment; Magnific runs on
+// Michael's own sign-in through its MCP server.
+
+const PIKA_BASE = "https://api.dev.pika.art";
+const POLL_TIMEOUT_MS = 15 * 60 * 1000;
+const HTTP_TIMEOUT_MS = 60 * 1000;
+
+type Job = Doc<"editJobs">;
+type Loaded = {
+  job: unknown; sourceUrl?: string; refUrls: string[]; worldName?: string;
+  sourceTagIds: Id<"tags">[]; sourceFolderId?: Id<"folders">; folderIds: Id<"folders">[];
+};
+type Submitted = { requestId: string; statusUrl?: string; responseUrl?: string };
+
+/** A billing or auth block: the next route gets the job. */
+class Refused extends Error {
+  constructor(message: string, readonly outOfCredit: boolean) { super(message); }
+}
+
+const keyFor = (ctx: ActionCtx, owner: string, provider: "fal" | "pika") => resolveProviderKey(ctx, owner, provider);
+
+const headersFor = (provider: "fal" | "pika", key: string): Record<string, string> =>
+  provider === "fal" ? { Authorization: `Key ${key}` } : { "X-API-Key": key };
+
+const http = async (method: string, url: string, headers: Record<string, string>, body?: unknown) => {
+  const response = await fetch(url, {
+    method,
+    headers: body === undefined ? headers : { ...headers, "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+  });
+  const text = await response.text();
+  let parsed: unknown = text;
+  try { parsed = text ? JSON.parse(text) : null; } catch { parsed = { detail: text.slice(0, 400) }; }
+  return { status: response.status, body: parsed };
+};
+
+/** A Magnific session on the owner's sign-in; a refusal hands the job to the next route. */
+const magnificSession = async (ctx: ActionCtx, owner: string): Promise<MagnificSession> => {
+  try {
+    const token = await magnificAccessToken(ctx, owner);
+    if (!token) throw new Refused("magnific: not connected (Settings → Connect Magnific)", false);
+    try {
+      return await openMagnificSession(token);
+    } catch (error) {
+      if (!(error instanceof MagnificAuthError)) throw error;
+      const fresh = await magnificAccessToken(ctx, owner, true);
+      if (!fresh) throw error;
+      return await openMagnificSession(fresh);
+    }
+  } catch (error) {
+    if (error instanceof MagnificAuthError) throw new Refused("magnific: sign-in expired, reconnect it in Settings", false);
+    throw error;
+  }
+};
+
+const creationId = (out: Record<string, unknown>) => {
+  const nested = (out.creation ?? (Array.isArray(out.creations) ? out.creations[0] : undefined)) as { identifier?: string } | undefined;
+  const id = (out.identifier as string | undefined) ?? nested?.identifier;
+  if (!id) throw new Error(`magnific gave no creation id: ${JSON.stringify(out).slice(0, 200)}`);
+  return id;
+};
+
+/** Upload the frame and references by URL into the world's Magnific project, then start the edit. */
+const submitMagnific = async (ctx: ActionCtx, job: Job, endpoint: string, urls: string[], worldName?: string) => {
+  const session = await magnificSession(ctx, job.ownerUserId);
+  try {
+    // Out of credit: refuse before uploading anything, so nothing is left behind in Magnific.
+    const balance = await session.call("account_balance", {});
+    const credits = (balance.credits as { available?: number } | undefined)?.available;
+    const unlimited = (balance.plan as { unlimitedAppliesHere?: boolean } | undefined)?.unlimitedAppliesHere;
+    const needed = MAGNIFIC_SPECS[endpoint]?.credits ?? 0;
+    if (!unlimited && typeof credits === "number" && credits < needed) {
+      throw new Refused(`magnific: out of credits (${credits} left, ${needed} needed)`, true);
+    }
+    const folderReference = await magnificProjectFor(session, worldName);
+    const identifiers: string[] = [];
+    for (const [index, url] of urls.entries()) {
+      const name = index === 0 ? `gallery-${job.sourceAssetId}.png` : `gallery-ref-${index}-${job.refAssetIds[index - 1] ?? index}.png`;
+      identifiers.push(creationId(await session.call("creations_upload_image", { url, fileName: name, ...(folderReference ? { folderReference } : {}) })));
+    }
+    const out = await session.call("images_generate", magnificGenerateArgs(endpoint, job.prompt, identifiers, job.width, job.height, folderReference));
+    const creation = (Array.isArray(out.creations) ? out.creations[0] : undefined) as { identifier?: string; credits?: number } | undefined;
+    if (!creation?.identifier) throw new Error(`magnific gave no creation: ${JSON.stringify(out).slice(0, 200)}`);
+    return { requestId: creation.identifier, usd: typeof creation.credits === "number" ? magnificUsd(creation.credits) : undefined };
+  } catch (error) {
+    if (error instanceof MagnificRefusal) throw new Refused(error.message, error.outOfCredit);
+    if (error instanceof MagnificAuthError) throw new Refused("magnific: sign-in expired, reconnect it in Settings", false);
+    throw error;
+  }
+};
+
+const pollMagnific = async (ctx: ActionCtx, job: Job): Promise<EditPollResult> => {
+  let session: MagnificSession;
+  try { session = await magnificSession(ctx, job.ownerUserId); }
+  catch (error) { return { state: "error", error: error instanceof Error ? error.message : String(error) }; }
+  const out = await session.call("creations_wait", { identifiers: [job.requestId!], timeoutSeconds: 20 });
+  const row = (Array.isArray(out.results) ? out.results[0] : undefined) as
+    | { status?: string; results?: { url?: string }; url?: string; error?: unknown }
+    | undefined;
+  const status = row?.status ?? "";
+  if (status === "completed") {
+    const url = row?.results?.url ?? row?.url;
+    return url ? { state: "done", url } : { state: "error", error: "magnific finished without an image" };
+  }
+  if (["failed", "error", "cancelled", "blocked"].includes(status)) {
+    return { state: "error", error: `magnific ${status}: ${JSON.stringify(row?.error ?? row).slice(0, 300)}` };
+  }
+  return { state: "running" };
+};
+
+const submit = async (
+  ctx: ActionCtx, job: Job, route: EditRoute, urls: string[], idempotencyKey: string, worldName?: string,
+): Promise<Submitted & { usd?: number }> => {
+  const { provider, endpoint } = route;
+  if (provider === "magnific") return await submitMagnific(ctx, job, endpoint, urls, worldName);
+  const input = buildEditInput(endpoint, job.prompt, urls, job.width, job.height);
+  const key = await keyFor(ctx, job.ownerUserId, provider);
+  if (!key) throw new Refused(`${provider}: no API key (Settings → Edit keys)`, false);
+  if (provider === "fal") {
+    const { status, body } = await http("POST", `https://queue.fal.run/${endpoint}`, headersFor("fal", key), input);
+    const refusal = classifyProviderRefusal("fal", status, (body as { detail?: unknown } | null)?.detail ?? body);
+    if (refusal.blocked) throw new Refused(refusal.message, refusal.outOfCredit);
+    const row = body as { request_id?: string; status_url?: string; response_url?: string } | null;
+    if (status >= 300 || !row?.request_id) throw new Error(`fal ${status}: ${JSON.stringify(body).slice(0, 300)}`);
+    return { requestId: row.request_id, statusUrl: row.status_url, responseUrl: row.response_url };
+  }
+  const { status, body } = await http("POST", `${PIKA_BASE}/v1/media/${endpoint}`,
+    { ...headersFor("pika", key), "Idempotency-Key": idempotencyKey }, input);
+  const row = body as { id?: string; status?: string; error?: unknown } | null;
+  const refusal = classifyProviderRefusal("pika", status, row?.error ?? body);
+  if (refusal.blocked) throw new Refused(refusal.message, refusal.outOfCredit);
+  if (status >= 300 || !row?.id) throw new Error(`pika ${status}: ${JSON.stringify(body).slice(0, 300)}`);
+  if (row.status === "failed") throw new Error(`pika failed: ${JSON.stringify(row.error).slice(0, 300)}`);
+  return { requestId: row.id };
+};
+
+const pollProvider = async (ctx: ActionCtx, job: Job): Promise<EditPollResult> => {
+  const provider = job.provider as EditProvider;
+  if (provider === "magnific") return await pollMagnific(ctx, job);
+  const key = await keyFor(ctx, job.ownerUserId, provider);
+  if (!key) return { state: "error", error: `${provider}: no API key (Settings → Edit keys)` };
+  if (provider === "fal") {
+    const statusUrl = job.statusUrl ?? `https://queue.fal.run/${job.endpoint}/requests/${job.requestId}/status`;
+    const status = await http("GET", statusUrl, headersFor("fal", key));
+    const read = readFalStatus(status.status, status.body);
+    if (read === "running") return { state: "running" };
+    if (read !== "completed") return { state: "error", error: read.error };
+    const responseUrl = job.responseUrl ?? `https://queue.fal.run/${job.endpoint}/requests/${job.requestId}`;
+    const result = await http("GET", responseUrl, headersFor("fal", key));
+    return readFalResult(result.status, result.body);
+  }
+  const result = await http("GET", `${PIKA_BASE}/v1/media/jobs/${job.requestId}`, headersFor("pika", key));
+  return readPikaJob(result.status, result.body);
+};
+
+/** Pika settles the bill a moment after the image: wait for the exact charge a little. */
+const settledPikaCharge = async (ctx: ActionCtx, owner: string, requestId: string) => {
+  const key = await keyFor(ctx, owner, "pika");
+  if (!key) return undefined;
+  for (let i = 0; i < 8; i += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    const { status, body } = await http("GET", `${PIKA_BASE}/v1/media/jobs/${requestId}`, headersFor("pika", key));
+    if (status < 300 && body && typeof body === "object") {
+      const usd = pikaCharge(body as Parameters<typeof pikaCharge>[0]);
+      if (usd !== undefined) return usd;
+    }
+  }
+  return undefined;
+};
+
+const modelProviderOf = (model: string) =>
+  model.startsWith("gpt-") ? "openai" as const : model.startsWith("nano-") ? "google" as const
+    : model.startsWith("kontext") ? "flux" as const : "other" as const;
+
+const usdText = (n: number) => `$${n.toFixed(n < 0.1 ? 3 : 2)}`;
+
+/** Submit a queued job along its route. A job with a request id is only polled. */
+export const run = internalAction({
+  args: { jobId: v.id("editJobs") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const loaded: Loaded | null = await ctx.runQuery(internal.editJobs.jobForRun, { jobId: args.jobId });
+    if (!loaded) return null;
+    const job = loaded.job as Job;
+    if (job.requestId) {
+      if (job.status === "running") await ctx.scheduler.runAfter(0, internal.editRunner.poll, { jobId: job._id });
+      return null;
+    }
+    if (!await ctx.runMutation(internal.editJobs.claimJob, { jobId: job._id })) return null;
+    const fail = async (error: string, errorKind: "out_of_credit" | "provider"): Promise<null> => {
+      await ctx.runMutation(internal.editJobs.failJob, { jobId: job._id, error, errorKind });
+      return null;
+    };
+
+    const model = editModelById(job.model);
+    if (!model) return await fail(`Unknown model ${job.model}.`, "provider");
+    if (!loaded.sourceUrl) return await fail("The source image has no URL.", "provider");
+    const urls = [loaded.sourceUrl, ...loaded.refUrls];
+
+    const refusals: Refused[] = [];
+    for (const [index, route] of model.routes.entries()) {
+      try {
+        const { usd, ...sent } = await submit(ctx, job, route, urls, editIdempotencyKey(job._id, job.retries, index), loaded.worldName);
+        await ctx.runMutation(internal.editJobs.recordSubmitted, {
+          jobId: job._id, provider: route.provider, endpoint: route.endpoint, ...sent,
+          estimateUsd: usd ?? estimateEditUsd(route.endpoint, job.width, job.height, job.refAssetIds.length),
+        });
+        await ctx.scheduler.runAfter(3000, internal.editRunner.poll, { jobId: job._id });
+        return null;
+      } catch (error) {
+        if (!(error instanceof Refused)) {
+          return await fail(error instanceof Error ? error.message : String(error), "provider");
+        }
+        refusals.push(error);
+        await ctx.runMutation(internal.editJobs.recordRefusal, {
+          jobId: job._id, provider: route.provider, endpoint: route.endpoint,
+          error: error.message, outOfCredit: error.outOfCredit,
+        });
+      }
+    }
+    const outOfCredit = refusals.some((refusal) => refusal.outOfCredit);
+    const message = refusals.map((refusal) => refusal.message).join(" · ") + "."
+      + (outOfCredit ? " Nothing was charged. Add credit, then press Retry." : "");
+    return await fail(message, outOfCredit ? "out_of_credit" : "provider");
+  },
+});
+
+/** Poll the provider by request id; reschedules itself until the job lands or times out. */
+export const poll = internalAction({
+  args: { jobId: v.id("editJobs") },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const loaded: Loaded | null = await ctx.runQuery(internal.editJobs.jobForRun, { jobId: args.jobId });
+    const job = loaded?.job as Job | undefined;
+    if (!loaded || !job || job.status !== "running" || !job.requestId) return null;
+    const count = await ctx.runMutation(internal.editJobs.notePoll, { jobId: job._id });
+    const again = async (): Promise<null> => {
+      if (Date.now() - (job.submittedAt ?? job.createdAt) > POLL_TIMEOUT_MS) {
+        await ctx.runMutation(internal.editJobs.failJob, {
+          jobId: job._id, errorKind: "timeout",
+          error: `Timed out after 15 min at ${job.provider}. The request id is kept; Retry polls it again.`,
+        });
+        return null;
+      }
+      await ctx.scheduler.runAfter(Math.min(15000, 3000 + count * 1000), internal.editRunner.poll, { jobId: job._id });
+      return null;
+    };
+
+    let result: EditPollResult;
+    try {
+      result = await pollProvider(ctx, job);
+    } catch {
+      return await again(); // a network blip: ask again
+    }
+    if (result.state === "running") return await again();
+    if (result.state === "error") {
+      await ctx.runMutation(internal.editJobs.failJob, { jobId: job._id, error: result.error, errorKind: "provider" });
+      return null;
+    }
+    try {
+      await land(ctx, job, loaded, result);
+    } catch (error) {
+      await ctx.runMutation(internal.editJobs.failJob, {
+        jobId: job._id, errorKind: "ingest",
+        error: `Landed at ${job.provider} but could not be filed: ${error instanceof Error ? error.message : String(error)}. Retry files it again without a new charge.`,
+      });
+    }
+    return null;
+  },
+});
+
+/** File the result: a new asset in the source's collections and tags, prompt and cost in its notes. */
+const land = async (
+  ctx: ActionCtx,
+  job: Job,
+  loaded: { sourceTagIds: Id<"tags">[]; sourceFolderId?: Id<"folders">; folderIds: Id<"folders">[] },
+  result: Extract<EditPollResult, { state: "done" }>,
+): Promise<void> => {
+  let usd = result.usd;
+  if (usd === undefined && result.pendingBill && job.provider === "pika") usd = await settledPikaCharge(ctx, job.ownerUserId, job.requestId!);
+  const exact = usd !== undefined;
+  const charged = usd ?? job.estimateUsd;
+
+  const refs = job.refNames.map((name, index) => `<image-${index + 2}> ${name}`).join(", ");
+  const notes = [
+    `In-place edit of asset:${job.sourceAssetId}`,
+    `${job.modelName} via ${job.provider} (${job.endpoint})`,
+    `${exact ? "" : "≈"}${usdText(charged)}${exact ? "" : " est"}`,
+    job.of > 1 ? `take ${job.take}/${job.of}` : undefined,
+    refs ? `refs ${refs}` : undefined,
+    `job editJobs:${job._id}`,
+  ].filter(Boolean).join(" · ");
+
+  const media = await processMediaInput(ctx, { url: result.url });
+  const key = `edit:${job._id}:${job.retries}`;
+  const { promptId }: { promptId: Id<"prompts"> } = await ctx.runMutation(internal.prompts.createPromptInternal, {
+    ownerUserId: job.ownerUserId,
+    text: job.prompt,
+    tagIds: loaded.sourceTagIds,
+    folderId: loaded.sourceFolderId,
+    ingestKey: `${key}:prompt`,
+    promptType: "image_gen",
+    modelName: job.modelName,
+    modelProvider: modelProviderOf(job.model),
+    promptSections: { finalPrompt: job.prompt, generationNotes: notes },
+  });
+  const { assetId }: { assetId: Id<"assets"> } = await ctx.runMutation(internal.assets.createAssetInternal, {
+    ownerUserId: job.ownerUserId,
+    kind: media.kind,
+    r2Key: media.r2Key,
+    thumbR2Key: media.thumbR2Key,
+    contentType: media.contentType,
+    size: media.size,
+    width: media.width,
+    height: media.height,
+    thumbSize: media.thumbSize,
+    thumbWidth: media.thumbWidth,
+    thumbHeight: media.thumbHeight,
+    thumbVariants: media.thumbVariants,
+    fileName: `edit-${job.model}-${job._id}.${media.contentType.includes("png") ? "png" : "jpg"}`,
+    contentHash: media.contentHash,
+    promptId,
+    tagIds: loaded.sourceTagIds,
+    folderId: loaded.sourceFolderId,
+    ingestKey: key,
+    modelName: job.modelName,
+    generationType: "image_gen",
+    ingestSource: job.createdBy === "agent" ? "agent" : "manual",
+    agentDescription: `In-place edit of asset:${job.sourceAssetId} with ${job.modelName}: ${job.prompt}`.slice(0, 400),
+    agentDescriptionSource: "agent",
+  });
+  if (loaded.folderIds.length) {
+    await ctx.runMutation(internal.assets.addAssetFoldersInternal, {
+      ownerUserId: job.ownerUserId, assetId, folderIds: loaded.folderIds,
+    });
+  }
+  await ctx.runMutation(internal.editJobs.finishJob, {
+    jobId: job._id, resultAssetId: assetId, resultUrl: result.url,
+    chargedUsd: Math.round(charged * 1e5) / 1e5, chargedExact: exact, notes,
+  });
+};

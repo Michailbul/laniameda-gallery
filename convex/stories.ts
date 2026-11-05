@@ -1,9 +1,12 @@
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import type { QueryCtx } from "./_generated/server";
+import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
+import { addAssetFolderLink } from "./assets";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
+import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { storyFields, storyKindValidator, storyResultValidator, storyStatusValidator } from "./storyValidators";
+import { assertAssetsFitWorld, cleanSession, recordWorldChange, sameContent, worldIdOfFolder } from "./worldCore";
 
 const ownedStory = async (ctx: QueryCtx, owner: string, id: Id<"stories">) => {
   const story = await ctx.db.get(id);
@@ -13,7 +16,7 @@ const ownedStory = async (ctx: QueryCtx, owner: string, id: Id<"stories">) => {
 
 const requireReferences = async (ctx: QueryCtx, owner: string, data: {
   folderId?: Id<"folders">; storybookId?: Id<"folders">; assetIds: Id<"assets">[];
-}) => {
+}, previousAssetIds: Id<"assets">[] = []) => {
   for (const id of [data.folderId, data.storybookId]) {
     if (!id) continue;
     const folder = await ctx.db.get(id);
@@ -25,6 +28,87 @@ const requireReferences = async (ctx: QueryCtx, owner: string, data: {
     const asset = await ctx.db.get(id);
     if (!asset || !canActorAccessOwnerUserId(owner, asset.ownerUserId)) throw new ConvexError("Source asset not found.");
   }
+  // Story beats and storybooks are children of one world: the story's
+  // collection, its storybook and the pieces it links stay inside it.
+  const folderWorld = await worldIdOfFolder(ctx, data.folderId);
+  const bookWorld = await worldIdOfFolder(ctx, data.storybookId);
+  if (data.storybookId && !bookWorld && folderWorld) throw new ConvexError("That storybook is not in this story's world. Bring it into the world first (world_shelf).");
+  if (bookWorld && folderWorld !== bookWorld) throw new ConvexError("A story and its storybook must be in the same world: set folderId to the world or one of its collections.");
+  if (bookWorld && !data.folderId) throw new ConvexError("A story in a world's storybook needs folderId: the world or one of its collections.");
+  // Links a story already had stay valid; new links must fit its world.
+  const previous = new Set(previousAssetIds);
+  await assertAssetsFitWorld(ctx, folderWorld ?? bookWorld, data.assetIds.filter((id) => !previous.has(id)), "A story in a world");
+};
+
+export type StorySnapshot = { storyId: Id<"stories">; revision: number; fields: Record<string, unknown> };
+
+const storySnapshot = (story: Doc<"stories">): StorySnapshot => {
+  const { _id, _creationTime, ownerUserId: _owner, ingestKey: _key, searchText: _search, createdAt: _created, updatedAt: _updated, revision, ...fields } = story;
+  void _creationTime; void _owner; void _key; void _search; void _created; void _updated;
+  return { storyId: _id, revision, fields };
+};
+
+const journalStory = async (ctx: MutationCtx, owner: string, before: Doc<"stories"> | null, storyId: Id<"stories">, args: { actor?: string; session?: string }) => {
+  const story = (await ctx.db.get(storyId))!;
+  const worldId = await worldIdOfFolder(ctx, story.folderId) ?? await worldIdOfFolder(ctx, before?.folderId);
+  if (!worldId) return;
+  await recordWorldChange(ctx, {
+    ownerUserId: owner, worldFolderId: worldId, op: "story.save", targetType: story.kind === "style-lock" ? "style-lock" : "story", targetId: storyId,
+    summary: before ? `Edited ${story.kind} "${story.title}" (revision ${story.revision})` : `Created ${story.kind} "${story.title}"`,
+    before: before ? storySnapshot(before) : undefined, after: storySnapshot(story), actor: args.actor, session: cleanSession(args.session),
+  });
+};
+
+/** Undo support: bring a story back to `before` as a new revision; an undone create is archived, never deleted. */
+export const restoreStorySnapshot = async (
+  ctx: MutationCtx, owner: string, storyId: Id<"stories">, before: StorySnapshot | null, after: StorySnapshot, dryRun: boolean,
+): Promise<{ ok: true; restored: StorySnapshot | null } | { ok: false; reason: string }> => {
+  const story = await ctx.db.get(storyId);
+  if (!story || !canActorAccessOwnerUserId(owner, story.ownerUserId)) return { ok: false, reason: "the story is gone" };
+  if (!sameContent(storySnapshot(story).fields, after.fields)) return { ok: false, reason: `"${story.title}" changed since (revision ${story.revision})` };
+  if (dryRun) return { ok: true, restored: null };
+  const now = Date.now();
+  const { _id, _creationTime, ingestKey: _key, searchText: _search, createdAt: _created, updatedAt: _updated, ...current } = story;
+  void _creationTime; void _key; void _search; void _created; void _updated;
+  await ctx.db.insert("storyRevisions", { ...current, storyId: _id, savedAt: now });
+  const fields = before ? before.fields as Partial<Doc<"stories">> : { status: "archived" as const };
+  const merged = { ...story, ...fields };
+  const searchText = [merged.title, merged.body, merged.logline, merged.hook, merged.styleTag, ...merged.tagNames].filter(Boolean).join("\n").toLowerCase();
+  await ctx.db.patch(_id, { ...fields, searchText, revision: story.revision + 1, updatedAt: now });
+  return { ok: true, restored: storySnapshot((await ctx.db.get(_id))!) };
+};
+
+// A story's assets become members of its storybook folder (additive: shelves, stars and flags are untouched).
+// Storybook asset lists read assetFolders, not stories.assetIds. Idempotent, so retries heal missing links.
+const linkAssetsToStorybook = async (ctx: MutationCtx, owner: string, data: { storybookId?: Id<"folders">; assetIds: Id<"assets">[] }) => {
+  if (!data.storybookId) return;
+  for (const assetId of data.assetIds) await addAssetFolderLink(ctx, owner, assetId, data.storybookId);
+};
+
+// Stories hold stories: ideas, scripts and style locks. Three kinds of record
+// filled the tab with clutter before 2 Nov 2026 and are refused at the door:
+// agent tickets (GAL-DA-WARD-N186 · …) belong on the tasks wall, test saves
+// belong nowhere, and a "[replaced]" or "[history]" copy duplicates what the
+// revision history already keeps. Checked on create and on a title change, so
+// old records can still be archived or edited.
+const TICKET_TITLE = /^[A-Z][A-Z0-9]{1,7}(?:-[A-Z0-9]+){1,6}\s*(?:·|—|:|-)/;
+const TEST_TITLE = /^(?:zz+|test|tmp|scratch)\b|\b(?:undo|smoke|dry[- ]run) test\b/i;
+const COPY_TITLE = /^\s*[[(](?:replaced|history|superseded|old|copy|backup|archived)\b|\[(?:history|replaced|superseded)\b|^\s*(?:copy of\b|archived\s*·)/i;
+const assertStoryTitle = (title: string) => {
+  if (TICKET_TITLE.test(title)) throw new ConvexError("That title is an agent ticket. Tickets go on the tasks wall (create_task), not in Stories.");
+  if (TEST_TITLE.test(title)) throw new ConvexError("Test saves do not go in Stories. Check a write with a dry run, or archive the test record you made.");
+  if (COPY_TITLE.test(title)) throw new ConvexError("Do not save a copy to keep an old version: revise the story itself (update_story keeps every earlier text in its history), and archive it with status archived.");
+};
+
+// A picture is linked to a story only where the text names it (asset:<id>), so
+// the reader shows each picture beside the words about it and nobody attaches a
+// pile of frames the story never mentions. Links a story already had stay.
+const ASSET_REF = /asset:([a-z0-9]{20,40})/gi;
+export const citedAssetIds = (body: string) => Array.from(new Set(Array.from(body.matchAll(ASSET_REF), (m) => m[1]!)));
+const assertAssetsCited = (body: string, assetIds: Id<"assets">[], previous: Id<"assets">[] = []) => {
+  const had = new Set(previous);
+  const loose = assetIds.filter((id) => !had.has(id) && !body.includes(id));
+  if (loose.length) throw new ConvexError(`Name each linked picture in the text as asset:<id>, on the line about it. Not in the text: ${loose.slice(0, 5).map((id) => `asset:${id}`).join(", ")}${loose.length > 5 ? ` and ${loose.length - 5} more` : ""}.`);
 };
 
 const words = (value: string | undefined) => value?.trim() || undefined;
@@ -39,7 +123,8 @@ const normalize = (data: Omit<Doc<"stories">, "_id" | "_creationTime" | "ownerUs
 };
 
 export const listStories = ownerQuery({
-  args: { ownerUserId: v.string(), folderId: v.optional(v.id("folders")), kind: v.optional(storyKindValidator), status: v.optional(storyStatusValidator), search: v.optional(v.string()), limit: v.optional(v.number()) },
+  // updatedBefore continues a bounded list: pass the oldest updatedAt of the page you have.
+  args: { ownerUserId: v.string(), folderId: v.optional(v.id("folders")), kind: v.optional(storyKindValidator), status: v.optional(storyStatusValidator), search: v.optional(v.string()), limit: v.optional(v.number()), updatedBefore: v.optional(v.number()) },
   returns: v.array(storyResultValidator),
   handler: async (ctx, args) => {
     const limit = Math.min(500, Math.max(1, Math.floor(args.limit ?? 200)));
@@ -61,11 +146,62 @@ export const listStories = ownerQuery({
       if (args.folderId && args.search?.trim()) filtered = filtered.filter((q) => q.or(...folderIds.filter((id) => id !== undefined).map((id) => q.eq(q.field("folderId"), id))));
       if (args.kind) filtered = filtered.filter((q) => q.eq(q.field("kind"), args.kind));
       if (args.status) filtered = filtered.filter((q) => q.eq(q.field("status"), args.status));
+      if (args.updatedBefore !== undefined) filtered = filtered.filter((q) => q.lt(q.field("updatedAt"), args.updatedBefore!));
       rows.push(...await filtered.take(limit));
       }
     }
     const unique = [...new Map(rows.map((row) => [row._id, row])).values()];
     return (args.search?.trim() ? unique : unique.sort((a, b) => b.updatedAt - a.updatedAt)).slice(0, limit);
+  },
+});
+
+const storyIndexRow = v.object({
+  _id: v.id("stories"), title: v.string(), kind: storyKindValidator, status: storyStatusValidator,
+  folderId: v.optional(v.id("folders")), storybookId: v.optional(v.id("folders")),
+  excerpt: v.string(), pictureCount: v.number(), updatedAt: v.number(),
+});
+
+/** The Stories tab's index: every story, newest first, without bodies. */
+export const listStoryIndex = ownerQuery({
+  args: { ownerUserId: v.string() },
+  returns: v.array(storyIndexRow),
+  handler: async (ctx, args) => {
+    const rows: Doc<"stories">[] = [];
+    for (const owner of resolveUserIdCandidates(args.ownerUserId)) {
+      rows.push(...await ctx.db.query("stories").withIndex("by_owner_updatedAt", (q) => q.eq("ownerUserId", owner)).order("desc").take(500));
+    }
+    const unique = [...new Map(rows.map((row) => [row._id, row])).values()].sort((a, b) => b.updatedAt - a.updatedAt);
+    return unique.map((story) => {
+      const lead = (story.logline || story.hook || story.body).replace(ASSET_REF, "").replace(/[#*_>`|]+/g, " ").replace(/\s+/g, " ").trim();
+      return {
+        _id: story._id, title: story.title, kind: story.kind, status: story.status,
+        folderId: story.folderId, storybookId: story.storybookId,
+        excerpt: lead.length > 180 ? `${lead.slice(0, 179).trimEnd()}…` : lead,
+        pictureCount: story.assetIds.length, updatedAt: story.updatedAt,
+      };
+    });
+  },
+});
+
+/** Thumbnails for the pictures a story links, in the order the text names them. */
+export const getStoryPictures = ownerQuery({
+  args: { ownerUserId: v.string(), id: v.id("stories") },
+  returns: v.array(v.object({
+    id: v.id("assets"), kind: v.union(v.literal("image"), v.literal("video")), thumbUrl: v.optional(v.string()), url: v.optional(v.string()),
+    width: v.optional(v.number()), height: v.optional(v.number()), cited: v.boolean(),
+  })),
+  handler: async (ctx, args) => {
+    const story = await ownedStory(ctx, args.ownerUserId, args.id);
+    const cited = citedAssetIds(story.body);
+    const order = [...cited, ...story.assetIds.filter((id) => !cited.includes(id))].slice(0, 160);
+    const out = [];
+    for (const raw of order) {
+      const id = ctx.db.normalizeId("assets", raw);
+      const asset = id ? await ctx.db.get(id) : null;
+      if (!asset || !canActorAccessOwnerUserId(args.ownerUserId, asset.ownerUserId)) continue;
+      out.push({ id: asset._id, kind: asset.kind, thumbUrl: await resolveAssetThumbUrl(ctx, asset), url: await resolveAssetUrl(ctx, asset), width: asset.width, height: asset.height, cited: cited.includes(raw) });
+    }
+    return out;
   },
 });
 
@@ -91,35 +227,58 @@ export const getStoryLinkStatus = ownerQuery({
 });
 
 export const saveStory = ownerMutation({
-  args: { ownerUserId: v.string(), ingestKey: v.string(), ...storyFields, expectedRevision: v.optional(v.number()) },
+  args: {
+    ownerUserId: v.string(), ingestKey: v.string(), ...storyFields, expectedRevision: v.optional(v.number()),
+    actor: v.optional(v.string()), session: v.optional(v.string()),
+  },
   returns: v.object({ id: v.id("stories"), created: v.boolean(), revision: v.number() }),
   handler: async (ctx, args) => {
     const ingestKey = args.ingestKey.trim();
     if (!ingestKey || ingestKey.length > 300) throw new ConvexError("A stable ingestKey is required (at most 300 characters).");
-    const { ownerUserId, expectedRevision, ingestKey: _key, ...input } = args;
+    const { ownerUserId, expectedRevision, ingestKey: _key, actor, session, ...input } = args;
     void _key;
     const data = normalize(input);
-    await requireReferences(ctx, ownerUserId, data);
     let existing: Doc<"stories"> | null = null;
     for (const owner of resolveUserIdCandidates(ownerUserId)) {
       existing = await ctx.db.query("stories").withIndex("by_owner_ingestKey", (q) => q.eq("ownerUserId", owner).eq("ingestKey", ingestKey)).unique();
       if (existing) break;
     }
+    if (!existing || existing.title !== data.title) assertStoryTitle(data.title);
+    // A picture deleted since it was linked is a dead link, not an error: it
+    // drops out on the next save so an old story can always be edited or archived.
+    if (existing) {
+      const had = new Set(existing.assetIds);
+      const alive: Id<"assets">[] = [];
+      for (const id of data.assetIds) {
+        if (had.has(id) && !(await ctx.db.get(id))) continue;
+        alive.push(id);
+      }
+      data.assetIds = alive;
+    }
+    assertAssetsCited(data.body, data.assetIds, existing?.assetIds);
+    await requireReferences(ctx, ownerUserId, data, existing?.assetIds);
     const now = Date.now();
     if (!existing) {
       if (expectedRevision !== undefined && expectedRevision !== 0) throw new ConvexError("Story changed. Reload before saving.");
       const id = await ctx.db.insert("stories", { ownerUserId, ingestKey, ...data, revision: 1, createdAt: now, updatedAt: now });
+      await journalStory(ctx, ownerUserId, null, id, { actor, session });
+      await linkAssetsToStorybook(ctx, ownerUserId, data);
       return { id, created: true, revision: 1 };
     }
     // An exact retry is harmless even if its revision is now stale.
     const keys = Object.keys(data) as (keyof typeof data)[];
-    if (keys.every((key) => JSON.stringify(existing![key]) === JSON.stringify(data[key]))) return { id: existing._id, created: false, revision: existing.revision };
+    if (keys.every((key) => JSON.stringify(existing![key]) === JSON.stringify(data[key]))) {
+      await linkAssetsToStorybook(ctx, ownerUserId, data);
+      return { id: existing._id, created: false, revision: existing.revision };
+    }
     if (expectedRevision === undefined) throw new ConvexError("expectedRevision is required to change an existing Story. Read it before saving.");
     if (expectedRevision !== existing.revision) throw new ConvexError("Story changed. Reload before saving.");
     const { _id, _creationTime, ingestKey: _oldKey, searchText: _search, createdAt: _created, updatedAt: _updated, ...snapshot } = existing;
     void _creationTime; void _oldKey; void _search; void _created; void _updated;
     await ctx.db.insert("storyRevisions", { ...snapshot, storyId: _id, savedAt: now });
     await ctx.db.patch(_id, { ...data, revision: existing.revision + 1, updatedAt: now });
+    await journalStory(ctx, ownerUserId, existing, _id, { actor, session });
+    await linkAssetsToStorybook(ctx, ownerUserId, data);
     return { id: _id, created: false, revision: existing.revision + 1 };
   },
 });

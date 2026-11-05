@@ -5,6 +5,9 @@ import { getServerConvexClient } from "@/lib/server/convex";
 import { PartialAgentSaveError, readAgentFolderIds, validateAgentFolders } from "@/lib/server/agent-ingest";
 
 const updateAction = makeFunctionReference<"action">("ingest:updateFromApi");
+const addAssetFoldersMutation = makeFunctionReference<"mutation">(
+  "assets:addAssetFolders",
+);
 const setAssetFoldersMutation = makeFunctionReference<"mutation">(
   "assets:setAssetFolders",
 );
@@ -31,19 +34,22 @@ export async function POST(request: Request) {
     const {
       ownerUserId: _ignoredOwnerUserId,
       folderIds: rawFolderIds,
+      addFolderIds: rawAddFolderIds,
       ...rest
     } = data;
     const folderIds = readAgentFolderIds(rawFolderIds);
+    // Additive filing (e.g. into a storybook): keeps every existing membership, unlike folderIds which replaces them.
+    const addFolderIds = readAgentFolderIds(rawAddFolderIds);
     if (rest.assetRole === "workflow_asset") rest.assetRole = "skill_example";
-    if (folderIds && rest.target !== "asset") {
+    if ((folderIds || addFolderIds) && rest.target !== "asset") {
       return NextResponse.json(
-        { error: "folderIds is supported only for asset updates." },
+        { error: "folderIds and addFolderIds are supported only for asset updates." },
         { status: 400 },
       );
     }
 
     const client = getServerConvexClient(agent.ownerUserId);
-    await validateAgentFolders(client, agent.ownerUserId, [...(folderIds ?? []), ...(typeof rest.folderId === "string" ? [rest.folderId] : [])]);
+    await validateAgentFolders(client, agent.ownerUserId, [...(folderIds ?? []), ...(addFolderIds ?? []), ...(typeof rest.folderId === "string" ? [rest.folderId] : [])]);
     const result = await client.action(updateAction, {
       ...rest,
       ownerUserId: agent.ownerUserId,
@@ -58,6 +64,16 @@ export async function POST(request: Request) {
             folderIds,
         });
       } catch (error) { throw new PartialAgentSaveError(result, folderIds, error); }
+    }
+
+    if (result.assetId && addFolderIds?.length) {
+      try {
+        collections = await client.mutation(addAssetFoldersMutation, {
+            ownerUserId: agent.ownerUserId,
+            assetId: result.assetId,
+            folderIds: addFolderIds,
+        });
+      } catch (error) { throw new PartialAgentSaveError(result, addFolderIds, error); }
     }
 
     return NextResponse.json({ ok: true, result, collections });

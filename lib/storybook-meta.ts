@@ -46,13 +46,28 @@ export function splitStorybookName(rawName: string): {
   return { world: name, title: name, archived };
 }
 
+/** The status, runtime and medium lines live in the story's first 600 characters. */
+export const STORYBOOK_HEAD_CHARS = 600;
+
+/** First story beat ("STORY" then "1. …"), the one-line hook on a tile. */
+export function storybookHook(story: string | undefined): string | null {
+  const beat = /^STORY\s*\n+\s*1\.\s*(.+)$/im.exec(story ?? "");
+  return beat ? beat[1].trim() : null;
+}
+
+/**
+ * `story` may be the full text or only its head; pass `hook` when the caller
+ * already has the first beat (listStorybooks sends the head and the hook, not
+ * the whole story).
+ */
 export function parseStorybookMeta(
   rawName: string,
   story: string | undefined,
+  hook?: string | null,
 ): StorybookMeta {
   const { world, title, archived } = splitStorybookName(rawName);
   const text = story ?? "";
-  const head = text.slice(0, 600);
+  const head = text.slice(0, STORYBOOK_HEAD_CHARS);
 
   const statusLine = /^\s*(NOT READY|READY)\b[^\n]*/im.exec(head);
   let status: StorybookStatus = "unreviewed";
@@ -75,8 +90,22 @@ export function parseStorybookMeta(
     medium = /animat/i.test(lane[1]) ? "animated" : "live-action";
   }
 
-  const beat = /^STORY\s*\n+\s*1\.\s*(.+)$/im.exec(text);
-  const hook = beat ? beat[1].trim() : null;
+  const firstBeat = hook !== undefined ? hook : storybookHook(text);
 
-  return { world, title, status, gaps, runtimeSeconds, medium, hook };
+  return { world, title, status, gaps, runtimeSeconds, medium, hook: firstBeat };
+}
+
+/** The status chip on a storybook cover, in plain words: "Ready", "4 gaps",
+ *  "Not ready", "Unreviewed", "Archived". */
+export function storybookStatusLabel(
+  meta: Pick<StorybookMeta, "status" | "gaps">,
+): { text: string; tone: "ready" | "gaps" | "ghost" } {
+  if (meta.status === "ready") return { text: "Ready", tone: "ready" };
+  if (meta.status === "not-ready") {
+    return {
+      text: meta.gaps !== null ? `${meta.gaps} ${meta.gaps === 1 ? "gap" : "gaps"}` : "Not ready",
+      tone: "gaps",
+    };
+  }
+  return { text: meta.status === "archived" ? "Archived" : "Unreviewed", tone: "ghost" };
 }

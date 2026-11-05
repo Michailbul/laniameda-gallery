@@ -4,10 +4,14 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { requireAgentAuth, AgentAuthError, type AgentTokenScope } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { storyInputSchema, storyPatchSchema } from "@/lib/story-contract";
+import { galleryPageUrl } from "@/lib/gallery-routes";
+import { projectStoryRow, storyListPage } from "@/lib/agent-read-projections";
 import { z } from "zod";
 
 const scopes: Record<string, AgentTokenScope> = { list: "gallery:read", get: "gallery:read", revisions: "gallery:read", save: "gallery:write", update: "gallery:write", delete: "gallery:delete" };
 const idSchema = z.string().min(1).transform((id) => id.replace(/^story:/, "") as Id<"stories">);
+// The story's page in the gallery (/stories/<id>), for Michael to open.
+const withUrl = <T extends { _id: string }>(story: T | null) => (story ? { ...story, url: galleryPageUrl({ kind: "stories", id: story._id }) } : story);
 
 export async function POST(request: Request) {
   try {
@@ -17,9 +21,19 @@ export async function POST(request: Request) {
     const ownerUserId = agent.ownerUserId;
     const client = getServerConvexClient(ownerUserId);
     if (action === "list") {
-      const filters = z.object({ folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(), search: z.string().optional(), limit: z.number().int().min(1).max(500).optional() }).parse(body);
+      const world = z.string().trim().min(1).optional().parse(body.world);
+      if (world) body.folderId = (await client.query(api.worlds.resolveWorldRef, { ownerUserId, world })).worldId;
+      const { includeBody, ...filters } = z.object({
+        folderId: z.string().optional(), kind: z.enum(["idea", "script", "style-lock"]).optional(), status: z.enum(["idea", "draft", "ready", "archived"]).optional(),
+        search: z.string().optional(), limit: z.number().int().min(1).max(500).optional(), updatedBefore: z.number().optional(), includeBody: z.boolean().optional(),
+      }).parse(body);
       const stories = await client.query(api.stories.listStories, { ownerUserId, ...filters, folderId: filters.folderId as Id<"folders"> | undefined });
-      return NextResponse.json({ count: stories.length, stories });
+      // Rows for an agent: no searchText (it repeats the body), owner or creation
+      // time; an excerpt unless includeBody; and whether the limit cut the list.
+      return NextResponse.json({
+        ...storyListPage(stories, filters.limit ?? 200),
+        stories: stories.map((story) => withUrl(projectStoryRow(story, includeBody === true))),
+      });
     }
     if (action === "save" || action === "update") {
       const existing = action === "update" ? await client.query(api.stories.getStory, { ownerUserId, id: idSchema.parse(body.id) }) : undefined;
@@ -30,14 +44,14 @@ export async function POST(request: Request) {
       const expectedRevision = action === "update"
         ? z.number().int().positive().parse(body.expectedRevision)
         : body.expectedRevision === undefined ? undefined : z.number().int().nonnegative().parse(body.expectedRevision);
-      const result = await client.mutation(api.stories.saveStory, { ownerUserId, ...input, folderId: input.folderId as Id<"folders"> | undefined, storybookId: input.storybookId as Id<"folders"> | undefined, assetIds: input.assetIds.map((id) => id.replace(/^asset:/, "") as Id<"assets">), ingestKey, expectedRevision });
+      const result = await client.mutation(api.stories.saveStory, { ownerUserId, ...input, folderId: input.folderId as Id<"folders"> | undefined, storybookId: input.storybookId as Id<"folders"> | undefined, assetIds: input.assetIds.map((id) => id.replace(/^asset:/, "") as Id<"assets">), ingestKey, expectedRevision, actor: `agent:${agent.label || agent.tokenPrefix}`.slice(0, 80), session: z.string().trim().max(80).optional().parse(body.session) });
       const story = await client.query(api.stories.getStory, { ownerUserId, id: result.id });
-      return NextResponse.json({ ok: true, ...result, story });
+      return NextResponse.json({ ok: true, ...result, story: withUrl(story) });
     }
     const id = idSchema.parse(body.id);
     if (action === "get") {
       const [story, linkStatus] = await Promise.all([client.query(api.stories.getStory, { ownerUserId, id }), client.query(api.stories.getStoryLinkStatus, { ownerUserId, id })]);
-      return NextResponse.json({ story, linkStatus });
+      return NextResponse.json({ story: withUrl(story), linkStatus });
     }
     if (action === "revisions") return NextResponse.json({ revisions: await client.query(api.stories.listStoryRevisions, { ownerUserId, id }) });
     await client.mutation(api.stories.deleteStory, { ownerUserId, id });
