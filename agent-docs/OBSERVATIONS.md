@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-10-19
+Last updated: 2026-11-05
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -178,6 +178,16 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Timed storyboard levels use `M$M` sheet names. The final sheet can have fewer rows than its maximum grid; cropping must use its actual remaining row count. Saved hq1/2/3 stills have no guaranteed quarter/mid/end timestamps. Restricted sources or upstream network blocks fall back honestly.
 
 ## Dev workflow
+
+- Test suite (5 Nov 2026): bun's `mock.module` is process-wide, not per file. A
+  route test that mocks `@/lib/server/convex` or `@/lib/server/agent-auth`
+  changes every test file that runs after it. Mock the seam your route uses and
+  spread the real module (`...await import(...)`) when mocking only part of it.
+  On a fresh `bun install` of an Intel Mac, `sharp` can fail to find
+  `libvips-cpp.8.18.3.dylib`; symlink
+  `node_modules/@img/sharp-libvips-darwin-x64` into
+  `node_modules/sharp/node_modules/@img/` to run the thumbnail tests locally.
+  `next build` needs `NEXT_PUBLIC_CONVEX_URL` in the shell.
 
 - Worktree automation copies `.env.example` and runs `bun install` automatically via `scripts/worktree-create.sh`.
 - Clearing `.next` before type checks avoids stale route validator files breaking `tsc`.
