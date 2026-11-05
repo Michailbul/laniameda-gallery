@@ -103,7 +103,9 @@ export default function WorldLightbox({
               className="wpl-media"
               src={tile.src}
               alt=""
-              style={{ aspectRatio: `${tile.w} / ${tile.h}` }}
+              // Hidden once the original is in: the two can differ by a pixel
+              // and the placeholder would show as a faint edge.
+              style={{ aspectRatio: `${tile.w} / ${tile.h}`, visibility: sharp ? "hidden" : undefined }}
             />
             {/* eslint-disable-next-line @next/next/no-img-element -- the original file, full resolution */}
             {wide && <img
