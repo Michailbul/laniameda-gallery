@@ -189,17 +189,31 @@ const toTile = async (
   };
 };
 
+/** The folder and its child shelves, read once per query (one index range). */
+const loadTree = async (ctx: QueryCtx, folderId: Id<"folders">) => {
+  const children = await ctx.db
+    .query("folders")
+    .withIndex("by_parent", (q) => q.eq("parentFolderId", folderId))
+    .collect();
+  return new Set<string>([folderId, ...children.map((child) => child._id)]);
+};
+
+/**
+ * In the world: linked to the folder itself or to one of its child shelves
+ * (a reel filed on "Footage + Film" is still the world's reel). An asset has a
+ * handful of links, so this is one small index range per asset.
+ */
 const isMemberOf = async (
   ctx: QueryCtx,
   assetId: Id<"assets">,
-  folderId: Id<"folders">,
-) =>
-  (await ctx.db
+  tree: Set<string>,
+) => {
+  const links = await ctx.db
     .query("assetFolders")
-    .withIndex("by_asset_folder", (q) =>
-      q.eq("assetId", assetId).eq("folderId", folderId),
-    )
-    .first()) !== null;
+    .withIndex("by_asset", (q) => q.eq("assetId", assetId))
+    .take(32);
+  return links.some((link) => tree.has(link.folderId));
+};
 
 /** Featured members of the side, newest star first. */
 const loadFeatured = async (ctx: QueryCtx, world: WorldContext) => {
@@ -217,8 +231,9 @@ const loadFeatured = async (ctx: QueryCtx, world: WorldContext) => {
   }
   starred.sort((a, b) => (b.starredAt ?? 0) - (a.starredAt ?? 0));
   const tiles: WorldTile[] = [];
+  const tree = await loadTree(ctx, world.side.folder._id);
   for (const asset of starred) {
-    if (!(await isMemberOf(ctx, asset._id, world.side.folder._id))) continue;
+    if (!(await isMemberOf(ctx, asset._id, tree))) continue;
     const tile = await toTile(ctx, world, asset);
     if (tile) tiles.push(tile);
   }
@@ -229,10 +244,11 @@ const loadFeatured = async (ctx: QueryCtx, world: WorldContext) => {
 const loadLead = async (ctx: QueryCtx, world: WorldContext, featured: WorldTile[]) => {
   const featuredIds = new Set(featured.map((tile) => tile.id as string));
   const tiles: WorldTile[] = [];
+  const tree = await loadTree(ctx, world.side.folder._id);
   for (const id of world.leadIds) {
     if (featuredIds.has(id)) continue;
     const asset = await ctx.db.get(id as Id<"assets">);
-    if (!asset || !(await isMemberOf(ctx, asset._id, world.side.folder._id))) continue;
+    if (!asset || !(await isMemberOf(ctx, asset._id, tree))) continue;
     const tile = await toTile(ctx, world, asset);
     if (tile) tiles.push(tile);
   }
@@ -261,6 +277,7 @@ const loadHero = async (
     .query("tags")
     .withIndex("by_canonicalKey", (q) => q.eq("canonicalKey", canonicalTagKey(SHOWREEL_TAG)))
     .take(4);
+  const tree = await loadTree(ctx, world.root._id);
   for (const tag of reelTags) {
     const links = await ctx.db
       .query("assetTags")
@@ -270,11 +287,7 @@ const loadHero = async (
     for (const link of links) {
       const asset = await ctx.db.get(link.assetId);
       if (asset?.kind !== "video") continue;
-      if (
-        !(await isMemberOf(ctx, asset._id, world.root._id)) &&
-        !(await isMemberOf(ctx, asset._id, world.side.folder._id))
-      )
-        continue;
+      if (!(await isMemberOf(ctx, asset._id, tree))) continue;
       const tile = await toTile(ctx, { ...world, allMembers: true }, asset);
       if (tile) return tile;
     }

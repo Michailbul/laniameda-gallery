@@ -104,6 +104,9 @@
   padding: clamp(14px, 2.4vw, 28px) clamp(16px, 3vw, 40px);
   z-index: 3;
   color: var(--wp-ivory-2);
+  /* The first text on screen: system mono, so it paints without waiting for
+     the web font (it is the page's largest-paint candidate on phones). */
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 .wp-topline a {
   color: inherit;
