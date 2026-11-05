@@ -114,7 +114,7 @@ describe("gallery entry builder", () => {
     expect(entries[1]?.id).toBe("asset:c");
   });
 
-  test("folds prompt variations saved as separate prompts into one pack", () => {
+  test("keeps prompt variations saved as separate prompts as separate tiles", () => {
     const base =
       "Masa, a 24 year old Japanese woman with a sharp black bob, oversized grey hoodie, " +
       "sitting on her bed in a small Tokyo apartment, phone selfie, soft window light, text overlay reads";
@@ -153,17 +153,15 @@ describe("gallery entry builder", () => {
       sortOrder: "newest",
     });
 
+    // Grouping is scoped to the displayed asset (11a7d0a): a prompt family no
+    // longer collapses behind one cover, every asset keeps its own tile.
     expect(entries.map((entry) => entry.id)).toEqual([
       "asset:part-of-something",
       "asset:unrelated",
-    ]);
-    expect(entries[0]?.packMemberCount).toBe(3);
-    expect(entries[0]?.packPromptCount).toBe(3);
-    expect(entries[0]?.previewImages.map((image) => image.id)).toEqual([
-      "asset:part-of-something",
       "asset:no-drama-a",
       "asset:no-drama-b",
     ]);
+    expect(entries.every((entry) => (entry.packMemberCount ?? 1) === 1)).toBe(true);
   });
 
   test("never folds design bookmarks or cinema frames by prompt text", () => {
@@ -426,7 +424,7 @@ describe("gallery entry builder", () => {
     expect(newest[0]?.id).toBe("asset:newest");
   });
 
-  test("relevance puts a prompt family where its best-ranked variation was", () => {
+  test("relevance keeps arrival order and never folds prompt variations", () => {
     const base =
       "Masa, a 24 year old Japanese woman with a sharp black bob, oversized grey hoodie, " +
       "sitting on her bed in a small Tokyo apartment, phone selfie, soft window light, text overlay reads";
@@ -455,9 +453,10 @@ describe("gallery entry builder", () => {
 
     expect(entries.map((entry) => entry.id)).toEqual([
       "asset:top-hit",
-      "asset:part-of-something",
+      "asset:no-drama",
       "asset:third",
+      "asset:part-of-something",
     ]);
-    expect(entries[1]?.packMemberCount).toBe(2);
+    expect(entries[1]?.packMemberCount ?? 1).toBe(1);
   });
 });

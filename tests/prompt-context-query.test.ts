@@ -13,10 +13,10 @@ describe("prompts.getPromptContext", () => {
     harness = createMockConvexMutationCtx();
   });
 
-  // A two-step workflow: an image prompt with one still, then a video prompt
+  // A two-step skill: an image prompt with one still, then a video prompt
   // that owns both a poster still and the published cut.
-  const seedWorkflow = async () => {
-    const workflowId = await harness.db.insert("workflows", {
+  const seedSkill = async () => {
+    const skillId = await harness.db.insert("skills", {
       ownerUserId: OWNER,
       title: "1890s GRWM vlog",
       tagIds: [],
@@ -34,9 +34,9 @@ describe("prompts.getPromptContext", () => {
         generationNotes: "Stand-in attached",
       },
       modelName: "GPT Image 2.5",
-      workflowId,
-      workflowStepOrder: 0,
-      workflowStepLabel: "Identity portrait",
+      skillId,
+      skillStepOrder: 0,
+      skillStepLabel: "Identity portrait",
       createdAt: 1,
     });
     const vlogPrompt = await harness.db.insert("prompts", {
@@ -44,9 +44,9 @@ describe("prompts.getPromptContext", () => {
       text: "A 30-second vlog",
       tagIds: [],
       modelName: "Seedance 2.5",
-      workflowId,
-      workflowStepOrder: 1,
-      workflowStepLabel: "Vlog",
+      skillId,
+      skillStepOrder: 1,
+      skillStepLabel: "Vlog",
       createdAt: 2,
     });
     await harness.db.insert("assets", {
@@ -75,11 +75,11 @@ describe("prompts.getPromptContext", () => {
       description: "Published cut",
       createdAt: 3,
     });
-    return { workflowId, portraitPrompt, vlogPrompt };
+    return { skillId, portraitPrompt, vlogPrompt };
   };
 
   test("the owner gets sections, every file sharing the prompt, and the sibling steps", async () => {
-    const { workflowId, vlogPrompt } = await seedWorkflow();
+    const { skillId, vlogPrompt } = await seedSkill();
 
     const result = await callAsOwner(getPromptContext)(harness.ctx as never, {
       id: vlogPrompt as never,
@@ -93,23 +93,23 @@ describe("prompts.getPromptContext", () => {
     expect(result!.media.map((file) => file.kind)).toEqual(["image", "video"]);
     expect(result!.media[1]!.description).toBe("Published cut");
     expect(result!.media[1]!.url).toBe("https://cdn.test/cut.mp4");
-    // The workflow around it, with this prompt's place in it.
-    expect(result!.workflow?._id).toBe(workflowId);
-    expect(result!.workflow?.stepOrder).toBe(1);
-    expect(result!.workflow?.stepLabel).toBe("Vlog");
+    // The skill around it, with this prompt's place in it.
+    expect(result!.skill?._id).toBe(skillId);
+    expect(result!.skill?.stepOrder).toBe(1);
+    expect(result!.skill?.stepLabel).toBe("Vlog");
     // Every sibling step's prompt is right there — the image prompt that fed
     // the video is one copy away from the video.
-    expect(result!.workflow?.steps.map((step) => step.finalPrompt)).toEqual([
+    expect(result!.skill?.steps.map((step) => step.finalPrompt)).toEqual([
       "Render a portrait",
       "A 30-second vlog",
     ]);
-    expect(result!.workflow?.steps[0]!.mediaCount).toBe(1);
-    expect(result!.workflow?.steps[0]!.coverThumbUrl).toBe("https://cdn.test/portrait.png");
-    expect(result!.workflow?.steps[1]!.mediaCount).toBe(2);
+    expect(result!.skill?.steps[0]!.mediaCount).toBe(1);
+    expect(result!.skill?.steps[0]!.coverThumbUrl).toBe("https://cdn.test/portrait.png");
+    expect(result!.skill?.steps[1]!.mediaCount).toBe(2);
   });
 
-  test("a stranger is refused unless the workflow is public", async () => {
-    const { workflowId, portraitPrompt } = await seedWorkflow();
+  test("a stranger is refused unless the skill is public", async () => {
+    const { skillId, portraitPrompt } = await seedSkill();
 
     expect(
       await callAsOwner(getPromptContext)(harness.ctx as never, {
@@ -123,15 +123,15 @@ describe("prompts.getPromptContext", () => {
       }),
     ).toBeNull();
 
-    await harness.db.patch(workflowId, { isPublic: true });
+    await harness.db.patch(skillId, { isPublic: true });
     const result = await callAsOwner(getPromptContext)(harness.ctx as never, {
       id: portraitPrompt as never,
     });
-    expect(result?.workflow?.title).toBe("1890s GRWM vlog");
+    expect(result?.skill?.title).toBe("1890s GRWM vlog");
     expect(result?.promptSections?.generationNotes).toBe("Stand-in attached");
   });
 
-  test("a prompt outside any workflow returns its files and no workflow", async () => {
+  test("a prompt outside any skill returns its files and no skill", async () => {
     const promptId = await harness.db.insert("prompts", {
       ownerUserId: OWNER,
       text: "Four poster variations",
@@ -155,9 +155,9 @@ describe("prompts.getPromptContext", () => {
     });
 
     expect(result?.media).toHaveLength(4);
-    expect(result?.workflow).toBeUndefined();
+    expect(result?.skill).toBeUndefined();
 
-    // A private prompt with no workflow is the owner's alone.
+    // A private prompt with no skill is the owner's alone.
     expect(
       await callAsOwner(getPromptContext)(harness.ctx as never, {
         id: promptId as never,

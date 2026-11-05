@@ -133,6 +133,7 @@ const SECRET_GUARDED = new Set([
   "agentTokens:createAgentToken",
   "agentTokens:listAgentTokens",
   "agentTokens:revokeAgentToken",
+  "agentTokens:updateAgentTokenScopes",
 ]);
 
 test("no public Convex function trusts a caller-supplied ownerUserId", () => {

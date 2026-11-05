@@ -13,20 +13,20 @@ mock.module("@/lib/server-auth", () => ({
   requireAuth: async () => ({ id: state.authUserId }),
 }));
 
-mock.module("convex/browser", () => ({
-  ConvexHttpClient: class {
-    constructor(_url: string) {}
-
+// The route reaches Convex through getServerConvexClient. Mock that seam (not
+// convex/browser): bun's mock.module is process-wide, and other route tests
+// replace "@/lib/server/convex" with their own client.
+mock.module("@/lib/server/convex", () => ({
+  getServerConvexClient: () => ({
     async action(_reference: unknown, payload: Record<string, unknown>) {
       state.actionCalls.push(payload);
       return state.actionResult;
-    }
-
+    },
     async mutation(_reference: unknown, payload: Record<string, unknown>) {
       state.mutationCalls.push(payload);
       return { failureId: "failure:1" };
-    }
-  },
+    },
+  }),
 }));
 
 describe("POST /api/ingest", () => {
