@@ -423,7 +423,7 @@ function MadeWithChips({ items, label }: { items: MadeWith[]; label?: string }) 
               </span>
             ) : null}
             {item.kind !== "unknown" ? <span className="lms-mw-kind">{item.kind === "moodboard" ? "Moodboard" : "Profile"}</span> : null}
-            <span className="lms-mw-name">{item.name ?? "Unnamed profile"}</span>
+            <span className="lms-mw-name">{item.name ?? item.code}</span>
           </>
         );
         return item.kind === "moodboard" && item.moodboardId ? (
@@ -724,7 +724,8 @@ function ActionPill({ k, onClick, children }: { k: string; onClick: () => void; 
 // Text as Michael reads it: every Midjourney code shown as its moodboard or
 // profile name. Copy gives the runnable text, codes and all.
 function NamedText({ text, items }: { text: string; items: MadeWith[] }) {
-  const names = new Map(items.map((item) => [item.code, item.name ?? "unnamed profile"]));
+  // A code the gallery has no name for stays as its code, so the text still reads and runs.
+  const names = new Map(items.map((item) => [item.code, item.name ?? item.code]));
   const codes = [...names.keys()].filter(Boolean).sort((a, b) => b.length - a.length).map((code) => code.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const parts = codes.length ? text.split(new RegExp(`(?<![A-Za-z0-9])(${codes.join("|")})(?![A-Za-z0-9])`)) : [text];
   return (

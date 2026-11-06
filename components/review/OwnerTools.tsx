@@ -171,7 +171,7 @@ type PanelProps = {
   people: Person[];
   reviewers: ReviewFeedback["reviewers"];
   audience: Audience;
-  stats: { likes: number; dislikes: number; commented: number; fresh: number };
+  stats: { likes: number; dislikes: number; commented: number; fresh: number; styleLikes: number; styleDislikes: number };
   onlyTheirs: boolean;
   onOnlyTheirs: () => void;
   onMarkRead: () => void;
@@ -217,7 +217,8 @@ export function FeedbackPanel({ people, reviewers, audience, stats, onlyTheirs, 
     window.location.assign(url.toString());
   };
 
-  const nothing = stats.likes + stats.dislikes + stats.commented === 0;
+  const nothing = stats.likes + stats.dislikes + stats.commented + stats.styleLikes + stats.styleDislikes === 0;
+  const styleVotes = stats.styleLikes + stats.styleDislikes > 0;
 
   return (
     <div className="rv-fbk">
@@ -239,6 +240,11 @@ export function FeedbackPanel({ people, reviewers, audience, stats, onlyTheirs, 
           ) : (
             <>
               <b>{stats.likes}</b> {stats.likes === 1 ? "like" : "likes"} · <b>{stats.dislikes}</b> {stats.dislikes === 1 ? "dislike" : "dislikes"} · comments on <b>{stats.commented}</b> {stats.commented === 1 ? "frame" : "frames"}
+              {styleVotes ? (
+                <span className="sty">
+                  Styles: <b>{stats.styleLikes}</b> liked · <b>{stats.styleDislikes}</b> disliked
+                </span>
+              ) : null}
             </>
           )}
         </div>

@@ -4,8 +4,10 @@
 import { memo, useState, type ReactNode } from "react";
 import {
   SECTION_LABEL, mediaUrl,
-  type FeedbackFilter, type GridSize, type ReviewFolder, type ReviewSection, type ReviewStyle, type ReviewVersion,
+  type FeedbackFilter, type GridSize, type ReviewFolder, type ReviewSection, type ReviewStyle, type ReviewVersion, type Verdict,
 } from "@/lib/review-client";
+import { Faces, type Person } from "./people";
+import type { StyleMark } from "./Grid";
 import { Check, ChevronDown, Menu } from "./icons";
 import { AllFoldersIcon, FolderIcon } from "./folder-icons";
 import { Floating, usePopover } from "./Floating";
@@ -161,12 +163,17 @@ type TopBarProps = {
   menuLabel: string;
   /** Owner only: the style menu (remove from the next round). */
   onRemoveStyle?: (style: StyleChip) => void;
+  /** Style likes: your own verdict and everyone's faces, per style id. */
+  styleMarks: Map<string, StyleMark>;
+  people: Map<string, Person>;
+  /** Anyone who may vote: like or dislike a whole style (again = clear). */
+  onStyleVerdict?: (styleId: string, verdict: Verdict) => void;
 };
 
 export const TopBar = memo(function TopBar(props: TopBarProps) {
   const {
     mediaBase, styles, style, allCount, onStyle, filter, filterCounts, onFilter, isOwner, directorName,
-    roundMessage, size, onSize, onMenu, menuLabel, onRemoveStyle,
+    roundMessage, size, onSize, onMenu, menuLabel, onRemoveStyle, styleMarks, people, onStyleVerdict,
   } = props;
   const [styleMenu, setStyleMenu, styleMenuRef, styleMenuPop] = usePopover();
   const [menuStyle, setMenuStyle] = useState<StyleChip | null>(null);
@@ -231,7 +238,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
 
       <div className="rv-stylebar">
         {styles.length > 0 ? (
-          <div className="rv-styles" role="group" aria-label="Styles">
+          <div className="rv-styles" role="group" aria-label="Styles" data-vote={onStyleVerdict ? "" : undefined}>
             {styles.length > 1 ? (
               <button type="button" className="rv-style" aria-pressed={style === ""} onClick={() => onStyle("")}>
                 <span className="cv mosaic">
@@ -247,10 +254,12 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
             ) : null}
             {styles.map((row) => {
               const short = onRemoveStyle && row.roundCount < STYLE_MIN_FRAMES;
+              const mark = styleMarks.get(row.id);
               return (
                 <div
                   key={row.id}
                   className="rv-style-wrap"
+                  data-mine={mark?.mine}
                   data-menu={styleMenu && menuStyle?.id === row.id ? "" : undefined}
                   onContextMenu={onRemoveStyle ? (event) => {
                     event.preventDefault();
@@ -266,15 +275,41 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
                   >
                     <span className="cv">
                       {row.cover ? <img src={mediaUrl(mediaBase, row.cover)} alt="" decoding="async" fetchPriority="low" /> : null}
+                      {mark?.mine ? <span className="mk" title={mark.mine === "like" ? "You like this style" : "You dislike this style"} /> : null}
                     </span>
                     <span className="lb">
-                      <b>{row.label}</b>
-                      <span>
+                      <span className="nm">
+                        <b>{row.label}</b>
+                        {mark?.faces ? <Faces people={people} faces={mark.faces} max={3} small /> : null}
+                      </span>
+                      <span className="ct">
                         {row.count} {row.count === 1 ? "frame" : "frames"}
                         {short ? <span className="need" title={`A style needs at least ${STYLE_MIN_FRAMES} frames; ${row.roundCount} in this round`}>needs {STYLE_MIN_FRAMES}</span> : null}
                       </span>
                     </span>
                   </button>
+                  {onStyleVerdict ? (
+                    <span className="rv-style-vote">
+                      <button
+                        type="button"
+                        className="like"
+                        aria-pressed={mark?.mine === "like"}
+                        title={mark?.mine === "like" ? "Click again to clear" : `Like ${row.label} as a style`}
+                        onClick={() => onStyleVerdict(row.id, "like")}
+                      >
+                        Like style
+                      </button>
+                      <button
+                        type="button"
+                        className="dislike"
+                        aria-pressed={mark?.mine === "dislike"}
+                        title={mark?.mine === "dislike" ? "Click again to clear" : `Dislike ${row.label} as a style`}
+                        onClick={() => onStyleVerdict(row.id, "dislike")}
+                      >
+                        Dislike style
+                      </button>
+                    </span>
+                  ) : null}
                   {onRemoveStyle ? (
                     <button
                       type="button"

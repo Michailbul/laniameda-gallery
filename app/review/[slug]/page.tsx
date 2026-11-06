@@ -87,7 +87,9 @@ export default async function ReviewRoute({ params, searchParams }: { params: Pr
   // ?view=director: Michael sees exactly what the director sees (the backend
   // honours it for the owner only; anyone else gets their normal page).
   const asDirector = one(search.view) === "director";
-  const draft = !asDirector && one(search.draft) === "1";
+  // The owner opens on the round being prepared when there is one (?draft=0
+  // opens the published round); the backend ignores it for everyone else.
+  const draft = !asDirector && one(search.draft) !== "0";
   const pageArgs: { slug: string; draft?: boolean; versionId?: Id<"reviewVersions">; asDirector?: boolean } = {
     slug,
     ...(draft ? { draft: true } : {}),

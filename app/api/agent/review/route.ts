@@ -74,10 +74,10 @@ type Target = {
   suggestions: Suggestion[];
 };
 type FeedEvent = {
-  type: "verdict" | "comment"; asset: string; code: string; verdict?: "like" | "dislike"; commentId?: string; body?: string;
+  type: "verdict" | "comment" | "style_verdict"; asset?: string; code?: string; style?: string; verdict?: "like" | "dislike"; commentId?: string; body?: string;
   by: string; role: string; at: number; resolved?: boolean; version?: string; folder?: string; styleId?: string;
 };
-type Feed = { feedbackSeenAt?: number; counts: { likes: number; dislikes: number; comments: number }; events: FeedEvent[] };
+type Feed = { feedbackSeenAt?: number; counts: { likes: number; dislikes: number; comments: number; styleLikes?: number; styleDislikes?: number }; events: FeedEvent[] };
 
 class ReviewInputError extends Error {}
 const fail = (message: string): never => {
@@ -320,10 +320,27 @@ export async function POST(request: Request) {
       const feed = (await client.query(api.review.feedbackFeed, {
         ownerUserId, slug: input.project, since, limit: input.limit,
       })) as Feed;
-      const events = feed.events
-        .filter((row) => !reviewerOnly || fromReviewer(row.role))
+      const visible = feed.events.filter((row) => !reviewerOnly || fromReviewer(row.role));
+      // Likes and dislikes on a whole style ("the look in general").
+      const styleEvents = visible
+        .filter((row) => row.type === "style_verdict")
         .map((row) => ({
-          type: row.type, code: row.code, asset: row.asset, folder: row.folder,
+          type: row.type, style: row.styleId ? styles.get(row.styleId) ?? row.style : row.style,
+          styleHandle: row.styleId ? styleHandle(row.styleId) : undefined,
+          verdict: row.verdict, by: row.by, role: row.role, round: row.version, at: row.at, when: iso(row.at),
+        }));
+      const styleSummary = new Map<string, { style?: string; styleHandle?: string; likes: string[]; dislikes: string[] }>();
+      for (const event of styleEvents) {
+        const key = event.styleHandle ?? event.style ?? "";
+        const row = styleSummary.get(key) ?? { style: event.style, styleHandle: event.styleHandle, likes: [], dislikes: [] };
+        if (event.verdict === "like") row.likes.push(event.by);
+        if (event.verdict === "dislike") row.dislikes.push(event.by);
+        styleSummary.set(key, row);
+      }
+      const events = visible
+        .filter((row) => row.type !== "style_verdict" && row.asset && row.code)
+        .map((row) => ({
+          type: row.type, code: row.code!, asset: row.asset!, folder: row.folder,
           style: row.styleId ? styles.get(row.styleId) ?? styleHandle(row.styleId) : undefined,
           verdict: row.verdict, body: row.body, commentId: row.commentId, resolved: row.type === "comment" ? row.resolved : undefined,
           by: row.by, role: row.role, round: row.version, at: row.at, when: iso(row.at),
@@ -345,7 +362,7 @@ export async function POST(request: Request) {
         row.lastAt = Math.max(row.lastAt, event.at);
         frames.set(event.asset, row);
       }
-      const latest = events.reduce((max, row) => Math.max(max, row.at), 0);
+      const latest = [...events, ...styleEvents].reduce((max, row) => Math.max(max, row.at), 0);
       return NextResponse.json({
         project: input.project,
         feedbackSeenAt: iso(feed.feedbackSeenAt ?? seenAt),
@@ -356,10 +373,14 @@ export async function POST(request: Request) {
           dislikes: events.filter((row) => row.verdict === "dislike").length,
           comments: events.filter((row) => row.type === "comment").length,
           openComments: events.filter((row) => row.type === "comment" && !row.resolved).length,
+          styleLikes: styleEvents.filter((row) => row.verdict === "like").length,
+          styleDislikes: styleEvents.filter((row) => row.verdict === "dislike").length,
         },
+        styles: [...styleSummary.values()],
+        styleVerdicts: styleEvents,
         frames: [...frames.values()].sort((a, b) => b.lastAt - a.lastAt).map(({ lastAt: _lastAt, ...row }) => row),
         events,
-        next: events.length
+        next: events.length || styleEvents.length
           ? "Act on what the director said, reply with review_comment {op: \"add\"} saying what was done, and resolve the comment once handled. Pass cursor as since next time to read only what is new."
           : "Nothing new.",
       });

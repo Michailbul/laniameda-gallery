@@ -539,6 +539,11 @@ only plain collections may be children. One level deep.
   session), with `role` and the `versionId` it was given in. It follows the
   asset across rounds. Indexes `by_project_asset_reviewer`,
   `by_project_updatedAt`.
+- `reviewStyleFeedback`: one verdict like | dislike per style per person on a
+  whole style of the project: `projectId`, `styleId` (worldStyles, must be in
+  `project.styles`), `reviewerEmail` (same keys as `reviewFeedback`), `role`,
+  `versionId` (round it was given in). Indexes `by_project_style_reviewer`,
+  `by_project_updatedAt`.
 - `reviewComments`: `projectId`, `assetId`, `versionId`, `authorEmail`,
   `authorName`, `authorRole` director | viewer | owner | agent, `body` (at most
   4000 characters), `batchId` (one comment written on several frames),

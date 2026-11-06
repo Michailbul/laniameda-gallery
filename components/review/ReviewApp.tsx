@@ -11,7 +11,7 @@ import {
   type ReviewSection, type ReviewVersion, type Verdict, type ViewState,
 } from "@/lib/review-client";
 import { reviewTheme } from "@/lib/review-theme";
-import { Grid, type GridGroup, type TileAction, type TileMark } from "./Grid";
+import { Grid, type GridGroup, type StyleMark, type TileAction, type TileMark } from "./Grid";
 import { Sidebar, TopBar, type AreaGroup, type StyleChip } from "./Chrome";
 import { Milestones } from "./Milestones";
 import { BulkBar } from "./BulkBar";
@@ -81,7 +81,7 @@ export function ReviewApp(props: Props) {
 
 const SECTIONS: ReviewSection[] = ["locations", "characters", "scenes"];
 const SECTION_ORDER: Record<ReviewSection, number> = { locations: 0, characters: 1, scenes: 2 };
-const EMPTY_FEEDBACK: ReviewFeedback = { people: [], verdicts: [], comments: [], reviewers: [] };
+const EMPTY_FEEDBACK: ReviewFeedback = { people: [], verdicts: [], styleVerdicts: [], comments: [], reviewers: [] };
 const FILTER_KEYS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback"];
 
 const errorText = (error: unknown) =>
@@ -301,6 +301,55 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     return map;
   }, [page.items, mineOf, fb, isOwner, myKey, me, listsOf]);
 
+  // ---------------------------------------------------------- style verdicts
+  // Per style: your own verdict, the faces shown next to it (reviewers plus
+  // you, like frames) and the reviewers' likes and dislikes for the owner.
+  const styleMarks = useMemo(() => {
+    const map = new Map<string, StyleMark & { theirLikes: number; theirDislikes: number }>();
+    const entry = (styleId: string) => {
+      let row = map.get(styleId);
+      if (!row) {
+        row = { faces: "", theirLikes: 0, theirDislikes: 0 };
+        map.set(styleId, row);
+      }
+      return row;
+    };
+    const faces = new Map<string, string[]>();
+    for (const row of feedback.styleVerdicts) {
+      const own = row.email === myKey;
+      const reviewer = row.role !== "owner";
+      const mark = entry(row.styleId);
+      if (own) mark.mine = row.verdict;
+      if (reviewer && !own) {
+        if (row.verdict === "like") mark.theirLikes += 1;
+        else mark.theirDislikes += 1;
+      }
+      if (reviewer || own) {
+        const list = faces.get(row.styleId) ?? [];
+        const face = `${own && me ? me.who : row.who}:${row.verdict}`;
+        if (own) list.unshift(face);
+        else list.push(face);
+        faces.set(row.styleId, list);
+      }
+    }
+    for (const [styleId, list] of faces) entry(styleId).faces = list.join(",");
+    return map;
+  }, [feedback.styleVerdicts, myKey, me]);
+
+  const setStyleVerdictMutation = useMutation(api.review.setStyleVerdict).withOptimisticUpdate((store, mutationArgs) => {
+    const current = store.getQuery(api.review.feedback, { slug: mutationArgs.slug });
+    if (!current) return;
+    const rest = current.styleVerdicts.filter((row) => !(row.styleId === mutationArgs.styleId && row.email === myKey));
+    const styleVerdicts = mutationArgs.verdict === null ? rest : [
+      ...rest,
+      {
+        styleId: mutationArgs.styleId, email: myKey, who: me?.who ?? "owner",
+        role: isOwner || isPreview ? "owner" as const : viewer.role, verdict: mutationArgs.verdict, updatedAt: Date.now(),
+      },
+    ];
+    store.setQuery(api.review.feedback, { slug: mutationArgs.slug }, { ...current, styleVerdicts });
+  });
+
   // ---------------------------------------------------------- view
   const [view, setView] = useState<ViewState>(() => initialView(initialSearch, initialPage));
   const pushNext = useRef(false);
@@ -381,7 +430,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     if (folder && !style) {
       // "All styles": one section per style, in carousel order.
       const out: GridGroup[] = page.styles
-        .map((row) => ({ key: row.id as string, title: row.label, items: visible.filter((item) => item.styleId === row.id) }))
+        .map((row) => ({ key: row.id as string, title: row.label, styleId: row.id as string, items: visible.filter((item) => item.styleId === row.id) }))
         .filter((group) => group.items.length > 0);
       const loose = visible.filter((item) => !item.styleId || !index.styleOrder.has(item.styleId));
       if (loose.length) out.push({ key: "none", title: page.styles.length ? "Other" : undefined, items: loose });
@@ -452,6 +501,16 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         }),
       );
   }, [canVote, mineOf, flash, setVerdictMutation, slug, toast]);
+
+  // Like or dislike a whole style; the same choice again clears it.
+  const applyStyleVerdict = useCallback((styleId: string, verdict: Verdict) => {
+    if (!canVote) return;
+    const label = page.styles.find((row) => row.id === styleId)?.label ?? "Style";
+    const next = styleMarks.get(styleId)?.mine === verdict ? null : verdict;
+    setStyleVerdictMutation({ slug, styleId: styleId as Id<"worldStyles">, verdict: next })
+      .then(() => toast(next === null ? `${label}: cleared` : `${label}: ${next === "like" ? "liked" : "disliked"} as a style`))
+      .catch((error) => toast(errorText(error), true));
+  }, [canVote, page.styles, styleMarks, setStyleVerdictMutation, slug, toast]);
 
   const addComment = useMutation(api.review.addComment).withOptimisticUpdate((store, mutationArgs) => {
     const current = store.getQuery(api.review.feedback, { slug: mutationArgs.slug });
@@ -561,7 +620,10 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   const [roundMessage, setRoundMessage] = useState<{ key: string; title: string; note?: string } | null>(null);
   const messageTimer = useRef(0);
   const onRound = useCallback((version: ReviewVersion | null) => {
-    const isDefault = !version || (version.isCurrent && !version.isDraft);
+    // The owner lands on the draft when there is one, so the published round
+    // has to be asked for by id; for everyone else it is the default.
+    const ownerDraftDefault = isOwner && page.versions.some((row) => row.isDraft);
+    const isDefault = !version || (version.isCurrent && !version.isDraft && !ownerDraftDefault);
     setArgs((current) => (isDefault ? { asDirector: current.asDirector } : { versionId: version!.id, asDirector: current.asDirector }));
     changeView({ round: isDefault ? "" : version!.label, open: "" }, { clear: true });
     // The next round explains itself in the owner strip; published rounds get their note here.
@@ -571,7 +633,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       window.clearTimeout(messageTimer.current);
       messageTimer.current = window.setTimeout(() => setRoundMessage(null), 6000);
     }
-  }, [changeView]);
+  }, [changeView, isOwner, page.versions]);
   const onPickRound = useCallback((version: ReviewVersion) => {
     if (version.id === page.versionId) return;
     onRound(version);
@@ -820,8 +882,14 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       if (comment && comment.count > 0) commented += 1;
       if (fb.fresh.has(item.assetId)) fresh += 1;
     }
-    return { likes, dislikes, commented, fresh };
-  }, [page.items, fb]);
+    let styleLikes = 0;
+    let styleDislikes = 0;
+    for (const row of styleMarks.values()) {
+      styleLikes += row.theirLikes;
+      styleDislikes += row.theirDislikes;
+    }
+    return { likes, dislikes, commented, fresh, styleLikes, styleDislikes };
+  }, [page.items, fb, styleMarks]);
 
   const signOut = async () => {
     await fetch(`${reviewBase()}/api/auth/logout`, { method: "POST", credentials: "same-origin" }).catch(() => null);
@@ -943,6 +1011,9 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           onMenu={() => setNavOpen(true)}
           menuLabel={headTitle}
           onRemoveStyle={isOwner ? setRemovingStyle : undefined}
+          styleMarks={styleMarks}
+          people={people}
+          onStyleVerdict={canVote ? applyStyleVerdict : undefined}
         />
 
         <main className="rv-content" data-loading={loadingRound ? "" : undefined}>
@@ -1007,6 +1078,8 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
                 onBox={boxSelect}
                 onClear={clearSelection}
                 onSelectGroup={groups.length > 1 ? selectMany : undefined}
+                styleMarks={styleMarks}
+                onStyleVerdict={canVote ? applyStyleVerdict : undefined}
               />
             )}
           </div>
