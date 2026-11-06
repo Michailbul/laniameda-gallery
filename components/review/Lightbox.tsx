@@ -7,7 +7,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  LIST_COLORS, LIST_KEYS, ago, codeHint, copyText, isTyping, madeWith, madeWithFlags, mediaUrl, srcSetOf, thumbAtLeast,
+  LIST_KEYS, ago, codeHint, copyText, isTyping, madeWith, madeWithFlags, mediaUrl, srcSetOf, thumbAtLeast,
   type ListKey, type MadeWithChip, type Lists, type ReviewItem, type Verdict,
 } from "@/lib/review-client";
 import { ChevronLeft, ChevronRight, Close, Copy } from "./icons";
@@ -64,7 +64,7 @@ const fastConnection = () => {
 export default function Lightbox(props: Props) {
   const {
     slug, item, position, total, prev, next, mediaBase, folderName, styleLabel, sectionLabel, roundLabel,
-    mine, verdicts, people, canVote, isOwner, viewerName, viewerWho, lists, onList, focusComment, onVerdict, onNav, onClose, onDownload, onToast,
+    mine, verdicts, people, canVote, isOwner, viewerName, viewerWho, onList, focusComment, onVerdict, onNav, onClose, onDownload, onToast,
   } = props;
   const assetId = item.assetId as Id<"assets">;
   const large = mediaUrl(mediaBase, thumbAtLeast(item.thumbs, 1400)?.src);
@@ -390,25 +390,6 @@ export default function Lightbox(props: Props) {
           </div>
         ) : null}
 
-        {isOwner && lists && onList ? (
-          <div>
-            <div className="rv-lb-h">Your lists</div>
-            <div className="rv-lb-lists">
-              {LIST_KEYS.map((key, index) => (
-                <button
-                  key={key}
-                  type="button"
-                  aria-pressed={lists.items[key].includes(item.assetId)}
-                  style={{ "--c": LIST_COLORS[key] } as React.CSSProperties}
-                  onClick={() => onList(key)}
-                >
-                  <kbd>{index + 3}</kbd>
-                  {lists.names[key]}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
 
         {previous.length > 0 ? (
           <div>
