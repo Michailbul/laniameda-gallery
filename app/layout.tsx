@@ -8,6 +8,7 @@ import { ConvexClientProvider } from "@/components/ConvexClientProvider";
 import { TelegramAuthProvider } from "@/components/TelegramAuthProvider";
 import { FeedbackButton } from "@/components/feedback/feedback-button";
 import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/theme";
+import { GallerySurface } from "@/components/review/GallerySurface";
 
 const instrumentSerif = Instrument_Serif({
   weight: "400",
@@ -38,13 +39,19 @@ export default function RootLayout({
         className={`${GeistSans.variable} ${GeistMono.variable} ${instrumentSerif.variable} antialiased`}
         suppressHydrationWarning
       >
-        <TelegramAuthProvider>
-          <ConvexClientProvider>
-            {children}
-            {/* Feedback for the agent from any page: files a task the reviewer picks up. */}
-            <Suspense fallback={null}><FeedbackButton /></Suspense>
-          </ConvexClientProvider>
-        </TelegramAuthProvider>
+        <GallerySurface
+          gallery={
+            <TelegramAuthProvider>
+              <ConvexClientProvider>
+                {children}
+                {/* Feedback for the agent from any page: files a task the reviewer picks up. */}
+                <Suspense fallback={null}><FeedbackButton /></Suspense>
+              </ConvexClientProvider>
+            </TelegramAuthProvider>
+          }
+        >
+          {children}
+        </GallerySurface>
       </body>
     </html>
   );

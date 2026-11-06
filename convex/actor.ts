@@ -26,9 +26,17 @@ type AuthCtx = {
 export const isLegacyOwnerArgAuthEnabled = () =>
   process.env.LEGACY_OWNER_ARG_AUTH?.trim().toLowerCase() === "true";
 
+// Director-review tokens (sub "reviewer:<email>", minted by the review
+// sign-in) only open convex/review.ts, which reads the identity itself. They
+// never pass for a gallery owner.
+export const REVIEWER_SUBJECT_PREFIX = "reviewer:";
+
 const readIdentitySubject = async (ctx: AuthCtx) => {
   const identity = await ctx.auth?.getUserIdentity();
   const subject = identity?.subject?.trim();
+  if (subject?.startsWith(REVIEWER_SUBJECT_PREFIX)) {
+    throw new ConvexError("A review sign-in cannot open the gallery.");
+  }
   return subject || undefined;
 };
 

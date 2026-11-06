@@ -512,6 +512,44 @@ only plain collections may be children. One level deep.
   browser) mints. Agent, extension and script tokens cannot approve, promote,
   drop, keep or redo.
 
+### Director review (6 Nov 2026; references/review.md)
+
+- `reviewProjects`: one per `slug` (the address `/review/<slug>`), owned by
+  `ownerUserId`. `title`, `subtitle`, `worldFolderId` (the world the frames
+  come from), `publicUrl`, `reviewers` (email, name, pictureUrl, role
+  director | viewer, addedAt, lastSeenAt), `ownerEmails` (Google accounts that
+  act as the owner on the public address), `styles` (carousel order:
+  `styleId` of a `worldStyles` row, `label` the director reads, `hidden`),
+  `currentVersionId`, `draftVersionId`, `feedbackSeenAt` (Michael's "read up to
+  here" mark). Indexes `by_slug`, `by_owner`.
+- `reviewFolders`: `projectId`, `section` locations | characters | scenes,
+  `area` (nav group), `name`, `slug` (fixed at creation, unique per section),
+  `note`, `scenes` (script scene numbers), `order`, `archivedAt`. Index
+  `by_project_section_order`.
+- `reviewVersions`: the rounds. `projectId`, `number`, `label` (`v0.<n>`),
+  `status` draft | published, `title`, `note`, `basedOnVersionId`,
+  `publishedAt`. Index `by_project_number`.
+- `reviewItems`: a frame in one round. `versionId`, `assetId`, `folderId`,
+  `styleId`, `order`, `note` (caption), `previousAssetIds` (earlier takes,
+  oldest first), `addedAt`. A draft starts as a copy of a round's items, so
+  published rounds never change. Indexes `by_version_order`,
+  `by_version_asset`, `by_project_asset`.
+- `reviewFeedback`: one verdict like | dislike per frame per person, keyed by
+  `projectId` + `assetId` + `reviewerEmail` ("owner" for Michael's gallery
+  session), with `role` and the `versionId` it was given in. It follows the
+  asset across rounds. Indexes `by_project_asset_reviewer`,
+  `by_project_updatedAt`.
+- `reviewComments`: `projectId`, `assetId`, `versionId`, `authorEmail`,
+  `authorName`, `authorRole` director | viewer | owner | agent, `body` (at most
+  4000 characters), `batchId` (one comment written on several frames),
+  `resolvedAt`. Indexes `by_project_asset_createdAt`, `by_project_createdAt`.
+- Frame codes (`CA-` + the asset id's last six characters) are computed, not
+  stored.
+- Reviewers sign in with Google on the review page; their Convex token has
+  subject `reviewer:<email>` and opens only `convex/review.ts`
+  (`convex/actor.ts` refuses it everywhere else). Agents use the owner-scoped
+  functions through `/api/agent/review`.
+
 ### `videoRefs`: YouTube research (the YouTube page)
 
 One row per YouTube video per owner, apart from assets. Holds the video's and

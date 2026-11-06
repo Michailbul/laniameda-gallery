@@ -2,7 +2,7 @@
 
 import { useConvexAuth, useQuery } from "convex/react";
 import Link from "next/link";
-import { FileText, FolderOpen, Grid3X3, LayoutGrid, ListChecks, Palette, ScrollText } from "lucide-react";
+import { FileText, FolderOpen, Grid3X3, LayoutGrid, ListChecks, Palette, Projector, ScrollText } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -28,6 +28,7 @@ export function CollectionTabs({
   worldFolderId,
   always,
   stylesHref,
+  reviewHref,
   onSelect,
 }: {
   ownerUserId: string;
@@ -44,6 +45,8 @@ export function CollectionTabs({
   always: boolean;
   /** Inside a marked world: the world's styles page (its own wide page). */
   stylesHref?: string;
+  /** A world with a director review: its review page. */
+  reviewHref?: string;
   onSelect: (tab: CollectionTab) => void;
 }) {
   const { isAuthenticated } = useConvexAuth();
@@ -152,6 +155,21 @@ export function CollectionTabs({
         >
           <Palette className="hidden h-3.5 w-3.5 sm:block" aria-hidden />
           Styles
+        </Link>
+      ) : null}
+      {reviewHref ? (
+        <Link
+          href={reviewHref}
+          title="The director review: rounds, folders and what the director said. R on a frame promotes it there."
+          className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 transition-all md:gap-2 md:px-3.5 md:py-[7px]"
+          style={{
+            borderRadius: "999px", background: "var(--lm-surface-2)", border: "2px solid var(--lm-border)",
+            color: "var(--lm-text-secondary)", fontSize: "10px", fontWeight: 800, letterSpacing: "0.12em",
+            textTransform: "uppercase", whiteSpace: "nowrap",
+          }}
+        >
+          <Projector className="hidden h-3.5 w-3.5 sm:block" aria-hidden />
+          Director review
         </Link>
       ) : null}
       {tabs.slice(1).map(renderTab)}

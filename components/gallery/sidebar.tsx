@@ -33,6 +33,7 @@ import {
   Trash2,
   ListChecks,
   Lightbulb,
+  Projector,
   Newspaper,
   SlidersHorizontal,
 } from "lucide-react";
@@ -42,6 +43,7 @@ import { isGalleryPath } from "@/lib/gallery-routes";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { TelegramLoginButton } from "@/components/telegram-login-button";
 import { useTheme } from "@/lib/use-theme";
+import { MAIN_DIRECTOR_REVIEW } from "@/components/review-promote/promote-model";
 import {
   hasAssetDragPayload,
   readAssetDragPayload,
@@ -728,6 +730,9 @@ export function GallerySidebar({
         )}
         {tasksOpenCount !== undefined && (
           <NavItem icon={Lightbulb} label="Inspiration" href="/inspiration" active={false} collapsed={collapsed} />
+        )}
+        {tasksOpenCount !== undefined && (
+          <NavItem icon={Projector} label="Director review" href={MAIN_DIRECTOR_REVIEW} active={false} collapsed={collapsed} />
         )}
         {tasksOpenCount !== undefined && (
           <NavItem icon={SlidersHorizontal} label="Settings" href="/settings" active={false} collapsed={collapsed} />

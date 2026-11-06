@@ -15,6 +15,7 @@ import { buildGridImageAttrs } from "@/lib/grid-image";
 import { galleryRoutePath, worldStylesPath } from "@/lib/gallery-routes";
 import { MOSAIC_COVERS, MOSAIC_CSS, StyleCaption, StyleMosaic, framesLabel, orderMedia } from "./style-mosaic";
 import { handleEditTakeKey } from "@/lib/edit-take-keys";
+import { useReviewPromote } from "@/components/review-promote/use-review-promote";
 
 // The styles page of a world's universe (/w/<world>/styles): every style as a
 // carousel of mosaic covers across the top, then the chosen style's frames as
@@ -22,7 +23,8 @@ import { handleEditTakeKey } from "@/lib/edit-take-keys";
 // only in the open view, beside the full-resolution frame. Keys act on the
 // hovered frame or the open one (board-building-blocks key map): 1 like,
 // ⇧1 super like, 2 off this style, S style, M collection, B storybook,
-// E edit in place, C comment, O open, I copy id.
+// E edit in place, C comment, O open, I copy id, R promote to the director
+// review (⇧R: to the last place used).
 
 const EditInPlace = dynamic(() => import("@/components/gallery/edit-in-place").then((m) => m.EditInPlace), { ssr: false });
 const BeforeAfterWipe = dynamic(() => import("@/components/gallery/before-after-wipe").then((m) => m.BeforeAfterWipe), { ssr: false });
@@ -85,6 +87,12 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
   const [levels, setLevels] = useState<Record<string, Level>>({});
   const [gone, setGone] = useState<Record<string, Gone>>({});
   const hovered = useRef<string | null>(null);
+  const {
+    open: openPromote,
+    sendToLast: promoteToLast,
+    isOpen: promoteOpen,
+    element: promoteElement,
+  } = useReviewPromote({ ownerUserId, active: isAuthenticated });
 
   const setLevel = useMutation(api.assets.setAssetLikeLevel);
   const setFrameStyle = useMutation(api.styleFrames.setFrameStyle);
@@ -229,7 +237,7 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
   // One key map for the hovered frame and the open one.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (palette) return;
+      if (palette || promoteOpen) return;
       if (isTyping(event.target)) {
         if (event.key === "Escape") (event.target as HTMLElement).blur();
         return;
@@ -252,6 +260,12 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
         if ((key === "o" || key === "Enter") && frame) { openFrame(frame.assetId); return handled(); }
       }
       if (!frame) return;
+      if (key === "r" && !event.repeat) {
+        const target = [{ id: frame.assetId, thumb: frame.thumbUrl ?? undefined }];
+        if (event.shiftKey) void promoteToLast(target);
+        else openPromote(target);
+        return handled();
+      }
       if (event.code === "Digit1" && event.shiftKey) { void like(frame, true); return handled(); }
       if (key === "1") { void like(frame, false); return handled(); }
       if (key === "2") { void drop(frame); return handled(); }
@@ -267,7 +281,7 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [palette, openId, byId, list, step, openFrame, like, drop, say]);
+  }, [palette, promoteOpen, openPromote, promoteToLast, openId, byId, list, step, openFrame, like, drop, say]);
 
   if (listing === undefined) {
     return <main className="grid min-h-dvh place-items-center" style={{ background: "var(--lm-paper)" }}>
@@ -311,6 +325,7 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
         <Palette ownerUserId={ownerUserId} kind={palette.kind} listing={listing} activeId={activeId} homeWorldId={active?.world.id ?? null}
           onPick={(target) => void pick(palette.kind, palette.frame, target)} onClose={() => setPalette(null)} />
       ) : null}
+      {promoteElement}
       <KeyHint open={Boolean(opened)} />
     </main>
   );
@@ -810,7 +825,7 @@ function Palette({ ownerUserId, kind, listing, activeId, homeWorldId, onPick, on
 function KeyHint({ open }: { open: boolean }) {
   const keys: [string, string, Tone][] = [
     ["1", "Like", "coral"], ["⇧1", "Super like", "ember"], ["2", "Off style", "crimson"], ["S", "Style", "teal"],
-    ["M", "Collection", "teal"], ["B", "Storybook", "teal"], ["E", "Edit", "ink"], ["C", "Comment", "ink"],
+    ["M", "Collection", "teal"], ["B", "Storybook", "teal"], ["E", "Edit", "ink"], ["C", "Comment", "ink"], ["R", "Review", "coral"],
     ...(open ? [["← →", "Frame", "ink"], ["Esc", "Close", "ink"]] as [string, string, Tone][] : [["O", "Open", "ink"], ["← →", "Style", "ink"]] as [string, string, Tone][]),
   ];
   return (

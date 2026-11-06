@@ -28,6 +28,7 @@ export const GALLERY_SKILL_RESOURCES = [
   { path: "references/tasks.md", title: "Tasks: the queue between Michael's review and the agents' work", access: "public" },
   { path: "references/newspapers.md", title: "The morning newspaper: Michael's daily review of what agents did", access: "public" },
   { path: "references/inspiration.md", title: "Inspiration review: references, project takes and Michael's verdicts", access: "public" },
+  { path: "references/review.md", title: "Director review: rounds of frames an outside director likes, dislikes and comments on", access: "public" },
   { path: "references/storybooks.md", title: "Storybook production spec", access: "public" },
   { path: "references/bookmarks.md", title: "X post bookmarks", access: "public" },
   { path: "references/midjourney-srefs.md", title: "Midjourney style reference library", access: "public" },
