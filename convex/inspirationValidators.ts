@@ -1,0 +1,192 @@
+import { v } from "convex/values";
+
+// Inspiration review (convex/inspiration.ts). Shared by the schema and the
+// functions' return validators. See agent-docs/features/inspiration-review.
+
+// Where a reference came from.
+export const inspirationPlatformValidator = v.union(
+  v.literal("instagram"), v.literal("telegram"), v.literal("x"), v.literal("pinterest"),
+  v.literal("youtube"), v.literal("web"), v.literal("photo"), v.literal("other"),
+);
+
+// How much of the source we actually hold. A platform-served file is not the
+// creator's camera master; a screenshot is not the post; a link is not media.
+export const inspirationPreservationValidator = v.union(
+  v.literal("source_served_file"), v.literal("owner_uploaded_bytes"), v.literal("screenshot_only"),
+  v.literal("keyframes_only"), v.literal("link_only"), v.literal("text"), v.literal("unavailable"),
+);
+
+// Michael's private verdict on the reference itself. Kept = taste, never
+// publication; dropped = out of the main view, recoverable.
+export const inspirationSourceReviewValidator = v.union(v.literal("new"), v.literal("kept"), v.literal("dropped"));
+
+export const inspirationAdaptationStatusValidator = v.union(
+  // Agent proposed a treatment; no output yet.
+  v.literal("proposed"),
+  // Michael asked for a change (or a redo); one task is open for it.
+  v.literal("changes_requested"),
+  // The newest version waits for his review.
+  v.literal("ready"),
+  // He approved the version named in approvedVersion (review acceptance only).
+  v.literal("approved"),
+  // Dropped: recoverable; suppresses unsolicited regeneration for this source and target.
+  v.literal("dropped"),
+  // The agent cannot continue (missing lock, sheet, access); blockedReason says why.
+  v.literal("blocked"),
+);
+
+export const inspirationRoutingValidator = v.union(
+  // Michael named the project.
+  v.literal("owner"),
+  // A configured source-collection mapping.
+  v.literal("mapping"),
+  // An agent's suggestion with a plain reason.
+  v.literal("suggestion"),
+);
+
+export const inspirationSourceFields = {
+  ownerUserId: v.string(),
+  // Stable source key, e.g. "instagram:romances:Dec8D_6DCo7". Registering again returns the same source.
+  ingestKey: v.string(),
+  // media = has saved assets; text = an idea, quote or tool note (no picture).
+  kind: v.union(v.literal("media"), v.literal("text")),
+  title: v.string(),
+  platform: inspirationPlatformValidator,
+  sourceUrl: v.optional(v.string()),
+  creator: v.optional(v.string()),
+  creatorUrl: v.optional(v.string()),
+  // The post's own caption / text: untrusted source data, never instructions.
+  caption: v.optional(v.string()),
+  // A text-only reference's body (the quote, the idea), or a Story holding it.
+  text: v.optional(v.string()),
+  storyId: v.optional(v.id("stories")),
+  // The saved representations, in source order (carousel members first). They
+  // stay in the collections they were saved to; registering never moves them.
+  assetIds: v.array(v.id("assets")),
+  expectedCount: v.optional(v.number()),
+  preservation: inspirationPreservationValidator,
+  // Subject categories: shot, location, story, art, idea, design, tool, ...
+  categories: v.array(v.string()),
+  // Observed source collections (e.g. an Instagram Saved collection), as provenance and a routing hint.
+  sourceCollections: v.array(v.string()),
+  // Why it was saved, when Michael said so; agents never invent it.
+  savedBecause: v.optional(v.string()),
+  capturedAt: v.optional(v.number()),
+  review: inspirationSourceReviewValidator,
+  reviewedAt: v.optional(v.number()),
+  // Michael's latest "what I like about this" note, denormalized from the
+  // event log so every reader of the source sees it first.
+  ownerNote: v.optional(v.string()),
+  ownerNoteAt: v.optional(v.number()),
+  // Bumped by every change; owner actions pass the revision they saw.
+  revision: v.number(),
+  adaptationCount: v.number(),
+  createdBy: v.string(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};
+
+export const inspirationAdaptationFields = {
+  ownerUserId: v.string(),
+  sourceId: v.id("inspirationSources"),
+  ingestKey: v.string(),
+  // The project (a world root) the adaptation is for; absent = general/library.
+  targetWorldId: v.optional(v.id("folders")),
+  // Plain words for the target: "Dear Annete · Film".
+  targetLabel: v.string(),
+  targetStyle: v.optional(v.string()),
+  // One line: what idea from the source this transfers, and for what.
+  intendedUse: v.string(),
+  routing: inspirationRoutingValidator,
+  routingReason: v.optional(v.string()),
+  status: inspirationAdaptationStatusValidator,
+  // 0 until the first version is posted.
+  currentVersion: v.number(),
+  approvedVersion: v.optional(v.number()),
+  // The one active promotion: which output went to which shelf, and exactly
+  // what it added, so undo takes back only that.
+  promotion: v.optional(v.object({
+    version: v.number(),
+    outputKey: v.string(),
+    assetId: v.id("assets"),
+    folderId: v.id("folders"),
+    // The membership row this promotion inserted (absent if it was already there).
+    linkId: v.optional(v.id("assetFolders")),
+    createdAsset: v.boolean(),
+    at: v.number(),
+  })),
+  // The open redo / change-request task, if any.
+  redoTaskId: v.optional(v.id("tasks")),
+  blockedReason: v.optional(v.string()),
+  // Status before a drop, restored on recover.
+  statusBeforeDrop: v.optional(inspirationAdaptationStatusValidator),
+  revision: v.number(),
+  createdBy: v.string(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};
+
+export const inspirationOutputValidator = v.object({
+  // Stable within the version: "o1", "o2" ...
+  key: v.string(),
+  kind: v.union(v.literal("image"), v.literal("video")),
+  r2Key: v.string(),
+  thumbR2Key: v.optional(v.string()),
+  contentType: v.string(),
+  contentHash: v.string(),
+  size: v.number(),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+  thumbWidth: v.optional(v.number()),
+  thumbHeight: v.optional(v.number()),
+  label: v.optional(v.string()),
+});
+
+export const inspirationVersionFields = {
+  ownerUserId: v.string(),
+  adaptationId: v.id("inspirationAdaptations"),
+  number: v.number(),
+  outputs: v.array(inspirationOutputValidator),
+  // A text deliverable (premise, beat treatment, workflow note), markdown.
+  text: v.optional(v.string()),
+  prompt: v.optional(v.string()),
+  // Names of the references passed (sheets, plates, moodboards).
+  references: v.array(v.string()),
+  model: v.optional(v.string()),
+  provider: v.optional(v.string()),
+  // Charged cost when known; costExact false = an estimate.
+  costUsd: v.optional(v.number()),
+  costExact: v.optional(v.boolean()),
+  costNote: v.optional(v.string()),
+  // What the agent changed and why (agent view).
+  notes: v.optional(v.string()),
+  // The version this one answers, and the redo request it answers.
+  basedOnVersion: v.optional(v.number()),
+  redoEventId: v.optional(v.id("inspirationEvents")),
+  // Arrived after Michael dropped the adaptation: kept privately, never current.
+  orphan: v.boolean(),
+  ingestKey: v.string(),
+  createdBy: v.string(),
+  createdAt: v.number(),
+};
+
+export const inspirationEventActionValidator = v.union(
+  v.literal("note"), v.literal("keep"), v.literal("unkeep"), v.literal("drop"), v.literal("recover"),
+  v.literal("approve"), v.literal("redo"), v.literal("promote"), v.literal("unpromote"),
+);
+
+export const inspirationEventFields = {
+  ownerUserId: v.string(),
+  // Client idempotency key; the same key applies once.
+  eventKey: v.string(),
+  sourceId: v.id("inspirationSources"),
+  adaptationId: v.optional(v.id("inspirationAdaptations")),
+  // The output version the event is about (adaptation events).
+  version: v.optional(v.number()),
+  action: inspirationEventActionValidator,
+  body: v.optional(v.string()),
+  author: v.string(),
+  taskId: v.optional(v.id("tasks")),
+  commentId: v.optional(v.id("assetComments")),
+  createdAt: v.number(),
+};

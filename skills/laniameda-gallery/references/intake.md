@@ -11,6 +11,14 @@ native style lock before the first save. The style lock holds the cast sheets,
 places, rendering blocks and the world's processing recipe. This file holds the
 procedure every world shares.
 
+Since 6 Nov 2026 every saved reference is also registered in the Inspiration
+library with `register_inspiration` (references/inspiration.md), library first:
+the saved source is complete on its own, processed takes are versioned drafts
+posted with `post_inspiration_version` for Michael to approve and promote, and
+a take is made only on his request, approval or an explicit project rule. The
+owner's current inspiration contract in the gallery supersedes older
+direct-to-world filing in the steps below.
+
 ## 1. Resolve the destination
 
 - Map Michael's word to a live collection: open_world for a world's shelves,

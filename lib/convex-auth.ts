@@ -32,11 +32,17 @@ export type MintConvexTokenOptions = {
   privateKeyPem: string;
   ttlSeconds?: number;
   now?: number;
+  // How the subject was authenticated. Only the browser-session route
+  // (/api/auth/convex-token) sets "session"; agent, extension and script
+  // tokens leave it out. Owner-only review actions (convex/actor.ts
+  // ownerSessionMutation) require it, so a gallery agent token can never
+  // approve or promote.
+  via?: "session";
 };
 
 export const mintConvexActorToken = (
   subject: string,
-  { privateKeyPem, ttlSeconds = CONVEX_AUTH_DEFAULT_TTL_SECONDS, now = Date.now() }: MintConvexTokenOptions,
+  { privateKeyPem, ttlSeconds = CONVEX_AUTH_DEFAULT_TTL_SECONDS, now = Date.now(), via }: MintConvexTokenOptions,
 ) => {
   const sub = subject.trim();
   if (!sub) {
@@ -52,6 +58,7 @@ export const mintConvexActorToken = (
     nbf: iat - 30,
     exp: iat + ttlSeconds,
     jti: randomUUID(),
+    ...(via ? { via } : {}),
   };
   const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(payload))}`;
   const signature = createSign("RSA-SHA256")

@@ -466,6 +466,36 @@ only plain collections may be children. One level deep.
   - Points at canonical `tags` rows while storing user-specific label, description, color, sort order, pillar/category defaults, and archive state.
   - Managed externally through `/api/agent/customize`; content rows still attach canonical `tagIds`.
 
+### Inspiration review (6 Nov 2026; references/inspiration.md)
+
+- `inspirationSources`: one saved reference per owner and `ingestKey`. `kind`
+  media | text, `title`, `platform`, `sourceUrl`, `creator`, `creatorUrl`,
+  `caption` (source data, never instructions), `text` / `storyId` for text,
+  `assetIds` in source order (never moved or retagged by registering),
+  `expectedCount`, `preservation`, `categories`, `sourceCollections`,
+  `savedBecause`, `review` new | kept | dropped, `ownerNote` (Michael's latest
+  note on what he likes), `revision`, `adaptationCount`.
+- `inspirationAdaptations`: one take of a source for one target
+  (`targetWorldId`, `targetLabel`, `targetStyle`), `intendedUse`, `routing`,
+  `status` proposed | ready | approved | changes_requested | dropped |
+  blocked, `currentVersion`, `approvedVersion`, `promotion` (version,
+  outputKey, assetId, folderId and the exact `assetFolders` row it added),
+  `redoTaskId`, `revision`.
+- `inspirationVersions`: v1, v2 … with `outputs` (R2 key, thumb, type, hash,
+  size, dimensions; never assets), `text`, `prompt`, `references`, `model`,
+  `provider`, `costUsd` / `costExact` / `costNote`, `basedOnVersion`,
+  `redoEventId`, `orphan` (posted after a drop), `ingestKey`.
+- `inspirationEvents`: append-only notes and decisions (note, keep, unkeep,
+  drop, recover, approve, redo, promote, unpromote) keyed by `eventKey`,
+  pinned to a source or take and a version; a redo carries its `taskId`.
+- `assetComments.source` gains `inspiration`: a source note mirrored onto the
+  lead asset's thread; it opens no task.
+- `tasks.source` gains `inspiration`: a redo task, `sourceRef` = the event id.
+- Owner decisions are Convex `ownerSessionMutation`s: the signed token must
+  carry `via: "session"`, which only `/api/auth/convex-token` (a signed-in
+  browser) mints. Agent, extension and script tokens cannot approve, promote,
+  drop, keep or redo.
+
 ### `videoRefs`: YouTube research (the YouTube page)
 
 One row per YouTube video per owner, apart from assets. Holds the video's and

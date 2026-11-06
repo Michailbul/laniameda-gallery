@@ -16,10 +16,10 @@ const resolveConvexUrl = () => {
 // (session cookie, agent token or extension token). Returns undefined when
 // CONVEX_AUTH_PRIVATE_KEY is not set, which only works while Convex still has
 // LEGACY_OWNER_ARG_AUTH on during the rollout.
-export const mintServerActorToken = (actorUserId: string) => {
+export const mintServerActorToken = (actorUserId: string, options: { via?: "session" } = {}) => {
   const privateKeyPem = resolveConvexAuthPrivateKey();
   if (!privateKeyPem) return undefined;
-  return mintConvexActorToken(actorUserId, { privateKeyPem });
+  return mintConvexActorToken(actorUserId, { privateKeyPem, via: options.via });
 };
 
 // `actorUserId` must come from this server's own auth check, never from the

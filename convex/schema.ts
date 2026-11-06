@@ -8,6 +8,9 @@ import { moodboardCodeHistoryEntryValidator, moodboardStatusValidator } from "./
 import { inboxCardFields, inboxCountFields, inboxDecisionFields, inboxStackFields } from "./inboxValidators";
 import { taskEventFields, taskFields } from "./taskValidators";
 import { newspaperFields } from "./newspaperValidators";
+import {
+  inspirationAdaptationFields, inspirationEventFields, inspirationSourceFields, inspirationVersionFields,
+} from "./inspirationValidators";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
 import {
   agentTokenScopeValidator,
@@ -241,7 +244,9 @@ export default defineSchema({
     audioDurationMs: v.optional(v.number()),
     audioContentType: v.optional(v.string()),
     // Where it was written; absent = the detail panel or an agent.
-    source: v.optional(v.literal("inbox")),
+    // "inspiration" = a note on an inspiration source (/inspiration): inert,
+    // it never opens a task (only an explicit Redo does).
+    source: v.optional(v.union(v.literal("inbox"), v.literal("inspiration"))),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -451,6 +456,28 @@ export default defineSchema({
   // A task's timeline: claims, releases, status changes and comments.
   taskEvents: defineTable(taskEventFields)
     .index("by_task_createdAt", ["taskId", "createdAt"]),
+  // Inspiration review (convex/inspiration.ts, lib/inspiration-contract.ts):
+  // a saved reference, its proposed project adaptations, their versions and
+  // Michael's feedback. Raw source media stays where it was saved (assets in
+  // INSPIRATION SOURCE, or Stories); a version's outputs live on the version
+  // row, never as assets, so drafts cannot reach the grid, search, world
+  // pages or reference selection until Michael promotes one.
+  inspirationSources: defineTable(inspirationSourceFields)
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"]),
+  inspirationAdaptations: defineTable(inspirationAdaptationFields)
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_source_createdAt", ["sourceId", "createdAt"])
+    .index("by_owner_status_updatedAt", ["ownerUserId", "status", "updatedAt"]),
+  inspirationVersions: defineTable(inspirationVersionFields)
+    .index("by_adaptation_number", ["adaptationId", "number"])
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"]),
+  // Append-only: every note and decision, keyed by the client's event key so
+  // a double tap or a retried request applies once.
+  inspirationEvents: defineTable(inspirationEventFields)
+    .index("by_owner_eventKey", ["ownerUserId", "eventKey"])
+    .index("by_source_createdAt", ["sourceId", "createdAt"])
+    .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   // The morning newspaper: one edition per owner per Prague date, compiled by
   // the daily cron (or on demand) from the tables above; facts as JSON, the
   // agent's prose beside them. See convex/newspaper.ts.

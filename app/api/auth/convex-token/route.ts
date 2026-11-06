@@ -8,14 +8,15 @@ const noStore = { "Cache-Control": "no-store" };
 
 // The browser's Convex client fetches its identity here. The token names the
 // signed-in session's ownerUserId and lives for an hour; the client asks again
-// before it expires.
+// before it expires. It is marked via=session: the one kind of token that
+// may take owner-only review actions (approve, promote) in Convex.
 export async function GET() {
   try {
     const user = await getAppUser();
     if (!user) {
       return NextResponse.json({ token: null }, { status: 401, headers: noStore });
     }
-    const token = mintServerActorToken(user.ownerUserId) ?? null;
+    const token = mintServerActorToken(user.ownerUserId, { via: "session" }) ?? null;
     return NextResponse.json({ token }, { headers: noStore });
   } catch (error) {
     const message =

@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.28.0
+version: 1.29.0
 ---
 
 # Laniameda Gallery
@@ -108,6 +108,14 @@ then, once he names a world, write the treatment, do pre-production (cast sheets
 location plates, style frames) and package it as a storybook. Be proactive; ask
 only about a truly ambiguous destination, a casting choice that is his, or a
 cost above the limits there.
+
+Saved references also live in the Inspiration library (/inspiration), library
+first: register each saved source with `register_inspiration` (its assets stay
+where they are), read Michael's notes on what he likes before using it, and
+propose a project take only on request, approval or a project rule. Takes are
+versioned drafts that never reach search or worlds; Michael approves and
+promotes, agents never do. A note starts no work; a redo arrives as one task.
+Read references/inspiration.md.
 
 ## Make media findable
 

@@ -34,7 +34,7 @@ const GROUPS: Array<{ key: TaskStatus; label: string; hint: string }> = [
   { key: "open", label: "Open", hint: "Waiting for an agent, by priority." },
 ];
 
-const SOURCE_LABEL: Record<TaskRow["source"], string> = { manual: "filed", comment: "your comment", inbox: "inbox answers", newspaper: "newspaper", feedback: "your feedback" };
+const SOURCE_LABEL: Record<TaskRow["source"], string> = { manual: "filed", comment: "your comment", inbox: "inbox answers", newspaper: "newspaper", feedback: "your feedback", inspiration: "your inspiration review" };
 const sourceOf = (task: { source: TaskRow["source"]; createdBy: string }) =>
   task.source === "manual" ? (task.createdBy === "owner" ? "filed by you" : `filed by ${task.createdBy}`) : `from ${SOURCE_LABEL[task.source]}`;
 

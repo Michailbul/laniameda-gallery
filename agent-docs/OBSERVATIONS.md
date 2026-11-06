@@ -81,7 +81,28 @@ Technical notes and lessons learned. Update this when you hit a quirk.
   with legacy semantic storage every vector read costs a ~56 KB row. Hash rows
   are ~100 bytes; the grid loads all of an owner's hashes in one query.
 
+- Owner-only decisions (6 Nov 2026): Convex passes custom JWT claims through
+  `ctx.auth.getUserIdentity()` for the customJwt provider. The browser token
+  from `/api/auth/convex-token` carries `via: "session"`; agent, extension and
+  script tokens do not. `ownerSessionMutation` (convex/actor.ts) checks it.
+  Verified on a local backend. A token minted by hand with the private key and
+  `via` can still pass: the key itself is the trust boundary.
+- An isolated local backend for UI checks: a gitignored `.env.local` without
+  CONVEX_DEPLOYMENT, `bun run convex:dev` (anonymous local deployment), a
+  throwaway keypair from `scripts/generate-convex-auth-keys.ts` (private key in
+  `.env.local`, JWKS set with `CONVEX_DEPLOYMENT=anonymous:<name> bunx convex
+  env set`), `DEV_AUTH_BYPASS_ENABLED=true` with a fixture `DEV_AUTH_TELEGRAM_ID`.
+  `R2_PUBLIC_BASE_URL=https://picsum.photos` with keys like `id/1040/1080/1350`
+  gives fixture outputs real pictures.
+
 ## Gallery / UI
+
+- A grid item defaults to `min-width: auto`: a horizontal snap strip inside a
+  one-column grid widened the whole phone page to 961px. Use
+  `grid-cols-[minmax(0,1fr)]` (or `min-w-0` on the item) and check
+  `document.documentElement.scrollWidth` at 390px.
+- `next dev` in a worktree under `.claude/worktrees/` missed a file edit made
+  with `sed`; restart the dev server when served markup looks stale.
 
 - Radix ScrollArea wraps its content in a `display: table; min-width: 100%`
   div, which grows to the widest row: `truncate` never applies and the list

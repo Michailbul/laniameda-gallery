@@ -8,6 +8,7 @@ import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { listWorldRoots, worldIdOfFolder, type WorldMemo } from "./worldCore";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { newspaperDocValidator, newspaperSummaryValidator } from "./newspaperValidators";
+import { compileInspirationFacts } from "./inspiration";
 import { resolveTelegramChatId, resolveTelegramNotificationBotToken, sendTelegramMessage } from "./telegram";
 import {
   NEWSPAPER_LIMITS, assetPath, excerpt, isDateKey, newspaperUrl, pragueDateKey, stackPath, taskPath,
@@ -220,6 +221,7 @@ export const compileFacts = async (ctx: Ctx, owner: string, since: number, until
       openStacks: stacks.length, needsYou: needsYou.length,
     },
     worlds: worldList, studio, tasks, stacks, needsYou,
+    inspiration: await compileInspirationFacts(ctx, owner, since, until),
   };
 };
 
