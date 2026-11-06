@@ -2,35 +2,57 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { WorldTile } from "./types";
+import { layoutWall, type WallBox } from "./wall-layout";
+import { InsertFrames, OFF_LABEL, useNearVisible } from "./world-insert";
+import { claimPlayback, lowData } from "./playback";
 
-// Windowed masonry. Every tile's box is computed from its aspect ratio
-// (shortest column first), but only the tiles within a few screens of the
-// viewport are mounted. A thousand frames cost a thousand rectangles of
-// arithmetic, not a thousand images.
+// The wall. Every box is computed from aspect ratios (wall-layout.ts), but
+// only the boxes within a few screens of the viewport mount: a thousand
+// frames cost a thousand rectangles of arithmetic, not a thousand images.
 
 const OVERSCAN_ABOVE = 900;
 const OVERSCAN_BELOW = 1600;
-// Ask for the next page this far before the end of the laid-out grid.
+// Ask for the next page this far before the end of the laid-out wall.
 const PREFETCH_DISTANCE = 2400;
+// An insert holds a sticky full-screen frame for this many screens of scroll.
+const INSERT_SCREENS = 1.4;
 
-// Few, large frames: a pitch, not a contact sheet. Phones get one column.
-const columnsFor = (width: number) =>
-  width < 640 ? 1 : width < 1200 ? 2 : width < 1800 ? 3 : 4;
-// Every so often a landscape frame runs the full width, cropped to scope
-// (2.39:1): the grid breathes like a cut instead of a wall of equal tiles.
-const BAND_EVERY = 9;
-const BAND_RATIO = 2.39;
-
-type Box = { x: number; y: number; w: number; h: number; band?: boolean };
-
-export type MasonryOwnerState = {
+export type WallOwnerState = {
   featured: (id: string) => boolean;
   archived: (id: string) => boolean;
+  hero: (id: string) => boolean;
+  /** Why the frame is off the public page (admin), with the owner's 2 key applied. */
+  off: (id: string) => WorldTile["off"];
   flashId: string | null;
+};
+
+/** The viewport height, steady while a phone's address bar slides. */
+const useSteadyViewportHeight = () => {
+  // Read lazily: the wall lays out nothing until it has measured its width,
+  // so the server value never reaches the markup.
+  const [height, setHeight] = useState(() =>
+    typeof window === "undefined" ? 800 : window.innerHeight,
+  );
+  useEffect(() => {
+    let width = window.innerWidth;
+    let current = window.innerHeight;
+    const resize = () => {
+      if (window.innerWidth !== width || Math.abs(window.innerHeight - current) > 150) {
+        width = window.innerWidth;
+        current = window.innerHeight;
+        setHeight(current);
+      }
+    };
+    window.addEventListener("resize", resize, { passive: true });
+    return () => window.removeEventListener("resize", resize);
+  }, []);
+  return height;
 };
 
 export const WorldMasonry = memo(function WorldMasonry({
   tiles,
+  inserts,
+  complete,
   onOpen,
   onNearEnd,
   onIntent,
@@ -38,17 +60,21 @@ export const WorldMasonry = memo(function WorldMasonry({
   onRestore,
 }: {
   tiles: WorldTile[];
+  /** Hero inserts to cut into the wall, in order (the opening hero excluded). */
+  inserts: Array<{ tiles: WorldTile[] }>;
+  /** Every frame is loaded: the last chunk levels too. */
+  complete: boolean;
   onOpen: (index: number) => void;
   onNearEnd: () => void;
   /** First pointer on a tile: warm up the lightbox chunk. */
   onIntent?: () => void;
-  owner?: MasonryOwnerState;
+  owner?: WallOwnerState;
   onRestore?: (id: string) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [view, setView] = useState({ top: 0, bottom: 0 });
-  const [hovering, setHovering] = useState(false);
+  const viewportHeight = useSteadyViewportHeight();
 
   useLayoutEffect(() => {
     const node = ref.current;
@@ -60,64 +86,37 @@ export const WorldMasonry = memo(function WorldMasonry({
     return () => observer.disconnect();
   }, []);
 
-  const gap = width < 640 ? 2 : 3;
-  const layout = useMemo(() => {
-    if (!width) return { boxes: [] as Box[], height: 0, colW: 0 };
-    const cols = columnsFor(width);
-    const colW = (width - gap * (cols - 1)) / cols;
-    const heights = new Array<number>(cols).fill(0);
-    let sinceBand = 0;
-    const last = new Array<number>(cols).fill(-1);
-    const boxes: Box[] = [];
-    // Level the columns above a band by stretching each column's last frame
-    // (it is cropped by object-fit), so the band never sits under holes.
-    // Only when every stretch stays small; otherwise the band waits.
-    const levelFor = (target: number) => {
-      for (let c = 0; c < cols; c++) {
-        const short = target - heights[c];
-        if (short <= 1) continue;
-        if (last[c] < 0 || short > boxes[last[c]].h * 0.35) return false;
-      }
-      for (let c = 0; c < cols; c++) {
-        const short = target - heights[c];
-        if (short > 1) boxes[last[c]] = { ...boxes[last[c]], h: boxes[last[c]].h + Math.round(short) };
-      }
-      return true;
-    };
-    tiles.forEach((tile) => {
-      sinceBand += 1;
-      // Only a frame with the pixels for it runs full width.
-      if (
-        cols > 1 &&
-        sinceBand >= BAND_EVERY &&
-        tile.w / tile.h >= 1.6 &&
-        tile.w >= width * 0.8 &&
-        // Places only: a face or a shallow-focus scene goes soft at full
-        // width; a city or a valley holds it.
-        tile.section === "locations"
-      ) {
-        const y = Math.max(...heights);
-        if (levelFor(y)) {
-          sinceBand = 0;
-          const h = Math.round(width / BAND_RATIO);
-          heights.fill(y + h + gap);
-          last.fill(-1);
-          boxes.push({ x: 0, y, w: Math.round(width), h, band: true });
-          return;
-        }
-      }
-      let col = 0;
-      for (let i = 1; i < cols; i++) if (heights[i] < heights[col] - 1) col = i;
-      const ratio = Math.min(2.4, Math.max(0.3, tile.h / tile.w));
-      const h = Math.round(colW * ratio);
-      last[col] = boxes.length;
-      boxes.push({ x: Math.round(col * (colW + gap)), y: heights[col], w: Math.round(colW), h });
-      heights[col] += h + gap;
-    });
-    return { boxes, height: Math.max(0, ...heights) - gap, colW };
-  }, [tiles, width, gap]);
+  const ratios = useMemo(() => tiles.map((tile) => tile.h / tile.w), [tiles]);
+  // Films never stretch: a clip is never cropped.
+  const locked = useMemo(() => tiles.map((tile) => tile.kind === "video"), [tiles]);
+  // A film insert plays whole, full width at its own aspect; stills hold the
+  // screen for 1.4 screens of scroll.
+  const insertHeights = useMemo(
+    () =>
+      inserts.map((insert) => {
+        const film = filmOf(insert);
+        return film
+          ? Math.round((width + 8) * (film.h / film.w))
+          : Math.round(viewportHeight * INSERT_SCREENS);
+      }),
+    [inserts, width, viewportHeight],
+  );
+  const layout = useMemo(
+    () =>
+      layoutWall({
+        ratios,
+        locked,
+        inserts: inserts.length,
+        insertHeights,
+        width,
+        gap: 4,
+        insertHeight: Math.round(viewportHeight * INSERT_SCREENS),
+        complete,
+      }),
+    [ratios, locked, inserts.length, insertHeights, width, viewportHeight, complete],
+  );
 
-  // Which slice of the grid is near the screen.
+  // Which slice of the wall is near the screen.
   useEffect(() => {
     let frame = 0;
     const update = () => {
@@ -153,36 +152,45 @@ export const WorldMasonry = memo(function WorldMasonry({
 
   const lo = view.top - OVERSCAN_ABOVE;
   const hi = view.bottom + OVERSCAN_BELOW;
-  const visible: number[] = [];
-  layout.boxes.forEach((box, index) => {
-    if (box.y + box.h >= lo && box.y <= hi) visible.push(index);
-  });
-
+  const visible: WallBox[] = layout.boxes.filter((box) => box.y + box.h >= lo && box.y <= hi);
   const sizes = `${Math.round(layout.colW) || 400}px`;
+
   return (
-    <div
-      ref={ref}
-      className="wp-grid"
-      style={{ height: layout.height }}
-      data-hovering={hovering || undefined}
-      onPointerOver={() => !hovering && setHovering(true)}
-      onPointerLeave={() => setHovering(false)}
-    >
-      {visible.map((index) => {
-        const tile = tiles[index];
-        const box = layout.boxes[index];
+    <div ref={ref} className="wp-grid" style={{ height: layout.height }}>
+      {visible.map((box) => {
+        if (box.kind === "insert") {
+          const insert = inserts[box.insert];
+          if (!insert) return null;
+          return (
+            <Cut
+              key={`cut-${box.insert}-${insert.tiles.map((tile) => tile.id).join("-")}`}
+              top={box.y}
+              height={box.h}
+              tiles={insert.tiles}
+              owner={owner}
+            />
+          );
+        }
+        if (box.kind === "filler") {
+          const source = tiles[box.source];
+          if (!source) return null;
+          return <Filler key={`filler-${box.x}-${box.y}`} box={box} tile={source} />;
+        }
+        const tile = tiles[box.index];
         return (
           <Tile
             key={tile.id}
-            index={index}
+            index={box.index}
             tile={tile}
             box={box}
-            sizes={box.band ? "100vw" : sizes}
-            eager={index < 8}
+            sizes={sizes}
+            eager={box.index < 8}
             onOpen={onOpen}
             onIntent={onIntent}
             featured={owner?.featured(tile.id) ?? false}
             archived={owner?.archived(tile.id) ?? false}
+            hero={owner?.hero(tile.id) ?? false}
+            off={owner?.off(tile.id)}
             flash={owner?.flashId === tile.id}
             onRestore={onRestore}
           />
@@ -192,21 +200,73 @@ export const WorldMasonry = memo(function WorldMasonry({
   );
 });
 
+// ------------------------------------------------------------------ cut
+
+/** The film of a one-film insert (a film always plays alone), else null. */
+export const filmOf = (insert: { tiles: WorldTile[] }) =>
+  insert.tiles.length === 1 && insert.tiles[0].kind === "video" ? insert.tiles[0] : null;
+
+/**
+ * A full-screen insert in the wall: stills pin for a screen and a half and
+ * pull back slowly; a film plays whole at its own aspect, never cropped.
+ */
+function Cut({
+  top,
+  height,
+  tiles,
+  owner,
+}: {
+  top: number;
+  height: number;
+  tiles: WorldTile[];
+  owner?: WallOwnerState;
+}) {
+  const { ref, near, visible } = useNearVisible<HTMLElement>();
+  const film = tiles.length === 1 && tiles[0].kind === "video";
+  return (
+    <section ref={ref} className="wp-cut" data-film={film || undefined} style={{ top, height }} aria-hidden>
+      <div className="wp-cut-pin">
+        <InsertFrames tiles={tiles} near={near} visible={visible} owner={owner} />
+        <div className="wp-cut-shade" />
+      </div>
+    </section>
+  );
+}
+
+// --------------------------------------------------------------- filler
+
+/** Closes a column's last gap with a slow drifting detail of a neighbouring frame. */
+const Filler = memo(function Filler({
+  box,
+  tile,
+}: {
+  box: { x: number; y: number; w: number; h: number };
+  tile: WorldTile;
+}) {
+  // A stable, varied start point per filler, so neighbours never drift in step.
+  const seed = (box.x * 7 + box.y * 13) % 100;
+  return (
+    <div
+      className="wp-filler"
+      aria-hidden
+      style={{
+        transform: `translate3d(${box.x}px, ${box.y}px, 0)`,
+        width: box.w,
+        height: box.h,
+        ["--wp-drift-x" as string]: `${seed % 2 ? 50 - (seed % 30) : 50 + (seed % 30)}%`,
+        ["--wp-drift-delay" as string]: `-${seed / 4}s`,
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- a crop of a frame already on screen; same cached thumb */}
+      <img src={tile.src} srcSet={tile.srcSet} sizes={`${box.w * 2}px`} alt="" loading="lazy" decoding="async" draggable={false} />
+    </div>
+  );
+});
+
+// ----------------------------------------------------------------- tile
+
 const coarsePointer = () =>
   typeof window !== "undefined" && window.matchMedia("(hover: none)").matches;
-
-// Phones: one tile film at a time, and none on Save-Data or a slow link.
-let playingTile: ((stop: boolean) => void) | null = null;
-const claimPlayback = (stop: (stop: boolean) => void) => {
-  if (playingTile && playingTile !== stop) playingTile(true);
-  playingTile = stop;
-};
-const lowData = () => {
-  const connection = (navigator as Navigator & {
-    connection?: { saveData?: boolean; effectiveType?: string };
-  }).connection;
-  return Boolean(connection?.saveData || /(^|-)(2g|3g)$/.test(connection?.effectiveType ?? ""));
-};
 
 const Tile = memo(function Tile({
   index,
@@ -218,18 +278,22 @@ const Tile = memo(function Tile({
   onIntent,
   featured,
   archived,
+  hero,
+  off,
   flash,
   onRestore,
 }: {
   index: number;
   tile: WorldTile;
-  box: Box;
+  box: { x: number; y: number; w: number; h: number };
   sizes: string;
   eager: boolean;
   onOpen: (index: number) => void;
   onIntent?: () => void;
   featured: boolean;
   archived: boolean;
+  hero: boolean;
+  off: WorldTile["off"];
   flash: boolean;
   onRestore?: (id: string) => void;
 }) {
@@ -238,31 +302,43 @@ const Tile = memo(function Tile({
   const [play, setPlay] = useState(false);
   const [playing, setPlaying] = useState(false);
   const node = useRef<HTMLDivElement>(null);
+  const video = useRef<HTMLVideoElement>(null);
   const isVideo = tile.kind === "video";
 
-  // Phones have no hover: a video plays while it holds the middle of the screen.
+  // A clip plays muted while it is in view, on every device: the wall never
+  // shows a still of a film. Save-Data and slow links keep the poster.
   useEffect(() => {
-    if (!isVideo || !coarsePointer() || !node.current || lowData()) return;
-    const stop = () => {
-      setPlay(false);
-      setPlaying(false);
-    };
+    if (!isVideo || !node.current || lowData()) return;
     const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.intersectionRatio > 0.7) {
-          claimPlayback(stop);
-          setPlay(true);
-        } else stop();
-      },
-      { threshold: [0, 0.7, 1], rootMargin: "-20% 0px -20% 0px" },
+      ([entry]) => setPlay(entry.isIntersecting),
+      { threshold: 0.2, rootMargin: coarsePointer() ? "-15% 0px -15% 0px" : "0px" },
     );
     observer.observe(node.current);
     return () => observer.disconnect();
   }, [isVideo]);
 
+  useEffect(() => {
+    const element = video.current;
+    if (!play || !element || archived) return;
+    const release = claimPlayback(() => {
+      element.pause();
+      setPlay(false);
+    });
+    void element.play().catch(() => {});
+    return () => {
+      release();
+      element.pause();
+    };
+  }, [play, archived]);
+
   const onImg = useCallback((img: HTMLImageElement | null) => {
     if (img?.complete && img.naturalWidth) setLoaded(true);
   }, []);
+
+  // Once a clip has been in view it keeps its element (paused off screen),
+  // so scrolling back does not fetch it again.
+  const [mounted, setMounted] = useState(false);
+  if (play && !mounted) setMounted(true);
 
   return (
     <div
@@ -270,7 +346,8 @@ const Tile = memo(function Tile({
       className="wp-tile"
       data-wp-id={tile.id}
       data-archived={archived || undefined}
-      data-band={box.band || undefined}
+      data-off={off || undefined}
+      data-featured={featured || undefined}
       style={{
         transform: `translate3d(${box.x}px, ${box.y}px, 0)`,
         width: box.w,
@@ -280,16 +357,7 @@ const Tile = memo(function Tile({
       }}
       onClick={() => (archived ? undefined : onOpen(index))}
       onDoubleClick={() => archived && onRestore?.(tile.id)}
-      onPointerEnter={() => {
-        onIntent?.();
-        if (isVideo && !coarsePointer()) setPlay(true);
-      }}
-      onPointerLeave={() => {
-        if (isVideo && !coarsePointer()) {
-          setPlay(false);
-          setPlaying(false);
-        }
-      }}
+      onPointerEnter={onIntent}
     >
       {/* eslint-disable-next-line @next/next/no-img-element -- R2 thumbs with their own srcset; next/image would re-encode them. */}
       <img
@@ -308,21 +376,26 @@ const Tile = memo(function Tile({
           console.warn("world-page: frame failed to load", tile.id);
         }}
       />
-      {isVideo && play && !archived && (
+      {isVideo && mounted && !archived && (
         <video
+          ref={video}
           src={tile.full}
           muted
           loop
           playsInline
-          autoPlay
-          preload="none"
+          preload="metadata"
           data-playing={playing || undefined}
           onPlaying={() => setPlaying(true)}
         />
       )}
-      {featured && <span className="wp-tile-star" aria-label="Featured" />}
+      {(hero || off) && (
+        <span className="wp-chips">
+          {hero && <span className="wp-chip wp-chip-hero">Hero</span>}
+          {off && <span className="wp-chip">{OFF_LABEL[off]}</span>}
+        </span>
+      )}
       {archived && (
-        <span className="wp-tile-veil wp-mono">Archived · double-click to restore</span>
+        <span className="wp-tile-veil">Deleted · double-click or D to restore</span>
       )}
       {flash && <span className="wp-flash" aria-hidden />}
     </div>

@@ -38,6 +38,6 @@ export const loadWorldFirstScreen = unstable_cache(
     if (!world) return null;
     return { world, page: first.page };
   },
-  ["world-first-screen-v1"],
+  ["world-first-screen-v2"],
   { revalidate: 60 },
 );

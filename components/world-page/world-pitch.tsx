@@ -3,14 +3,15 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useConvexAuth, useMutation, usePaginatedQuery, useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { useCurrentUser } from "@/lib/use-current-user";
 import { publicModePath } from "@/lib/public-modes";
-import { ASSET_HOTKEYS, assetHotkeyOf } from "@/lib/asset-hotkeys";
-import { WorldMasonry, type MasonryOwnerState } from "./world-masonry";
+import { WorldMasonry } from "./world-masonry";
 import { WorldWordmark, hasWordmark } from "./world-wordmark";
+import { WorldHero } from "./world-hero";
+import { useWorldOwner } from "./world-owner";
+import { worldUiFont } from "./world-brand";
 import {
   WORLD_PAGE_SIZE,
   WORLD_SECTIONS,
@@ -59,12 +60,15 @@ export type WorldPitchProps = {
   initialSection?: WorldSection;
   initialWorld: WorldPageData;
   initialPage: WorldTile[];
+  /** admin: the owner's /w/<slug>/admin, every member with its off-page reason. */
+  mode?: "public" | "admin";
 };
 
 /**
- * One world as a pitch: the reel full-bleed, the mark, then nothing but the
- * world's frames. Live action / 3D and the section filter switch in place;
- * the URL follows with replaceState so a copied link opens the same view.
+ * One world as a pitch: a full-screen opening hero with the mark, then one
+ * scroll: a sticky filter bar over a wall of the world's frames, a
+ * full-screen hero insert every ~18 frames. Live action / 3D and the section
+ * filter switch in place; the URL follows with replaceState.
  */
 export function WorldPitch({
   slug,
@@ -72,10 +76,14 @@ export function WorldPitch({
   initialSection,
   initialWorld,
   initialPage,
+  mode = "public",
 }: WorldPitchProps) {
+  const admin = mode === "admin";
   const [side, setSide] = useState(initialSide);
   const [section, setSection] = useState<WorldSection | undefined>(initialSection);
-  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const { user } = useCurrentUser();
+  const ownerUserId = admin ? user?.ownerUserId : undefined;
 
   // The other sides subscribe once the page is idle (or the pointer reaches
   // the switch), so the switch is instant without competing with first paint.
@@ -92,17 +100,14 @@ export function WorldPitch({
   }, []);
   const sideKeys = initialWorld.sides.map((entry) => entry.key);
   const liveKeys = sideKeys.map((key) => (warm || key === side ? key : undefined));
-  const worlds = useWorldsBySide(slug, liveKeys);
-  const world = worlds[side] ?? (side === initialWorld.side ? initialWorld : null) ?? initialWorld;
+  const source = { slug, admin, ownerUserId };
+  const worlds = useWorldsBySide(source, liveKeys);
+  const world = worlds[side] ?? initialWorld;
 
-  const allPages = usePagesBySide(slug, liveKeys);
-  const sectionPages = usePaginatedQuery(
-    api.worldPage.listWorldPage,
-    section ? { slug, side, section } : "skip",
-    { initialNumItems: WORLD_PAGE_SIZE },
-  );
+  const allPages = usePagesBySide(source, liveKeys);
+  const sectionPages = usePages(source, section ? side : undefined, section);
 
-  // The rest of the grid: a section's own pages once they arrive; until
+  // The rest of the wall: a section's own pages once they arrive; until
   // then the side's loaded frames filtered here, so a tab reacts at once.
   const sideAll = allPages[side];
   const allTiles = useMemo(() => {
@@ -116,13 +121,44 @@ export function WorldPitch({
     return allTiles.filter((tile) => tile.section === section);
   }, [section, sectionPages, allTiles, side, initialSide, initialSection, initialPage]);
 
+  // Hero inserts are the world's, not the side's: the opening one stays put.
+  const inserts = useMemo(() => world.inserts ?? [], [world.inserts]);
+  const opening = useMemo(
+    () => inserts[0] ?? (world.hero ? { tiles: [world.hero] } : null),
+    [inserts, world.hero],
+  );
+  const cuts = useMemo(() => inserts.slice(1), [inserts]);
+  // On the public page a hero frame plays as a hero only; the owner views
+  // keep it in the wall too, marked HERO.
+  const insertIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const insert of inserts) for (const tile of insert.tiles) ids.add(tile.id);
+    if (!inserts.length && world.hero) ids.add(world.hero.id);
+    return ids;
+  }, [inserts, world.hero]);
+
   const tilesRef = useRef<WorldTile[]>(initialPage);
-  const openRef = useRef<number | null>(null);
-  const owner = useOwnerControls(tilesRef, openRef);
+  const insertTilesRef = useRef<WorldTile[]>([]);
+  const findTile = useCallback(
+    (id: string) =>
+      tilesRef.current.find((tile) => tile.id === id) ??
+      insertTilesRef.current.find((tile) => tile.id === id),
+    [],
+  );
+  const openIdRef = useRef<string | null>(null);
+  const owner = useWorldOwner({
+    slug,
+    folderId: world.folderId,
+    admin,
+    findTile,
+    openId: useCallback(() => openIdRef.current ?? undefined, []),
+    onOpenId: setOpenId,
+  });
+  const ownerView = owner.active;
 
   // Stable order while the owner curates: a frame keeps its slot when F moves
-  // it into the featured list on the server, and an archived frame stays in
-  // place, greyed. A reload or a new view re-sorts.
+  // it into the featured list on the server, and a deleted or dropped frame
+  // stays in place, greyed. A reload or a new view re-sorts.
   const viewKey = `${side}|${section ?? "all"}`;
   const [memory, setMemory] = useState<ViewMemory>(() => emptyMemory(viewKey));
   const view = memory.key === viewKey ? memory : emptyMemory(viewKey);
@@ -137,21 +173,20 @@ export function WorldPitch({
       seen.add(tile.id);
       merged.push(tile);
     }
-    for (const id of owner.archivedIds) {
+    for (const id of [...owner.archivedIds, ...owner.droppedIds]) {
       const ghost = view.ghosts.get(id);
       if (ghost && !seen.has(id)) merged.push(ghost);
     }
-    const heroId = initialWorld.hero?.id;
     const rank = (tile: WorldTile, index: number) =>
       view.order.get(tile.id) ?? 1e9 + spread[index];
     // Takes of one job never sit side by side: a repeat waits a few frames.
     const spread = spreadGroups(merged);
     return merged
       .map((tile, index) => ({ tile, rank: rank(tile, index) }))
-      .filter((entry) => entry.tile.id !== heroId)
+      .filter((entry) => ownerView || !insertIds.has(entry.tile.id))
       .sort((a, b) => a.rank - b.rank)
       .map((entry) => entry.tile);
-  }, [world.featured, world.lead, restTiles, section, owner.archivedIds, view, initialWorld.hero?.id]);
+  }, [world.featured, world.lead, restTiles, section, owner.archivedIds, owner.droppedIds, view, insertIds, ownerView]);
   // Remember new frames' slots (React's adjust-state-while-rendering pattern:
   // it settles on the next pass, once every frame has a slot).
   if (memory.key !== viewKey || !tiles.every((tile) => view.order.has(tile.id))) {
@@ -191,262 +226,202 @@ export function WorldPitch({
     window.history.replaceState(window.history.state, "", url);
   }, [side, section, initialWorld.sides]);
 
+  // The lightbox walks the wall, then the hero frames.
+  const lightboxTiles = useMemo(() => {
+    const seen = new Set(tiles.map((tile) => tile.id));
+    const extra = inserts.flatMap((insert) => insert.tiles).filter((tile) => !seen.has(tile.id));
+    return [...tiles, ...extra];
+  }, [tiles, inserts]);
+  const openIndex = openId ? lightboxTiles.findIndex((tile) => tile.id === openId) : -1;
+
   useEffect(() => {
     tilesRef.current = tiles;
-    openRef.current = openIndex;
-  }, [tiles, openIndex]);
+    insertTilesRef.current = inserts.flatMap((insert) => insert.tiles);
+    openIdRef.current = openId;
+  }, [tiles, inserts, openId]);
 
   const intent = useCallback(() => void loadLightbox(), []);
-  const gridTop = useRef<HTMLDivElement>(null);
+  const onOpen = useCallback((index: number) => setOpenId(tilesRef.current[index]?.id ?? null), []);
+  const wallTop = useRef<HTMLElement>(null);
   const switchView = (next: { side?: string; section?: WorldSection | undefined }) => {
     if (next.side !== undefined) setSide(next.side);
     if ("section" in next) setSection(next.section);
-    const top = gridTop.current;
+    const top = wallTop.current;
     if (top && top.getBoundingClientRect().top < 0) {
       window.scrollTo({ top: top.offsetTop, behavior: "instant" as ScrollBehavior });
     }
   };
 
   const done = status === "Exhausted" || (status === undefined && !sideAll);
+  const past = usePastHero();
 
   return (
-    <main className="wp">
-      <Hero slug={slug} world={initialWorld} />
+    <main className={`wp ${worldUiFont.variable}`} data-past={past || undefined} data-admin={admin || undefined}>
+      <div className="wp-grain" aria-hidden />
+      <header className="wp-top">
+        <a
+          className="wp-top-mark"
+          href="#top"
+          aria-label={`${world.name}, back to the top`}
+          tabIndex={past ? 0 : -1}
+          onClick={(event) => {
+            event.preventDefault();
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          }}
+        >
+          <WorldWordmark slug={slug} name={world.name} variant="line" />
+        </a>
+        <a
+          className="wp-top-link"
+          href="#wall"
+          tabIndex={past ? -1 : 0}
+          onClick={(event) => {
+            event.preventDefault();
+            const top = wallTop.current;
+            if (top) window.scrollTo({ top: top.offsetTop, behavior: "smooth" });
+          }}
+        >
+          <ArchiveGlyph />
+          <span>The archive</span>
+        </a>
+      </header>
 
-      <div ref={gridTop} />
-      <nav className="wp-bar" aria-label="World view">
-        {hasWordmark(slug) ? (
-          <a href="#top" aria-label={`${world.name}, back to the reel`} onClick={(event) => { event.preventDefault(); window.scrollTo({ top: 0, behavior: "smooth" }); }}>
-            <WorldWordmark slug={slug} name={world.name} className="wp-bar-mark" as="div" small />
-          </a>
-        ) : (
-          <span className="wp-bar-mark-text wp-mono">{world.name}</span>
-        )}
-        <div className="wp-tabs" role="tablist" aria-label="Show">
-          {[{ key: undefined, label: "All" }, ...WORLD_SECTIONS].map((entry) => (
-            <button
-              key={entry.label}
-              type="button"
-              role="tab"
-              className="wp-tab wp-mono"
-              aria-selected={section === entry.key}
-              onClick={() => switchView({ section: entry.key })}
-            >
-              {entry.label}
-            </button>
-          ))}
-        </div>
-        {world.sides.length > 1 ? (
-          <div
-            className="wp-switch wp-mono"
-            role="group"
-            aria-label="Medium"
-            onPointerEnter={() => setWarm(true)}
-            onFocus={() => setWarm(true)}
-          >
-            {world.sides.map((entry) => (
+      <WorldHero slug={slug} name={world.name} opening={opening} owner={ownerView ? owner.state : undefined} />
+
+      <section className="wp-wall" id="wall" ref={wallTop} aria-label={`${world.name} frames`}>
+        <nav className="wp-bar" aria-label="World view">
+          <div className="wp-bar-group" role="tablist" aria-label="Show">
+            {[{ key: undefined, label: "All" }, ...WORLD_SECTIONS].map((entry) => (
               <button
-                key={entry.key}
+                key={entry.label}
                 type="button"
-                aria-pressed={entry.key === side}
-                onClick={() => switchView({ side: entry.key })}
+                role="tab"
+                aria-selected={section === entry.key}
+                onClick={() => switchView({ section: entry.key })}
               >
                 {entry.label}
               </button>
             ))}
           </div>
-        ) : (
-          <span />
-        )}
-      </nav>
+          {world.sides.length > 1 && (
+            <>
+              <span className="wp-bar-sep" aria-hidden />
+              <div
+                className="wp-bar-group"
+                role="group"
+                aria-label="Medium"
+                onPointerEnter={() => setWarm(true)}
+                onFocus={() => setWarm(true)}
+              >
+                {world.sides.map((entry) => (
+                  <button
+                    key={entry.key}
+                    type="button"
+                    aria-pressed={entry.key === side}
+                    onClick={() => switchView({ side: entry.key })}
+                  >
+                    {entry.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </nav>
 
-      <section className="wp-grid-wrap" aria-label={`${world.name} frames`}>
         {tiles.length === 0 ? (
-          <p className="wp-empty wp-mono" role="status">
-            {done ? "Nothing here yet" : <span className="wp-lozenge wp-pulse" aria-label="Loading" />}
+          <p className="wp-empty" role="status">
+            {done ? "Nothing here yet" : <span className="wp-pulse" aria-label="Loading" />}
           </p>
         ) : (
           <WorldMasonry
             key={viewKey}
             tiles={tiles}
-            onOpen={setOpenIndex}
+            inserts={cuts}
+            complete={done}
+            onOpen={onOpen}
             onNearEnd={onNearEnd}
             onIntent={intent}
-            owner={owner.active ? owner.masonryState : undefined}
-            onRestore={owner.active ? owner.restore : undefined}
+            owner={ownerView ? owner.state : undefined}
+            onRestore={ownerView ? owner.restore : undefined}
           />
         )}
       </section>
 
       {done && (
-        <footer className="wp-end wp-mono">
-          {hasWordmark(slug) && <WorldWordmark slug={slug} name={world.name} as="div" />}
+        <footer className="wp-end">
+          {hasWordmark(slug) && <WorldWordmark slug={slug} name={world.name} variant="line" className="wp-end-mark" />}
           <Link href={publicModePath("worlds")}>All worlds</Link>
         </footer>
       )}
 
-      {openIndex !== null && (
+      {openIndex >= 0 && (
         <WorldLightbox
-          tiles={tiles}
+          tiles={lightboxTiles}
           index={openIndex}
-          onIndex={setOpenIndex}
-          onClose={() => setOpenIndex(null)}
+          onIndex={(index) => setOpenId(lightboxTiles[index]?.id ?? null)}
+          onClose={() => setOpenId(null)}
         />
       )}
 
-      {owner.active && (
-        <div className="wp-owner wp-mono" aria-label="Owner keys">
-          <span><kbd>F</kbd>Feature</span>
-          <span><kbd>D</kbd>Archive</span>
-          <Link href={`/w/${slug}`}>Vault</Link>
-        </div>
-      )}
-      {owner.notice && <div className="wp-toast wp-mono" role="status">{owner.notice}</div>}
+      {owner.layer}
     </main>
   );
 }
 
-// ------------------------------------------------------------------- hero
-
-function Hero({ slug, world }: { slug: string; world: WorldPageData }) {
-  const hero = world.hero;
-  const video = useRef<HTMLVideoElement>(null);
-  const [src, setSrc] = useState<string | undefined>();
-  const [playing, setPlaying] = useState(false);
-  const [sound, setSound] = useState(false);
-
-  // The poster is the first paint; the film is fetched once the page has
-  // settled, so it never competes with the poster or with hydration. Phones
-  // wait longer (the reel is a large original and decoding it on a slow CPU
-  // blocks input), and Save-Data keeps the poster only.
-  useEffect(() => {
-    if (hero?.kind !== "video") return;
-    const connection = (navigator as Navigator & {
-      connection?: { saveData?: boolean; effectiveType?: string };
-    }).connection;
-    if (connection?.saveData || /(^|-)(2g|3g)$/.test(connection?.effectiveType ?? "")) return;
-    const phone = window.matchMedia("(max-width: 760px), (hover: none)").matches;
-    let timer = 0;
-    let idleHandle = 0;
-    const w = window as IdleWindow;
-    const start = () => setSrc(hero.full);
-    const schedule = () => {
-      timer = window.setTimeout(() => {
-        if (typeof w.requestIdleCallback === "function") {
-          idleHandle = w.requestIdleCallback(start, { timeout: 2000 });
-        } else start();
-      }, phone ? 3500 : 200);
-    };
-    if (document.readyState === "complete") schedule();
-    else window.addEventListener("load", schedule, { once: true });
-    return () => {
-      window.removeEventListener("load", schedule);
-      window.clearTimeout(timer);
-      if (idleHandle) w.cancelIdleCallback?.(idleHandle);
-    };
-  }, [hero]);
-
-  // Plays only while the hero is on screen; scrolling the grid costs no decode.
-  const [onScreen, setOnScreen] = useState(true);
-  const header = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const node = header.current;
-    if (!node) return;
-    const observer = new IntersectionObserver(([entry]) => setOnScreen(entry.isIntersecting));
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  useEffect(() => {
-    const node = video.current;
-    if (!node || !src) return;
-    node.muted = !sound;
-    if (onScreen) void node.play().catch(() => {});
-    else node.pause();
-  }, [src, sound, onScreen]);
-
+/** A hairline index glyph: four small frames, the archive's wall in miniature. */
+function ArchiveGlyph() {
   return (
-    <header className="wp-hero" id="top" ref={header} data-offscreen={!onScreen || undefined}>
-      <div className="wp-hero-media" aria-hidden>
-        {hero && (
-          // eslint-disable-next-line @next/next/no-img-element -- the LCP poster, preloaded by the server with its srcset
-          <img
-            src={hero.src}
-            srcSet={hero.srcSet}
-            sizes="100vw"
-            alt=""
-            fetchPriority="high"
-            decoding="async"
-          />
-        )}
-        {hero?.kind === "video" && (
-          <video
-            ref={video}
-            src={src}
-            muted
-            loop
-            playsInline
-            autoPlay
-            preload="none"
-            data-playing={playing || undefined}
-            onPlaying={() => setPlaying(true)}
-          />
-        )}
-      </div>
-      <div className="wp-hero-shade" />
-      <div className="wp-grain" aria-hidden />
-
-      <div className="wp-topline wp-mono">
-        <Link href={publicModePath("worlds")}>Laniameda · Worlds</Link>
-        {hero?.kind === "video" && (
-          <button
-            type="button"
-            className="wp-sound wp-mono"
-            aria-pressed={sound}
-            onClick={() => setSound((value) => !value)}
-          >
-            <span className="wp-bars" aria-hidden><i /><i /><i /><i /></span>
-            {sound ? "Sound on" : "Sound off"}
-          </button>
-        )}
-      </div>
-
-      <div className="wp-title">
-        <div className="wp-rise">
-          <WorldWordmark
-            slug={slug}
-            name={world.name}
-            className="wp-wordmark"
-            textClassName="wp-wordmark-text"
-          />
-        </div>
-        <div className="wp-rule wp-rise-2" aria-hidden>
-          <span className="wp-lozenge" />
-        </div>
-        <p className="wp-credit wp-mono wp-rise-3" style={{ margin: 0 }}>
-          A world by <b>Misha Buloichyk</b>
-        </p>
-      </div>
-      <a
-        className="wp-enter wp-mono"
-        href="#frames"
-        onClick={(event) => {
-          event.preventDefault();
-          window.scrollTo({ top: window.innerHeight, behavior: "smooth" });
-        }}
-      >
-        Enter
-      </a>
-    </header>
+    <svg viewBox="0 0 14 14" aria-hidden width="13" height="13">
+      <rect x="0.5" y="0.5" width="5" height="7" />
+      <rect x="8.5" y="0.5" width="5" height="4" />
+      <rect x="0.5" y="10.5" width="5" height="3" />
+      <rect x="8.5" y="7.5" width="5" height="6" />
+    </svg>
   );
+}
+
+/** True once the opening hero has mostly scrolled away: the small mark takes over. */
+function usePastHero() {
+  const [past, setPast] = useState(false);
+  useEffect(() => {
+    let frame = 0;
+    const update = () => {
+      frame = 0;
+      setPast(window.scrollY > window.innerHeight * 0.9);
+    };
+    const schedule = () => {
+      if (!frame) frame = requestAnimationFrame(update);
+    };
+    update();
+    window.addEventListener("scroll", schedule, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", schedule);
+      if (frame) cancelAnimationFrame(frame);
+    };
+  }, []);
+  return past;
 }
 
 // ------------------------------------------------------------------- data
 
-function useWorldsBySide(slug: string, sides: Array<string | undefined>) {
-  // Two sides at most in practice; hooks run in a fixed order per side list.
-  const a = useQuery(api.worldPage.getWorldPage, sides[0] ? { slug, side: sides[0] } : "skip");
-  const b = useQuery(api.worldPage.getWorldPage, sides[1] ? { slug, side: sides[1] } : "skip");
-  const c = useQuery(api.worldPage.getWorldPage, sides[2] ? { slug, side: sides[2] } : "skip");
+type Source = { slug: string; admin: boolean; ownerUserId?: string };
+
+/** One side's page head: the public read, or the owner's admin read. One of the two is skipped. */
+function useWorld(source: Source, side: string | undefined) {
+  const { slug, admin, ownerUserId } = source;
+  const pub = useQuery(api.worldPage.getWorldPage, side && !admin ? { slug, side } : "skip");
+  const own = useQuery(
+    api.worldPage.getWorldPageAdmin,
+    side && admin && ownerUserId ? { ownerUserId, slug, side } : "skip",
+  );
+  return admin ? own : pub;
+}
+
+function useWorldsBySide(source: Source, sides: Array<string | undefined>) {
+  // Three sides at most in practice; hooks run in a fixed order per side list.
+  const a = useWorld(source, sides[0]);
+  const b = useWorld(source, sides[1]);
+  const c = useWorld(source, sides[2]);
   return useMemo(() => {
     const out: Record<string, WorldPageData> = {};
     [a, b, c].forEach((entry, i) => {
@@ -457,11 +432,26 @@ function useWorldsBySide(slug: string, sides: Array<string | undefined>) {
   }, [a, b, c, sides]);
 }
 
-function usePagesBySide(slug: string, sides: Array<string | undefined>) {
+function usePages(source: Source, side: string | undefined, section?: WorldSection) {
+  const { slug, admin, ownerUserId } = source;
   const opts = { initialNumItems: WORLD_PAGE_SIZE };
-  const a = usePaginatedQuery(api.worldPage.listWorldPage, sides[0] ? { slug, side: sides[0] } : "skip", opts);
-  const b = usePaginatedQuery(api.worldPage.listWorldPage, sides[1] ? { slug, side: sides[1] } : "skip", opts);
-  const c = usePaginatedQuery(api.worldPage.listWorldPage, sides[2] ? { slug, side: sides[2] } : "skip", opts);
+  const pub = usePaginatedQuery(
+    api.worldPage.listWorldPage,
+    side && !admin ? { slug, side, ...(section ? { section } : {}) } : "skip",
+    opts,
+  );
+  const own = usePaginatedQuery(
+    api.worldPage.listWorldPageAdmin,
+    side && admin && ownerUserId ? { ownerUserId, slug, side, ...(section ? { section } : {}) } : "skip",
+    opts,
+  );
+  return admin ? own : pub;
+}
+
+function usePagesBySide(source: Source, sides: Array<string | undefined>) {
+  const a = usePages(source, sides[0]);
+  const b = usePages(source, sides[1]);
+  const c = usePages(source, sides[2]);
   return useMemo(() => {
     const out: Record<string, typeof a> = {};
     [a, b, c].forEach((entry, i) => {
@@ -470,154 +460,4 @@ function usePagesBySide(slug: string, sides: Array<string | undefined>) {
     });
     return out;
   }, [a, b, c, sides]);
-}
-
-// ------------------------------------------------------------------- owner
-
-declare global {
-  interface Window {
-    /** Keypress-to-paint times of owner hotkeys on this page, in ms. */
-    __worldPageKeyMs?: number[];
-  }
-}
-
-/**
- * F and D on the hovered frame (or the one open in the lightbox), for the
- * signed-in owner only. Both paint before the server answers: F drops the gold
- * corner on the frame, D greys it out in place; double-click restores.
- */
-function useOwnerControls(
-  tilesRef: React.RefObject<WorldTile[]>,
-  openRef: React.RefObject<number | null>,
-) {
-  const { user } = useCurrentUser();
-  const { isAuthenticated } = useConvexAuth();
-  const ownerUserId = user?.ownerUserId;
-  const active = Boolean(ownerUserId && isAuthenticated);
-
-  const setStarred = useMutation(api.assets.setAssetStarred);
-  const archive = useMutation(api.assetReview.archive);
-  const restoreMutation = useMutation(api.assetReview.restore);
-
-  const [featuredOverride, setFeaturedOverride] = useState<ReadonlyMap<string, boolean>>(
-    () => new Map(),
-  );
-  const [archivedIds, setArchivedIds] = useState<ReadonlySet<string>>(() => new Set());
-  const [flashId, setFlashId] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
-  const overrideRef = useRef(featuredOverride);
-  const archivedRef = useRef(archivedIds);
-  useEffect(() => {
-    overrideRef.current = featuredOverride;
-    archivedRef.current = archivedIds;
-  }, [featuredOverride, archivedIds]);
-
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(""), 2600);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
-
-  const restore = useCallback(
-    (id: string) => {
-      if (!ownerUserId) return;
-      setArchivedIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-      void restoreMutation({ ownerUserId, assetId: id as Id<"assets"> })
-        .then(() => setNotice("Restored"))
-        .catch(() => setNotice("Could not restore"));
-    },
-    [ownerUserId, restoreMutation],
-  );
-
-  const masonryState = useMemo<MasonryOwnerState>(
-    () => ({
-      featured: (id) =>
-        featuredOverride.get(id) ??
-        tilesRef.current?.find((tile) => tile.id === id)?.featured ??
-        false,
-      archived: (id) => archivedIds.has(id),
-      flashId,
-    }),
-    [featuredOverride, archivedIds, flashId, tilesRef],
-  );
-
-  useEffect(() => {
-    if (!active || !ownerUserId) return;
-    let pointer: { x: number; y: number } | null = null;
-    const move = (event: PointerEvent) => {
-      pointer = { x: event.clientX, y: event.clientY };
-    };
-    const markPaint = (startedAt: number) =>
-      requestAnimationFrame(() => {
-        const ms = performance.now() - startedAt;
-        (window.__worldPageKeyMs ??= []).push(Math.round(ms * 10) / 10);
-      });
-    const keydown = (event: KeyboardEvent) => {
-      const key = assetHotkeyOf(event);
-      if (key !== ASSET_HOTKEYS.feature && key !== ASSET_HOTKEYS.archive) return;
-      const startedAt = performance.now();
-      const open = openRef.current;
-      const tile =
-        open !== null && open !== undefined
-          ? tilesRef.current?.[open]
-          : undefined;
-      const id =
-        tile?.id ??
-        (pointer
-          ? document
-              .elementFromPoint(pointer.x, pointer.y)
-              ?.closest<HTMLElement>("[data-wp-id]")?.dataset.wpId
-          : undefined);
-      if (!id) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      setFlashId(id);
-      window.setTimeout(() => setFlashId((current) => (current === id ? null : current)), 600);
-
-      if (key === ASSET_HOTKEYS.feature) {
-        const was =
-          overrideRef.current.get(id) ??
-          tilesRef.current?.find((entry) => entry.id === id)?.featured ??
-          false;
-        const next = !was;
-        // The override stays: the frame keeps its slot this session.
-        overrideRef.current = new Map(overrideRef.current).set(id, next);
-        setFeaturedOverride(overrideRef.current);
-        markPaint(startedAt);
-        void setStarred({ ownerUserId, assetId: id as Id<"assets">, starred: next })
-          .then(() => setNotice(next ? "Featured · leads the page" : "Unfeatured"))
-          .catch(() => {
-            overrideRef.current = new Map(overrideRef.current).set(id, was);
-            setFeaturedOverride(overrideRef.current);
-            setNotice("Could not feature");
-          });
-      } else {
-        if (archivedRef.current.has(id)) return;
-        archivedRef.current = new Set(archivedRef.current).add(id);
-        setArchivedIds(archivedRef.current);
-        markPaint(startedAt);
-        void archive({ ownerUserId, assetId: id as Id<"assets"> })
-          .then(() => setNotice("Archived · deletes in 10 min · double-click to restore"))
-          .catch(() => {
-            const copy = new Set(archivedRef.current);
-            copy.delete(id);
-            archivedRef.current = copy;
-            setArchivedIds(copy);
-            setNotice("Could not archive");
-          });
-      }
-    };
-    window.addEventListener("pointermove", move, { passive: true });
-    window.addEventListener("keydown", keydown, true);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("keydown", keydown, true);
-    };
-  }, [active, ownerUserId, setStarred, archive, tilesRef, openRef]);
-
-  return { active, masonryState, archivedIds, restore, notice };
 }

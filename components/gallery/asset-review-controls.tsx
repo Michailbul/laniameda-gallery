@@ -19,6 +19,7 @@ import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { ASSET_HOTKEYS, assetHotkeyOf, promoteHotkeyOf } from "@/lib/asset-hotkeys";
 import type { PromoteFrame } from "@/components/review-promote/promote-model";
 import { useReviewPromote } from "@/components/review-promote/use-review-promote";
+import { heroNotice } from "@/lib/world-hero-inserts";
 import "./asset-review.css";
 
 type Target = { id: string; src: string; name: string };
@@ -47,6 +48,10 @@ export type ArchiveStore = {
   /** F pressed on a frame, before the server answers: starred or not. */
   starOverride: (assetId: string) => boolean | undefined;
   setStarOverride: (assetId: string, starred: boolean | undefined) => void;
+  /** A hero frame on its world page (H), with H's answer applied before the query lands. */
+  isHero: (assetId: string) => boolean;
+  setHeroIds: (ids: ReadonlySet<string>) => void;
+  setHeroOverride: (assetId: string, hero: boolean | undefined) => void;
 };
 
 const EMPTY_ARCHIVE: ArchiveItem[] = [];
@@ -58,6 +63,8 @@ export function createArchiveStore(): ArchiveStore {
   let trayOpen = false;
   let restoreFn: (assetId: string) => void = () => {};
   const stars = new Map<string, boolean>();
+  let heroIds: ReadonlySet<string> = new Set();
+  const heroes = new Map<string, boolean>();
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
   return {
@@ -93,6 +100,17 @@ export function createArchiveStore(): ArchiveStore {
       else stars.set(assetId, starred);
       emit();
     },
+    isHero: (assetId) => heroes.get(assetId) ?? heroIds.has(assetId),
+    setHeroIds: (ids) => {
+      heroIds = ids;
+      emit();
+    },
+    setHeroOverride: (assetId, hero) => {
+      if (heroes.get(assetId) === hero) return;
+      if (hero === undefined) heroes.delete(assetId);
+      else heroes.set(assetId, hero);
+      emit();
+    },
   };
 }
 
@@ -117,6 +135,16 @@ export function useStarOverride(assetId: string | undefined) {
     store.subscribe,
     () => (assetId ? store.starOverride(assetId) : undefined),
     () => undefined,
+  );
+}
+
+/** Whether this asset is a hero frame on its world page (the HERO chip). */
+export function useIsHero(assetId: string | undefined) {
+  const store = useArchiveStore();
+  return useSyncExternalStore(
+    store.subscribe,
+    () => (assetId ? store.isHero(assetId) : false),
+    () => false,
   );
 }
 
@@ -186,6 +214,7 @@ export function ArchivedChip({
 const KEYS = [
   { key: "F", label: "Feature" },
   { key: "D", label: "Archive" },
+  { key: "H", label: "Hero" },
   { key: "C", label: "Comment" },
   { key: "V", label: "Scene idea" },
   { key: "R", label: "Review" },
@@ -362,6 +391,11 @@ export function AssetReviewControls({
   const setStarred = useMutation(api.assets.setAssetStarred);
   const saveStory = useMutation(api.stories.saveStory);
   const addComment = useMutation(api.assetComments.addAssetComment);
+  const setHeroInsert = useMutation(api.worldPage.setHeroInsert);
+  const heroRows = useQuery(
+    api.worldPage.listHeroAssetIds,
+    active ? { ownerUserId: ownerUserId! } : "skip",
+  );
   const coral = useCoralToastSafe();
   const notify = useCallback(
     (title: string, warning = false) =>
@@ -395,6 +429,10 @@ export function AssetReviewControls({
   useEffect(() => {
     store.set(active ? archived : EMPTY_ARCHIVE, active);
   }, [store, active, archived]);
+
+  useEffect(() => {
+    store.setHeroIds(new Set((heroRows ?? []).map((row) => row.assetId as string)));
+  }, [store, heroRows]);
 
   const restore = useCallback(
     async (id: string) => {
@@ -441,7 +479,8 @@ export function AssetReviewControls({
       // The key set and the typing guard live in lib/asset-hotkeys.ts.
       const promoteKey = promoteHotkeyOf(event);
       const key = promoteKey ? null : assetHotkeyOf(event);
-      if (!key && !promoteKey) return;
+      // 2 and O belong to the world page.
+      if (!promoteKey && (!key || key === ASSET_HOTKEYS.drop || key === ASSET_HOTKEYS.open)) return;
       // Other open dialogs own their keys. The gallery detail view is allowed.
       const visible = (node: HTMLElement) => node.getClientRects().length > 0;
       if (
@@ -507,7 +546,21 @@ export function AssetReviewControls({
         src: frame.dataset.reviewSrc ?? "",
         name: frame.dataset.reviewName ?? "Scene",
       };
-      if (key === ASSET_HOTKEYS.feature) {
+      if (key === ASSET_HOTKEYS.hero) {
+        const was = store.isHero(target.id);
+        const pair = event.shiftKey;
+        if (!pair) store.setHeroOverride(target.id, !was);
+        void setHeroInsert({
+          ownerUserId: ownerUserId!,
+          assetId: target.id as Id<"assets">,
+          action: pair ? "pair" : "toggle",
+        })
+          .then((result) => notify(heroNotice(result)))
+          .catch((error) =>
+            notify(error instanceof Error ? error.message : "Could not make it a hero", true),
+          )
+          .finally(() => store.setHeroOverride(target.id, undefined));
+      } else if (key === ASSET_HOTKEYS.feature) {
         // Optimistic: the card repaints from the store this frame; the
         // override clears once the mutation (and so the query) has landed.
         const current = store.starOverride(target.id);
@@ -558,7 +611,7 @@ export function AssetReviewControls({
       window.removeEventListener("pointermove", move);
       window.removeEventListener("keydown", keydown, true);
     };
-  }, [active, ownerUserId, archive, restore, notify, store, editor, setStarred, promoteOpen, openPromote, promoteToLast]);
+  }, [active, ownerUserId, archive, restore, notify, store, editor, setStarred, setHeroInsert, promoteOpen, openPromote, promoteToLast]);
 
   async function save() {
     if (!editor || !text.trim() || busy) return;

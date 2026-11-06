@@ -48,6 +48,8 @@ import type * as galleryAssetResults from "../galleryAssetResults.js";
 import type * as galleryPresets from "../galleryPresets.js";
 import type * as generationLineage from "../generationLineage.js";
 import type * as helpers from "../helpers.js";
+import type * as heroRendition from "../heroRendition.js";
+import type * as heroRenditionData from "../heroRenditionData.js";
 import type * as imageDimensions from "../imageDimensions.js";
 import type * as inbox from "../inbox.js";
 import type * as inboxValidators from "../inboxValidators.js";
@@ -156,6 +158,8 @@ declare const fullApi: ApiFromModules<{
   galleryPresets: typeof galleryPresets;
   generationLineage: typeof generationLineage;
   helpers: typeof helpers;
+  heroRendition: typeof heroRendition;
+  heroRenditionData: typeof heroRenditionData;
   imageDimensions: typeof imageDimensions;
   inbox: typeof inbox;
   inboxValidators: typeof inboxValidators;

@@ -652,6 +652,14 @@ export default defineSchema({
         heroReelAssetId: v.optional(v.id("assets")),
         // Frames that open the page right after the featured ones, in order.
         leadAssetIds: v.optional(v.array(v.id("assets"))),
+        // Full-screen hero inserts, in order. The first opens the page (the
+        // world's hero); the rest cut into the wall every ~18 frames. One
+        // frame = full bleed, two = split, three = triptych; the layout is
+        // the count, so it can never disagree with the frames. Empty or
+        // unset = the old hero (heroReelAssetId, then showreel).
+        heroInserts: v.optional(
+          v.array(v.object({ assetIds: v.array(v.id("assets")) })),
+        ),
         sides: v.optional(
           v.array(
             v.object({
@@ -823,6 +831,17 @@ export default defineSchema({
     // Michael rejected). Data, never hard-coded ids; the vault still shows it.
     worldPageHidden: v.optional(v.boolean()),
     worldPageHiddenReason: v.optional(v.string()),
+    // A hero frame's high-resolution renditions (Topaz upscale, JPEG, R2),
+    // smallest first: the world page serves them to large and retina screens
+    // only, through the hero's srcset. Made when a still becomes a hero
+    // (convex/heroRendition.ts, or scripts/upscale-hero.ts). Unset = none.
+    heroRendition: v.optional(
+      v.object({
+        variants: v.array(v.object({ r2Key: v.string(), width: v.number(), height: v.number() })),
+        model: v.string(),
+        createdAt: v.number(),
+      }),
+    ),
     // Optional owner note on why this one is starred. Only surfaced while the
     // asset is starred; kept on unstar so an accidental toggle loses nothing.
     starNote: v.optional(v.string()),
