@@ -522,6 +522,13 @@ only plain collections may be children. One level deep.
   unknown (any cycle); settled counts toward its own cycle.
 - `inspirationVersions` also carries the paying `jobId` link through the job's
   `versionId`; a version posted with a stale fence is an orphan.
+- `inspirationPrivateMedia`: personal originals in Convex file storage
+  (`storageId`, never a public URL), optional `sourceId`, `ingestKey`, `kind`
+  image | video | audio, `contentType`, `size`, hex `sha256` from storage's
+  own record, `externalProcessing` none. Served only by
+  `/api/inspiration/media/<id>` (session or owner agent token, `private,
+  no-store`, byte ranges) through the Convex HTTP action
+  `/inspiration/private-media`.
 - `assetComments.source` gains `inspiration`: a source note mirrored onto the
   lead asset's thread; it opens no task.
 - `tasks.source` gains `inspiration`: a redo task, `sourceRef` = the event id.

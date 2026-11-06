@@ -84,16 +84,32 @@ function SourceMedia({ detail }: { detail: Detail }) {
       {detail.story && <footer className="mt-2"><Micro>From story · {detail.story.title}</Micro></footer>}
     </blockquote>;
   }
-  if (detail.assets.length === 0) return <HonestMedia media={{}} />;
+  const total = detail.assets.length + detail.privateMedia.length;
+  if (total === 0) return <HonestMedia media={{}} />;
+  const width = total === 1 ? "100%" : "min(78vw, 360px)";
   return <div className="-mx-4 flex snap-x snap-mandatory gap-2 overflow-x-auto px-4 pb-2 md:mx-0 md:px-0 [scrollbar-width:thin]">
-    {detail.assets.map((asset, index) => <figure key={asset.assetId} className="relative shrink-0 snap-start"
-      style={{ width: detail.assets.length === 1 ? "100%" : "min(78vw, 360px)" }}>
-      <HonestMedia media={asset.missing ? {} : asset} maxHeight="62vh" priority={index === 0} alt={`${detail.title}, ${index + 1} of ${detail.assets.length}`} />
+    {detail.assets.map((asset, index) => <figure key={asset.assetId} className="relative shrink-0 snap-start" style={{ width }}>
+      <HonestMedia media={asset.missing ? {} : asset} maxHeight="62vh" priority={index === 0} alt={`${detail.title}, ${index + 1} of ${total}`} />
       <figcaption className="pointer-events-none absolute left-1.5 top-1.5 flex gap-1">
-        {detail.assets.length > 1 && <Chip onPicture>{index + 1}/{detail.assets.length}</Chip>}
+        {total > 1 && <Chip onPicture>{index + 1}/{total}</Chip>}
         {asset.missing && <Chip tone="coral">Missing</Chip>}
       </figcaption>
       <span className="absolute bottom-1.5 right-1.5"><CopyChip value={`asset:${asset.assetId}`} label="" /></span>
+    </figure>)}
+    {/* Private originals load only here, through the signed-in route; never cached. */}
+    {detail.privateMedia.map((media, index) => <figure key={media.mediaId} className="relative shrink-0 snap-start" style={{ width }}>
+      {media.kind === "audio"
+        ? <div className="flex w-full flex-col justify-end gap-3 p-3" style={{ aspectRatio: "4 / 3", borderRadius: RADIUS, background: "var(--lm-surface-1)", border: "1px solid var(--lm-border)" }}>
+          <Micro>{media.label ?? "Voice note"}</Micro>
+          <audio src={media.url} controls preload="none" className="w-full" aria-label={media.label ?? "Voice note"} />
+        </div>
+        : <HonestMedia media={{ url: media.url, kind: media.kind, width: media.width, height: media.height }} maxHeight="62vh"
+          priority={detail.assets.length === 0 && index === 0} alt={media.label ?? `${detail.title}, private original`} />}
+      <figcaption className="pointer-events-none absolute left-1.5 top-1.5 flex gap-1">
+        {total > 1 && <Chip onPicture>{detail.assets.length + index + 1}/{total}</Chip>}
+        <Chip tone="ink">Private</Chip>
+      </figcaption>
+      <span className="absolute bottom-1.5 right-1.5"><CopyChip value={`private:${media.mediaId}`} label="" /></span>
     </figure>)}
   </div>;
 }
@@ -123,7 +139,7 @@ function SourceBlock({ ownerUserId, detail }: { ownerUserId: string; detail: Det
   });
 
   const dropped = detail.review === "dropped";
-  const saved = detail.assets.filter((asset) => !asset.missing).length;
+  const saved = detail.assets.filter((asset) => !asset.missing).length + detail.privateMedia.length;
   const partial = detail.expectedCount !== undefined && saved < detail.expectedCount;
   return <>
     <div style={{ opacity: dropped ? 0.5 : 1, filter: dropped ? "grayscale(1)" : undefined }}><SourceMedia detail={detail} /></div>

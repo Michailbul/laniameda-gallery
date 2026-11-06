@@ -27,6 +27,13 @@ Last updated: 2026-11-06
 - Spec, verification and limits (frame codes can collide at a few hundred
   frames): agent-docs/features/director-review/PRD.md.
 
+### 2026-11-07 — Private originals for inspiration (branch `feat/inspiration-private-media`)
+- Personal photos, faces and voice are kept in Convex file storage and served
+  only through /api/inspiration/media/<id> (Michael's session or an owner
+  agent token, private no-store, byte ranges) via the first Convex HTTP
+  route. Tool inspiration_private_media; skill 1.35.0. Detail:
+  agent-docs/features/inspiration-review/PRD.md (Private originals).
+
 ### 2026-11-07 — Inspiration dispatch safety: generation off by default, one dispatcher, priced jobs (branch `feat/inspiration-gates`)
 - Paid generation for inspiration takes is off until Michael allows it in
   /inspiration (Generation strip: cap per 48 h, days, Pause). One dispatcher

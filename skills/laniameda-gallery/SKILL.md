@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.34.0
+version: 1.35.0
 ---
 
 # Laniameda Gallery
@@ -120,6 +120,8 @@ promotes, agents never do. A note starts no work; a redo arrives as one task.
 Paid generation for a take is off until Michael allows it; then it runs through
 one dispatcher (`inspiration_dispatch`) with a priced reservation per call
 (`inspiration_job`), and an unknown outcome is held, never resubmitted.
+Personal originals (family photos, faces, voice) never go through
+`prepare_uploads`: keep them with `inspiration_private_media`.
 Read references/inspiration.md.
 
 Director review (`/review/<slug>`; CASSANDRA's is public at

@@ -9,9 +9,10 @@ import { resolveUploadedMedia, UploadError } from "@/lib/server/agent-uploads";
 import {
   inspirationBlockSchema, inspirationFeedbackSchema, inspirationGetSchema, inspirationListSchema,
   inspirationPostVersionSchema, inspirationProposeSchema, inspirationRegisterSchema, bareRef,
-  inspirationDispatchSchema, inspirationJobSchema,
+  inspirationDispatchSchema, inspirationJobSchema, inspirationPrivateMediaSchema,
 } from "@/lib/inspiration-contract";
 import { inspirationUrl } from "@/lib/inspiration";
+import { GALLERY_ORIGIN } from "@/lib/gallery-routes";
 import { agentActor } from "@/lib/tasks";
 
 // Inspiration review for agents. Read the library and Michael's feedback;
@@ -20,12 +21,12 @@ import { agentActor } from "@/lib/tasks";
 // redo exist only in the signed-in gallery (/inspiration), and Convex refuses
 // them for any agent token (convex/actor.ts ownerSessionMutation).
 
-const actions = ["list", "get", "feedback", "register", "propose", "post_version", "block", "dispatch", "job"] as const;
+const actions = ["list", "get", "feedback", "register", "propose", "post_version", "block", "dispatch", "job", "private_media"] as const;
 const ownerOnly = ["keep", "drop", "recover", "approve", "promote", "unpromote", "redo", "note", "resume", "set_allowance", "resolve_job"] as const;
 const scopes: Record<(typeof actions)[number], AgentTokenScope> = {
   list: "gallery:read", get: "gallery:read", feedback: "gallery:read",
   register: "gallery:write", propose: "gallery:write", post_version: "gallery:write", block: "gallery:write",
-  dispatch: "gallery:write", job: "gallery:write",
+  dispatch: "gallery:write", job: "gallery:write", private_media: "gallery:write",
 };
 
 const bare = (value: string, prefix: string) => value.replace(new RegExp(`^${prefix}:`), "").trim();
@@ -161,6 +162,26 @@ export async function POST(request: Request) {
         found: input.found, evidence: input.evidence, note: input.note,
       });
       return NextResponse.json({ ok: true, id: `job:${job.jobId}`, job });
+    }
+    if (action === "private_media") {
+      const input = inspirationPrivateMediaSchema.parse(body);
+      if (input.step === "upload_url") {
+        const uploadUrl = await client.mutation(api.inspirationPrivate.createPrivateUploadUrl, { ownerUserId });
+        return NextResponse.json({
+          uploadUrl,
+          next: "POST the file: curl -sS -X POST -H 'Content-Type: <type>' --data-binary @<file> '<uploadUrl>' → {storageId}. Then private_media attach {storageId, ingestKey, sourceId, sha256}. Up to 20 MB; images, video and voice.",
+        });
+      }
+      if (!input.storageId || !input.ingestKey) return NextResponse.json({ error: "attach needs storageId and ingestKey." }, { status: 400 });
+      const result = await client.mutation(api.inspirationPrivate.attachPrivateMedia, {
+        ownerUserId, storageId: input.storageId as Id<"_storage">, ingestKey: input.ingestKey,
+        sourceId: input.sourceId ? bareRef(input.sourceId) as Id<"inspirationSources"> : undefined,
+        sha256: input.sha256, width: input.width, height: input.height, label: input.label, createdBy: actor,
+      });
+      return NextResponse.json({
+        ok: true, ...result, url: `${GALLERY_ORIGIN}${result.media.url}`,
+        next: "The url opens only for Michael's session or an owner agent token. Never paste it, or the file, into prompts, logs or mirrors; no outside processor may see it unless Michael clears one.",
+      });
     }
     if (action === "block") {
       const input = inspirationBlockSchema.parse(body);

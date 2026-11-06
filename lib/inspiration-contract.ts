@@ -134,3 +134,15 @@ export const inspirationBlockSchema = z.object({
   adaptationId: z.string().min(1),
   reason: z.string().min(1).max(L.reason).describe("Plain words: what is missing (a style lock, a sheet, access)."),
 });
+
+// Private originals: personal photos, voice and video kept out of the public bucket.
+export const inspirationPrivateMediaSchema = z.object({
+  step: z.enum(["upload_url", "attach"]).describe("upload_url = a one-time Convex storage URL: POST the file bytes to it with its Content-Type (curl --data-binary @file); it answers {storageId}. attach = record that upload as a private original."),
+  storageId: z.string().optional().describe("attach: the storageId the upload returned."),
+  ingestKey: z.string().min(1).max(300).optional().describe("attach: stable key for this representation (telegram:<chat>:<message>:<n>)."),
+  sourceId: z.string().optional().describe("attach: the inspiration source it belongs to (inspiration:<id> or bare). Register the source first with preservation owner_uploaded_bytes."),
+  sha256: z.string().regex(/^[0-9a-fA-F]{64}$/).optional().describe("attach: hex SHA-256 of the file you uploaded; a mismatch is refused."),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  label: z.string().max(120).optional(),
+});

@@ -43,9 +43,10 @@ direct-to-world filing in the steps below.
   never reported as the post (`preservation`). Otherwise a raw screenshot is
   saved only when the screenshot itself is the reference (a UI, a website, a
   prompt).
-- Personal originals (family photos, faces, children, voice, exact places) are
-  not uploaded through this path yet: gallery media URLs are public. Keep them
-  privately on the iMac and register only what Michael has cleared.
+- Personal originals (family photos, faces, children, voice, exact places) never
+  go through this path: gallery media URLs are public. Keep them with
+  `inspiration_private_media` (references/inspiration.md, "Personal originals
+  stay private"); files over 20 MB stay on the iMac.
 - Save with assetRole inspiration_capture, the inspiration piece type, the
   real medium (live-action for photos, animation for drawn or rendered work),
   sourceUrl when a permalink is known, an agentDescription of what it shows
