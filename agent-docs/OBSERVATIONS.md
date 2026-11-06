@@ -133,8 +133,9 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 - Scroll-driven animations (`animation-timeline: view()`, a named
   `view-timeline` on the hero) drive the hero push, the fade to black and the
   cuts' pull-back with no scroll listener; browsers without them show the
-  frames still. Keep the tagline starting at opacity 0.02, not 0: a delayed
-  fade from 0 would make the page's largest text paint late.
+  frames still. The tagline is the mobile LCP element: a delayed fade
+  (even from opacity 0.02) cost ~0.8 s of LCP on 6 Nov; it now paints at
+  once and only moves.
 - /w/<slug>/admin is not matched by proxy.ts's owner rewrite (only the bare
   /w/<slug> is). The page reads with `getServerConvexClient(ownerUserId)`;
   a refused or null read answers 404.
