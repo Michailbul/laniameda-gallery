@@ -341,10 +341,16 @@ export const page = query({
     }
 
     const styles = [];
-    for (const entry of project.styles) {
+    // A style dropped from the carousel (removeStyle) still labels the frames
+    // that use it in an already published round, so that round reads as sent.
+    const entries: Array<{ styleId: Id<"worldStyles">; label?: string; hidden?: boolean }> = [...project.styles];
+    for (const item of items) {
+      if (item.styleId && !entries.some((entry) => entry.styleId === item.styleId)) entries.push({ styleId: item.styleId });
+    }
+    for (const entry of entries) {
       const style = await ctx.db.get(entry.styleId);
       if (!style) continue;
-      if (entry.hidden && !isOwner) continue;
+      if (entry.hidden && !items.some((item) => item.styleId === entry.styleId)) continue;
       let cover: string | undefined;
       const coverId = style.coverAssetIds[0];
       const coverAsset = coverId ? await ctx.db.get(coverId) : null;
@@ -1000,6 +1006,28 @@ export const itemDetail = query({
       .first();
     const styleId = args.styleId && project.styles.some((entry) => entry.styleId === args.styleId) ? args.styleId : item?.styleId;
     const style = styleId ? await ctx.db.get(styleId) : null;
+    // Names for the frame's --profile codes from the gallery's moodboards and
+    // Midjourney profiles, for codes the frame's own metadata left unnamed.
+    const codes = new Set((asset.midjourneyMetadata?.personalization ?? []).filter((row) => !row.name).map((row) => row.code));
+    for (const match of (prompt?.text ?? "").matchAll(/--(?:profile|p)\s+((?:[^\s-][^\s]*\s*)+)/g)) {
+      for (const code of match[1]!.trim().split(/\s+/)) codes.add(code);
+    }
+    const codeNames: Array<{ code: string; name: string; type: "moodboard" | "profile" }> = [];
+    for (const code of [...codes].slice(0, 20)) {
+      const board = await ctx.db
+        .query("moodboards")
+        .withIndex("by_owner_mjCode", (q) => q.eq("ownerUserId", project.ownerUserId).eq("mjCode", code))
+        .first();
+      if (board) {
+        codeNames.push({ code, name: board.name, type: "moodboard" });
+        continue;
+      }
+      const profile = await ctx.db
+        .query("mjProfiles")
+        .withIndex("by_owner_code", (q) => q.eq("ownerUserId", project.ownerUserId).eq("code", code))
+        .first();
+      if (profile) codeNames.push({ code, name: profile.name, type: "profile" });
+    }
     return {
       assetId: asset._id,
       code: shortCode(asset._id),
@@ -1009,6 +1037,7 @@ export const itemDetail = query({
       description: asset.agentDescription ?? asset.description,
       prompt: prompt?.text,
       midjourney: asset.midjourneyMetadata,
+      codeNames,
       style: style ? { id: style._id, name: style.name, line: style.line, recipes: await styleRecipeSummary(ctx, style) } : null,
       galleryUrl: `https://gallery.laniameda.space/?asset=${asset._id}`,
     };
@@ -1864,8 +1893,10 @@ export const removeStyle = signedOwnerMutation({
       removed += 1;
     }
     if (args.dropFromCarousel) {
+      // Hidden, not deleted: rounds that still use the style keep its label
+      // and place in the carousel; rounds without its frames never show it.
       await ctx.db.patch(project._id, {
-        styles: project.styles.filter((entry) => entry.styleId !== args.styleId),
+        styles: project.styles.map((entry) => (entry.styleId === args.styleId ? { ...entry, hidden: true } : entry)),
         updatedAt: Date.now(),
       });
     }

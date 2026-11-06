@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- this page is also served on another domain through a rewrite, so it uses plain <img>, never next/image. */
 
-import { memo, type ReactNode } from "react";
+import { memo, useState, type ReactNode } from "react";
 import {
   SECTION_LABEL, mediaUrl,
   type FeedbackFilter, type GridSize, type ReviewFolder, type ReviewSection, type ReviewStyle, type ReviewVersion,
@@ -135,7 +135,10 @@ const filterOptions = (isOwner: boolean, director: string): Array<[FeedbackFilte
         ["todo", "Not reviewed yet"],
       ];
 
-type StyleChip = ReviewStyle & { count: number; slug: string };
+export type StyleChip = ReviewStyle & { count: number; slug: string; roundCount: number };
+
+/** Michael's rule: a style holds at least this many frames in a round. */
+export const STYLE_MIN_FRAMES = 8;
 
 type TopBarProps = {
   mediaBase: string;
@@ -156,13 +159,23 @@ type TopBarProps = {
   onSize: (size: GridSize) => void;
   onMenu: () => void;
   menuLabel: string;
+  /** Owner only: the style menu (remove from the next round). */
+  onRemoveStyle?: (style: StyleChip) => void;
 };
 
 export const TopBar = memo(function TopBar(props: TopBarProps) {
   const {
     mediaBase, styles, style, allCount, onStyle, filter, filterCounts, onFilter, isOwner, directorName,
-    roundMessage, size, onSize, onMenu, menuLabel,
+    roundMessage, size, onSize, onMenu, menuLabel, onRemoveStyle,
   } = props;
+  const [styleMenu, setStyleMenu, styleMenuRef, styleMenuPop] = usePopover();
+  const [menuStyle, setMenuStyle] = useState<StyleChip | null>(null);
+  const openStyleMenu = (row: StyleChip, anchor: HTMLButtonElement | null) => {
+    if (!anchor) return;
+    styleMenuRef.current = anchor;
+    setMenuStyle(row);
+    setStyleMenu(true);
+  };
   const [filterOpen, setFilterOpen, filterRef, filterPop] = usePopover();
   const [keysOpen, setKeysOpen, keysRef, keysPop] = usePopover();
   const options = filterOptions(isOwner, directorName);
@@ -232,28 +245,72 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
                 </span>
               </button>
             ) : null}
-            {styles.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                className="rv-style"
-                aria-pressed={style === row.slug}
-                data-empty={row.count === 0 ? "" : undefined}
-                onClick={() => onStyle(style === row.slug ? "" : row.slug)}
-              >
-                <span className="cv">
-                  {row.cover ? <img src={mediaUrl(mediaBase, row.cover)} alt="" decoding="async" fetchPriority="low" /> : null}
-                </span>
-                <span className="lb">
-                  <b>{row.label}</b>
-                  <span>{row.count} {row.count === 1 ? "frame" : "frames"}</span>
-                </span>
-              </button>
-            ))}
+            {styles.map((row) => {
+              const short = onRemoveStyle && row.roundCount < STYLE_MIN_FRAMES;
+              return (
+                <div
+                  key={row.id}
+                  className="rv-style-wrap"
+                  data-menu={styleMenu && menuStyle?.id === row.id ? "" : undefined}
+                  onContextMenu={onRemoveStyle ? (event) => {
+                    event.preventDefault();
+                    openStyleMenu(row, event.currentTarget.querySelector<HTMLButtonElement>(".rv-style-more"));
+                  } : undefined}
+                >
+                  <button
+                    type="button"
+                    className="rv-style"
+                    aria-pressed={style === row.slug}
+                    data-empty={row.count === 0 ? "" : undefined}
+                    onClick={() => onStyle(style === row.slug ? "" : row.slug)}
+                  >
+                    <span className="cv">
+                      {row.cover ? <img src={mediaUrl(mediaBase, row.cover)} alt="" decoding="async" fetchPriority="low" /> : null}
+                    </span>
+                    <span className="lb">
+                      <b>{row.label}</b>
+                      <span>
+                        {row.count} {row.count === 1 ? "frame" : "frames"}
+                        {short ? <span className="need" title={`A style needs at least ${STYLE_MIN_FRAMES} frames; ${row.roundCount} in this round`}>needs {STYLE_MIN_FRAMES}</span> : null}
+                      </span>
+                    </span>
+                  </button>
+                  {onRemoveStyle ? (
+                    <button
+                      type="button"
+                      className="rv-style-more"
+                      aria-label={`${row.label}: style menu`}
+                      aria-haspopup="menu"
+                      onClick={(event) => openStyleMenu(row, event.currentTarget)}
+                    >
+                      ⋯
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
           </div>
         ) : (
           <div className="rv-styles" />
         )}
+
+        {styleMenu && menuStyle && onRemoveStyle ? (
+          <Floating anchorRef={styleMenuRef} popRef={styleMenuPop} placement="bottom-start" role="menu" label={`${menuStyle.label} style`}>
+            <div className="rv-pop-h">{menuStyle.label} · {menuStyle.roundCount} {menuStyle.roundCount === 1 ? "frame" : "frames"} in this round</div>
+            <button
+              type="button"
+              role="menuitem"
+              className="rv-opt"
+              onClick={() => {
+                setStyleMenu(false);
+                onRemoveStyle(menuStyle);
+              }}
+            >
+              <span className="ck" />
+              Remove style from next round
+            </button>
+          </Floating>
+        ) : null}
 
         <div className="rv-tools">
           <button

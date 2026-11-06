@@ -2,12 +2,13 @@
 /* eslint-disable @next/next/no-img-element -- this page is also served on another domain through a rewrite, so it uses plain <img> with srcset, never next/image. */
 
 import { useEffect, useRef, useState } from "react";
+import type { FunctionReturnType } from "convex/server";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  LIST_COLORS, LIST_KEYS, ago, copyText, isTyping, mediaUrl, srcSetOf, thumbAtLeast,
-  type ListKey, type Lists, type ReviewItem, type Verdict,
+  LIST_COLORS, LIST_KEYS, ago, codeHint, copyText, isTyping, madeWith, madeWithFlags, mediaUrl, srcSetOf, thumbAtLeast,
+  type ListKey, type MadeWithChip, type Lists, type ReviewItem, type Verdict,
 } from "@/lib/review-client";
 import { ChevronLeft, ChevronRight, Close, Copy } from "./icons";
 import { Avatar, personOf, type Person } from "./people";
@@ -16,7 +17,7 @@ import { Avatar, personOf, type Person } from "./people";
 // at once, the original once it has loaded or on zoom), arrows through the
 // frames on screen, and a side panel: like / dislike / comment as quiet text
 // actions with their keys, who liked it, the comment thread with faces and,
-// for Michael only, his lists and how the frame was made.
+// for Michael only, his lists and what made the frame (names; codes copy).
 
 export type LightboxVerdict = { person?: Person; verdict: Verdict; at: number };
 
@@ -198,14 +199,10 @@ export default function Lightbox(props: Props) {
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
   const areaRef = useRef<HTMLTextAreaElement>(null);
-  const threadEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (focusComment > 0) areaRef.current?.focus();
   }, [focusComment]);
-  useEffect(() => {
-    threadEnd.current?.scrollIntoView({ block: "nearest" });
-  }, [thread?.length]);
 
   const send = async () => {
     const text = body.trim();
@@ -350,6 +347,8 @@ export default function Lightbox(props: Props) {
           {item.note ? <div className="cap">{item.note}</div> : null}
         </div>
 
+        {isOwner ? <MadeWith detail={detail} onToast={onToast} /> : null}
+
         <div className="rv-lb-acts">
           {canVote ? (
             <>
@@ -434,70 +433,20 @@ export default function Lightbox(props: Props) {
           </div>
         ) : null}
 
-        <div>
-          <div className="rv-lb-h">
-            Comments {thread?.length ? <b>{thread.length}</b> : null}
-          </div>
-          <div className="rv-thread">
-            {thread === undefined ? <div className="rv-cm-empty">Loading…</div> : null}
-            {thread?.length === 0 ? <div className="rv-cm-empty">No comments on this frame yet.</div> : null}
-            {thread?.map((row) => {
-              const person = personOf(people, row.who);
-              const pending = String(row.id).startsWith("pending");
-              return (
-                <div key={row.id} className="rv-cm" data-resolved={row.resolvedAt ? "" : undefined}>
-                  <Avatar person={person ?? { who: row.who ?? row.authorName, name: row.authorName, initials: row.authorName.slice(0, 1).toUpperCase(), role: row.authorRole, isYou: row.mine }} large />
-                  <div style={{ minWidth: 0 }}>
-                    <div className="who">
-                      <b>{row.mine ? "You" : person?.name ?? row.authorName}</b>
-                      {person?.title ? <span className="ttl">{person.title}</span> : null}
-                      <span className="tm" suppressHydrationWarning>{ago(row.createdAt)}{row.versionLabel ? ` · ${row.versionLabel}` : ""}{row.resolvedAt ? " · done" : ""}</span>
-                    </div>
-                    <p>{row.body}</p>
-                    {!pending && (isOwner || row.mine) ? (
-                      <div className="tools">
-                        {isOwner ? (
-                          <button type="button" onClick={() => void resolveComment({ slug, commentId: row.id, resolved: !row.resolvedAt }).catch(() => onToast("Could not update the comment.", true))}>
-                            {row.resolvedAt ? "Reopen" : "Mark done"}
-                          </button>
-                        ) : null}
-                        <button type="button" onClick={() => void deleteComment({ slug, commentId: row.id }).catch(() => onToast("Could not delete the comment.", true))}>
-                          Delete
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-            <div ref={threadEnd} />
-          </div>
-          {canVote ? (
-            <div style={{ marginTop: 14 }}>
-              <textarea
-                ref={areaRef}
-                className="rv-textarea"
-                value={body}
-                placeholder="Write a note on this frame…"
-                onChange={(event) => setBody(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                    event.preventDefault();
-                    void send();
-                  }
-                }}
-              />
-              <div className="rv-send">
-                <span>⌘ Enter to send</span>
-                <button type="button" className="rv-btn accent" disabled={!body.trim() || sending} onClick={() => void send()}>
-                  Send
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-
-        {isOwner ? <MakingOf detail={detail} /> : null}
+        <Conversation
+          thread={thread}
+          people={people}
+          roundLabel={roundLabel}
+          canVote={canVote}
+          isOwner={isOwner}
+          body={body}
+          sending={sending}
+          areaRef={areaRef}
+          onBody={setBody}
+          onSend={() => void send()}
+          onResolve={(id, resolved) => void resolveComment({ slug, commentId: id, resolved }).catch(() => onToast("Could not update the comment.", true))}
+          onDelete={(id) => void deleteComment({ slug, commentId: id }).catch(() => onToast("Could not delete the comment.", true))}
+        />
       </aside>
     </div>
   );
@@ -506,63 +455,183 @@ export default function Lightbox(props: Props) {
 type Detail = {
   prompt?: string;
   modelName?: string;
-  fileName?: string;
   galleryUrl?: string;
-  midjourney?: { jobId?: string; profileCodes?: string[]; moodboardCodes?: string[]; parameters?: string } & Record<string, unknown>;
+  codeNames?: Array<{ code: string; name: string; type: "moodboard" | "profile" }>;
+  midjourney?: {
+    personalization?: Array<{ code: string; type?: string; name?: string }>;
+    otherFlags?: string[];
+  } | null;
   style?: {
     name: string;
-    line?: string;
-    recipes: Array<{
-      name?: string;
-      moodboards: Array<{ name: string; code?: string }>;
-      profiles: Array<{ name: string; code?: string }>;
-      unknownCodes?: string[];
-      parameters?: string;
-      template?: string;
-    }>;
+    recipes: Array<{ moodboards: Array<{ name: string; code?: string }>; profiles: Array<{ name: string; code?: string }> }>;
   } | null;
 } | null | undefined;
 
-// Owner only: how the frame was made (prompt, Midjourney codes by name, the style's recipe).
-function MakingOf({ detail }: { detail: Detail }) {
-  if (detail === undefined) return <div className="rv-cm-empty">Loading how it was made…</div>;
+const KIND_LABEL: Record<MadeWithChip["kind"], string> = { moodboard: "Moodboard", profile: "Profile", sref: "Style ref" };
+
+// Owner only: the moodboards, profiles and style refs that made the frame, by
+// name; a click copies the code, "Copy all" the flags ready for Midjourney.
+// The prompt sits under it on one line.
+function MadeWith({ detail, onToast }: { detail: Detail; onToast: (text: string, error?: boolean) => void }) {
+  const [promptOpen, setPromptOpen] = useState(false);
+  if (detail === undefined) return <div className="rv-made"><div className="rv-lb-h">Made with</div><div className="rv-cm-empty">Loading…</div></div>;
   if (!detail) return null;
-  const recipes = detail.style?.recipes ?? [];
+  const chips = madeWith(detail);
+  const flags = madeWithFlags(chips);
+  const copy = async (text: string, label: string) => {
+    const ok = await copyText(text);
+    onToast(ok ? `Copied ${label}` : "Could not copy.", !ok);
+  };
+  if (chips.length === 0 && !detail.prompt) return null;
   return (
-    <details className="rv-making" open>
-      <summary>How it was made · only you see this</summary>
-      <div className="body">
-        {detail.prompt ? (
-          <div>
-            <div className="k">Prompt</div>
-            <pre>{detail.prompt}</pre>
-          </div>
+    <div className="rv-made">
+      <div className="rv-lb-h">
+        Made with <span className="only">only you see this</span>
+        {flags ? (
+          <button type="button" className="all" onClick={() => void copy(flags, flags)} title={flags}>
+            <Copy size={10} /> Copy all
+          </button>
         ) : null}
-        {detail.style ? (
-          <div>
-            <div className="k">Style · {detail.style.name}</div>
-            {recipes.map((recipe, index) => (
-              <div key={index} style={{ marginTop: index ? 10 : 0 }}>
-                {recipe.name ? <div className="k" style={{ textTransform: "none", letterSpacing: 0 }}>{recipe.name}</div> : null}
-                <div className="codes">
-                  {recipe.moodboards.map((row) => (
-                    <span key={`m${row.name}`} className="mb">{row.name}{row.code ? <i>{row.code}</i> : null}</span>
-                  ))}
-                  {recipe.profiles.map((row) => (
-                    <span key={`p${row.name}`}>{row.name}{row.code ? <i>{row.code}</i> : null}</span>
-                  ))}
-                  {(recipe.unknownCodes ?? []).map((code) => <span key={`u${code}`}>unnamed<i>{code}</i></span>)}
-                </div>
-                {recipe.parameters ? <pre style={{ marginTop: 6 }}>{recipe.parameters}</pre> : null}
-              </div>
-            ))}
-          </div>
-        ) : null}
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-          {detail.modelName ? <span className="k" style={{ margin: 0 }}>{detail.modelName}</span> : null}
+      </div>
+      {chips.length ? (
+        <div className="rv-made-chips">
+          {chips.map((chip) => (
+            <button
+              key={`${chip.kind}-${chip.code}`}
+              type="button"
+              className="rv-made-chip"
+              data-kind={chip.kind}
+              title={`${KIND_LABEL[chip.kind]} · ${chip.code} · click to copy`}
+              onClick={() => void copy(chip.code, chip.code)}
+            >
+              <span className="nm">{chip.name}</span>
+              {chip.kind === "sref" ? <span className="hint">{codeHint(chip.code)}</span> : null}
+              {chip.name !== chip.code ? <span className="code">{chip.code}</span> : null}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {detail.prompt ? (
+        <div className="rv-made-prompt" data-open={promptOpen ? "" : undefined}>
+          <button type="button" className="txt" onClick={() => setPromptOpen(!promptOpen)} title={promptOpen ? "Fold the prompt" : "Show the whole prompt"}>
+            {detail.prompt}
+          </button>
+          <button type="button" className="cp" onClick={() => void copy(detail.prompt!, "the prompt")}>
+            <Copy size={10} /> Copy
+          </button>
+        </div>
+      ) : null}
+      {detail.galleryUrl || detail.modelName ? (
+        <div className="rv-made-foot">
+          {detail.modelName ? <span>{detail.modelName}</span> : null}
           {detail.galleryUrl ? <a href={detail.galleryUrl} target="_blank" rel="noreferrer">Open in gallery ↗</a> : null}
         </div>
+      ) : null}
+    </div>
+  );
+}
+
+type Thread = FunctionReturnType<typeof api.review.comments>;
+
+type ConversationProps = {
+  thread: Thread | undefined;
+  people: Map<string, Person>;
+  roundLabel?: string;
+  canVote: boolean;
+  isOwner: boolean;
+  body: string;
+  sending: boolean;
+  areaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onBody: (text: string) => void;
+  onSend: () => void;
+  onResolve: (id: Id<"reviewComments">, resolved: boolean) => void;
+  onDelete: (id: Id<"reviewComments">) => void;
+};
+
+// The frame's comments as a conversation: everyone's messages with their
+// face, name and title, yours on the right, newest at the bottom, a reply box
+// under it. Live: a new message from anyone appears and scrolls into view.
+function Conversation(props: ConversationProps) {
+  const { thread, people, roundLabel, canVote, isOwner, body, sending, areaRef, onBody, onSend, onResolve, onDelete } = props;
+  const scroller = useRef<HTMLDivElement>(null);
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick((value) => value + 1), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const last = thread?.[thread.length - 1]?.id;
+  useEffect(() => {
+    const box = scroller.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [last, thread?.length]);
+  const open = thread?.filter((row) => !row.resolvedAt).length ?? 0;
+
+  return (
+    <div className="rv-chat">
+      <div className="rv-lb-h">
+        Conversation {thread?.length ? <b>{thread.length}</b> : null}
+        {isOwner && thread?.length ? <span className="only">{open ? `${open} open` : "all done"}</span> : null}
       </div>
-    </details>
+      <div ref={scroller} className="rv-chat-log" role="log" aria-live="polite">
+        {thread === undefined ? <div className="rv-cm-empty">Loading…</div> : null}
+        {thread?.length === 0 ? <div className="rv-cm-empty">No messages on this frame yet.</div> : null}
+        {thread?.map((row) => {
+          const person = personOf(people, row.who);
+          const pending = String(row.id).startsWith("pending");
+          const name = row.mine ? "You" : person?.name ?? row.authorName;
+          const otherRound = row.versionLabel && row.versionLabel !== roundLabel ? row.versionLabel : "";
+          return (
+            <div key={row.id} className="rv-msg" data-mine={row.mine ? "" : undefined} data-resolved={row.resolvedAt ? "" : undefined} data-pending={pending ? "" : undefined}>
+              <Avatar
+                person={person ?? { who: row.who ?? row.authorName, name: row.authorName, initials: row.authorName.slice(0, 1).toUpperCase(), role: row.authorRole, isYou: row.mine }}
+                large
+              />
+              <div className="col">
+                <div className="who">
+                  <b>{name}</b>
+                  {person?.title ? <span className="ttl">{person.title}</span> : null}
+                  <span className="tm" suppressHydrationWarning>{pending ? "sending…" : ago(row.createdAt)}</span>
+                  {otherRound ? <span className="rd" title={`Written in round ${otherRound}`}>{otherRound}</span> : null}
+                  {row.resolvedAt ? <span className="rd">done</span> : null}
+                </div>
+                <p className="bubble">{row.body}</p>
+                {!pending && (isOwner || row.mine) ? (
+                  <div className="tools">
+                    {isOwner ? (
+                      <button type="button" onClick={() => onResolve(row.id, !row.resolvedAt)}>{row.resolvedAt ? "Reopen" : "Mark done"}</button>
+                    ) : null}
+                    <button type="button" onClick={() => onDelete(row.id)}>Delete</button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {canVote ? (
+        <div className="rv-chat-reply">
+          <textarea
+            ref={areaRef}
+            className="rv-textarea"
+            value={body}
+            rows={2}
+            placeholder={thread?.length ? "Reply…" : "Write a note on this frame…"}
+            onChange={(event) => onBody(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                onSend();
+              }
+            }}
+          />
+          <div className="rv-send">
+            <span>⌘ Enter to send</span>
+            <button type="button" className="rv-btn accent" disabled={!body.trim() || sending} onClick={onSend}>
+              Send
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
