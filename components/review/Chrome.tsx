@@ -9,7 +9,6 @@ import {
 import { Check, ChevronDown, Menu } from "./icons";
 import { AllFoldersIcon, FolderIcon } from "./folder-icons";
 import { Floating, usePopover } from "./Floating";
-import { Milestones } from "./Milestones";
 
 // The page chrome: the folder nav on the left and the bar on top (rounds as
 // milestones in the middle, then styles, the feedback filter and frame
@@ -162,7 +161,7 @@ type TopBarProps = {
 export const TopBar = memo(function TopBar(props: TopBarProps) {
   const {
     mediaBase, styles, style, allCount, onStyle, filter, filterCounts, onFilter, isOwner, directorName,
-    versions, versionId, onRound, roundMessage, size, onSize, onMenu, menuLabel,
+    roundMessage, size, onSize, onMenu, menuLabel,
   } = props;
   const [filterOpen, setFilterOpen, filterRef, filterPop] = usePopover();
   const [keysOpen, setKeysOpen, keysRef, keysPop] = usePopover();
@@ -178,7 +177,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
             {menuLabel}
           </button>
         </div>
-        <Milestones versions={versions} shownId={versionId} isOwner={isOwner} directorName={directorName} onPick={onRound} />
+        <div />
         <div className="rv-bar-r">
           <button
             type="button"

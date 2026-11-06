@@ -13,6 +13,7 @@ import {
 import { reviewTheme } from "@/lib/review-theme";
 import { Grid, type GridGroup, type TileAction, type TileMark } from "./Grid";
 import { Sidebar, TopBar, type AreaGroup } from "./Chrome";
+import { Milestones } from "./Milestones";
 import { BulkBar } from "./BulkBar";
 import type { Person } from "./people";
 import type { LightboxVerdict } from "./Lightbox";
@@ -942,6 +943,13 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
                 <div className="kick">{headKick}</div>
                 <h2>{headTitle}</h2>
               </div>
+              <Milestones
+                versions={page.versions}
+                shownId={page.versionId}
+                isOwner={isOwner}
+                directorName={audience.name}
+                onPick={onPickRound}
+              />
               <div className="meta">
                 <b>{visible.length}</b> {visible.length === 1 ? "frame" : "frames"}
                 {style ? ` · ${style.label}` : ""}

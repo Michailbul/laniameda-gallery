@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { plural, shortDate, type ReviewVersion } from "@/lib/review-client";
 
-// Rounds as a milestone bar at the top middle: one milestone per published
+// Rounds as a milestone bar on the folder title line: one milestone per published
 // round, the shown one lit (amber, the track filled up to it), earlier ones
 // a click away. For Michael only, a hollow "Next round" at the end: the
 // draft that promoted frames gather in.
@@ -26,6 +26,13 @@ export function Milestones({ versions, shownId, isOwner, directorName, onPick }:
   const shownIndex = published.findIndex((row) => row.id === shownId);
   const draftShown = Boolean(draft && draft.id === shownId);
   const n = Math.max(1, published.length);
+  // Always at least three milestones, so the pattern of rounds reads at a
+  // glance: rounds still to come show as faint dashed dots.
+  const MIN_MILESTONES = 3;
+  const real = published.length + (isOwner ? 1 : 0);
+  const lastNumber = Math.max(0, ...published.map((row) => row.number), isOwner && draft ? draft.number : 0);
+  const ghosts = Array.from({ length: Math.max(0, MIN_MILESTONES - real) }, (_, index) => lastNumber + 1 + index);
+  const tail = (isOwner ? 1 : 0) + ghosts.length;
   const progress = draftShown ? 1 : n > 1 && shownIndex > 0 ? shownIndex / (n - 1) : 0;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [tip, setTip] = useState<Tip | null>(null);
@@ -54,10 +61,10 @@ export function Milestones({ versions, shownId, isOwner, directorName, onPick }:
 
   return (
     <nav className="rv-ms" aria-label="Rounds" ref={scrollRef}>
-      <div className="rv-ms-track" style={{ "--n": n, "--p": progress } as React.CSSProperties}>
+      <div className="rv-ms-track" style={{ "--n": n, "--p": progress, "--g": tail } as React.CSSProperties}>
         <span className="rv-ms-line" />
         <span className="rv-ms-fill" />
-        {isOwner ? <span className="rv-ms-next" /> : null}
+        {tail > 0 ? <span className="rv-ms-next" /> : null}
         {published.map((row, index) => {
           const on = row.id === shownId;
           const live = row.isCurrent && (isOwner || shownId !== current?.id);
@@ -128,6 +135,13 @@ export function Milestones({ versions, shownId, isOwner, directorName, onPick }:
             <span className="dt">{draft ? (draft.added ? `${draft.added} waiting` : "ready") : "nothing yet"}</span>
           </button>
         ) : null}
+        {ghosts.map((number) => (
+          <span key={`ghost-${number}`} className="rv-ms-node ghost" aria-hidden="true">
+            <span className="dot" />
+            <span className="lb">{`v0.${number}`}</span>
+            <span className="dt">to come</span>
+          </span>
+        ))}
       </div>
       {tip && host && (tip.title || tip.body)
         ? createPortal(

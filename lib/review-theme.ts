@@ -1,10 +1,7 @@
 // Each review project can carry its own palette (review.css,
-// [data-theme="…"]). CASSANDRA's comes from its approved frames: night
-// storybook beach, sunlit school and street. Other projects use the
-// laniameda board tokens.
-const THEMES: Record<string, string> = {
-  cassandra: "cassandra",
-  "cassandra-test": "cassandra",
-};
+// [data-theme="…"]). Michael tried a CASSANDRA palette from the approved
+// frames on 6 Nov 2026 and did not like it: every project uses the
+// laniameda board tokens. The cassandra theme stays in review.css, unused.
+const THEMES: Record<string, string> = {};
 
 export const reviewTheme = (slug: string) => THEMES[slug.trim().toLowerCase()] ?? "laniameda";
