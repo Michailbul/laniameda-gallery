@@ -8,6 +8,25 @@ Last updated: 2026-11-05
 
 ## ✔ Shipped
 
+### 2026-11-06 — Inspiration review: library, takes, versions, Michael's verdicts (branch `feat/inspiration-review`)
+- `/inspiration` lists saved references (raw and with takes) with filters;
+  `/inspiration/<source>` shows the source beside each project take, its
+  version timeline, cost and references, Michael's notes on what he likes,
+  and separate Keep / Drop / Approve / Change / Promote / Undo controls.
+  Phone first (390px checked), sidebar and browse-sheet entrance.
+- Tables `inspirationSources`, `inspirationAdaptations`,
+  `inspirationVersions`, `inspirationEvents`. Draft outputs live on version
+  rows, never as assets. Notes are inert; a redo opens exactly one task
+  (source `inspiration`). Revision-guarded, idempotent by event key.
+- Owner decisions require a browser-session token (`via: "session"` claim,
+  `ownerSessionMutation`); agent tokens get 403 / "Only Michael".
+- Agent tools: list_inspiration, get_inspiration, list_inspiration_feedback,
+  register_inspiration, propose_inspiration_adaptation,
+  post_inspiration_version, block_inspiration_adaptation; skill 1.29.0,
+  references/inspiration.md. Newspaper facts gain an Inspiration block.
+- Limits and follow-ups: agent-docs/features/inspiration-review/PRD.md
+  (public R2 media, no leases/fencing/budget ledger yet).
+
 ### 2026-11-05 — Edit in place: Ideogram 4.5 precise on fal; approve or discard a take
 - Ideogram 4.5 precise runs on fal first (`ideogram/v4.5/edit`, Precise Edit,
   medium quality, $0.06 a take), Magnific behind it. Krea 3 stays the default.

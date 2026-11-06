@@ -42,6 +42,14 @@ saved}`, `prose`, `writtenAt`, `writtenBy`, and `facts`:
   `worldName`, a one-line `detail` and, for stacks and tasks, the `url`.
 - `totals`: `done`, `created`, `blocked`, `open`, `changes`, `assets`,
   `openStacks`, `needsYou`.
+- `inspiration` (editions compiled from 6 Nov 2026): `path` (/inspiration),
+  `newSources {count, items[]}` registered in the window (title, kind,
+  platform, creator, thumbUrl, path), and right now `ready`,
+  `changesRequested` and `blocked` takes (`count`, up to 8 items with
+  sourceTitle, targetLabel, worldName, intendedUse, version, detail = the
+  blocked reason, sourceThumbUrl, outputThumbUrl, path). Open takes stay until
+  resolved, past the 24-hour window. Compiled facts only; it never touches the
+  prose. See references/inspiration.md.
 
 Every `path` is relative (`/tasks?task=<id>`, `/inbox/<world>/<stack>`,
 `/?asset=<id>`); the route returns `url` beside it, absolute.
