@@ -28,7 +28,7 @@ None queued. The 5 Nov board had no code-fix tasks; the one engineering item is 
 | ID | Title | P | Effort | Notes |
 |----|-------|---|--------|-------|
 | INS-01 | Inspiration drafts: original, adaptation draft, versions, feedback, promotion | P2 | XL | Task `td72c1jd` on /tasks. Claude CLI opus 5.5 only, Friday 6 Nov or later. Gates: private original delivery before personal uploads; drafts excluded from production search and reference selection; unknown paid outcomes never auto-resubmit. Design: gallery skill `qh79d2sg…`/`qh797xrk…` (critique). |
-| SP-01 | Replace the remaining inline hover handlers with CSS | P2 | S | 15 `onMouseEnter` uses in 10 files (5 Nov). Audit against `features/dashboard-polish/SPRINT.md`. |
+| SP-01 | Replace the remaining inline hover handlers with CSS | P3 | S | 6 Nov: the four style-only handlers (panel and modal close buttons, upload submit, bottom menu) are CSS now. Left: `pack-grid` cards keep a hover state that drives the carousel and copy pill; the rest are behaviour (prompt sheet, previews, video play). |
 | SP-04–07, 09–13 | Dashboard polish remainder | P3 | M | Written 27 Feb and not re-audited. The grid, sidebar, tabs and toolbar were rebuilt since (see PROGRESS.md Nov entries). Re-audit before starting any of them. |
 | AI-01 | Image → Prompt generator (button on images with no prompt) | P2 | L | Partial: `convex/agentDescriptions.ts` writes agent descriptions; no prompt-reversal button in the UI. |
 | AI-02/03 | Image Focus Mode Phase 2/3 (transitions, preloading, related prompts) | P3 | M | PRD `features/image-focus-mode/PRD.md`. Keyboard nav and swipe from Phase 1 are done; the rest is open. |

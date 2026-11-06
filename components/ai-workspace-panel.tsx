@@ -77,19 +77,8 @@ export function AiWorkspacePanel({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg transition-colors"
-            style={{
-              color: "var(--text-tertiary)",
-              transitionDuration: "var(--duration-instant)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = "var(--text-primary)";
-              e.currentTarget.style.backgroundColor = "var(--surface-2)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = "var(--text-tertiary)";
-              e.currentTarget.style.backgroundColor = "transparent";
-            }}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-tertiary)] transition-colors hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]"
+            style={{ transitionDuration: "var(--duration-instant)" }}
             aria-label="Close panel"
           >
             <X className="h-4 w-4" />

@@ -1482,18 +1482,9 @@ export function UploadPanel({
             disabled={!canSubmit || isUploading}
             className={cn(
               mono,
-              "inline-flex h-11 items-center gap-2 rounded-[10px] px-6 text-[11px] font-bold uppercase tracking-[0.14em] text-[#1a1008] transition-all disabled:cursor-not-allowed disabled:opacity-40",
+              "inline-flex h-11 items-center gap-2 rounded-[10px] bg-[var(--lm-coral)] px-6 text-[11px] font-bold uppercase tracking-[0.14em] text-[#1a1008] transition-all enabled:hover:bg-[var(--lm-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40",
             )}
-            style={{
-              backgroundColor: "var(--lm-coral)",
-              boxShadow: "var(--lm-shadow-lg)",
-            }}
-            onMouseEnter={(e) => {
-              if (canSubmit && !isUploading) e.currentTarget.style.backgroundColor = "var(--lm-accent-hover)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--lm-coral)";
-            }}
+            style={{ boxShadow: "var(--lm-shadow-lg)" }}
           >
             {isUploading ? "Uploading…" : "Save to gallery"}
           </button>
