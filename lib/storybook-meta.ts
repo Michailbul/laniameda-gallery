@@ -46,6 +46,13 @@ export function splitStorybookName(rawName: string): {
   return { world: name, title: name, archived };
 }
 
+/** The name with the archive prefix added (archive) or removed (restore).
+ *  Archiving is a rename, so it is reversible and keeps every frame and link. */
+export function storybookArchiveName(rawName: string, archive: boolean): string {
+  const name = rawName.trim().replace(ARCHIVED_PREFIX, "");
+  return archive ? `Archived · ${name}` : name;
+}
+
 /** The status, runtime and medium lines live in the story's first 600 characters. */
 export const STORYBOOK_HEAD_CHARS = 600;
 

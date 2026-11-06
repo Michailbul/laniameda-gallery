@@ -3,11 +3,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueries, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { Check, Copy } from "lucide-react";
+import { Archive, ArchiveRestore, Check, Copy } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { buildGridImageAttrs } from "@/lib/grid-image";
-import { storybookStatusLabel } from "@/lib/storybook-meta";
+import { storybookArchiveName, storybookStatusLabel } from "@/lib/storybook-meta";
 import { parseStorybookRecord, placeFrames, type ReaderModel } from "@/lib/storybook-reader";
 import { StorybookText, type ReaderAsset } from "./storybook-reader";
 import type { ShelfEntry } from "./storybook-shelf";
@@ -598,6 +598,25 @@ export function StorybookBook({
     }
   };
 
+  // Archive is a rename ("Archived · …"): the book leaves the shelf's All
+  // view and comes back with Restore, frames and links untouched.
+  const renameFolder = useMutation(api.folders.updateFolder);
+  const [archiveState, setArchiveState] = useState<"idle" | "busy" | "error">("idle");
+  const toggleArchive = async (archive: boolean) => {
+    if (!storybook || archiveState === "busy") return;
+    setArchiveState("busy");
+    try {
+      await renameFolder({
+        ownerUserId,
+        folderId: storybookId as Id<"folders">,
+        name: storybookArchiveName(storybook.folder.name, archive),
+      });
+      setArchiveState("idle");
+    } catch {
+      setArchiveState("error");
+    }
+  };
+
   if (storybook === null) {
     return (
       <div className="lm-sb-book">
@@ -639,6 +658,22 @@ export function StorybookBook({
           {idCopied ? <Check className="h-3 w-3" aria-hidden /> : <Copy className="h-3 w-3" aria-hidden />}
           {idCopied ? "Copied" : `book:…${storybookId.slice(-6)}`}
         </button>
+        {storybook ? (
+          <button
+            type="button"
+            className={`lm-sb-archive${archiveState === "error" ? " error" : ""}`}
+            disabled={archiveState === "busy"}
+            onClick={() => void toggleArchive(status?.status !== "archived")}
+            title={status?.status === "archived" ? "Put this storybook back on the shelf" : "Take this storybook off the shelf. Restore brings it back."}
+          >
+            {status?.status === "archived" ? (
+              <ArchiveRestore className="h-3 w-3" aria-hidden />
+            ) : (
+              <Archive className="h-3 w-3" aria-hidden />
+            )}
+            {archiveState === "error" ? "Failed, try again" : status?.status === "archived" ? "Restore" : "Archive"}
+          </button>
+        ) : null}
         <div className="lm-sb-modes" role="group" aria-label="View">
           {(
             [
@@ -701,6 +736,7 @@ export function StorybookBook({
       ) : mode === "agent" ? (
         <div style={{ paddingTop: 28 }}>
           <AgentText
+            key={storybook.folder.name}
             ownerUserId={ownerUserId}
             storybookId={storybookId}
             savedName={storybook.folder.name}
