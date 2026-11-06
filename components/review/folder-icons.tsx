@@ -1,6 +1,6 @@
 import {
   Building2, Bus, Car, Church, Clapperboard, DoorOpen, Drama, House, LayoutGrid, MapPin, MoonStar, Sailboat,
-  School, Store, TentTree, Telescope, TreePalm, UserRound, Waves, type LucideIcon,
+  School, Store, TentTree, Telescope, TreePalm, Trees, UserRound, Waves, type LucideIcon,
 } from "lucide-react";
 import type { ReviewSection } from "@/lib/review-client";
 
@@ -21,6 +21,7 @@ const ICONS: Record<string, LucideIcon> = {
   sailboat: Sailboat,
   bus: Bus,
   "tent-tree": TentTree,
+  trees: Trees,
   drama: Drama,
 };
 
