@@ -474,12 +474,10 @@ export default function BottomMenu({
           <button
             key={name}
             type="button"
-            className="rounded-[16px] p-3 transition-all"
-            style={{
-              backgroundColor: view === name ? "var(--lm-surface-2, rgba(32,23,16,0.04))" : "transparent",
-            }}
-            onMouseEnter={(e) => { if (view !== name) e.currentTarget.style.backgroundColor = "var(--lm-surface-2, rgba(32,23,16,0.04))"; }}
-            onMouseLeave={(e) => { if (view !== name) e.currentTarget.style.backgroundColor = "transparent"; }}
+            className={cn(
+              "rounded-[16px] p-3 transition-all hover:bg-[var(--lm-surface-2,rgba(32,23,16,0.04))]",
+              view === name && "bg-[var(--lm-surface-2,rgba(32,23,16,0.04))]",
+            )}
             onClick={() =>
               setView((currentView) =>
                 currentView === name ? "default" : name,

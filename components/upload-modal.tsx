@@ -174,16 +174,7 @@ export function UploadModal({
               type="button"
               onClick={onClose}
               aria-label="Close upload modal"
-              className="flex h-9 w-9 items-center justify-center rounded-[10px] transition-colors"
-              style={{ color: "var(--lm-text-tertiary)" }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = "var(--lm-surface-2)";
-                e.currentTarget.style.color = "var(--lm-text-primary)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = "transparent";
-                e.currentTarget.style.color = "var(--lm-text-tertiary)";
-              }}
+              className="flex h-9 w-9 items-center justify-center rounded-[10px] text-[var(--lm-text-tertiary)] transition-colors hover:bg-[var(--lm-surface-2)] hover:text-[var(--lm-text-primary)]"
             >
               <X className="h-4 w-4" aria-hidden />
             </button>
