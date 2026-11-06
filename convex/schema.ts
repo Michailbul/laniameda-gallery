@@ -630,6 +630,14 @@ export default defineSchema({
         heroReelAssetId: v.optional(v.id("assets")),
         // Frames that open the page right after the featured ones, in order.
         leadAssetIds: v.optional(v.array(v.id("assets"))),
+        // Full-screen hero inserts, in order. The first opens the page (the
+        // world's hero); the rest cut into the wall every ~18 frames. One
+        // frame = full bleed, two = split, three = triptych; the layout is
+        // the count, so it can never disagree with the frames. Empty or
+        // unset = the old hero (heroReelAssetId, then showreel).
+        heroInserts: v.optional(
+          v.array(v.object({ assetIds: v.array(v.id("assets")) })),
+        ),
         sides: v.optional(
           v.array(
             v.object({

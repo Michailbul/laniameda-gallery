@@ -202,9 +202,18 @@ to him, and never creates or reorders them unless asked.
   rejected. The vault still shows it; nothing is deleted. Set with
   `worldPage:setWorldPageHidden {assetIds, hidden, reason}` (signed owner).
   Record exclusions here, never as ids in code.
-- Keys on a hovered frame (vault and public world page, `lib/asset-hotkeys.ts`):
-  **F** toggles the curator star (featured pieces lead the world page), **D**
-  archives (restorable for ten minutes, then the normal delete).
+- Keys on a hovered frame (vault, world page and its admin view,
+  `lib/asset-hotkeys.ts`): **F** toggles the curator star (featured pieces lead
+  the world page), **D** archives (restorable for ten minutes, then the normal
+  delete), **H** toggles the frame as a hero insert on its world page
+  (**Shift+H** pairs it into the previous insert as a split or triptych),
+  **C** comments (an `assetComments` row, read with `list_asset_comments`).
+  World page only: **2** drops the frame from the page (`worldPageHidden`, 2
+  again brings it back), **O** opens it large. Hero frames carry a HERO chip
+  in owner views.
+- **`letterboxed`** (tag): a frame with burnt-in black bars. Public world
+  pages leave it out; the admin view shows it marked. Tagging is the whole
+  switch: no code holds ids.
 
 Agents never set star, featured, public or taste flags unless Michael asks to
 publish.
@@ -418,7 +427,7 @@ only plain collections may be children. One level deep.
   - `parentFolderId` nests one level only: a plain root collection is the parent and only plain collections may be children (`assertValidParent` in `convex/folders.ts`).
   - `memberCount` is denormalized; backend mutations recount via `recountFolderMembers`.
   - `showcased: true` publishes the folder as a world and allocates its stable `/w/<slug>` on first showcase (`folders:setFolderShowcased`). Folders inside a collection cannot be showcased.
-  - `worldPage` (optional object) shapes the public world page: `allMembers` (show every member that is not `worldPageHidden`, instead of only `isPublic` ones; reference and inspiration pieces never show), `heroReelAssetId` (pin the hero film; unset = the newest member tagged `showreel`, then a featured video, then the newest video), `leadAssetIds` (frames that open the grid right after the featured ones, in order), `sides` (`[{key, label, folderId}]`, the Live action / 3D switch: the root and its `universeRootId` siblings). Set with `worldPage:setWorldPageSettings` (signed owner). Public reads: `worldPage:getWorldPage {slug, side}` and the paginated `worldPage:listWorldPage {slug, side, section, paginationOpts}`, slim tiles only (no prompts).
+  - `worldPage` (optional object) shapes the public world page: `allMembers` (show every member that is not `worldPageHidden`, instead of only `isPublic` ones; reference and inspiration pieces never show), `heroReelAssetId` (pin the hero film; unset = the newest member tagged `showreel`, then a featured video, then the newest video), `leadAssetIds` (frames that open the grid right after the featured ones, in order), `sides` (`[{key, label, folderId}]`, the Live action / 3D switch: the root and its `universeRootId` siblings), `heroInserts` (`[{assetIds}]`, 1–3 frames each, at most 40: full-screen hero inserts in order; the first opens the page in place of the reel, the rest cut into the wall every ~18 frames; one frame plays full bleed, two split the screen, three make a triptych; the layout is the count). Set with `worldPage:setWorldPageSettings` (signed owner; `heroInserts: []` clears the list), or one frame at a time with `worldPage:setHeroInsert {assetId, folderId?, action: toggle | add | remove | pair}` (signed owner; omitted `folderId` = the asset's world, lifted to its universe root; returns `{folderId, world, hero, index, frames, inserts}`; add, remove and pair are idempotent). `worldPage:listHeroAssetIds {}` lists every hero frame across the owner's worlds. A hero frame shows to visitors only when the wall would show it (a member, not hidden, not letterboxed, and public unless the world has `allMembers`); promoting never publishes. Public reads: `worldPage:getWorldPage {slug, side}` (adds `inserts: [{tiles}]`; `hero` is the first insert's first frame, else the reel) and the paginated `worldPage:listWorldPage {slug, side, section, paginationOpts}`, slim tiles only (no prompts). The owner's admin page (/w/<slug>/admin) reads `worldPage:getWorldPageAdmin` and `worldPage:listWorldPageAdmin` (signed owner, same args plus `ownerUserId`): every member, each off-page one marked `off: hidden | private | letterboxed`.
   - Idempotency: `by_owner_normalizedName` — `createFolder` reuses an existing folder of the same normalized name.
 
 - `designInspirations`

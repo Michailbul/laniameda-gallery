@@ -2,12 +2,19 @@ import { ConvexError, v, type Infer } from "convex/values";
 import { paginationOptsValidator } from "convex/server";
 import { internalMutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
-import { signedOwnerMutation } from "./actor";
+import { signedOwnerMutation, signedOwnerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { canonicalTagKey } from "./helpers";
 import { buildR2PublicUrl, resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { isShowcaseOwner, isWorldFolder } from "./showcase";
+import { worldsOfAsset } from "./worldCore";
 import { sectionKeyForTagName } from "../lib/collection-sections";
+import {
+  HERO_INSERT_MAX,
+  HERO_INSERT_MAX_FRAMES,
+  editHeroInserts,
+  normalizeHeroInserts,
+} from "../lib/world-hero-inserts";
 
 // ---------------------------------------------------------------------------
 // The public world page (/w/<slug>): a pitch made of the world's pictures.
@@ -38,10 +45,22 @@ const tileValidator = v.object({
   featured: v.boolean(),
   /** Takes of one job share it, so the page can keep them apart. */
   group: v.optional(v.string()),
+  /**
+   * Admin view only: why the frame is not on the public page (dropped with
+   * worldPageHidden, private on a world that shows public pieces only, or
+   * tagged letterboxed). Public reads never carry it: those frames never
+   * leave the server.
+   */
+  off: v.optional(v.union(v.literal("hidden"), v.literal("private"), v.literal("letterboxed"))),
 });
 export type WorldTile = Infer<typeof tileValidator>;
 
 const sideValidator = v.object({ key: v.string(), label: v.string() });
+/** A full-screen hero insert: one frame full bleed, two split, three a triptych. */
+const insertValidator = v.object({ tiles: v.array(tileValidator) });
+// Frames with burnt-in black bars (another agent tags them): they ruin a
+// full-bleed wall, so the public page leaves them out.
+const LETTERBOXED_TAG = "letterboxed";
 
 const HIDDEN_ROLES = new Set(["reference", "inspiration_capture", "bookmark"]);
 // Starred pieces read to find a world's featured ones. Most are elsewhere in
@@ -58,6 +77,9 @@ type WorldContext = {
   /** Pieces the lead list places; the paged list skips them. */
   leadIds: Set<string>;
   sectionTags: Map<Id<"tags">, Section | "inspirations">;
+  letterboxTags: Set<Id<"tags">>;
+  /** The owner's admin view: every member, each marked with why it is off the public page. */
+  admin: boolean;
 };
 
 /** Tag ids that say what a piece is, read once per call (ten index reads). */
@@ -80,19 +102,38 @@ const loadSectionTags = async (ctx: QueryCtx) => {
   return map;
 };
 
+const loadLetterboxTags = async (ctx: QueryCtx) =>
+  new Set(
+    (
+      await ctx.db
+        .query("tags")
+        .withIndex("by_canonicalKey", (q) => q.eq("canonicalKey", canonicalTagKey(LETTERBOXED_TAG)))
+        .take(4)
+    ).map((tag) => tag._id),
+  );
+
+/**
+ * The world behind /w/<slug>. Public: a showcased world of the showcase owner.
+ * Admin (`adminOwnerUserId`, a signed owner): any world root of that owner,
+ * published or not.
+ */
 const resolveWorld = async (
   ctx: QueryCtx,
   slug: string,
   sideKey: string | undefined,
+  adminOwnerUserId?: string,
 ): Promise<WorldContext | null> => {
   const key = slug.trim();
   if (!key) return null;
-  const root = await ctx.db
+  const roots = await ctx.db
     .query("folders")
     .withIndex("by_slug", (q) => q.eq("slug", key))
-    .first();
-  if (!root || root.showcased !== true) return null;
-  if (!isShowcaseOwner(root.ownerUserId)) return null;
+    .take(8);
+  const root = adminOwnerUserId
+    ? roots.find((folder) => canActorAccessOwnerUserId(adminOwnerUserId, folder.ownerUserId))
+    : roots.find((folder) => folder.showcased === true);
+  if (!root) return null;
+  if (!adminOwnerUserId && !isShowcaseOwner(root.ownerUserId)) return null;
   if (!(await isWorldFolder(ctx, root))) return null;
 
   const configured = root.worldPage?.sides ?? [];
@@ -121,6 +162,8 @@ const resolveWorld = async (
       (folder._id === root._id ? root.worldPage?.leadAssetIds : folder.worldPage?.leadAssetIds) ?? [],
     ),
     sectionTags: await loadSectionTags(ctx),
+    letterboxTags: await loadLetterboxTags(ctx),
+    admin: Boolean(adminOwnerUserId),
   };
 };
 
@@ -146,12 +189,19 @@ const toTile = async (
   world: WorldContext,
   asset: Doc<"assets"> | null,
 ): Promise<WorldTile | null> => {
-  if (!asset || asset.worldPageHidden) return null;
+  if (!asset) return null;
   if (asset.ownerUserId !== world.root.ownerUserId) return null;
   if (asset.assetRole && HIDDEN_ROLES.has(asset.assetRole)) return null;
-  if (!world.allMembers && asset.isPublic !== true) return null;
   const section = sectionOf(world, asset);
   if (section === "inspirations") return null;
+  const off = asset.worldPageHidden
+    ? ("hidden" as const)
+    : !world.allMembers && asset.isPublic !== true
+      ? ("private" as const)
+      : asset.tagIds.some((tagId) => world.letterboxTags.has(tagId))
+        ? ("letterboxed" as const)
+        : undefined;
+  if (off && !world.admin) return null;
   const [full, thumb] = await Promise.all([
     resolveAssetUrl(ctx, asset),
     resolveAssetThumbUrl(ctx, asset),
@@ -186,6 +236,7 @@ const toTile = async (
     ...((asset.assetPackId ?? asset.promptId)
       ? { group: (asset.assetPackId ?? asset.promptId) as string }
       : {}),
+    ...(off ? { off } : {}),
   };
 };
 
@@ -312,47 +363,160 @@ const loadHero = async (
   return featured[0] ?? null;
 };
 
+/**
+ * The world's hero inserts (worldPage.heroInserts on the root), in order,
+ * each with the frames this reader may see. An insert whose frames are all
+ * off the page is dropped; a split that loses a frame plays full. A frame
+ * must be a member of the world (any side) and pass the same rules as the
+ * wall: on the public page only frames the wall itself would show.
+ */
+const loadInserts = async (ctx: QueryCtx, world: WorldContext) => {
+  const stored = world.root.worldPage?.heroInserts ?? [];
+  if (!stored.length) return [];
+  const trees = await Promise.all(
+    world.sides.map((side) => loadTree(ctx, side.folderId)),
+  );
+  const tree = new Set<string>(trees.flatMap((set) => [...set]));
+  tree.add(world.root._id);
+  const rootWorld = { ...world, side: { ...world.side, folder: world.root } };
+  const inserts: Array<{ tiles: WorldTile[] }> = [];
+  for (const insert of stored.slice(0, HERO_INSERT_MAX)) {
+    const tiles: WorldTile[] = [];
+    for (const id of insert.assetIds.slice(0, HERO_INSERT_MAX_FRAMES)) {
+      if (!(await isMemberOf(ctx, id, tree))) continue;
+      const tile = await toTile(ctx, rootWorld, await ctx.db.get(id));
+      if (tile) tiles.push(tile);
+    }
+    if (tiles.length) inserts.push({ tiles });
+  }
+  return inserts;
+};
+
+const worldPageReturns = v.union(
+  v.null(),
+  v.object({
+    folderId: v.id("folders"),
+    slug: v.string(),
+    name: v.string(),
+    side: v.string(),
+    sides: v.array(sideValidator),
+    /** The opening frame: the first insert's first frame, else the reel. */
+    hero: v.union(v.null(), tileValidator),
+    /** Hero inserts in order; the first opens the page, the rest cut into the wall. */
+    inserts: v.array(insertValidator),
+    featured: v.array(tileValidator),
+    lead: v.array(tileValidator),
+  }),
+);
+
+const readWorldPage = async (ctx: QueryCtx, world: WorldContext, slug: string) => {
+  const featured = await loadFeatured(ctx, world);
+  const inserts = await loadInserts(ctx, world);
+  // The reel belongs to the world, not the side: switching sides keeps it.
+  const rootWorld =
+    world.side.folder._id === world.root._id
+      ? world
+      : { ...world, side: { ...world.side, folder: world.root } };
+  const hero =
+    inserts[0]?.tiles.find((tile) => !tile.off) ??
+    (await loadHero(
+      ctx,
+      { ...rootWorld, admin: false },
+      rootWorld === world ? featured.filter((tile) => !tile.off) : [],
+    ));
+  return {
+    folderId: world.root._id,
+    slug: world.root.slug ?? slug,
+    name: world.root.name,
+    side: world.side.key,
+    sides: world.sides.map(({ key, label }) => ({ key, label })),
+    hero,
+    inserts,
+    featured,
+    lead: await loadLead(ctx, world, featured),
+  };
+};
+
 export const getWorldPage = query({
   args: { slug: v.string(), side: v.optional(v.string()) },
-  returns: v.union(
-    v.null(),
-    v.object({
-      folderId: v.id("folders"),
-      slug: v.string(),
-      name: v.string(),
-      side: v.string(),
-      sides: v.array(sideValidator),
-      hero: v.union(v.null(), tileValidator),
-      featured: v.array(tileValidator),
-      lead: v.array(tileValidator),
-    }),
-  ),
+  returns: worldPageReturns,
   handler: async (ctx, args) => {
     const world = await resolveWorld(ctx, args.slug, args.side);
     if (!world) return null;
-    const featured = await loadFeatured(ctx, world);
-    // The reel belongs to the world, not the side: switching sides keeps it.
-    const rootWorld =
-      world.side.folder._id === world.root._id
-        ? world
-        : { ...world, side: { ...world.side, folder: world.root } };
-    const hero = await loadHero(
-      ctx,
-      rootWorld,
-      rootWorld === world ? featured : [],
-    );
-    return {
-      folderId: world.root._id,
-      slug: world.root.slug ?? args.slug,
-      name: world.root.name,
-      side: world.side.key,
-      sides: world.sides.map(({ key, label }) => ({ key, label })),
-      hero,
-      featured,
-      lead: await loadLead(ctx, world, featured),
-    };
+    return await readWorldPage(ctx, world, args.slug);
   },
 });
+
+/**
+ * The owner's admin view of a world page (/w/<slug>/admin): the same page with
+ * every member, private, dropped and letterboxed ones too, each marked `off`
+ * with the reason it stays off the public page. Null for anyone else.
+ */
+export const getWorldPageAdmin = signedOwnerQuery({
+  args: { ownerUserId: v.string(), slug: v.string(), side: v.optional(v.string()) },
+  returns: worldPageReturns,
+  handler: async (ctx, args) => {
+    const world = await resolveWorld(ctx, args.slug, args.side, args.ownerUserId);
+    if (!world) return null;
+    return await readWorldPage(ctx, world, args.slug);
+  },
+});
+
+const pageReturns = v.object({
+  page: v.array(tileValidator),
+  isDone: v.boolean(),
+  continueCursor: v.string(),
+  splitCursor: v.optional(v.union(v.string(), v.null())),
+  pageStatus: v.optional(
+    v.union(v.literal("SplitRecommended"), v.literal("SplitRequired"), v.null()),
+  ),
+});
+
+const pageArgs = {
+  slug: v.string(),
+  side: v.optional(v.string()),
+  section: v.optional(sectionValidator),
+  paginationOpts: paginationOptsValidator,
+};
+
+const readPage = async (
+  ctx: QueryCtx,
+  world: WorldContext | null,
+  args: { section?: Section; paginationOpts: { numItems: number; cursor: string | null } },
+) => {
+  if (!world) return { page: [], isDone: true, continueCursor: "" };
+  const result = await ctx.db
+    .query("assetFolders")
+    .withIndex("by_folder_createdAt", (q) =>
+      q.eq("folderId", world.side.folder._id),
+    )
+    .order("desc")
+    .paginate({
+      ...args.paginationOpts,
+      numItems: Math.min(args.paginationOpts.numItems, 96),
+    });
+  const page: WorldTile[] = [];
+  const seen = new Set<string>();
+  for (const link of result.page) {
+    if (seen.has(link.assetId)) continue;
+    seen.add(link.assetId);
+    const asset = await ctx.db.get(link.assetId);
+    // Featured pieces stay in the stream too (the page drops the repeat):
+    // a star older than the featured scan must never hide a frame.
+    if (!asset || world.leadIds.has(asset._id)) continue;
+    const tile = await toTile(ctx, world, asset);
+    if (!tile) continue;
+    if (args.section && tile.section !== args.section) continue;
+    page.push(tile);
+  }
+  return {
+    page,
+    isDone: result.isDone,
+    continueCursor: result.continueCursor,
+    splitCursor: result.splitCursor,
+    pageStatus: result.pageStatus,
+  };
+};
 
 /**
  * A side's frames, newest first, a page at a time. Lead frames are left out
@@ -361,55 +525,19 @@ export const getWorldPage = query({
  * short or empty while `isDone` is false; the grid keeps asking.
  */
 export const listWorldPage = query({
-  args: {
-    slug: v.string(),
-    side: v.optional(v.string()),
-    section: v.optional(sectionValidator),
-    paginationOpts: paginationOptsValidator,
-  },
-  returns: v.object({
-    page: v.array(tileValidator),
-    isDone: v.boolean(),
-    continueCursor: v.string(),
-    splitCursor: v.optional(v.union(v.string(), v.null())),
-    pageStatus: v.optional(
-      v.union(v.literal("SplitRecommended"), v.literal("SplitRequired"), v.null()),
-    ),
-  }),
-  handler: async (ctx, args) => {
-    const world = await resolveWorld(ctx, args.slug, args.side);
-    if (!world) return { page: [], isDone: true, continueCursor: "" };
-    const result = await ctx.db
-      .query("assetFolders")
-      .withIndex("by_folder_createdAt", (q) =>
-        q.eq("folderId", world.side.folder._id),
-      )
-      .order("desc")
-      .paginate({
-        ...args.paginationOpts,
-        numItems: Math.min(args.paginationOpts.numItems, 96),
-      });
-    const page: WorldTile[] = [];
-    const seen = new Set<string>();
-    for (const link of result.page) {
-      if (seen.has(link.assetId)) continue;
-      seen.add(link.assetId);
-      const asset = await ctx.db.get(link.assetId);
-      // Featured pieces stay in the stream too (the page drops the repeat):
-      // a star older than the featured scan must never hide a frame.
-      if (!asset || world.leadIds.has(asset._id)) continue;
-      const tile = await toTile(ctx, world, asset);
-      if (!tile) continue;
-      if (args.section && tile.section !== args.section) continue;
-      page.push(tile);
-    }
-    return {
-      page,
-      isDone: result.isDone,
-      continueCursor: result.continueCursor,
-      splitCursor: result.splitCursor,
-      pageStatus: result.pageStatus,
-    };
+  args: pageArgs,
+  returns: pageReturns,
+  handler: async (ctx, args) =>
+    await readPage(ctx, await resolveWorld(ctx, args.slug, args.side), args),
+});
+
+/** The admin twin of listWorldPage: every member, marked `off` where it is off the public page. */
+export const listWorldPageAdmin = signedOwnerQuery({
+  args: { ownerUserId: v.string(), ...pageArgs },
+  returns: pageReturns,
+  handler: async (ctx, { ownerUserId, ...args }) => {
+    const world = await resolveWorld(ctx, args.slug, args.side, ownerUserId);
+    return await readPage(ctx, world, args);
   },
 });
 
@@ -427,9 +555,13 @@ const requireOwnedFolder = async (
   return folder;
 };
 
+const heroInsertsArg = v.array(v.object({ assetIds: v.array(v.id("assets")) }));
+
 const worldPageSettings = {
   allMembers: v.optional(v.boolean()),
   leadAssetIds: v.optional(v.array(v.id("assets"))),
+  /** The whole hero insert list, in order ([] clears it: the reel opens the page again). */
+  heroInserts: v.optional(heroInsertsArg),
   heroReelAssetId: v.optional(v.union(v.id("assets"), v.null())),
   sides: v.optional(
     v.array(v.object({ key: v.string(), label: v.string(), folderId: v.id("folders") })),
@@ -445,6 +577,14 @@ export const setWorldPageSettings = signedOwnerMutation({
     for (const side of patch.sides ?? []) {
       await requireOwnedFolder(ctx, ownerUserId, side.folderId);
     }
+    for (const insert of patch.heroInserts ?? []) {
+      for (const assetId of insert.assetIds) {
+        const asset = await ctx.db.get(assetId);
+        if (!asset || !canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+          throw new ConvexError(`asset:${assetId} not found.`);
+        }
+      }
+    }
     await applyWorldPageSettings(ctx, folder, patch);
     return null;
   },
@@ -457,6 +597,7 @@ const applyWorldPageSettings = async (
     allMembers?: boolean;
     heroReelAssetId?: Id<"assets"> | null;
     leadAssetIds?: Id<"assets">[];
+    heroInserts?: Array<{ assetIds: Id<"assets">[] }>;
     sides?: Array<{ key: string; label: string; folderId: Id<"folders"> }>;
   },
 ) => {
@@ -466,6 +607,7 @@ const applyWorldPageSettings = async (
     ...(patch.allMembers !== undefined ? { allMembers: patch.allMembers } : {}),
     ...(patch.sides !== undefined ? { sides: patch.sides } : {}),
     ...(patch.leadAssetIds !== undefined ? { leadAssetIds: patch.leadAssetIds.slice(0, 200) } : {}),
+    ...(patch.heroInserts !== undefined ? { heroInserts: normalizeHeroInserts(patch.heroInserts) } : {}),
   };
   if (patch.heroReelAssetId === null) delete next.heroReelAssetId;
   else if (patch.heroReelAssetId) next.heroReelAssetId = patch.heroReelAssetId;
@@ -539,5 +681,101 @@ export const configureInternal = internalMutation({
     if (!folder) throw new ConvexError("World not found.");
     await applyWorldPageSettings(ctx, folder, patch);
     return null;
+  },
+});
+
+// --- Hero inserts -------------------------------------------------------------
+
+/**
+ * The world page an asset's hero insert belongs to: the page's own world when
+ * the caller names it, else the asset's world, lifted to its universe root
+ * (a DEAR ANNETE — 3D frame cuts into the DEAR ANNETE page).
+ */
+const heroWorldOf = async (
+  ctx: MutationCtx,
+  ownerUserId: string,
+  asset: Doc<"assets">,
+  folderId: Id<"folders"> | undefined,
+) => {
+  if (folderId) return await requireOwnedFolder(ctx, ownerUserId, folderId);
+  const worlds = [...(await worldsOfAsset(ctx, asset))];
+  if (!worlds.length) {
+    throw new ConvexError("This frame is in no world, so it has no world page to open.");
+  }
+  const world = await requireOwnedFolder(ctx, ownerUserId, worlds[0]);
+  if (world.universeRootId) {
+    const universe = await ctx.db.get(world.universeRootId);
+    if (universe && canActorAccessOwnerUserId(ownerUserId, universe.ownerUserId)) return universe;
+  }
+  return world;
+};
+
+/**
+ * Promote a frame to a full-screen hero on its world page, or take it back
+ * (owner key H; Shift+H pairs it into the previous insert as a split or a
+ * triptych). add / remove / pair are idempotent; toggle is the H key.
+ * Visibility is unchanged: the public page shows a hero frame only when the
+ * wall would show it (isPublic, or a world that shows all its members).
+ */
+export const setHeroInsert = signedOwnerMutation({
+  args: {
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    /** The world page (its root folder); omitted = the asset's own world. */
+    folderId: v.optional(v.id("folders")),
+    action: v.union(v.literal("toggle"), v.literal("add"), v.literal("remove"), v.literal("pair")),
+  },
+  returns: v.object({
+    folderId: v.id("folders"),
+    world: v.string(),
+    hero: v.boolean(),
+    index: v.union(v.number(), v.null()),
+    frames: v.number(),
+    inserts: v.number(),
+  }),
+  handler: async (ctx, { ownerUserId, assetId, folderId, action }) => {
+    const asset = await ctx.db.get(assetId);
+    if (!asset || !canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)) {
+      throw new ConvexError("Frame not found.");
+    }
+    const world = await heroWorldOf(ctx, ownerUserId, asset, folderId);
+    const edit = editHeroInserts(world.worldPage?.heroInserts ?? [], assetId, action);
+    if (edit.changed) {
+      await ctx.db.patch(world._id, {
+        worldPage: { ...(world.worldPage ?? {}), heroInserts: edit.inserts },
+        updatedAt: Date.now(),
+      });
+    }
+    return {
+      folderId: world._id,
+      world: world.name,
+      hero: edit.hero,
+      index: edit.index,
+      frames: edit.frames,
+      inserts: edit.inserts.length,
+    };
+  },
+});
+
+/** Every hero frame across the owner's worlds, for the HERO chip in the vault. */
+export const listHeroAssetIds = signedOwnerQuery({
+  args: { ownerUserId: v.string() },
+  returns: v.array(v.object({ assetId: v.id("assets"), folderId: v.id("folders"), index: v.number() })),
+  handler: async (ctx, { ownerUserId }) => {
+    const out: Array<{ assetId: Id<"assets">; folderId: Id<"folders">; index: number }> = [];
+    for (const owner of resolveUserIdCandidates(ownerUserId)) {
+      const worlds = await ctx.db
+        .query("folders")
+        .withIndex("by_owner_worldKey", (q) => q.eq("ownerUserId", owner).gte("worldKey", ""))
+        .take(200);
+      for (const world of worlds) {
+        (world.worldPage?.heroInserts ?? []).forEach((insert, index) => {
+          for (const assetId of insert.assetIds.slice(0, HERO_INSERT_MAX_FRAMES)) {
+            out.push({ assetId, folderId: world._id, index });
+          }
+        });
+      }
+    }
+    return out.slice(0, HERO_INSERT_MAX * HERO_INSERT_MAX_FRAMES * 10);
   },
 });

@@ -124,6 +124,21 @@ Technical notes and lessons learned. Update this when you hit a quirk.
   CSS. Measure the page with Lighthouse three times: a busy machine inflates
   simulated TBT by seconds.
 
+- World page wall (6 Nov 2026): CSS columns leave a ragged bottom on every
+  chunk, which reads as black holes above a full-screen insert. Pack in JS
+  from known ratios and level each chunk (wall-layout.ts); the last two rows
+  placed tallest-first plus a ±2 frame chunk end removed almost every filler
+  on the real DEAR ANNETE wall. A chunk only closes once the frames after it
+  are loaded, so a cut never moves under the reader.
+- Scroll-driven animations (`animation-timeline: view()`, a named
+  `view-timeline` on the hero) drive the hero push, the fade to black and the
+  cuts' pull-back with no scroll listener; browsers without them show the
+  frames still. Keep the tagline starting at opacity 0.02, not 0: a delayed
+  fade from 0 would make the page's largest text paint late.
+- /w/<slug>/admin is not matched by proxy.ts's owner rewrite (only the bare
+  /w/<slug> is). The page reads with `getServerConvexClient(ownerUserId)`;
+  a refused or null read answers 404.
+
 - Bulk asset deletion must run sequentially: cascades update shared tag usage,
   collection counts and pack membership, so parallel DELETE requests can exhaust
   Convex's conflict retries. Only retry a reported

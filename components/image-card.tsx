@@ -23,7 +23,7 @@ import { BookmarkPostCard } from "@/components/gallery/bookmark-post-card";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import type { GalleryEntryPreview } from "@/lib/gallery-entries";
 import { VideoScrubPreview, useVideoScrub } from "@/components/video-scrub-preview";
-import { ArchivedChip, useArchiveStore, useArchivedAt, useStarOverride } from "@/components/gallery/asset-review-controls";
+import { ArchivedChip, useArchiveStore, useArchivedAt, useIsHero, useStarOverride } from "@/components/gallery/asset-review-controls";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
@@ -312,6 +312,7 @@ export const ImageCard = memo(function ImageCard({
   const displayedMember = isPackDeck ? activePreview : image;
   const displayedAssetId = isPackDeck ? activePreview.id : image.id;
   const starOverride = useStarOverride(displayedAssetId);
+  const isHero = useIsHero(displayedAssetId);
   const archivedAt = useArchivedAt(
     image.galleryItemType === undefined || image.galleryItemType === "asset" || image.galleryItemType === "pack"
       ? displayedAssetId
@@ -943,6 +944,11 @@ export const ImageCard = memo(function ImageCard({
       {archivedAt !== undefined && (
         <span className="asset-review-card-chip">
           <ArchivedChip assetId={displayedAssetId} deleteAt={archivedAt} />
+        </span>
+      )}
+      {isHero && archivedAt === undefined && (
+        <span className="asset-review-hero-chip" title="Hero on its world page (H)">
+          Hero
         </span>
       )}
 
