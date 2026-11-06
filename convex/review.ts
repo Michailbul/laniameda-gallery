@@ -341,10 +341,16 @@ export const page = query({
     }
 
     const styles = [];
-    for (const entry of project.styles) {
+    // A style dropped from the carousel (removeStyle) still labels the frames
+    // that use it in an already published round, so that round reads as sent.
+    const entries: Array<{ styleId: Id<"worldStyles">; label?: string; hidden?: boolean }> = [...project.styles];
+    for (const item of items) {
+      if (item.styleId && !entries.some((entry) => entry.styleId === item.styleId)) entries.push({ styleId: item.styleId });
+    }
+    for (const entry of entries) {
       const style = await ctx.db.get(entry.styleId);
       if (!style) continue;
-      if (entry.hidden && !isOwner) continue;
+      if (entry.hidden && !items.some((item) => item.styleId === entry.styleId)) continue;
       let cover: string | undefined;
       const coverId = style.coverAssetIds[0];
       const coverAsset = coverId ? await ctx.db.get(coverId) : null;
@@ -1000,6 +1006,28 @@ export const itemDetail = query({
       .first();
     const styleId = args.styleId && project.styles.some((entry) => entry.styleId === args.styleId) ? args.styleId : item?.styleId;
     const style = styleId ? await ctx.db.get(styleId) : null;
+    // Names for the frame's --profile codes from the gallery's moodboards and
+    // Midjourney profiles, for codes the frame's own metadata left unnamed.
+    const codes = new Set((asset.midjourneyMetadata?.personalization ?? []).filter((row) => !row.name).map((row) => row.code));
+    for (const match of (prompt?.text ?? "").matchAll(/--(?:profile|p)\s+((?:[^\s-][^\s]*\s*)+)/g)) {
+      for (const code of match[1]!.trim().split(/\s+/)) codes.add(code);
+    }
+    const codeNames: Array<{ code: string; name: string; type: "moodboard" | "profile" }> = [];
+    for (const code of [...codes].slice(0, 20)) {
+      const board = await ctx.db
+        .query("moodboards")
+        .withIndex("by_owner_mjCode", (q) => q.eq("ownerUserId", project.ownerUserId).eq("mjCode", code))
+        .first();
+      if (board) {
+        codeNames.push({ code, name: board.name, type: "moodboard" });
+        continue;
+      }
+      const profile = await ctx.db
+        .query("mjProfiles")
+        .withIndex("by_owner_code", (q) => q.eq("ownerUserId", project.ownerUserId).eq("code", code))
+        .first();
+      if (profile) codeNames.push({ code, name: profile.name, type: "profile" });
+    }
     return {
       assetId: asset._id,
       code: shortCode(asset._id),
@@ -1009,6 +1037,7 @@ export const itemDetail = query({
       description: asset.agentDescription ?? asset.description,
       prompt: prompt?.text,
       midjourney: asset.midjourneyMetadata,
+      codeNames,
       style: style ? { id: style._id, name: style.name, line: style.line, recipes: await styleRecipeSummary(ctx, style) } : null,
       galleryUrl: `https://gallery.laniameda.space/?asset=${asset._id}`,
     };
@@ -1807,5 +1836,70 @@ export const syncStyles = signedOwnerMutation({
     }
     const { filed } = await syncStyleShelves(ctx, project, moves);
     return { checked: moves.length, filed };
+  },
+});
+/**
+ * Correct the style of frames in any round, published ones included (a
+ * mislabelled style is a correction, not new content). Keeps the gallery's
+ * style shelves in step. Frames by asset id; every copy in that round moves.
+ */
+export const restyleInRound = signedOwnerMutation({
+  args: { ...ownerArgs, version: v.string(), assetIds: v.array(v.id("assets")), styleId: v.id("worldStyles") },
+  returns: v.object({ round: v.string(), changed: v.number() }),
+  handler: async (ctx, args) => {
+    const project = await requireOwnedProject(ctx, args.ownerUserId!, args.slug);
+    assertProjectStyle(project, args.styleId);
+    const version = await resolveVersion(ctx, project, args.version);
+    if (!version) throw new ConvexError(`No round "${args.version}".`);
+    const wanted = new Set<string>(args.assetIds);
+    const moves: Array<{ assetId: Id<"assets">; styleId?: Id<"worldStyles">; previousStyleId?: Id<"worldStyles"> }> = [];
+    let changed = 0;
+    for (const row of await itemsOf(ctx, version._id)) {
+      if (!wanted.has(row.assetId) || row.styleId === args.styleId) continue;
+      await ctx.db.patch(row._id, { styleId: args.styleId });
+      moves.push({ assetId: row.assetId, styleId: args.styleId, previousStyleId: row.styleId });
+      changed += 1;
+    }
+    await syncStyleShelves(ctx, project, moves);
+    return { round: version.label, changed };
+  },
+});
+
+/**
+ * Remove a style from a round: every frame shown in that style leaves the
+ * round (default the draft, made from the current round when there is none;
+ * "current" or a label corrects a published round). With dropFromCarousel the
+ * style also leaves the project's carousel. The gallery's world style and its
+ * frames are untouched.
+ */
+export const removeStyle = signedOwnerMutation({
+  args: {
+    ...ownerArgs,
+    styleId: v.id("worldStyles"),
+    version: v.optional(v.string()),
+    dropFromCarousel: v.optional(v.boolean()),
+  },
+  returns: v.object({ round: v.string(), removed: v.number() }),
+  handler: async (ctx, args) => {
+    const project = await requireOwnedProject(ctx, args.ownerUserId!, args.slug);
+    const version = args.version && args.version !== "draft"
+      ? await resolveVersion(ctx, project, args.version)
+      : await ensureDraft(ctx, project);
+    if (!version) throw new ConvexError(`No round "${args.version}".`);
+    let removed = 0;
+    for (const row of await itemsOf(ctx, version._id)) {
+      if (row.styleId !== args.styleId) continue;
+      await ctx.db.delete(row._id);
+      removed += 1;
+    }
+    if (args.dropFromCarousel) {
+      // Hidden, not deleted: rounds that still use the style keep its label
+      // and place in the carousel; rounds without its frames never show it.
+      await ctx.db.patch(project._id, {
+        styles: project.styles.map((entry) => (entry.styleId === args.styleId ? { ...entry, hidden: true } : entry)),
+        updatedAt: Date.now(),
+      });
+    }
+    return { round: version.label, removed };
   },
 });

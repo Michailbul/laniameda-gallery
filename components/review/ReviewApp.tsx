@@ -6,13 +6,13 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
   LIST_COLORS, LIST_KEYS, SECTION_LABEL, SECTION_SINGULAR, downloadFrames, copyText, emptyLists, isTyping, plural, readLists, readViewState,
-  reviewBase, shortDate, slugOf, writeLists, writeViewState,
+  reviewBase, slugOf, writeLists, writeViewState,
   type FeedbackFilter, type GridSize, type ListKey, type Lists, type ReviewFeedback, type ReviewFolder, type ReviewItem, type ReviewPage,
   type ReviewSection, type ReviewVersion, type Verdict, type ViewState,
 } from "@/lib/review-client";
 import { reviewTheme } from "@/lib/review-theme";
 import { Grid, type GridGroup, type TileAction, type TileMark } from "./Grid";
-import { Sidebar, TopBar, type AreaGroup } from "./Chrome";
+import { Sidebar, TopBar, type AreaGroup, type StyleChip } from "./Chrome";
 import { Milestones } from "./Milestones";
 import { BulkBar } from "./BulkBar";
 import type { Person } from "./people";
@@ -30,6 +30,7 @@ const Lightbox = lazy(() => import("./Lightbox"));
 const OwnerStrip = lazy(() => import("./OwnerTools").then((module) => ({ default: module.OwnerStrip })));
 const FeedbackPanel = lazy(() => import("./OwnerTools").then((module) => ({ default: module.FeedbackPanel })));
 const BulkOwnerTools = lazy(() => import("./OwnerTools").then((module) => ({ default: module.BulkOwnerTools })));
+const RemoveStyleDialog = lazy(() => import("./OwnerTools").then((module) => ({ default: module.RemoveStyleDialog })));
 const ListsDock = lazy(() => import("./OwnerTools").then((module) => ({ default: module.ListsDock })));
 
 type Args = { versionId?: Id<"reviewVersions">; draft?: boolean; asDirector?: boolean };
@@ -123,8 +124,10 @@ function buildIndex(page: ReviewPage) {
   const byCode = new Map(page.items.map((item) => [item.code, item]));
   const byAsset = new Map(page.items.map((item) => [item.assetId as string, item]));
   // Styles with frames in this round, so empty ones stay out of the carousel.
-  const roundStyles = new Set(page.items.map((item) => item.styleId as string | undefined).filter(Boolean));
-  return { styleOrder, styleBySlug, folders, folderById, itemsByFolder, sectionCounts, folderCounts, areas, sections, byCode, byAsset, roundStyles };
+  const roundStyleCounts = new Map<string, number>();
+  for (const item of page.items) if (item.styleId) roundStyleCounts.set(item.styleId, (roundStyleCounts.get(item.styleId) ?? 0) + 1);
+  const roundStyles = new Set(roundStyleCounts.keys());
+  return { styleOrder, styleBySlug, folders, folderById, itemsByFolder, sectionCounts, folderCounts, areas, sections, byCode, byAsset, roundStyles, roundStyleCounts };
 }
 
 function initialView(search: string, page: ReviewPage): ViewState {
@@ -309,7 +312,9 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   const folder: ReviewFolder | null = view.folder
     ? index.folders.find((row) => row.section === view.section && row.slug === view.folder) ?? null
     : null;
-  const style = view.style ? index.styleBySlug.get(view.style) ?? null : null;
+  // A style with no frames left in the shown round (all removed) is not a filter any more.
+  const styleRow = view.style ? index.styleBySlug.get(view.style) ?? null : null;
+  const style = styleRow && index.roundStyles.has(styleRow.id) ? styleRow : null;
   const listView = isOwner && viewingList && lists.items[viewingList].length ? viewingList : null;
   const listSet = useMemo(() => new Set(listView ? lists.items[listView] : []), [listView, lists]);
 
@@ -324,7 +329,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     for (const item of scope) if (item.styleId) counts.set(item.styleId, (counts.get(item.styleId) ?? 0) + 1);
     return page.styles
       .filter((row) => index.roundStyles.has(row.id))
-      .map((row) => ({ ...row, slug: slugOf(row.label), count: counts.get(row.id) ?? 0 }));
+      .map((row) => ({ ...row, slug: slugOf(row.label), count: counts.get(row.id) ?? 0, roundCount: index.roundStyleCounts.get(row.id) ?? 0 }));
   }, [scope, page.styles, index]);
 
   const styled = useMemo(() => (style ? scope.filter((item) => item.styleId === style.id) : scope), [scope, style]);
@@ -507,6 +512,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
 
   // ---------------------------------------------------------- view changes
   const [navOpen, setNavOpen] = useState(false);
+  const [removingStyle, setRemovingStyle] = useState<StyleChip | null>(null);
   const changeView = useCallback((patch: Partial<ViewState>, opts: { clear?: boolean } = {}) => {
     setView((current) => ({ ...current, ...patch }));
     if (opts.clear) clearSelection();
@@ -921,6 +927,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           onSize={onSize}
           onMenu={() => setNavOpen(true)}
           menuLabel={headTitle}
+          onRemoveStyle={isOwner ? setRemovingStyle : undefined}
         />
 
         <main className="rv-content" data-loading={loadingRound ? "" : undefined}>
@@ -950,12 +957,6 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
                 directorName={audience.name}
                 onPick={onPickRound}
               />
-              <div className="meta">
-                <b>{visible.length}</b> {visible.length === 1 ? "frame" : "frames"}
-                {style ? ` · ${style.label}` : ""}
-                <br />
-                {shownVersion ? `${shownVersion.label}${shownVersion.isDraft ? " · next round" : shownVersion.publishedAt ? ` · ${shortDate(shownVersion.publishedAt)}` : ""}` : ""}
-              </div>
               {listView ? (
                 <button type="button" className="x" onClick={() => onViewList(null)}>Back to folders</button>
               ) : null}
@@ -1031,6 +1032,20 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       {isOwner && !openItem ? (
         <Suspense fallback={null}>
           <ListsDock lists={lists} viewing={listView} codeOf={codeOf} onRename={renameList} onView={onViewList} onToast={toast} />
+        </Suspense>
+      ) : null}
+
+      {isOwner && removingStyle ? (
+        <Suspense fallback={null}>
+          <RemoveStyleDialog
+            slug={slug}
+            style={removingStyle}
+            shown={shownVersion}
+            current={currentVersion}
+            audience={audience}
+            onClose={() => setRemovingStyle(null)}
+            onToast={toast}
+          />
         </Suspense>
       ) : null}
 

@@ -228,3 +228,73 @@ export const writeLists = (slug: string, lists: Lists) => {
     // Private mode or a full store: lists live for this visit only.
   }
 };
+
+// ------------------------------------------------------------- making of
+
+export type MadeWithKind = "moodboard" | "profile" | "sref";
+export type MadeWithChip = { kind: MadeWithKind; code: string; name: string };
+
+type NamedCode = { name: string; code?: string };
+type MadeWithInput = {
+  prompt?: string;
+  midjourney?: {
+    personalization?: Array<{ code: string; type?: string; name?: string }>;
+    otherFlags?: string[];
+  } | null;
+  style?: { recipes?: Array<{ moodboards?: NamedCode[]; profiles?: NamedCode[] }> } | null;
+  /** Gallery moodboards and Midjourney profiles that carry these codes. */
+  codeNames?: Array<{ code: string; name: string; type: "moodboard" | "profile" }>;
+};
+
+// Values after a flag up to the next "--flag" ("--profile a b --sref 1 2 --ar 16:9").
+const flagValues = (text: string, flag: string) => {
+  const out: string[] = [];
+  const tokens = text.split(/\s+/).filter(Boolean);
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (tokens[index] !== `--${flag}`) continue;
+    for (index += 1; index < tokens.length && !tokens[index]!.startsWith("--"); index += 1) out.push(tokens[index]!);
+    index -= 1;
+  }
+  return out;
+};
+
+const unique = (values: string[]) => [...new Set(values)];
+
+/**
+ * What made a frame, as chips: every --profile code (moodboards and taste
+ * profiles, named from the frame's metadata or else the style's recipes) and
+ * every --sref. Names show; codes copy.
+ */
+export const madeWith = (detail: MadeWithInput | null | undefined): MadeWithChip[] => {
+  if (!detail) return [];
+  const prompt = detail.prompt ?? "";
+  const flags = (detail.midjourney?.otherFlags ?? []).join(" ");
+  const known = new Map<string, { name: string; kind: "moodboard" | "profile" }>();
+  for (const row of detail.codeNames ?? []) known.set(row.code, { name: row.name, kind: row.type });
+  for (const recipe of detail.style?.recipes ?? []) {
+    for (const row of recipe.moodboards ?? []) if (row.code) known.set(row.code, { name: row.name, kind: "moodboard" });
+    for (const row of recipe.profiles ?? []) if (row.code) known.set(row.code, { name: row.name, kind: "profile" });
+  }
+  const personalization = detail.midjourney?.personalization ?? [];
+  const codes = unique([...personalization.map((row) => row.code), ...flagValues(prompt, "profile"), ...flagValues(prompt, "p")]);
+  const chips: MadeWithChip[] = codes.map((code) => {
+    const meta = personalization.find((row) => row.code === code);
+    const recipe = known.get(code);
+    const kind = meta?.type === "moodboard" || meta?.type === "profile" ? meta.type : recipe?.kind ?? "profile";
+    return { kind, code, name: meta?.name?.trim() || recipe?.name || code };
+  });
+  for (const code of unique([...flagValues(flags, "sref"), ...flagValues(prompt, "sref")])) {
+    chips.push({ kind: "sref", code, name: "Style ref" });
+  }
+  return chips;
+};
+
+/** The flags ready to paste into Midjourney: "--profile a b --sref 1". */
+export const madeWithFlags = (chips: MadeWithChip[]) => {
+  const profiles = chips.filter((row) => row.kind !== "sref").map((row) => row.code);
+  const srefs = chips.filter((row) => row.kind === "sref").map((row) => row.code);
+  return [profiles.length ? `--profile ${profiles.join(" ")}` : "", srefs.length ? `--sref ${srefs.join(" ")}` : ""].filter(Boolean).join(" ");
+};
+
+/** A short hint of a long code ("2116…5797"). */
+export const codeHint = (code: string) => (code.length > 10 ? `${code.slice(0, 4)}…${code.slice(-4)}` : code);

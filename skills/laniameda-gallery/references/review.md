@@ -124,11 +124,15 @@ of its own. Promoting a frame into a style, or moving it to another style in
 the draft, files it onto that style's shelf in the gallery (and off the
 style shelf it left), journaled under the session `review-<project>`, so the
 styles page, `get_style` and the review always agree. `world_undo` reverts
-it. Frames of another world are skipped, never moved. A style must be one
-look made one way: when one style holds frames made by clearly different
-recipes (different --sref, profiles or boards) that also look different,
-split it with `save_style` (one style per recipe, each with its recipe,
-template and covers) before the director compares them. Director labels are
+it. Frames of another world are skipped, never moved. A style is one exact Midjourney recipe: the same moodboards, profiles and
+--sref (Michael, 6 Nov 2026). Frames made with a different moodboard or
+profile are a different style even when they look alike: read each frame's
+prompt, group by its codes, and give every group its own `save_style`
+record (recipe, template, covers) before promoting. A style needs at least 8
+frames; a recipe with fewer is not a style yet and stays out of the review. Its
+own frames wait until there are 8. Edits (Midjourney --edit inpaint, clean-up
+edits) keep their source frame's style. A mislabelled frame in a published
+round is corrected with `review.restyleInRound`. Director labels are
 plain words ("Bright day", "Painted panorama"); recipes and codes stay with
 the owner and agents.
 

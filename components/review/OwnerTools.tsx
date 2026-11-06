@@ -398,6 +398,64 @@ export function BulkOwnerTools({ slug, itemIds, codes, folders, styles, shown, c
   );
 }
 
+// ------------------------------------------------------------ remove a style
+
+type RemoveStyleProps = {
+  slug: string;
+  style: { id: Id<"worldStyles">; label: string; roundCount: number };
+  shown?: ReviewVersion;
+  current?: ReviewVersion;
+  audience: Audience;
+  onClose: () => void;
+  onToast: (text: string, error?: boolean) => void;
+};
+
+/** Takes every frame of a style out of the next round and drops the style from the carousel. */
+export function RemoveStyleDialog({ slug, style, shown, current, audience, onClose, onToast }: RemoveStyleProps) {
+  const removeStyle = useMutation(api.review.removeStyle);
+  const [busy, setBusy] = useState(false);
+  const inDraft = Boolean(shown?.isDraft);
+  const run = async () => {
+    setBusy(true);
+    try {
+      const result = await removeStyle({ slug, styleId: style.id, dropFromCarousel: true });
+      onToast(
+        `Removed ${style.label}: ${plural(result.removed, "frame")} out of the next round (${result.round}).` +
+          (inDraft ? "" : ` ${sees(audience)} ${current?.label ?? "the current round"} unchanged until you send it.`),
+      );
+      onClose();
+    } catch (error) {
+      onToast(message(error), true);
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="rv-dialog-back" onPointerDown={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
+      <div
+        className="rv-pop rv-dialog"
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={`Remove ${style.label}`}
+        style={{ position: "static" }}
+        onKeyDown={(event) => { if (event.key === "Escape" && !busy) onClose(); }}
+      >
+        <h4>Remove {style.label}?</h4>
+        <p>
+          Takes {plural(style.roundCount, "frame")} in {style.label} out of the next round
+          {inDraft ? ` (${shown?.label})` : ""} and drops the style from the carousel. The frames stay in the gallery.
+          {inDraft ? "" : ` ${sees(audience)} ${current?.label ?? "the current round"} until you send the next one.`}
+        </p>
+        <div className="row">
+          <button type="button" className="rv-btn ghost" disabled={busy} onClick={onClose} autoFocus>Cancel</button>
+          <button type="button" className="rv-btn accent" disabled={busy} onClick={() => void run()}>
+            {busy ? "Removing…" : `Remove ${style.label}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ------------------------------------------------------------ lists dock
 
 type DockProps = {
