@@ -177,3 +177,15 @@ test("style tools reach the styles route, read tools are read-only and writes ta
     { path: "/api/agent/styles", input: { action: "lookup", items: ["04fc5ee9-2"] } },
   ]);
 });
+test("Midjourney queue tools reach one scoped route and never claim to submit", async () => {
+  const calls: { path: string; input: JsonRecord }[] = [];
+  const tools = registry(async (path, input) => { calls.push({ path, input }); return {}; });
+  await tools.get("queue_mj_prompts")!.handler({ batch: "DA · lettering", world: "dear-annete", items: [{ prompt: "a hand", ingestKey: "k1" }] });
+  await tools.get("list_mj_queue")!.handler({ batch: "DA · lettering" });
+  await tools.get("update_mj_queue_item")!.handler({ itemId: "mjq:abc", status: "skipped" });
+  expect(calls.map((call) => [call.path, call.input.action])).toEqual([
+    ["/api/agent/mj-queue", "queue"], ["/api/agent/mj-queue", "list"], ["/api/agent/mj-queue", "update"],
+  ]);
+  expect(tools.get("list_mj_queue")!.config.annotations).toMatchObject({ readOnlyHint: true });
+  expect(String(tools.get("queue_mj_prompts")!.config.description)).toContain("Michael's own click");
+});

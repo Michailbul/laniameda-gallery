@@ -19,6 +19,7 @@ const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
 const FOLDERS_ROUTE_PATH = "/api/extension/folders";
 const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
 const MOODBOARDS_ROUTE_PATH = "/api/extension/moodboards";
+const MJ_QUEUE_ROUTE_PATH = "/api/extension/mj-queue";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const X_POST_ROUTE_PATH = "/api/extension/x-post";
 const COMMENTS_ROUTE_PATH = "/api/extension/comments";
@@ -1132,6 +1133,42 @@ async function listMoodboards(world) {
   return data;
 }
 
+// The Midjourney Queue panel reads the queue (GET) and saves edits, skips and
+// the record of a send Michael made himself (POST). It never submits a job.
+async function mjQueueRequest(message) {
+  const config = await getConfig();
+  let url = normalizeRouteUrl(config.apiUrl, MJ_QUEUE_ROUTE_PATH);
+  const post = message.method === "POST";
+  if (!post && message.query) {
+    const search = new URLSearchParams();
+    for (const [key, value] of Object.entries(message.query)) {
+      if (value != null && value !== "") search.set(key, String(value));
+    }
+    const text = search.toString();
+    if (text) url += `?${text}`;
+  }
+  let response;
+  try {
+    response = await fetch(url, {
+      method: post ? "POST" : "GET",
+      headers: apiHeaders(config),
+      body: post ? JSON.stringify(message.body || {}) : undefined,
+    });
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}` };
+  }
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    // body wasn't JSON
+  }
+  if (!response.ok || !data) {
+    return { ok: false, status: response.status, error: data?.error || `HTTP ${response.status}` };
+  }
+  return data;
+}
+
 // ── Collections (stored as `folders` rows) ──
 
 async function getFolders() {
@@ -1487,6 +1524,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "getFolders") {
     getFolders()
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "mjQueue") {
+    mjQueueRequest(message)
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

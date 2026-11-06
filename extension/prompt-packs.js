@@ -291,8 +291,11 @@
     const dock = document.querySelector(".stg-mb-dock");
     if (dock && dock.parentElement === document.body) {
       if (bar.nextElementSibling !== dock) document.body.insertBefore(bar, dock);
-    } else if (bar.parentElement === document.body && bar !== document.body.lastElementChild) {
-      document.body.appendChild(bar);
+    } else if (bar.parentElement === document.body) {
+      const queueRoot = document.querySelector("body > .stg-q-root");
+      if (queueRoot ? bar.nextElementSibling !== queueRoot : bar !== document.body.lastElementChild) {
+        document.body.insertBefore(bar, queueRoot);
+      }
     }
     // Stack next to the moodboard dock when it is showing, else next to the
     // prompt, and never over Midjourney's settings panel.

@@ -11,6 +11,7 @@ import { newspaperFields } from "./newspaperValidators";
 import {
   inspirationAdaptationFields, inspirationEventFields, inspirationSourceFields, inspirationVersionFields,
 } from "./inspirationValidators";
+import { mjQueueItemFields } from "./mjQueueValidators";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
 import {
   reviewCommentFields, reviewFeedbackFields, reviewFolderFields, reviewItemFields,
@@ -58,6 +59,11 @@ const semanticVectorFields = {
 };
 
 export default defineSchema({
+  // Midjourney prompt queue (convex/mjQueue.ts): agents queue, Michael sends.
+  mjQueueItems: defineTable(mjQueueItemFields)
+    .index("by_owner_batchKey_order", ["ownerUserId", "batchKey", "order"])
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"]),
   // Director review (convex/review.ts, reviewValidators.ts).
   reviewProjects: defineTable(reviewProjectFields)
     .index("by_slug", ["slug"])

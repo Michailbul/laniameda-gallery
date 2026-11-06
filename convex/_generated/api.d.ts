@@ -63,6 +63,8 @@ import type * as membershipAudit from "../membershipAudit.js";
 import type * as menuFilters from "../menuFilters.js";
 import type * as midjourneySrefs from "../midjourneySrefs.js";
 import type * as mjProfiles from "../mjProfiles.js";
+import type * as mjQueue from "../mjQueue.js";
+import type * as mjQueueValidators from "../mjQueueValidators.js";
 import type * as moodboardValidators from "../moodboardValidators.js";
 import type * as moodboards from "../moodboards.js";
 import type * as newspaper from "../newspaper.js";
@@ -173,6 +175,8 @@ declare const fullApi: ApiFromModules<{
   menuFilters: typeof menuFilters;
   midjourneySrefs: typeof midjourneySrefs;
   mjProfiles: typeof mjProfiles;
+  mjQueue: typeof mjQueue;
+  mjQueueValidators: typeof mjQueueValidators;
   moodboardValidators: typeof moodboardValidators;
   moodboards: typeof moodboards;
   newspaper: typeof newspaper;
