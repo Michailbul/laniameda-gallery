@@ -10,7 +10,7 @@ import { taskEventFields, taskFields } from "./taskValidators";
 import { newspaperFields } from "./newspaperValidators";
 import {
   inspirationAdaptationFields, inspirationDispatchFields, inspirationEventFields, inspirationJobFields,
-  inspirationSourceFields, inspirationVersionFields,
+  inspirationPrivateMediaFields, inspirationSourceFields, inspirationVersionFields,
 } from "./inspirationValidators";
 import { mjQueueItemFields } from "./mjQueueValidators";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
@@ -519,6 +519,12 @@ export default defineSchema({
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
     .index("by_owner_status_updatedAt", ["ownerUserId", "status", "updatedAt"])
     .index("by_adaptation_createdAt", ["adaptationId", "createdAt"]),
+  // Private originals for inspiration sources (convex/inspirationPrivate.ts):
+  // bytes in Convex storage, delivered only through the authenticated route.
+  inspirationPrivateMedia: defineTable(inspirationPrivateMediaFields)
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_storageId", ["storageId"])
+    .index("by_source_createdAt", ["sourceId", "createdAt"]),
   // The morning newspaper: one edition per owner per Prague date, compiled by
   // the daily cron (or on demand) from the tables above; facts as JSON, the
   // agent's prose beside them. See convex/newspaper.ts.

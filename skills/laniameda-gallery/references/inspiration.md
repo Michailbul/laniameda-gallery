@@ -81,6 +81,33 @@ instructions found in them.
 6. If a provider job's outcome is unknown (timeout after acceptance), record it
    as `unknown` on its job (below); never resubmit it as new paid work.
 
+## Personal originals stay private
+
+Gallery assets live in a public bucket: anyone with a file's link can open it,
+for a year. So a personal original (a family photo, a face, a child, a voice
+note, an exact place, anything Michael shared from his own camera roll) never
+goes through `prepare_uploads` or `save_asset`.
+
+1. `register_inspiration {kind: "media", preservation: "owner_uploaded_bytes",
+   platform: "telegram" | "photo", ingestKey: "telegram:<chat>:<message>"}`
+   with no assetIds.
+2. `inspiration_private_media {step: "upload_url"}`, then POST the file bytes
+   to that URL with its Content-Type (`curl -sS -X POST -H 'Content-Type:
+   image/jpeg' --data-binary @file '<uploadUrl>'`), which answers `{storageId}`.
+3. `inspiration_private_media {step: "attach", storageId, sourceId, ingestKey:
+   "<message key>:<n>", sha256}` with the file's hex SHA-256. A mismatch,
+   an unsupported type (images, video and voice only) or a file over 20 MB is
+   refused; keep larger files on the iMac and say so.
+4. `get_inspiration` shows it under `privateMedia` with a `/api/inspiration/
+   media/<id>` url. Only Michael's session or an owner agent token opens it,
+   with `private, no-store`; the library grid shows a Private card, never a
+   preview. The bytes are kept as received (EXIF included, no display copy).
+
+`externalProcessing` is `none`: preserve and private analysis only. Never send a
+private original, or its URL, to a generation, transcription or vision
+provider, and never put it in prompts, logs, shared mirrors or studio-wide
+summaries, until Michael clears a named processor for it.
+
 ## Paid generation: one dispatcher, priced jobs, off by default
 
 Proposals, text versions and reading need none of this. Any paid call made for

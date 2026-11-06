@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowLeft, Lightbulb, Loader2, Type } from "lucide-react";
+import { ArrowLeft, Lightbulb, Loader2, Lock, Type } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { CopyChip, Micro, RADIUS, display, errorText, mono } from "@/components/inbox/inbox-ui";
@@ -72,7 +72,14 @@ function Tile({ row, archivedNow, onHover, focused }: { row: Row; archivedNow: b
       {lead
         // eslint-disable-next-line @next/next/no-img-element -- stored thumbnail at its own ratio
         ? <img src={lead.thumbUrl ?? lead.url} alt="" loading="lazy" decoding="async" className="block w-full" style={{ aspectRatio: ratio, objectFit: "cover" }} />
-        : <div className="flex w-full flex-col justify-between p-3" style={{ aspectRatio: ratio, background: "var(--lm-surface-1)", border: HAIR, borderRadius: RADIUS }}>
+        : row.privateCount > 0
+          // Private originals are never previewed in the grid (no public URL exists).
+          ? <div className="flex w-full flex-col justify-between p-3" style={{ aspectRatio: "4 / 5", background: "var(--lm-surface-1)", border: HAIR, borderRadius: RADIUS }}>
+            <Lock size={16} className="mt-7" style={{ color: "var(--lm-text-ghost)" }} aria-hidden />
+            <p className="line-clamp-5 text-[15px] font-black uppercase leading-[1.1] tracking-tight" style={display}>{row.title}</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>Private · {row.privateCount} {row.privateCount === 1 ? "original" : "originals"}</p>
+          </div>
+          : <div className="flex w-full flex-col justify-between p-3" style={{ aspectRatio: ratio, background: "var(--lm-surface-1)", border: HAIR, borderRadius: RADIUS }}>
           <Type size={16} className="mt-7" style={{ color: "var(--lm-text-ghost)" }} aria-hidden />
           <p className="line-clamp-6 text-[15px] font-black uppercase leading-[1.1] tracking-tight" style={display}>{row.title}</p>
           <p className="line-clamp-3 text-[11px] leading-4" style={{ color: "var(--lm-text-tertiary)" }}>{row.text ?? row.caption ?? ""}</p>

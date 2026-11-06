@@ -113,3 +113,38 @@ export const cycleStartAt = (anchor: number, cycleHours: number, now: number) =>
   if (now <= anchor) return anchor;
   return anchor + Math.floor((now - anchor) / length) * length;
 };
+
+/** Private originals (convex/inspirationPrivate.ts). */
+export const INSPIRATION_PRIVATE = {
+  // A Convex HTTP action answers at most 20 MB; larger files stay on the iMac.
+  maxBytes: 20 * 1024 * 1024,
+  perSource: 50,
+  types: {
+    "image/jpeg": "image", "image/png": "image", "image/webp": "image", "image/heic": "image", "image/heif": "image",
+    "video/mp4": "video", "video/quicktime": "video",
+    "audio/mpeg": "audio", "audio/mp4": "audio", "audio/x-m4a": "audio", "audio/ogg": "audio", "audio/wav": "audio",
+  } as Record<string, "image" | "video" | "audio">,
+} as const;
+
+/** The only URL a client ever sees for a private original: the authenticated route. */
+export const privateMediaPath = (mediaId: string) => `/api/inspiration/media/${encodeURIComponent(mediaId)}`;
+
+/** Parse a single "bytes=a-b" Range against a size; null = serve whole, "invalid" = 416. */
+export const parseByteRange = (header: string | null, size: number): { start: number; end: number } | null | "invalid" => {
+  if (!header) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || (match[1] === "" && match[2] === "")) return "invalid";
+  let start: number;
+  let end: number;
+  if (match[1] === "") {
+    const suffix = Number(match[2]);
+    if (suffix === 0) return "invalid";
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] === "" ? size - 1 : Math.min(Number(match[2]), size - 1);
+  }
+  if (start > end || start >= size) return "invalid";
+  return { start, end };
+};

@@ -11,6 +11,7 @@ import { createAssetRecord, replaceAssetFolderLinks } from "./assets";
 import { upsertTask } from "./tasks";
 import { worldIdOfFolder } from "./worldCore";
 import { attachVersionToJob, linkJobVersion } from "./inspirationDispatch";
+import { privateMediaOfSource, privateMediaView, privateMediaViewValidator } from "./inspirationPrivate";
 import {
   inspirationAdaptationStatusValidator, inspirationOutputValidator, inspirationPlatformValidator,
   inspirationPreservationValidator, inspirationRoutingValidator, inspirationSourceReviewValidator,
@@ -272,6 +273,7 @@ const listRowValidator = v.object({
   ...sourceFieldsValidator,
   lead: v.optional(assetViewValidator),
   savedCount: v.number(),
+  privateCount: v.number(),
   adaptations: v.array(v.object({
     adaptationId: v.id("inspirationAdaptations"), targetWorldId: v.optional(v.id("folders")), targetLabel: v.string(),
     status: inspirationAdaptationStatusValidator, currentVersion: v.number(), approvedVersion: v.optional(v.number()), promoted: v.boolean(),
@@ -340,7 +342,11 @@ export const listInspiration = ownerQuery({
           ...(latestOutput ? { latestOutput } : {}),
         });
       }
-      rows.push({ ...sourceFieldsView(source), lead, savedCount: source.assetIds.length, adaptations: adaptationRows });
+      // Private originals are counted, never previewed in the grid: they load
+      // only on the source page, through the authenticated route.
+      const privateCount = (await ctx.db.query("inspirationPrivateMedia").withIndex("by_source_createdAt", (q) => q.eq("sourceId", source._id))
+        .take(50)).filter((row) => owns(args.ownerUserId, row)).length;
+      rows.push({ ...sourceFieldsView(source), lead, savedCount: source.assetIds.length + privateCount, privateCount, adaptations: adaptationRows });
     }
     // More remain when the page filled before the scan ended, or the scan itself was cut.
     const more = (rows.length >= limit && last !== sorted.at(-1)?.updatedAt) || sorted.length >= L.scan;
@@ -362,6 +368,8 @@ export const getInspiration = ownerQuery({
   returns: v.union(v.null(), v.object({
     ...sourceFieldsValidator,
     assets: v.array(assetViewValidator),
+    // Private originals: bytes only through the authenticated route.
+    privateMedia: v.array(privateMediaViewValidator),
     story: v.optional(v.object({ storyId: v.id("stories"), title: v.string(), body: v.string() })),
     notes: v.array(noteViewValidator),
     adaptations: v.array(v.object({
@@ -407,7 +415,8 @@ export const getInspiration = ownerQuery({
         events: events.filter((event) => event.adaptationId === row._id).map(eventView),
       });
     }
-    return { ...sourceFieldsView(source), assets, story, notes, adaptations };
+    const privateMedia = (await privateMediaOfSource(ctx, args.ownerUserId, source._id)).map(privateMediaView);
+    return { ...sourceFieldsView(source), assets, privateMedia, story, notes, adaptations };
   },
 });
 
@@ -521,8 +530,9 @@ export const registerInspirationSource = ownerMutation({
     }
     const body = text(args.text, L.text, "text");
     if (args.kind === "text" && !body && !args.storyId) fail("A text source needs its text or a storyId; no placeholder media.");
-    if (args.kind === "media" && assetIds.length === 0 && !["link_only", "unavailable"].includes(args.preservation)) {
-      fail("A media source needs its saved assetIds, or preservation link_only / unavailable.");
+    // owner_uploaded_bytes with no assets: its private originals follow (inspiration_private_media).
+    if (args.kind === "media" && assetIds.length === 0 && !["link_only", "unavailable", "owner_uploaded_bytes"].includes(args.preservation)) {
+      fail("A media source needs its saved assetIds, private originals (preservation owner_uploaded_bytes), or preservation link_only / unavailable.");
     }
     const now = Date.now();
     const fields = {

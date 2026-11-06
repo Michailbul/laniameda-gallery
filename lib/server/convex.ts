@@ -34,3 +34,11 @@ export const getServerConvexClient = (actorUserId?: string) => {
   }
   return client;
 };
+
+/** The Convex HTTP actions origin (.convex.site) for the configured deployment. */
+export const convexSiteUrl = () => {
+  const explicit = process.env.CONVEX_SITE_URL || process.env.NEXT_PUBLIC_CONVEX_SITE_URL;
+  if (explicit) return explicit.replace(/\/+$/, "");
+  const cloud = process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL;
+  return cloud ? cloud.replace(/\/+$/, "").replace(/\.convex\.cloud$/, ".convex.site") : undefined;
+};

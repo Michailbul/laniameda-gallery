@@ -259,3 +259,30 @@ export const inspirationJobFields = {
   createdAt: v.number(),
   updatedAt: v.number(),
 };
+
+/* ── Private originals (convex/inspirationPrivate.ts) ────────────────────
+ * Personal material (family photos, faces, voice, exact places) is kept
+ * in Convex file storage, never in the public R2 bucket, and is served only
+ * through the authenticated /api/inspiration/media/<id> route. The storage
+ * URL is never handed to a client. */
+
+export const inspirationPrivateMediaFields = {
+  ownerUserId: v.string(),
+  storageId: v.id("_storage"),
+  // The source it belongs to; absent while it waits to be registered.
+  sourceId: v.optional(v.id("inspirationSources")),
+  ingestKey: v.string(),
+  kind: v.union(v.literal("image"), v.literal("video"), v.literal("audio")),
+  contentType: v.string(),
+  size: v.number(),
+  // Hex SHA-256 of the stored bytes, from storage's own record.
+  sha256: v.string(),
+  width: v.optional(v.number()),
+  height: v.optional(v.number()),
+  label: v.optional(v.string()),
+  // Which outside processors may see these bytes. "none" until Michael
+  // clears a processor: preserve and private analysis only.
+  externalProcessing: v.literal("none"),
+  createdBy: v.string(),
+  createdAt: v.number(),
+};

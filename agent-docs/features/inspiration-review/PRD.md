@@ -136,3 +136,29 @@ Closes the critic's lease, budget, uncertain-job and revocation gates in code
 
 Still open: private byte delivery for personal originals; Telegram sender
 binding test; Instagram capture coverage; Michael's phone walk-through.
+
+## Private originals (7 Nov 2026, branch `feat/inspiration-private-media`)
+
+Closes the critic's P0.1 byte-privacy gate for personal material.
+
+- Table `inspirationPrivateMedia`; `convex/inspirationPrivate.ts`. Bytes go to
+  Convex file storage (one-time upload URL), never the public R2 bucket.
+  `attach` checks storage's own size / type / SHA-256 (hex), refuses a
+  storageId recorded before (any owner), an unsupported type and >20 MB.
+- Delivery: `/api/inspiration/media/<id>` (session cookie or owner agent
+  token with gallery:read) → Convex HTTP action `/inspiration/private-media`
+  (first `convex/http.ts`) under a freshly minted short-lived token. 401
+  without auth, 404 for another owner, `private, no-store`, byte ranges for
+  phone video. No storage URL is returned to any caller.
+- `get_inspiration` → `privateMedia` with the gated url; the library shows a
+  Private card (no preview, no grid load); the source page shows the files.
+- Register accepts media with no assets when preservation is
+  `owner_uploaded_bytes`. MCP tool `inspiration_private_media`; skill 1.35.0.
+- `externalProcessing: "none"` on every row: no outside processor until
+  Michael clears one (no UI for that yet).
+- Tests: tests/inspiration-private.test.ts.
+
+Limits: no display copy without EXIF yet (the owner sees the original as
+received); no thumbnails (the grid never previews private files); files over
+20 MB stay on the iMac; owner deletion/export of a private original is not
+built.
