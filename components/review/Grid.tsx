@@ -4,7 +4,7 @@
 import { memo, useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { LIST_COLORS, mediaUrl, srcSetOf, thumbAtLeast, type ListKey, type ReviewItem, type Verdict } from "@/lib/review-client";
 import { Check } from "./icons";
-import { Avatar, facesTitle, type Person } from "./people";
+import { Avatar, Faces, facesTitle, type Person } from "./people";
 
 // The frames. Rows are justified in CSS (review.css, .rv-grid/.rv-t): every
 // frame keeps its aspect ratio, a row shares one height, and the server
@@ -15,8 +15,14 @@ export type GridGroup = {
   key: string;
   title?: string;
   kicker?: string;
+  // Set when the section is one style (a folder shown in all styles).
+  styleId?: string;
   items: ReviewItem[];
 };
+
+// A whole style's feedback: your own verdict and everyone's faces
+// ("who:like,who:dislike", reviewers plus you).
+export type StyleMark = { mine?: Verdict; faces: string };
 
 export type TileMark = {
   // The frame's state for this viewer: their own verdict (director), or the
@@ -50,6 +56,9 @@ type GridProps = {
   onBox: (ids: Set<string>) => void;
   onClear: () => void;
   onSelectGroup?: (ids: string[]) => void;
+  styleMarks?: Map<string, StyleMark>;
+  /** Anyone who may vote: like or dislike a whole style (again = clear). */
+  onStyleVerdict?: (styleId: string, verdict: Verdict) => void;
 };
 
 const PER_ROW = { s: 5, m: 3, l: 2 } as const;
@@ -83,7 +92,7 @@ const NEAR = 12;
 const STEP = 120;
 
 export function Grid(props: GridProps) {
-  const { groups, marks, people, selected, mediaBase, canVote, isOwner, size, targetRef, onAct, onOpen, onToggle, onRange, onBox, onClear, onSelectGroup } = props;
+  const { groups, marks, people, selected, mediaBase, canVote, isOwner, size, targetRef, onAct, onOpen, onToggle, onRange, onBox, onClear, onSelectGroup, styleMarks, onStyleVerdict } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const suppressClick = useRef(false);
@@ -271,6 +280,15 @@ export function Grid(props: GridProps) {
               <h3>{group.title}</h3>
               <span className="n">{group.items.length}</span>
               {group.kicker ? <span className="n">{group.kicker}</span> : null}
+              {group.styleId ? (
+                <StyleVote
+                  styleId={group.styleId}
+                  label={group.title}
+                  mark={styleMarks?.get(group.styleId)}
+                  people={people}
+                  onVote={onStyleVerdict}
+                />
+              ) : null}
               <span className="line" />
               {onSelectGroup && canVote ? (
                 <button type="button" onClick={() => onSelectGroup(group.items.map((item) => item.assetId))}>
@@ -310,6 +328,45 @@ export function Grid(props: GridProps) {
       {rendered < total ? <div ref={moreRef} style={{ height: 1 }} /> : null}
       <div ref={boxRef} className="rv-box" />
     </div>
+  );
+}
+
+/** "Like style · Dislike style" as quiet text, with the faces of who did. */
+export function StyleVote({ styleId, label, mark, people, onVote }: {
+  styleId: string;
+  label: string;
+  mark?: StyleMark;
+  people: Map<string, Person>;
+  onVote?: (styleId: string, verdict: Verdict) => void;
+}) {
+  const mine = mark?.mine;
+  if (!onVote && !mark?.faces) return null;
+  return (
+    <span className="rv-svote" data-nodrag="">
+      {onVote ? (
+        <>
+          <button
+            type="button"
+            className="like"
+            aria-pressed={mine === "like"}
+            title={mine === "like" ? `You like ${label} as a style. Click to clear.` : `Like ${label} as a style`}
+            onClick={(event) => { event.stopPropagation(); onVote(styleId, "like"); }}
+          >
+            Like style
+          </button>
+          <button
+            type="button"
+            className="dislike"
+            aria-pressed={mine === "dislike"}
+            title={mine === "dislike" ? `You dislike ${label} as a style. Click to clear.` : `Dislike ${label} as a style`}
+            onClick={(event) => { event.stopPropagation(); onVote(styleId, "dislike"); }}
+          >
+            Dislike style
+          </button>
+        </>
+      ) : null}
+      {mark?.faces ? <Faces people={people} faces={mark.faces} small /> : null}
+    </span>
   );
 }
 

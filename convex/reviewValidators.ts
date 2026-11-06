@@ -129,6 +129,20 @@ export const reviewFeedbackFields = {
   updatedAt: v.number(),
 };
 
+// A like or dislike on a whole style ("I like this look in general"), one per
+// reviewer per style; keyed like reviewFeedback (email, or "owner").
+export const reviewStyleFeedbackFields = {
+  projectId: v.id("reviewProjects"),
+  styleId: v.id("worldStyles"),
+  reviewerEmail: v.string(),
+  role: reviewRoleValidator,
+  verdict: reviewVerdictValidator,
+  // The round it was given in.
+  versionId: v.optional(v.id("reviewVersions")),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};
+
 export const reviewCommentFields = {
   projectId: v.id("reviewProjects"),
   assetId: v.id("assets"),

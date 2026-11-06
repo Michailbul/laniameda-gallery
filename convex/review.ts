@@ -435,6 +435,16 @@ const verdictRowValidator = v.object({
   updatedAt: v.number(),
 });
 
+const styleVerdictRowValidator = v.object({
+  styleId: v.id("worldStyles"),
+  // Same privacy rule as frame verdicts.
+  email: v.string(),
+  who: v.string(),
+  role: reviewRoleValidator,
+  verdict: reviewVerdictValidator,
+  updatedAt: v.number(),
+});
+
 // Short stable ids for the people of a project ("owner", "r1", "r2" …),
 // so frames can show who liked them without handing out emails.
 const peopleIds = (project: Project) => {
@@ -453,6 +463,8 @@ export const feedback = query({
       pictureUrl: v.optional(v.string()), role: v.string(), isYou: v.boolean(),
     })),
     verdicts: v.array(verdictRowValidator),
+    // Likes and dislikes on whole styles.
+    styleVerdicts: v.array(styleVerdictRowValidator),
     comments: v.array(v.object({
       assetId: v.id("assets"), count: v.number(), open: v.number(), lastAt: v.number(),
       lastByOwner: v.boolean(),
@@ -466,6 +478,10 @@ export const feedback = query({
     if (!viewer) return null;
     const verdictRows = await ctx.db
       .query("reviewFeedback")
+      .withIndex("by_project_updatedAt", (q) => q.eq("projectId", project._id))
+      .collect();
+    const styleRows = await ctx.db
+      .query("reviewStyleFeedback")
       .withIndex("by_project_updatedAt", (q) => q.eq("projectId", project._id))
       .collect();
     const commentRows = await ctx.db
@@ -502,6 +518,12 @@ export const feedback = query({
       people,
       verdicts: verdictRows.map((row) => ({
         assetId: row.assetId,
+        email: isOwner || row.reviewerEmail === mine ? row.reviewerEmail : whoOf(row.reviewerEmail),
+        who: whoOf(row.reviewerEmail),
+        role: row.role, verdict: row.verdict, updatedAt: row.updatedAt,
+      })),
+      styleVerdicts: styleRows.map((row) => ({
+        styleId: row.styleId,
         email: isOwner || row.reviewerEmail === mine ? row.reviewerEmail : whoOf(row.reviewerEmail),
         who: whoOf(row.reviewerEmail),
         role: row.role, verdict: row.verdict, updatedAt: row.updatedAt,
@@ -631,6 +653,51 @@ export const setVerdict = mutation({
       changed += 1;
     }
     return { changed };
+  },
+});
+
+/** Like, dislike or clear (verdict null) a whole style of the project. */
+export const setStyleVerdict = mutation({
+  args: {
+    slug: v.string(),
+    styleId: v.id("worldStyles"),
+    verdict: v.union(reviewVerdictValidator, v.null()),
+  },
+  returns: v.object({ changed: v.boolean() }),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role === "viewer") throw new ConvexError("This account can look but not vote.");
+    if (!project.styles.some((row) => row.styleId === args.styleId)) {
+      throw new ConvexError("That style is not in this review.");
+    }
+    const key = feedbackKey(viewer);
+    const now = Date.now();
+    const existing = await ctx.db
+      .query("reviewStyleFeedback")
+      .withIndex("by_project_style_reviewer", (q) =>
+        q.eq("projectId", project._id).eq("styleId", args.styleId).eq("reviewerEmail", key))
+      .unique();
+    if (args.verdict === null) {
+      if (!existing) return { changed: false };
+      await ctx.db.delete(existing._id);
+      return { changed: true };
+    }
+    if (existing) {
+      if (existing.verdict === args.verdict) return { changed: false };
+      await ctx.db.patch(existing._id, { verdict: args.verdict, versionId: project.currentVersionId, updatedAt: now });
+      return { changed: true };
+    }
+    await ctx.db.insert("reviewStyleFeedback", {
+      projectId: project._id,
+      styleId: args.styleId,
+      reviewerEmail: key,
+      role: viewer.role,
+      verdict: args.verdict,
+      versionId: project.currentVersionId,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { changed: true };
   },
 });
 
@@ -875,8 +942,18 @@ export const feedbackFeed = signedOwnerQuery({
       .withIndex("by_project_createdAt", (q) => q.eq("projectId", project._id).gte("createdAt", since))
       .order("desc")
       .take(limit);
+    const styleVerdicts = await ctx.db
+      .query("reviewStyleFeedback")
+      .withIndex("by_project_updatedAt", (q) => q.eq("projectId", project._id).gte("updatedAt", since))
+      .order("desc")
+      .take(limit);
     const folders = new Map((await foldersOf(ctx, project._id)).map((row) => [row._id as string, row]));
     const versions = new Map((await versionsOf(ctx, project._id)).map((row) => [row._id as string, row.label]));
+    const styleLabels = new Map<string, string>();
+    for (const entry of project.styles) {
+      const style = await ctx.db.get(entry.styleId);
+      styleLabels.set(entry.styleId, entry.label || style?.name || entry.styleId);
+    }
     const placeOf = new Map<string, { folder?: string; styleId?: string }>();
     const place = async (assetId: Id<"assets">) => {
       if (placeOf.has(assetId)) return placeOf.get(assetId)!;
@@ -896,6 +973,13 @@ export const feedbackFeed = signedOwnerQuery({
         version: row.versionId ? versions.get(row.versionId) : undefined, ...(await place(row.assetId)),
       });
     }
+    for (const row of styleVerdicts) {
+      events.push({
+        type: "style_verdict", styleId: row.styleId, style: styleLabels.get(row.styleId) ?? row.styleId,
+        verdict: row.verdict, by: row.reviewerEmail, role: row.role, at: row.updatedAt,
+        version: row.versionId ? versions.get(row.versionId) : undefined,
+      });
+    }
     for (const row of commentRows) {
       events.push({
         type: "comment", asset: `asset:${row.assetId}`, code: shortCode(row.assetId), commentId: row._id,
@@ -911,6 +995,8 @@ export const feedbackFeed = signedOwnerQuery({
         likes: verdicts.filter((row) => row.verdict === "like").length,
         dislikes: verdicts.filter((row) => row.verdict === "dislike").length,
         comments: commentRows.length,
+        styleLikes: styleVerdicts.filter((row) => row.verdict === "like").length,
+        styleDislikes: styleVerdicts.filter((row) => row.verdict === "dislike").length,
       },
       events: events.slice(0, limit),
     };

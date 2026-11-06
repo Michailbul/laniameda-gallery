@@ -14,7 +14,7 @@ import {
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
 import {
   reviewCommentFields, reviewFeedbackFields, reviewFolderFields, reviewItemFields,
-  reviewProjectFields, reviewVersionFields,
+  reviewProjectFields, reviewStyleFeedbackFields, reviewVersionFields,
 } from "./reviewValidators";
 import {
   agentTokenScopeValidator,
@@ -72,6 +72,9 @@ export default defineSchema({
     .index("by_project_asset", ["projectId", "assetId"]),
   reviewFeedback: defineTable(reviewFeedbackFields)
     .index("by_project_asset_reviewer", ["projectId", "assetId", "reviewerEmail"])
+    .index("by_project_updatedAt", ["projectId", "updatedAt"]),
+  reviewStyleFeedback: defineTable(reviewStyleFeedbackFields)
+    .index("by_project_style_reviewer", ["projectId", "styleId", "reviewerEmail"])
     .index("by_project_updatedAt", ["projectId", "updatedAt"]),
   reviewComments: defineTable(reviewCommentFields)
     .index("by_project_asset_createdAt", ["projectId", "assetId", "createdAt"])

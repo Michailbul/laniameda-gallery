@@ -41,6 +41,9 @@ rolling back and choosing who may look stay Michael's calls.
   in two folders (a place and a person).
 - **Verdict**: one like or dislike per frame per person. It belongs to the
   frame (the asset), not the round, so a like carries into the next round.
+- **Style verdict**: one like or dislike per style per person, on the look as
+  a whole ("Like style" on the style's header or chip). It belongs to the
+  style, not to any frame, and records the round it was given in.
 - **Comment**: text on a frame by the director, a viewer, Michael or an agent
   ("Studio agent"). One comment written on several frames at once is one row
   per frame. A comment can be resolved (handled) and reopened.
@@ -56,7 +59,7 @@ you use `asset:<id>` instead.
 |---|---|
 | `review_open` | Every project, or one: settings, reviewers, styles with recipes, folders with frame counts, rounds. |
 | `review_items` | The frames of a round (default: the draft, else the current one), by folder, section or style; with `frame`, its making-of. |
-| `review_feedback` | Likes, dislikes and comments, newest first, with code, folder and style; a per-frame summary; one frame's thread. |
+| `review_feedback` | Likes, dislikes and comments, newest first, with code, folder and style; a per-frame summary; style likes and dislikes; one frame's thread. |
 | `review_setup` | `op` project, folders, reorder_folders, delete_folder, invite. |
 | `review_promote` | Gallery frames into the draft round, by folder and style; `dryRun` suggests. |
 | `review_organize` | `op` move, remove, reorder, replace in the draft round. |
@@ -150,6 +153,10 @@ person with two Google accounts is listed once per email.
    Michael last marked it read; `since: <cursor>` reads what is new since your
    own last call. `who: "reviewers"` keeps only the director and viewers.
    `frames` sums it per frame: who liked, who disliked, open comments.
+   `styles` sums the style verdicts (style label, who liked, who disliked) and
+   `styleVerdicts` lists them with role and round. A liked style is a look to
+   keep developing; a disliked one is a look to stop putting in rounds (ask
+   Michael before dropping it).
 2. A dislike or a comment asking for a change is work: a targeted edit
    (`edit_asset`) or a new generation in the frame's style, saved in the
    world as usual. A like is a keep: do not regenerate it.
@@ -166,7 +173,7 @@ person with two Google accounts is listed once per email.
 
 - Publishing, rolling back, discarding a draft, changing reviewers, owner
   emails, the address or the labels: only on Michael's word.
-- Never like or dislike. Verdicts are the director's and Michael's.
+- Never like or dislike, frames or styles. Verdicts are the director's and Michael's.
 - Invite links go to Michael; he sends them. Never email or post one.
 - Everything the director reads is plain words: labels, captions, folder
   notes, round titles and notes, agent replies. No ids, tool names, prompts,

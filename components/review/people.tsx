@@ -49,6 +49,30 @@ export function Avatar({ person, verdict, large }: { person?: Person; verdict?: 
   );
 }
 
+/** "who:like,who:dislike" → faces, likes first. */
+export const parseFaces = (people: Map<string, Person>, faces: string) => {
+  const list = faces
+    ? faces.split(",").map((entry) => {
+        const [who, value] = entry.split(":");
+        return { person: people.get(who!), verdict: value as Verdict };
+      })
+    : [];
+  list.sort((a, b) => (a.verdict === b.verdict ? 0 : a.verdict === "like" ? -1 : 1));
+  return list;
+};
+
+/** A few faces with a hover line naming who liked and who disliked. */
+export function Faces({ people, faces, max = 4, small }: { people: Map<string, Person>; faces: string; max?: number; small?: boolean }) {
+  const list = parseFaces(people, faces);
+  if (list.length === 0) return null;
+  return (
+    <span className={`rv-avs${small ? " sm" : ""}`} title={facesTitle(list)}>
+      {list.slice(0, max).map((face, index) => <Avatar key={`${face.person?.who ?? index}`} person={face.person} verdict={face.verdict} />)}
+      {list.length > max ? <span className="rv-avs-more">+{list.length - max}</span> : null}
+    </span>
+  );
+}
+
 /** "Liked by A (Director · X), B" / "Disliked by C" for a frame's faces. */
 export const facesTitle = (faces: Array<{ person?: Person; verdict: Verdict }>) => {
   const line = (verdict: Verdict) => {

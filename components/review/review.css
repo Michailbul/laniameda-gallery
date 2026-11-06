@@ -258,6 +258,31 @@ body:has([data-theme="cassandra"]) { background: #0b141b; }
 .rv-style-more { position: absolute; top: 3px; right: 3px; width: 22px; height: 18px; border-radius: 5px; display: grid; place-items: center; font: 700 13px/1 var(--sans); color: var(--muted); background: rgba(var(--raised), 0.92); opacity: 0; transition: opacity 0.15s, color 0.15s; }
 .rv-style-wrap:hover .rv-style-more, .rv-style-wrap[data-menu] .rv-style-more, .rv-style-more:focus-visible { opacity: 1; }
 .rv-style-more:hover { color: var(--text); }
+/* Style likes: your own choice as a mark on the cover, faces after the label,
+   and on hover quiet text actions in place of the frame count. */
+.rv-style .cv .mk { position: absolute; top: 4px; left: 4px; width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 0 1.5px rgba(var(--ground), 0.85); }
+.rv-style-wrap[data-mine="like"] .cv { opacity: 1; box-shadow: 0 0 0 1.5px var(--like); }
+.rv-style-wrap[data-mine="dislike"] .cv { box-shadow: 0 0 0 1.5px var(--dislike); }
+.rv-style-wrap[data-mine="like"] .cv .mk { background: var(--like); }
+.rv-style-wrap[data-mine="dislike"] .cv .mk { background: var(--dislike); }
+.rv-style-wrap[data-mine="like"] .lb b { color: var(--like); }
+.rv-style-wrap[data-mine="dislike"] .lb b { color: var(--dislike); }
+.rv-style .lb .nm { display: flex; align-items: center; gap: 6px; height: 15px; }
+.rv-style .lb .nm .rv-av { width: 15px; height: 15px; font-size: 7px; }
+.rv-styles[data-vote] .rv-style .lb { min-width: 148px; }
+.rv-style-vote { position: absolute; left: 88px; top: 27px; display: flex; gap: 12px; opacity: 0; pointer-events: none; transition: opacity 0.15s; }
+.rv-style-wrap:hover .rv-style-vote, .rv-style-vote:focus-within { opacity: 1; pointer-events: auto; }
+.rv-styles[data-vote] .rv-style .lb .ct { transition: opacity 0.15s; }
+.rv-styles[data-vote] .rv-style-wrap:hover .rv-style .lb .ct, .rv-styles[data-vote] .rv-style-wrap:focus-within .rv-style .lb .ct { opacity: 0; }
+.rv-style-vote button, .rv-svote button { font: 500 10px/1 var(--mono); letter-spacing: 0.04em; color: var(--faint); white-space: nowrap; transition: color 0.15s; }
+.rv-style-vote button:hover, .rv-svote button:hover { color: var(--text); }
+.rv-style-vote .like[aria-pressed="true"], .rv-svote .like[aria-pressed="true"] { color: var(--like); }
+.rv-style-vote .dislike[aria-pressed="true"], .rv-svote .dislike[aria-pressed="true"] { color: var(--dislike); }
+.rv-svote { display: inline-flex; align-items: center; gap: 12px; margin-left: 6px; align-self: center; }
+.rv-sec-h .rv-svote button { text-transform: uppercase; letter-spacing: 0.1em; }
+.rv-avs.sm .rv-av { width: 18px; height: 18px; font-size: 8px; }
+.rv-avs-more { margin-left: 5px; font: 500 10px/1 var(--mono); color: var(--faint); }
+.rv-fbk .nums .sty { display: block; }
 .rv-style .lb .need { margin-left: 7px; color: var(--glow); letter-spacing: 0.04em; }
 
 .rv-tools { flex: none; display: flex; align-items: center; gap: 8px; }
