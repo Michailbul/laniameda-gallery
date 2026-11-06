@@ -43,6 +43,10 @@ export type WallInput = {
   gap: number;
   /** Height of an insert block (it holds a sticky full-screen frame). */
   insertHeight: number;
+  /** Per-insert heights, in order; a film insert is its own aspect, never cropped. */
+  insertHeights?: number[];
+  /** Frames that never stretch (films: a clip is never cropped). A gap under one gets a filler. */
+  locked?: boolean[];
   /** Every frame is loaded: the last chunk may close (level) too. */
   complete: boolean;
   cols?: number;
@@ -88,10 +92,10 @@ const packChunk = (
 };
 
 /** Leftover gap a chunk would need filled after its frames stretch (lower is better). */
-const residual = (pack: ReturnType<typeof packChunk>, cols: number) => {
+const residual = (pack: ReturnType<typeof packChunk>, cols: number, locked: boolean[]) => {
   const target = Math.max(...pack.bottoms);
   const lastH = new Array<number>(cols).fill(0);
-  for (const p of pack.placements) lastH[p.col] = p.h;
+  for (const p of pack.placements) lastH[p.col] = locked[p.index] ? 0 : p.h;
   let left = 0;
   for (let c = 0; c < cols; c++) {
     left += Math.max(0, target - pack.bottoms[c] - lastH[c] * MAX_STRETCH);
@@ -109,6 +113,7 @@ export function layoutWall(input: WallInput): WallLayout {
   const w = Math.round(colW);
   const heights = ratios.map((ratio) => Math.round(colW * Math.min(2.4, Math.max(0.3, ratio || 1))));
   const count = ratios.length;
+  const locked = input.locked ?? [];
   const boxes: WallBox[] = [];
   let top = 0;
   let insertsLeft = input.inserts;
@@ -124,7 +129,7 @@ export function layoutWall(input: WallInput): WallLayout {
     if (closesHere) {
       let best = { end: start + per, score: Infinity };
       for (let e = start + per - CHUNK_SLACK; e <= start + per + CHUNK_SLACK; e++) {
-        const score = residual(packChunk(heights, start, e, cols, top, gap), cols);
+        const score = residual(packChunk(heights, start, e, cols, top, gap), cols, locked);
         if (score < best.score - 0.5) best = { end: e, score };
       }
       end = best.end;
@@ -155,7 +160,8 @@ export function layoutWall(input: WallInput): WallLayout {
       let short = target - bottoms[c];
       if (short <= 0.5) continue;
       const lastBox = last[c] >= 0 ? (boxes[last[c]] as WallTileBox) : null;
-      if (lastBox) {
+      // A film keeps its own aspect: its column gets a filler instead.
+      if (lastBox && !locked[lastBox.index]) {
         const room = lastBox.h * MAX_STRETCH;
         // Close a small remainder by stretching a little further, never past
         // 60%: a sliver of filler reads worse than a tighter crop.
@@ -169,7 +175,7 @@ export function layoutWall(input: WallInput): WallLayout {
       const y = started[c] ? bottoms[c] + gap : bottoms[c];
       boxes.push({
         kind: "filler",
-        source: fillerSource(boxes, last, c, cols),
+        source: fillerSource(boxes, last, c, cols, locked),
         x: xOf(c),
         y,
         w,
@@ -181,9 +187,10 @@ export function layoutWall(input: WallInput): WallLayout {
     if (!isLast) {
       if (insertsLeft > 0) {
         const y = top + gap;
-        boxes.push({ kind: "insert", insert: insertNo++, x: 0, y, w: Math.round(width), h: insertHeight });
+        const h = input.insertHeights?.[insertNo] ?? insertHeight;
+        boxes.push({ kind: "insert", insert: insertNo++, x: 0, y, w: Math.round(width), h });
         insertsLeft -= 1;
-        top = y + insertHeight;
+        top = y + h;
       }
       top += gap;
     }
@@ -209,13 +216,11 @@ const packInOrder = (heights: number[], start: number, end: number, cols: number
   return { placements, bottoms };
 };
 
-/** A neighbouring column's frame beside the gap, so the filler is never the frame right above it. */
-const fillerSource = (boxes: WallBox[], last: number[], col: number, cols: number) => {
-  for (const c of [col + 1, col - 1, col + 2, col - 2]) {
-    if (c < 0 || c >= cols || last[c] < 0) continue;
-    const box = boxes[last[c]];
-    if (box.kind === "tile") return box.index;
-  }
-  const own = last[col] >= 0 ? boxes[last[col]] : null;
-  return own && own.kind === "tile" ? own.index : 0;
+/** A still in a neighbouring column (else its own column's still, else any frame): never a film when a still is near. */
+const fillerSource = (boxes: WallBox[], last: number[], col: number, cols: number, locked: boolean[]) => {
+  const near = [col + 1, col - 1, col + 2, col - 2, col]
+    .filter((c) => c >= 0 && c < cols && last[c] >= 0)
+    .map((c) => boxes[last[c]])
+    .filter((box): box is WallTileBox => box.kind === "tile");
+  return (near.find((box) => !locked[box.index]) ?? near[0])?.index ?? 0;
 };

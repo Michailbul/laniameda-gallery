@@ -809,6 +809,17 @@ export default defineSchema({
     // Michael rejected). Data, never hard-coded ids; the vault still shows it.
     worldPageHidden: v.optional(v.boolean()),
     worldPageHiddenReason: v.optional(v.string()),
+    // A hero frame's high-resolution renditions (Topaz upscale, JPEG, R2),
+    // smallest first: the world page serves them to large and retina screens
+    // only, through the hero's srcset. Made when a still becomes a hero
+    // (convex/heroRendition.ts, or scripts/upscale-hero.ts). Unset = none.
+    heroRendition: v.optional(
+      v.object({
+        variants: v.array(v.object({ r2Key: v.string(), width: v.number(), height: v.number() })),
+        model: v.string(),
+        createdAt: v.number(),
+      }),
+    ),
     // Optional owner note on why this one is starred. Only surfaced while the
     // asset is starred; kept on unstar so an accidental toggle loses nothing.
     starNote: v.optional(v.string()),

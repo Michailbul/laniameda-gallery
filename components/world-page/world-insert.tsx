@@ -12,6 +12,14 @@ import { claimPlayback, lowData } from "./playback";
 
 const sizesFor = (count: number) => (count >= 3 ? "34vw" : count === 2 ? "50vw" : "100vw");
 
+/** Widest candidate in a srcset ("url 480w, url 5120w" → 5120). */
+export const widestCandidate = (srcSet: string | undefined) =>
+  Math.max(0, ...(srcSet ?? "").split(",").map((entry) => Number.parseInt(entry.trim().split(/\s+/)[1] ?? "", 10) || 0));
+
+// A hero still with its 4K rendition picks it through the srcset (large and
+// retina screens only). Without one, large screens swap the original in.
+const HAS_HI_RES = 2560;
+
 const wantsFullStill = () =>
   typeof window !== "undefined" &&
   window.innerWidth * Math.min(window.devicePixelRatio || 1, 2) > 1600 &&
@@ -77,7 +85,12 @@ function InsertFrame({
   // Attach the film (or the full still) once near; never on Save-Data.
   // `near` is false on the server and on first paint, so window reads are safe.
   const src = isVideo && near && !lowData() ? tile.full : undefined;
-  const wantFull = !isVideo && near && tile.full !== tile.src && wantsFullStill();
+  const wantFull =
+    !isVideo &&
+    near &&
+    tile.full !== tile.src &&
+    widestCandidate(tile.srcSet) < HAS_HI_RES &&
+    wantsFullStill();
 
   useEffect(() => {
     const node = video.current;

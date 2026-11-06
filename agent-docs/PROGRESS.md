@@ -889,3 +889,18 @@ big wall cut by full-screen hero inserts. Built into /w/<slug>.
   with a hairline glyph that fades once past the hero.
 - Skill 1.30.0: data-model.md (heroInserts, setHeroInsert, admin reads,
   letterboxed, H/2/O keys).
+
+## Hero frames in 4K, films never cropped (6 Nov 2026)
+
+- A still promoted to hero gets `assets.heroRendition`: Topaz Standard V2 at
+  5120 wide plus a 2560 step, JPEG in R2. The hero insert's srcset offers
+  them, so large and retina screens get 4K and phones keep the ≤1440 thumbs.
+  `worldPage.setHeroInsert` schedules `heroRendition.upscale`, which runs only
+  when the deployment has `TOPAZ_API_KEY` (not set yet); meanwhile
+  `scripts/upscale-hero.ts` does it with the local keys (a key out of credit
+  is skipped).
+- Michael: a 16:9 film is never cropped. A film insert plays whole, full
+  width at its own aspect (no pin, no push, contain); splits and triptychs
+  take stills only (Shift+H on a film adds it alone; a stored group with a
+  film is played apart); the wall never stretches a film tile, a filler
+  closes its column instead.

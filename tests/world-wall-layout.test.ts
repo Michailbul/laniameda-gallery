@@ -6,7 +6,7 @@ import {
   type WallBox,
   type WallInput,
 } from "../components/world-page/wall-layout";
-import { editHeroInserts, normalizeHeroInserts } from "../lib/world-hero-inserts";
+import { editHeroInserts, normalizeHeroInserts, separateFilms } from "../lib/world-hero-inserts";
 
 // A mix like the DEAR ANNETE wall: mostly 16:9 stills, some portraits, a few squares.
 const mixed = (count: number) =>
@@ -139,5 +139,49 @@ describe("editHeroInserts", () => {
     expect(
       normalizeHeroInserts([{ assetIds: ["a", "b", "c", "d"] }, { assetIds: ["a"] }, { assetIds: [] }]),
     ).toEqual([{ assetIds: ["a", "b", "c"] }]);
+  });
+});
+
+describe("films are never cropped", () => {
+  test("a film tile keeps its exact aspect while the chunk still ends level", () => {
+    const ratios = mixed(60);
+    const locked = ratios.map((_, i) => i % 3 === 0);
+    const layout = layoutWall(base({ ratios, locked }));
+    for (const box of layout.boxes) {
+      if (box.kind !== "tile" || !locked[box.index]) continue;
+      const natural = Math.round(layout.colW * Math.min(2.4, Math.max(0.3, ratios[box.index])));
+      expect(box.h).toBe(natural);
+    }
+    for (const insert of layout.boxes.filter((box) => box.kind === "insert")) {
+      for (const bottom of columnBottomsAbove(layout.boxes, insert.y)) {
+        expect(Math.abs(bottom - (insert.y - 4))).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  test("a film insert takes its own height", () => {
+    const { boxes } = layoutWall(base({ ratios: mixed(60), inserts: 2, insertHeights: [720, 1120] }));
+    const heights = boxes.filter((box) => box.kind === "insert").map((box) => box.h);
+    expect(heights).toEqual([720, 1120]);
+  });
+});
+
+describe("hero inserts keep films whole", () => {
+  test("pairing a film makes it its own insert; a still never joins a film", () => {
+    const films = new Set(["v"]);
+    const isVideo = (id: string) => films.has(id);
+    const film = editHeroInserts([{ assetIds: ["a"] }], "v", "pair", isVideo);
+    expect(film.inserts).toEqual([{ assetIds: ["a"] }, { assetIds: ["v"] }]);
+    const still = editHeroInserts(film.inserts, "b", "pair", isVideo);
+    expect(still.inserts).toEqual([{ assetIds: ["a"] }, { assetIds: ["v"] }, { assetIds: ["b"] }]);
+  });
+
+  test("a stored split with a film plays the film as its own insert", () => {
+    const tile = (id: string, kind: "image" | "video") => ({ id, kind });
+    const out = separateFilms(
+      [{ tiles: [tile("a", "image"), tile("v", "video"), tile("b", "image")] }, { tiles: [tile("c", "image")] }],
+      (t) => t.kind === "video",
+    );
+    expect(out.map((insert) => insert.tiles.map((t) => t.id))).toEqual([["a", "b"], ["v"], ["c"]]);
   });
 });
