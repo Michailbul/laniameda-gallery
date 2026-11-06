@@ -206,12 +206,11 @@ function Shelves({ ownerUserId, adaptation, value, onChange }: { ownerUserId: st
 }
 
 function TakeCard({ ownerUserId, detail, adaptation }: { ownerUserId: string; detail: Detail; adaptation: Adaptation }) {
-  const [selected, setSelected] = useState<number | undefined>(adaptation.currentVersion || undefined);
-  // A new version arriving moves the view to it; an older pick stays put otherwise.
-  const lastCurrent = useRef(adaptation.currentVersion);
-  useEffect(() => {
-    if (adaptation.currentVersion !== lastCurrent.current) { lastCurrent.current = adaptation.currentVersion; setSelected(adaptation.currentVersion || undefined); }
-  }, [adaptation.currentVersion]);
+  // A new version arriving moves the view to it; an older pick holds only
+  // while the newest version is the one it was made against.
+  const [pick, setPick] = useState<{ number: number; newest: number }>();
+  const selected = pick && pick.newest === adaptation.currentVersion ? pick.number : adaptation.currentVersion || undefined;
+  const setSelected = (number: number) => setPick({ number, newest: adaptation.currentVersion });
   const version = adaptation.versions.find((row) => row.number === selected);
   const [panel, setPanel] = useState<"none" | "change" | "promote">("none");
   const [changeText, setChangeText] = useState("");
@@ -225,11 +224,12 @@ function TakeCard({ ownerUserId, detail, adaptation }: { ownerUserId: string; de
   const noteTake = useMutation(api.inspiration.noteInspirationAdaptation);
   const base = { ownerUserId, adaptationId: adaptation.adaptationId, expectedRevision: adaptation.revision };
   const n = version?.number ?? 0;
-  const approve = useIntent(useCallback((eventKey: string) => reviewAdaptation({ ...base, eventKey, action: "approve", version: n }), [base.expectedRevision, n])); // eslint-disable-line react-hooks/exhaustive-deps
-  const drop = useIntent(useCallback((eventKey: string) => reviewAdaptation({ ...base, eventKey, action: adaptation.status === "dropped" ? "recover" : "drop", version: n }), [base.expectedRevision, n, adaptation.status])); // eslint-disable-line react-hooks/exhaustive-deps
-  const change = useIntent(useCallback((eventKey: string) => redo({ ...base, eventKey, version: adaptation.currentVersion, body: changeText }), [base.expectedRevision, changeText, adaptation.currentVersion])); // eslint-disable-line react-hooks/exhaustive-deps
-  const doPromote = useIntent(useCallback((eventKey: string) => promote({ ...base, eventKey, version: n, outputKey: outputKey ?? "", folderId: shelf as Id<"folders"> }), [base.expectedRevision, n, outputKey, shelf])); // eslint-disable-line react-hooks/exhaustive-deps
-  const undo = useIntent(useCallback((eventKey: string) => unpromote({ ...base, eventKey }), [base.expectedRevision])); // eslint-disable-line react-hooks/exhaustive-deps
+  // Each decision names the revision and version on screen when tapped.
+  const approve = useIntent((eventKey: string) => reviewAdaptation({ ...base, eventKey, action: "approve", version: n }));
+  const drop = useIntent((eventKey: string) => reviewAdaptation({ ...base, eventKey, action: adaptation.status === "dropped" ? "recover" : "drop", version: n }));
+  const change = useIntent((eventKey: string) => redo({ ...base, eventKey, version: adaptation.currentVersion, body: changeText }));
+  const doPromote = useIntent((eventKey: string) => promote({ ...base, eventKey, version: n, outputKey: outputKey ?? "", folderId: shelf as Id<"folders"> }));
+  const undo = useIntent((eventKey: string) => unpromote({ ...base, eventKey }));
 
   const dropped = adaptation.status === "dropped";
   const isApproved = adaptation.approvedVersion !== undefined && adaptation.approvedVersion === n;
@@ -265,7 +265,7 @@ function TakeCard({ ownerUserId, detail, adaptation }: { ownerUserId: string; de
       </p>
       : <>
         {/* Source beside the take: stacked on a phone, side by side from md. */}
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="hidden md:block">
             <Micro className="mb-1 block">Source</Micro>
             {lead ? <HonestMedia media={lead} maxHeight="70vh" /> : <SourceMedia detail={detail} />}
@@ -320,7 +320,7 @@ function TakeCard({ ownerUserId, detail, adaptation }: { ownerUserId: string; de
           className="mt-2 block w-full resize-y px-3 py-2.5 text-[15px] leading-6 outline-none" style={{ borderRadius: RADIUS, border: HAIR, background: "var(--lm-surface-1)", color: "var(--lm-text-primary)" }} />
         <p className="mt-2 text-[12px] leading-5" style={{ color: "var(--lm-text-tertiary)" }}>Opens one task for an agent. Nothing is generated or paid for until the agent quotes the cost.</p>
         <div className="mt-2 flex gap-2">
-          <DecisionButton tone="coral" disabled={!changeText.trim()} busy={change.status === "pending"} onClick={async () => { await change.run(); }}>Send change request</DecisionButton>
+          <DecisionButton tone="coral" disabled={!changeText.trim()} busy={change.status === "pending"} onClick={async () => { if (await change.run()) { setChangeText(""); setPanel("none"); } }}>Send change request</DecisionButton>
           <DecisionButton onClick={() => setPanel("none")}>Cancel</DecisionButton>
         </div>
         {change.status === "done" && <Notice text="Sent. One task is open for it." />}
@@ -376,7 +376,7 @@ export function InspirationReview({ ownerUserId, sourceId }: { ownerUserId: stri
       </div>
       <CopyChip value={`inspiration:${detail.sourceId}`} label="" />
     </header>
-    <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:items-start">
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:items-start">
       <div className="md:sticky md:top-4"><SourceBlock ownerUserId={ownerUserId} detail={detail} /></div>
       <div>
         {takes.length === 0

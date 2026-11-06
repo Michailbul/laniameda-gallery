@@ -1,4 +1,4 @@
-import { ConvexError, v, type Infer } from "convex/values";
+import { ConvexError, v, type Infer, type ObjectType } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { internalMutation, internalQuery } from "./_generated/server";
@@ -651,7 +651,7 @@ export const findVersionByKey = (ctx: Ctx, owner: string, ingestKey: string) =>
  * adaptation meanwhile, the version is kept privately as an orphan and never
  * becomes current or reviewable.
  */
-export const postVersionHandler = async (ctx: MutationCtx, args: Infer<typeof postVersionObject>) => {
+export const postVersionHandler = async (ctx: MutationCtx, args: ObjectType<typeof postVersionArgs>) => {
   const owner = args.ownerUserId;
   const ingestKey = requiredText(args.ingestKey, L.ingestKey, "ingestKey");
   const adaptation = await requireAdaptation(ctx, owner, args.adaptationId);
@@ -687,7 +687,6 @@ export const postVersionHandler = async (ctx: MutationCtx, args: Infer<typeof po
   await ctx.db.patch(adaptation.sourceId, { updatedAt: now });
   return { versionId, number, created: true, orphan: false, revision };
 };
-const postVersionObject = v.object(postVersionArgs);
 
 /** For the media action: a version already written under this key (a retry). */
 export const findVersionForRetry = internalQuery({

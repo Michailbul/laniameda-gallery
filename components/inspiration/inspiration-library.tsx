@@ -56,7 +56,7 @@ function ChipRow({ label, children }: { label: string; children: React.ReactNode
 
 function StatusChip({ row }: { row: Row["adaptations"][number] }) {
   const tone = row.status === "ready" ? "coral" : row.status === "approved" ? "ink" : "ghost";
-  return <Chip tone={tone} onPicture={tone === "ghost"}>{row.promoted ? "Promoted" : ADAPTATION_STATUS_LABEL[row.status]} · {row.targetLabel}</Chip>;
+  return <span className="inline-flex max-w-full items-center gap-1.5" title={row.targetLabel}><Chip tone={tone} onPicture={tone === "ghost"}>{row.promoted ? "Promoted" : ADAPTATION_STATUS_LABEL[row.status]}</Chip><span className="truncate text-[10px] font-bold uppercase tracking-[0.1em]" style={{ ...mono, color: "var(--lm-text-tertiary)" }}>{row.targetLabel.split(" · ")[0]}</span></span>;
 }
 
 function Tile({ row, archivedNow, onHover, focused }: { row: Row; archivedNow: boolean; onHover: (row: Row | null) => void; focused: boolean }) {
@@ -72,7 +72,7 @@ function Tile({ row, archivedNow, onHover, focused }: { row: Row; archivedNow: b
         // eslint-disable-next-line @next/next/no-img-element -- stored thumbnail at its own ratio
         ? <img src={lead.thumbUrl ?? lead.url} alt="" loading="lazy" decoding="async" className="block w-full" style={{ aspectRatio: ratio, objectFit: "cover" }} />
         : <div className="flex w-full flex-col justify-between p-3" style={{ aspectRatio: ratio, background: "var(--lm-surface-1)", border: HAIR, borderRadius: RADIUS }}>
-          <Type size={16} style={{ color: "var(--lm-text-ghost)" }} aria-hidden />
+          <Type size={16} className="mt-7" style={{ color: "var(--lm-text-ghost)" }} aria-hidden />
           <p className="line-clamp-6 text-[15px] font-black uppercase leading-[1.1] tracking-tight" style={display}>{row.title}</p>
           <p className="line-clamp-3 text-[11px] leading-4" style={{ color: "var(--lm-text-tertiary)" }}>{row.text ?? row.caption ?? ""}</p>
         </div>}
