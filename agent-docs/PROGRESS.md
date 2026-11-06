@@ -2,11 +2,30 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-11-05
+Last updated: 2026-11-06
 
 ---
 
 ## ✔ Shipped
+
+### 2026-11-06 — Director review: CASSANDRA's review page, rounds, feedback, full agent control (branch `feat/director-review`)
+- `/review/<slug>` (public for CASSANDRA at www.mishabuloichyk.com/cassandra):
+  the director signs in with Google (or a private invite link), browses the
+  current round by folder (locations, characters, scenes) and style, and likes,
+  dislikes and comments on frames. Michael sees the draft and each frame's
+  making-of. Rounds v0.1, v0.2 …: a draft collects promoted frames, publish
+  makes it current, older rounds stay viewable, set current rolls back.
+- Tables `reviewProjects`, `reviewFolders`, `reviewVersions`, `reviewItems`,
+  `reviewFeedback`, `reviewComments` (convex/review.ts). Reviewer tokens
+  (`reviewer:<email>`) open only the review functions.
+- Gallery hotkey R / Shift+R promotes frames into a project's draft round.
+- Agents: `/api/agent/review` and MCP tools review_open, review_items,
+  review_feedback, review_setup, review_promote, review_organize,
+  review_round, review_comment. Handles resolve by name (folder slug, style
+  label, round label, frame code). Publish, rollback and discard need
+  `confirmed: true`; agents cannot vote. Skill 1.30.0, references/review.md.
+- Spec, verification and limits (frame codes can collide at a few hundred
+  frames): agent-docs/features/director-review/PRD.md.
 
 ### 2026-11-06 — Inspiration review: library, takes, versions, Michael's verdicts (branch `feat/inspiration-review`)
 - `/inspiration` lists saved references (raw and with takes) with filters;

@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.29.0
+version: 1.30.0
 ---
 
 # Laniameda Gallery
@@ -80,6 +80,7 @@ building one; the inbox tools already return a stack's `url` the same way.
 | Inbox stack | A world's decisions for Michael ("Decisions" in the gallery): stacks of sort, duplicates, artifact, A/B, choose-one and rule cards. Agents state facts and never judge taste; he decides; agents apply and learn | post_inbox_cards {world}, list_inbox_stacks {world}, list_inbox_decisions, close_stack, find_similar_groups {world}; references/inbox.md |
 | Task | One piece of work in the queue ("Tasks" in the gallery, /tasks): Michael's asset comments and Inbox answers become tasks by themselves; agents list, claim (a lease), work and complete with a result naming the ids produced, or blocked with an ask: a one-line question and 2–4 picture options he picks with a click (never prose). Titles and summaries are Michael's, in plain words; briefs and results are for agents. Start every session or cron run with list_tasks | list_tasks, get_task, create_task, edit_task, claim_task, release_task, complete_task, comment_task; references/tasks.md |
 | Newspaper | One edition per Prague day (/newspaper), compiled at 07:30 from the tables: per world the journal's changes, new assets with thumbnails, storybooks, moodboards with sync drift, characters; tasks done and blocked, open Inbox stacks, and needsYou. Pure facts; an agent adds the prose. Never stars, publishes or deletes | get_newspaper, write_newspaper, compile_newspaper; references/newspapers.md |
+| Director review | A project (CASSANDRA) an outside director opens at its own address: frames in folders (locations, characters, scenes) and styles, shown in rounds v0.1, v0.2 …; the director likes, dislikes and comments. Agents prepare the draft round and reply; Michael publishes | review_open, review_items, review_feedback, review_setup, review_promote, review_organize, review_round, review_comment; references/review.md |
 | Tags | Piece type, visual medium, platform, content, style and named model | list_tags, upsert_tags, add_tag_aliases; references/data-model.md |
 | Story | Private text for any story worth keeping, from any source: narration, post, article, premise, own idea, script. World-free by default; style locks are the world-only kind | save_story, list_stories, get_story, update_story; references/stories.md |
 | Style | One named look of a world (how a frame is made, whatever it shows): name, one-line look, covers, its shelf of frames, recipes (moodboards and profiles in stack order, parameters, prompt template), raises and lowers, and its style lock. Sibling worlds of one universe read together on the styles page /w/<world>/styles | list_styles, get_style, save_style, file_style, merge_styles (dryRun first), world_universe; package_style for the long style lock; references/styles.md |
@@ -116,6 +117,16 @@ propose a project take only on request, approval or a project rule. Takes are
 versioned drafts that never reach search or worlds; Michael approves and
 promotes, agents never do. A note starts no work; a redo arrives as one task.
 Read references/inspiration.md.
+
+Director review (`/review/<slug>`; CASSANDRA's is public at
+mishabuloichyk.com/cassandra) shows frames to an outside director in rounds
+(v0.1, v0.2 …), sorted into folders (locations, characters, scenes) and
+styles. Agents prepare the draft round with `review_promote` and
+`review_organize`, read the director's likes, dislikes and comments with
+`review_feedback` and reply with `review_comment`. Publishing, rollbacks,
+reviewers and invite links are Michael's calls; `review_round` refuses to
+publish, roll back or discard without `confirmed: true`. Read
+references/review.md.
 
 ## Make media findable
 

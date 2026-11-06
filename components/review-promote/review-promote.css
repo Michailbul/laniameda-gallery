@@ -1,0 +1,492 @@
+/* PROMOTE TO DIRECTOR REVIEW: the R palette and its toast. Always dark,
+   whatever the gallery theme: Obsidian ground, Linen text at three
+   opacities, Geist bold uppercase titles, mono badges, coral for the act. */
+.rvp-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1250;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12vh 20px 20px;
+  background: rgba(10, 8, 5, 0.62);
+  animation: rvp-fade 0.14s ease-out;
+}
+.rvp-palette {
+  --rvp-ink: #fff4ea;
+  --rvp-ink-2: rgba(255, 244, 234, 0.62);
+  --rvp-ink-3: rgba(255, 244, 234, 0.38);
+  --rvp-line: rgba(255, 244, 234, 0.1);
+  --rvp-coral: #f26157;
+  --rvp-teal: #79b791;
+  display: flex;
+  flex-direction: column;
+  width: min(600px, 100%);
+  max-height: 78dvh;
+  border-radius: 18px;
+  background: #0f0c09;
+  box-shadow: 0 0 0 1px var(--rvp-line), 0 24px 80px rgba(0, 0, 0, 0.55);
+  color: var(--rvp-ink);
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+  overflow: hidden;
+  outline: none;
+  animation: rvp-rise 0.16s ease-out;
+}
+.rvp-code {
+  text-transform: none;
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+}
+.rvp-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 16px 12px 20px;
+}
+.rvp-head h2 {
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+}
+.rvp-badge,
+.rvp-tag,
+.rvp-frame-mark,
+.rvp-label,
+.rvp-section,
+.rvp-area,
+.rvp-keys,
+.rvp-status {
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.rvp-badge {
+  flex: none;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--rvp-coral);
+  background: rgba(242, 97, 87, 0.12);
+}
+.rvp-close {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--rvp-ink-3);
+}
+.rvp-close:hover {
+  color: var(--rvp-ink);
+  background: rgba(255, 244, 234, 0.06);
+}
+
+/* The frames being promoted, with their place in the review. */
+.rvp-strip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 20px 14px;
+  border-bottom: 1px solid var(--rvp-line);
+  min-width: 0;
+}
+.rvp-frame {
+  position: relative;
+  flex: none;
+  height: 52px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #1c1814;
+}
+.rvp-frame img {
+  display: block;
+  height: 52px;
+  width: auto;
+  max-width: 96px;
+  object-fit: cover;
+}
+.rvp-frame-blank {
+  display: block;
+  width: 40px;
+  height: 52px;
+}
+.rvp-frame[data-in] img {
+  opacity: 0.7;
+}
+.rvp-frame-mark {
+  position: absolute;
+  left: 3px;
+  bottom: 3px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--rvp-ink);
+  background: rgba(10, 8, 5, 0.82);
+}
+.rvp-more {
+  flex: none;
+  font: 700 11px/1 var(--font-geist-mono), ui-monospace, monospace;
+  color: var(--rvp-ink-2);
+}
+.rvp-status {
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 10px;
+  color: var(--rvp-ink-2);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rvp-loading,
+.rvp-empty {
+  display: grid;
+  place-items: center;
+  min-height: 160px;
+  margin: 0;
+  color: var(--rvp-ink-2);
+  font-size: 13px;
+}
+.rvp-row {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px 0;
+}
+/* Everything keeps its height except the folder list, which gives way when
+   the palette meets its max height (a short window, many styles). */
+.rvp-head,
+.rvp-strip,
+.rvp-row,
+.rvp-loading,
+.rvp-empty,
+.rvp-foot {
+  flex: none;
+}
+.rvp-row.rvp-row-folder {
+  flex: 0 1 auto;
+  min-height: 150px;
+  grid-template-rows: minmax(0, 1fr);
+  align-items: stretch;
+}
+.rvp-row-folder .rvp-label {
+  align-self: start;
+}
+.rvp-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--rvp-ink-3);
+}
+.rvp-row-folder .rvp-label {
+  padding-top: 11px;
+}
+.rvp-project {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+.rvp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rvp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--rvp-ink-2);
+  box-shadow: inset 0 0 0 1px var(--rvp-line);
+  transition: background-color 120ms, color 120ms, box-shadow 120ms;
+}
+.rvp-chip:hover {
+  color: var(--rvp-ink);
+}
+.rvp-chip[aria-checked="true"] {
+  color: #0a0805;
+  background: var(--rvp-ink);
+  box-shadow: none;
+}
+.rvp-chip:focus-visible,
+.rvp-go:focus-visible,
+.rvp-close:focus-visible {
+  outline: 2px solid var(--rvp-coral);
+  outline-offset: 2px;
+}
+.rvp-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--rvp-teal);
+}
+.rvp-input {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 0;
+  outline: 0;
+  font: 500 13px/1 var(--font-geist-sans), system-ui, sans-serif;
+  color: var(--rvp-ink);
+  background: rgba(255, 244, 234, 0.06);
+  box-shadow: inset 0 0 0 1px var(--rvp-line);
+}
+.rvp-folder .rvp-input {
+  flex: none;
+}
+.rvp-input::placeholder {
+  color: var(--rvp-ink-3);
+}
+.rvp-input:focus {
+  box-shadow: inset 0 0 0 1px rgba(242, 97, 87, 0.7);
+}
+.rvp-folder {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  min-height: 0;
+}
+.rvp-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(300px, 34dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px 0 16px;
+  /* The row cut by the list's edge fades out instead of ending mid-word. */
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 22px), transparent);
+}
+.rvp-section {
+  padding: 10px 10px 4px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--rvp-ink);
+}
+.rvp-section:first-child {
+  padding-top: 4px;
+}
+.rvp-area {
+  padding: 6px 10px 3px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--rvp-ink-3);
+}
+.rvp-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--rvp-ink-2);
+}
+.rvp-option:hover {
+  color: var(--rvp-ink);
+  background: rgba(255, 244, 234, 0.04);
+}
+.rvp-option[data-active] {
+  color: var(--rvp-ink);
+  font-weight: 700;
+  background: rgba(242, 97, 87, 0.16);
+  box-shadow: inset 2px 0 0 var(--rvp-coral);
+}
+.rvp-tag {
+  flex: none;
+  padding: 3px 6px;
+  border-radius: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--rvp-ink-2);
+  background: rgba(255, 244, 234, 0.07);
+}
+.rvp-tag[data-tone="teal"] {
+  color: var(--rvp-teal);
+  background: rgba(121, 183, 145, 0.14);
+}
+.rvp-none {
+  margin: 0;
+  padding: 12px 10px;
+  font-size: 12px;
+  color: var(--rvp-ink-3);
+}
+
+.rvp-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 12px 16px 12px 20px;
+  border-top: 1px solid var(--rvp-line);
+}
+.rvp-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  flex: 1;
+  min-width: 0;
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--rvp-ink-3);
+}
+.rvp-keys > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.rvp-keys kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font: 800 10px/1 var(--font-geist-mono), ui-monospace, monospace;
+  color: var(--rvp-coral);
+  background: rgba(242, 97, 87, 0.12);
+}
+.rvp-error {
+  flex: none;
+  max-width: 40%;
+  font-size: 12px;
+  color: #f0907f;
+}
+.rvp-go {
+  flex: none;
+  max-width: 55%;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #0a0805;
+  background: var(--rvp-coral);
+  transition: filter 120ms;
+}
+.rvp-go:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+.rvp-go:disabled {
+  opacity: 0.5;
+}
+@media (max-width: 560px) {
+  .rvp-backdrop {
+    padding-top: 6vh;
+  }
+  .rvp-keys {
+    display: none;
+  }
+  .rvp-go {
+    max-width: none;
+    flex: 1;
+  }
+}
+
+/* The toast after a promote, with the way into the review page. */
+/* At the top: the bottom holds the dock and the selection bar. */
+.rvp-toast {
+  position: fixed;
+  left: 50%;
+  top: 72px;
+  z-index: 1300;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(640px, calc(100vw - 32px));
+  padding: 8px 8px 8px 10px;
+  border-radius: 14px;
+  transform: translateX(-50%);
+  background: #0f0c09;
+  box-shadow: 0 0 0 1px rgba(255, 244, 234, 0.12), 0 16px 48px rgba(0, 0, 0, 0.45);
+  color: #fff4ea;
+  font: 500 13px/1.3 var(--font-geist-sans), system-ui, sans-serif;
+  animation: rvp-toast-in 0.18s ease-out;
+}
+.rvp-toast[data-tone="error"] {
+  padding: 12px 16px;
+  box-shadow: 0 0 0 1px rgba(224, 90, 90, 0.5), 0 16px 48px rgba(0, 0, 0, 0.45);
+}
+.rvp-toast-thumbs {
+  display: flex;
+  flex: none;
+}
+.rvp-toast-thumbs img {
+  width: 30px;
+  height: 36px;
+  border-radius: 5px;
+  object-fit: cover;
+  box-shadow: 0 0 0 2px #0f0c09;
+}
+.rvp-toast-thumbs img + img {
+  margin-left: -10px;
+}
+.rvp-toast-line {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rvp-toast-line strong {
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+.rvp-toast-arrow {
+  margin: 0 6px;
+  color: #f26157;
+}
+.rvp-toast-dim {
+  color: rgba(255, 244, 234, 0.55);
+}
+.rvp-toast-link {
+  flex: none;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font: 800 11px/1 var(--font-geist-sans), system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #0a0805;
+  background: #fff4ea;
+}
+.rvp-toast-link:hover {
+  background: #f26157;
+}
+@keyframes rvp-fade {
+  from { opacity: 0; }
+}
+@keyframes rvp-rise {
+  from { opacity: 0; transform: translateY(6px) scale(0.99); }
+}
+@keyframes rvp-toast-in {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rvp-backdrop,
+  .rvp-palette,
+  .rvp-toast {
+    animation: none;
+  }
+}

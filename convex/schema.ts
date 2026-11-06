@@ -13,6 +13,10 @@ import {
 } from "./inspirationValidators";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
 import {
+  reviewCommentFields, reviewFeedbackFields, reviewFolderFields, reviewItemFields,
+  reviewProjectFields, reviewVersionFields,
+} from "./reviewValidators";
+import {
   agentTokenScopeValidator,
   storedAssetRoleValidator,
   cinemaMetadataValidator,
@@ -54,6 +58,24 @@ const semanticVectorFields = {
 };
 
 export default defineSchema({
+  // Director review (convex/review.ts, reviewValidators.ts).
+  reviewProjects: defineTable(reviewProjectFields)
+    .index("by_slug", ["slug"])
+    .index("by_owner", ["ownerUserId"]),
+  reviewFolders: defineTable(reviewFolderFields)
+    .index("by_project_section_order", ["projectId", "section", "order"]),
+  reviewVersions: defineTable(reviewVersionFields)
+    .index("by_project_number", ["projectId", "number"]),
+  reviewItems: defineTable(reviewItemFields)
+    .index("by_version_order", ["versionId", "order"])
+    .index("by_version_asset", ["versionId", "assetId"])
+    .index("by_project_asset", ["projectId", "assetId"]),
+  reviewFeedback: defineTable(reviewFeedbackFields)
+    .index("by_project_asset_reviewer", ["projectId", "assetId", "reviewerEmail"])
+    .index("by_project_updatedAt", ["projectId", "updatedAt"]),
+  reviewComments: defineTable(reviewCommentFields)
+    .index("by_project_asset_createdAt", ["projectId", "assetId", "createdAt"])
+    .index("by_project_createdAt", ["projectId", "createdAt"]),
   assetArchive: defineTable({
     ownerUserId: v.string(), assetId: v.id("assets"),
     deleteAt: v.number(),

@@ -16,7 +16,9 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
-import { ASSET_HOTKEYS, assetHotkeyOf } from "@/lib/asset-hotkeys";
+import { ASSET_HOTKEYS, assetHotkeyOf, promoteHotkeyOf } from "@/lib/asset-hotkeys";
+import type { PromoteFrame } from "@/components/review-promote/promote-model";
+import { useReviewPromote } from "@/components/review-promote/use-review-promote";
 import "./asset-review.css";
 
 type Target = { id: string; src: string; name: string };
@@ -186,6 +188,7 @@ const KEYS = [
   { key: "D", label: "Archive" },
   { key: "C", label: "Comment" },
   { key: "V", label: "Scene idea" },
+  { key: "R", label: "Review" },
 ] as const;
 
 /**
@@ -202,7 +205,14 @@ export function ReviewDockHints() {
     <div className="asset-review-dock" aria-label="Frame keys">
       <span className="asset-review-dock-keys">
         {KEYS.map(({ key, label }) => (
-          <span key={key} title={`${key}: ${label} the hovered frame`}>
+          <span
+            key={key}
+            title={
+              key === "R"
+                ? "R: promote the hovered frame (or the selection) to the director review · Shift+R: to the last place"
+                : `${key}: ${label} the hovered frame`
+            }
+          >
             <kbd>{key}</kbd>
             <span className="asset-review-dock-label">{label}</span>
           </span>
@@ -315,13 +325,28 @@ export function ArchiveTray() {
   );
 }
 
+/** A frame for the promote palette, read off its tile when it is on screen. */
+function frameOf(id: string, node?: HTMLElement | null): PromoteFrame {
+  const tile =
+    node ??
+    document.querySelector<HTMLElement>(`[data-review-id="${CSS.escape(id)}"]`);
+  return {
+    id,
+    thumb: tile?.dataset.reviewSrc || undefined,
+    name: tile?.dataset.reviewName || undefined,
+  };
+}
+
 export function AssetReviewControls({
   ownerUserId,
   enabled,
+  selectedAssetIds,
   children,
 }: {
   ownerUserId?: string;
   enabled: boolean;
+  /** The grid selection: R promotes all of it when several are selected. */
+  selectedAssetIds?: string[];
   children: ReactNode;
 }) {
   const { isAuthenticated } = useConvexAuth();
@@ -355,6 +380,17 @@ export function AssetReviewControls({
   const previousFocus = useRef<HTMLElement | null>(null);
   const dialog = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const {
+    open: openPromote,
+    sendToLast: promoteToLast,
+    isOpen: promoteOpen,
+    element: promoteElement,
+  } = useReviewPromote({ ownerUserId, active });
+  const selection = useRef<string[]>([]);
+
+  useEffect(() => {
+    selection.current = selectedAssetIds ?? [];
+  }, [selectedAssetIds]);
 
   useEffect(() => {
     store.set(active ? archived : EMPTY_ARCHIVE, active);
@@ -401,10 +437,11 @@ export function AssetReviewControls({
       pointer.current = { x: event.clientX, y: event.clientY };
     };
     const keydown = (event: KeyboardEvent) => {
-      if (editor) return;
+      if (editor || promoteOpen) return;
       // The key set and the typing guard live in lib/asset-hotkeys.ts.
-      const key = assetHotkeyOf(event);
-      if (!key) return;
+      const promoteKey = promoteHotkeyOf(event);
+      const key = promoteKey ? null : assetHotkeyOf(event);
+      if (!key && !promoteKey) return;
       // Other open dialogs own their keys. The gallery detail view is allowed.
       const visible = (node: HTMLElement) => node.getClientRects().length > 0;
       if (
@@ -443,6 +480,24 @@ export function AssetReviewControls({
       const focused =
         document.activeElement?.closest<HTMLElement>("[data-review-id]");
       const frame = detail ?? pointed ?? focused;
+      if (promoteKey) {
+        // R: the open frame; else the selection when several are picked (or
+        // when nothing is hovered); else the hovered frame.
+        const usable = frame?.dataset.reviewId && frame.dataset.reviewDisabled !== "true" ? frame : null;
+        const picked = selection.current;
+        const frames: PromoteFrame[] =
+          !detail && (picked.length > 1 || (picked.length === 1 && !usable))
+            ? picked.map((id) => frameOf(id))
+            : usable
+              ? [frameOf(usable.dataset.reviewId!, usable)]
+              : [];
+        if (!frames.length) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (promoteKey === "last") void promoteToLast(frames);
+        else openPromote(frames);
+        return;
+      }
       if (!frame?.dataset.reviewId || frame.dataset.reviewDisabled === "true")
         return;
       event.preventDefault();
@@ -503,7 +558,7 @@ export function AssetReviewControls({
       window.removeEventListener("pointermove", move);
       window.removeEventListener("keydown", keydown, true);
     };
-  }, [active, ownerUserId, archive, restore, notify, store, editor, setStarred]);
+  }, [active, ownerUserId, archive, restore, notify, store, editor, setStarred, promoteOpen, openPromote, promoteToLast]);
 
   async function save() {
     if (!editor || !text.trim() || busy) return;
@@ -548,6 +603,7 @@ export function AssetReviewControls({
     <ArchiveStoreContext.Provider value={store}>
       {children}
       {active && <ArchiveTray />}
+      {promoteElement}
       {active &&
         editor &&
         createPortal(

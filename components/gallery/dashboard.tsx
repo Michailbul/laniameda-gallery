@@ -28,8 +28,9 @@ import {
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
-import { BookOpen, BookOpenText, Camera, Clapperboard, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, Lightbulb, ListChecks, Loader2, Newspaper, Plus, Search as SearchIcon, SlidersHorizontal, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
+import { BookOpen, BookOpenText, Camera, Clapperboard, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, Lightbulb, ListChecks, Loader2, Newspaper, Plus, Projector, Search as SearchIcon, SlidersHorizontal, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
 import { deleteAssetSelection } from "@/lib/bulk-delete";
+import { MAIN_DIRECTOR_REVIEW, directorReviewPath } from "@/components/review-promote/promote-model";
 import { setAssetSelectionLiked } from "@/lib/bulk-like";
 import { useUploadFile } from "@convex-dev/r2/react";
 import {
@@ -4538,6 +4539,7 @@ export function GalleryDashboard({
       { key: "decisions", label: "Decisions", hint: "Cards waiting for your answer", icon: Layers, href: "/inbox", badge: inboxOpenCount },
       ...(tasksOpenCount !== undefined ? [{ key: "newspaper", label: "Newspaper", hint: "The morning review: done, needs you, decisions", icon: Newspaper, href: "/newspaper" }] : []),
       ...(tasksOpenCount !== undefined ? [{ key: "inspiration", label: "Inspiration", hint: "Saved references and their project takes", icon: Lightbulb, href: "/inspiration" }] : []),
+      ...(tasksOpenCount !== undefined ? [{ key: "director-review", label: "Director review", hint: "CASSANDRA rounds and the director's notes", icon: Projector, href: MAIN_DIRECTOR_REVIEW }] : []),
       ...(tasksOpenCount !== undefined ? [{ key: "settings", label: "Settings", hint: "Edit keys and the Magnific connection", icon: SlidersHorizontal, href: "/settings" }] : []),
     ];
   }, [activeMoodboardsTab, activeStoriesView, applyLocation, bookmarksView, cinematographyView, extraTabView, inboxOpenCount, motionView, storybooksView, tasksOpenCount, viewMode]);
@@ -5499,7 +5501,11 @@ export function GalleryDashboard({
       contentLeft={sidebarCollapsed ? "var(--lm-sidebar-collapsed)" : "var(--lm-sidebar-width)"}
       contentRight="0"
     >
-    <AssetReviewControls ownerUserId={ownerUserId} enabled={canManageFoldersInCurrentView}>
+    <AssetReviewControls
+      ownerUserId={ownerUserId}
+      enabled={canManageFoldersInCurrentView}
+      selectedAssetIds={selectedAssetIdList}
+    >
     {/* Grid deletes have no inline error surface (the card just returns),
         so failures fire a toast — otherwise a failed delete looks like a
         silent no-op. */}
@@ -6176,6 +6182,7 @@ export function GalleryDashboard({
                   showWorldTabs={Boolean(activeWorldKey)}
                   worldFolderId={activeWorldRoot ? String(activeWorldRoot._id) : undefined}
                   stylesHref={activeWorldKey ? worldStylesPath(activeWorldKey) : undefined}
+                  reviewHref={directorReviewPath(activeWorldKey)}
                   always={browsingWorldFolder || Boolean(worldStyleScope?.atStyleBranch)}
                   active={
                     viewMode === "collections"

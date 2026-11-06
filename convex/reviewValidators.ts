@@ -1,0 +1,142 @@
+import { v } from "convex/values";
+
+// Director review: a project (CASSANDRA) that an outside director opens at a
+// public address (mishabuloichyk.com/cassandra), signs in with Google, and
+// likes, dislikes and comments on frames. Frames sit in folders (locations,
+// characters, later scenes) and in styles (world styles; the director sees
+// only a label and a cover). Each round is a version: items belong to one
+// version, so earlier rounds stay exactly as they were shown. Feedback is
+// keyed by asset, so a like on a frame carries into the next round.
+
+export const reviewSectionValidator = v.union(
+  v.literal("locations"),
+  v.literal("characters"),
+  v.literal("scenes"),
+);
+
+export const reviewVerdictValidator = v.union(v.literal("like"), v.literal("dislike"));
+
+export const reviewVersionStatusValidator = v.union(v.literal("draft"), v.literal("published"));
+
+export const reviewRoleValidator = v.union(
+  v.literal("owner"),
+  v.literal("director"),
+  v.literal("viewer"),
+);
+
+export const reviewerValidator = v.object({
+  email: v.string(),
+  name: v.optional(v.string()),
+  pictureUrl: v.optional(v.string()),
+  // director = gives feedback; viewer = looks only.
+  role: v.union(v.literal("director"), v.literal("viewer")),
+  addedAt: v.number(),
+  lastSeenAt: v.optional(v.number()),
+});
+
+// A style shown in the review, in carousel order. The style's recipe
+// (moodboards, profiles, prompts) stays on the world style; `label` is the
+// plain name the director reads ("Night storybook").
+export const reviewStyleEntryValidator = v.object({
+  styleId: v.id("worldStyles"),
+  label: v.optional(v.string()),
+  hidden: v.optional(v.boolean()),
+});
+
+export const reviewProjectFields = {
+  ownerUserId: v.string(),
+  slug: v.string(),
+  title: v.string(),
+  subtitle: v.optional(v.string()),
+  worldFolderId: v.optional(v.id("folders")),
+  reviewers: v.array(reviewerValidator),
+  // Google accounts that act as the owner on the public address.
+  ownerEmails: v.array(v.string()),
+  styles: v.array(reviewStyleEntryValidator),
+  // What the director sees by default (the latest published round, or an
+  // earlier one after a rollback).
+  currentVersionId: v.optional(v.id("reviewVersions")),
+  // The round being prepared; promotes land here.
+  draftVersionId: v.optional(v.id("reviewVersions")),
+  publicUrl: v.optional(v.string()),
+  // The owner's "read up to here" mark for director feedback.
+  feedbackSeenAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};
+
+export const reviewFolderFields = {
+  ownerUserId: v.string(),
+  projectId: v.id("reviewProjects"),
+  section: reviewSectionValidator,
+  // Group label in the left nav ("San Pancho", "Mexico City", "Main cast").
+  area: v.optional(v.string()),
+  name: v.string(),
+  slug: v.string(),
+  // One plain line for the director.
+  note: v.optional(v.string()),
+  // Script scene numbers this place or character appears in.
+  scenes: v.optional(v.array(v.number())),
+  // Icon shown before the name in the left nav: a lucide icon name in
+  // kebab case ("tree-palm", "school", "sailboat").
+  icon: v.optional(v.string()),
+  order: v.number(),
+  archivedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};
+
+export const reviewVersionFields = {
+  ownerUserId: v.string(),
+  projectId: v.id("reviewProjects"),
+  number: v.number(),
+  label: v.string(),
+  status: reviewVersionStatusValidator,
+  title: v.optional(v.string()),
+  note: v.optional(v.string()),
+  basedOnVersionId: v.optional(v.id("reviewVersions")),
+  createdAt: v.number(),
+  publishedAt: v.optional(v.number()),
+};
+
+export const reviewItemFields = {
+  ownerUserId: v.string(),
+  projectId: v.id("reviewProjects"),
+  versionId: v.id("reviewVersions"),
+  assetId: v.id("assets"),
+  folderId: v.id("reviewFolders"),
+  styleId: v.optional(v.id("worldStyles")),
+  order: v.number(),
+  // Owner caption shown to the director under the frame.
+  note: v.optional(v.string()),
+  // Earlier takes this frame replaced, oldest first (iterations).
+  previousAssetIds: v.optional(v.array(v.id("assets"))),
+  addedAt: v.number(),
+};
+
+export const reviewFeedbackFields = {
+  projectId: v.id("reviewProjects"),
+  assetId: v.id("assets"),
+  reviewerEmail: v.string(),
+  role: reviewRoleValidator,
+  verdict: reviewVerdictValidator,
+  // The round it was given in.
+  versionId: v.optional(v.id("reviewVersions")),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};
+
+export const reviewCommentFields = {
+  projectId: v.id("reviewProjects"),
+  assetId: v.id("assets"),
+  versionId: v.optional(v.id("reviewVersions")),
+  authorEmail: v.optional(v.string()),
+  authorName: v.string(),
+  authorRole: v.union(v.literal("director"), v.literal("viewer"), v.literal("owner"), v.literal("agent")),
+  body: v.string(),
+  // Set when one comment was written on several frames at once.
+  batchId: v.optional(v.string()),
+  resolvedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};

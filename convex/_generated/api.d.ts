@@ -75,6 +75,8 @@ import type * as publicSurface from "../publicSurface.js";
 import type * as r2 from "../r2.js";
 import type * as r2_store from "../r2_store.js";
 import type * as r2_url from "../r2_url.js";
+import type * as review from "../review.js";
+import type * as reviewValidators from "../reviewValidators.js";
 import type * as runs from "../runs.js";
 import type * as semanticIndex from "../semanticIndex.js";
 import type * as semanticSearch from "../semanticSearch.js";
@@ -181,6 +183,8 @@ declare const fullApi: ApiFromModules<{
   r2: typeof r2;
   r2_store: typeof r2_store;
   r2_url: typeof r2_url;
+  review: typeof review;
+  reviewValidators: typeof reviewValidators;
   runs: typeof runs;
   semanticIndex: typeof semanticIndex;
   semanticSearch: typeof semanticSearch;
