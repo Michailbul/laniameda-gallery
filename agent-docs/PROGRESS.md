@@ -853,3 +853,39 @@ pictures (`components/world-page`, `convex/worldPage.ts`).
   in the vault (`lib/asset-hotkeys.ts`). proxy.ts sends a signed-in owner's
   /w/<slug> to the vault at the same address (`/w/<slug>/owner-view`).
 - "Taste profile" in the vault is now "Public / Worlds"; /worlds opens it.
+
+## World page v6: hero inserts, a level wall, an admin view (6 Nov 2026)
+
+Michael approved the DEAR ANNETE v6 prototype layout
+(dear-annete-pitch/v6): full-screen hero, one scroll, a sticky filter bar, a
+big wall cut by full-screen hero inserts. Built into /w/<slug>.
+
+- Hero inserts are data: `folders.worldPage.heroInserts` (`[{assetIds}]`,
+  1–3 frames: full, split, triptych). The first opens the page (wordmark and
+  the world's line over it), the rest cut into the wall every ~18 frames
+  (10 on phones), pinned for 1.4 screens with a slow pull-back. Empty = the
+  old reel hero. Hero frames leave the public wall; owner views keep them
+  there with a HERO chip.
+- H on a hovered frame (vault grid, world page, admin) toggles it as a hero
+  of its world; Shift+H pairs it into the previous insert.
+  `worldPage:setHeroInsert`, `worldPage:listHeroAssetIds`.
+- /w/<slug>/admin (owner only, 404 otherwise): the same page with every
+  member; private, dropped and letterboxed frames marked. Keys: F feature, H
+  hero, C comment (inline composer, an `assetComments` row and its task),
+  2 drop (`worldPageHidden`), D delete (ten-minute undo), O open. Key hint
+  pinned at the bottom.
+- The wall (`components/world-page/wall-layout.ts`) packs columns from known
+  aspect ratios, lays the last two rows tallest-first and lets each chunk end
+  move by up to two frames to find the levellest cut, then stretches short
+  columns' last frames (cover, ≤35%, ≤60% to close a small remainder). Any gap
+  left gets a filler: a slow drifting detail of the neighbouring frame. No
+  holes above an insert or at the end.
+- Clips play muted in view on every device (two at once on phones, eight on
+  desktop), posters only on Save-Data or 2g/3g.
+- Frames tagged `letterboxed` stay off the public page.
+- Type and colour sit in `world-brand.ts` (Cormorant Unicase, the stamen
+  wordmark, the tagline) and the token block at the top of `world-pitch.css`,
+  ready for the coming type treatment. "The archive" is a quiet text link
+  with a hairline glyph that fades once past the hero.
+- Skill 1.30.0: data-model.md (heroInserts, setHeroInsert, admin reads,
+  letterboxed, H/2/O keys).

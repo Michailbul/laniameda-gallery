@@ -76,6 +76,7 @@ export const folderReturnValidator = v.object({
       allMembers: v.optional(v.boolean()),
       heroReelAssetId: v.optional(v.id("assets")),
       leadAssetIds: v.optional(v.array(v.id("assets"))),
+      heroInserts: v.optional(v.array(v.object({ assetIds: v.array(v.id("assets")) }))),
       sides: v.optional(
         v.array(v.object({ key: v.string(), label: v.string(), folderId: v.id("folders") })),
       ),
