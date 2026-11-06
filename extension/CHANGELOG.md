@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.19.1 (6 Nov 2026)
+
+- Queue reference thumbnails show the whole image (wide lettering no longer
+  crops to black) and load at once.
+
 ## 0.19.0 (6 Nov 2026)
 
 - Midjourney prompt queue: a QUEUE panel on midjourney.com reads the prompts

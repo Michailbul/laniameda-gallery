@@ -476,7 +476,6 @@
       const img = el("img");
       img.alt = "";
       img.decoding = "async";
-      img.loading = "lazy";
       img.referrerPolicy = "no-referrer";
       img.src = src;
       box.appendChild(img);
