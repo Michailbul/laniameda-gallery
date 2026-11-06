@@ -923,3 +923,27 @@ big wall cut by full-screen hero inserts. Built into /w/<slug>.
   take stills only (Shift+H on a film adds it alone; a stored group with a
   film is played apart); the wall never stretches a film tile, a filler
   closes its column instead.
+
+## Midjourney prompt queue (6 Nov 2026, branch `feat/mj-prompt-queue`)
+
+Michael: "a queue of prompts … all predefined, all refs set, so that I can only
+review and click send." Agents prepare; he sends, one job per click.
+
+- Table `mjQueueItems` (`convex/mjQueue.ts`, validators `mjQueueValidators.ts`):
+  batch label + order, prose, image prompts, style refs, omni/character ref,
+  profile codes, params, note, status queued → injected → sent (or skipped),
+  sentCommand, jobId, ingestKey. `asset:<id>` references resolve to public R2
+  URLs and thumbnails when queued.
+- Command composer `lib/mj-queue.ts` with a line-for-line twin in
+  `extension/mj-queue-compose.js` (parity test). V8.2 has no `--oref`/`--cref`
+  (Edit model): added only when params pin `--v 7` / `--v 6`, else a warning.
+  `--draft` and `--relax` are valid V8.2 prompt params.
+- Agents: `/api/agent/mj-queue` (list, queue, update) and MCP
+  `queue_mj_prompts`, `list_mj_queue`, `update_mj_queue_item`. Extension:
+  `/api/extension/mj-queue` (GET list, POST update).
+- Extension 0.19.0: QUEUE pill + panel on midjourney.com (`mj-queue.js`,
+  `mj-queue.css`). Inject, read-back (AS QUEUED / EDITED), Send = one Enter on
+  his trusted click, or his own Enter in the bar; Edit/Skip/Restore/↑; Next →
+  and ⌥⇧N; ⌥⇧Q toggles. Job id taken from the new feed row whose text carries
+  the prompt's first words (page DOM only, no Midjourney API calls).
+- Skill 1.33.0: references/mj-queue.md, data-model.md, SKILL.md row.

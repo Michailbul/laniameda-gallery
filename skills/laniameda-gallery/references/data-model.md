@@ -427,6 +427,12 @@ only plain collections may be children. One level deep.
   - User-facing organization is collection-first. The authenticated agent API and MCP accept `folderIds` for multi-collection asset create/update, while the underlying Convex ingest action retains `folderId` for backward compatibility.
   - Idempotency index: `by_owner_ingestKey`.
 
+- `mjQueueItems` (Midjourney prompt queue, 6 Nov 2026; references/mj-queue.md)
+  - Fields: `ownerUserId`, `worldFolderId`/`worldKey` (optional), `batch` + `batchKey` (lowercased label), `order`, `title`, `prompt` (prose only), `imagePrompts[]`, `styleRefs[]`, `omniRef`, `characterRef` (each ref `{url?, code?, assetId?, thumbUrl?, weight?, label?}`; `asset:<id>` is resolved to its public R2 URL when queued), `profileCodes[]`, `params`, `note`, `status` (`queued` | `injected` | `sent` | `skipped`), `injectedAt`, `sentAt`, `sentCommand`, `jobId`, `ingestKey`, `createdBy`, `createdAt`, `updatedAt`.
+  - Indexes: `by_owner_batchKey_order`, `by_owner_ingestKey` (idempotent queueing), `by_owner_updatedAt`.
+  - Functions: `mjQueue:listQueue`, `mjQueue:queueItems`, `mjQueue:updateItem` (signed owner). Agent route `/api/agent/mj-queue` (actions list/queue/update; MCP queue_mj_prompts, list_mj_queue, update_mj_queue_item); extension route `/api/extension/mj-queue` (GET list, POST update).
+  - The composed command (`lib/mj-queue.ts` `composeMjCommand`, twin in `extension/mj-queue-compose.js`): image prompts, prose, `--sref`, `--iw`, `--oref/--ow` only with `--v 7`, `--cref/--cw` only with `--v 6`, `--profile`, params. Nothing in the backend submits to Midjourney; `sent` is recorded by the extension after Michael's own click.
+
 - `folders`
   - Every collection and folder is a row here. There is no `collections` or `worlds` table. Projects, beats and episodes were retired on 22 Sep 2026.
   - Key fields: `ownerUserId`, `name`, `normalizedName`, `kind`, `parentFolderId`, `description`, `coverAssetId`, `shareToken`, `showcased`, `slug`, `showcaseFeatured`, `showcaseOrder`, `tasteCollection`, `pinnedAt`, `memberCount`.

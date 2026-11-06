@@ -311,6 +311,11 @@
     notifyCompose();
   }
 
+  // The queue panel injects a finished command: the remembered flag must not
+  // be added to it.
+  globalScope.SaveToGalleryMoodboardDock.holdSticky = () => {
+    freshPrompt = false;
+  };
   globalScope.SaveToGalleryMoodboardDock.isComposing = isComposing;
   globalScope.SaveToGalleryMoodboardDock.setHover = setHover;
 
@@ -808,9 +813,14 @@
     }
     const rect = bar.getBoundingClientRect();
     dock.hidden = false;
-    // Keep the dock last in the document so the image grid cannot paint over it.
-    if (dock.parentElement === document.body && dock !== document.body.lastElementChild) {
-      document.body.appendChild(dock);
+    // Keep the dock last in the document so the image grid cannot paint over
+    // it. Only the queue panel sits after it: an open queue covers the dock.
+    const queueRoot = document.querySelector("body > .stg-q-root");
+    if (
+      dock.parentElement === document.body &&
+      (queueRoot ? dock.nextElementSibling !== queueRoot : dock !== document.body.lastElementChild)
+    ) {
+      document.body.insertBefore(dock, queueRoot);
     }
     dock.style.left = `${Math.round(rect.left)}px`;
     dock.style.width = `${Math.round(rect.width)}px`;
