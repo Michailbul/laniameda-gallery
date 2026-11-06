@@ -9,6 +9,7 @@ import { resolveUploadedMedia, UploadError } from "@/lib/server/agent-uploads";
 import {
   inspirationBlockSchema, inspirationFeedbackSchema, inspirationGetSchema, inspirationListSchema,
   inspirationPostVersionSchema, inspirationProposeSchema, inspirationRegisterSchema, bareRef,
+  inspirationDispatchSchema, inspirationJobSchema,
 } from "@/lib/inspiration-contract";
 import { inspirationUrl } from "@/lib/inspiration";
 import { agentActor } from "@/lib/tasks";
@@ -19,11 +20,12 @@ import { agentActor } from "@/lib/tasks";
 // redo exist only in the signed-in gallery (/inspiration), and Convex refuses
 // them for any agent token (convex/actor.ts ownerSessionMutation).
 
-const actions = ["list", "get", "feedback", "register", "propose", "post_version", "block"] as const;
-const ownerOnly = ["keep", "drop", "recover", "approve", "promote", "unpromote", "redo", "note"] as const;
+const actions = ["list", "get", "feedback", "register", "propose", "post_version", "block", "dispatch", "job"] as const;
+const ownerOnly = ["keep", "drop", "recover", "approve", "promote", "unpromote", "redo", "note", "resume", "set_allowance", "resolve_job"] as const;
 const scopes: Record<(typeof actions)[number], AgentTokenScope> = {
   list: "gallery:read", get: "gallery:read", feedback: "gallery:read",
   register: "gallery:write", propose: "gallery:write", post_version: "gallery:write", block: "gallery:write",
+  dispatch: "gallery:write", job: "gallery:write",
 };
 
 const bare = (value: string, prefix: string) => value.replace(new RegExp(`^${prefix}:`), "").trim();
@@ -33,7 +35,7 @@ export async function POST(request: Request) {
     const body = z.record(z.string(), z.unknown()).parse(await request.json().catch(() => null));
     if (typeof body.action === "string" && (ownerOnly as readonly string[]).includes(body.action)) {
       return NextResponse.json({
-        error: `${body.action} is Michael's decision, made in the gallery at ${inspirationUrl()}. Agents read, register, propose and post versions; they never keep, drop, approve, promote or request redos.`,
+        error: `${body.action} is Michael's decision, made in the gallery at ${inspirationUrl()}. Agents read, register, propose and post versions; they never keep, drop, approve, promote, request redos, turn generation on, set the allowance or settle an unknown outcome.`,
       }, { status: 403 });
     }
     const action = z.enum(actions).parse(body.action);
@@ -98,6 +100,68 @@ export async function POST(request: Request) {
       });
       return NextResponse.json({ ok: !result.suppressed, ...result });
     }
+    if (action === "dispatch") {
+      const input = inspirationDispatchSchema.parse(body);
+      if (input.step === "status") {
+        const status = await client.query(api.inspirationDispatch.getInspirationDispatch, { ownerUserId });
+        return NextResponse.json({
+          ...status,
+          next: status.canDispatch
+            ? "Claim the dispatcher, then reserve a priced job before every paid call."
+            : `Paid generation is off: ${status.why} Register sources and propose adaptations; do not call providers.`,
+        });
+      }
+      if (input.step === "claim") {
+        const lease = await client.mutation(api.inspirationDispatch.claimInspirationDispatcher, {
+          ownerUserId, worker: input.worker ?? actor, leaseMinutes: input.leaseMinutes,
+        });
+        return NextResponse.json({ ok: true, ...lease, next: "Pass nonce and fence on every job step and on post_inspiration_version. Renew before leaseUntil; release when done." });
+      }
+      if (input.nonce === undefined || input.fence === undefined) return NextResponse.json({ error: "renew and release need nonce and fence." }, { status: 400 });
+      if (input.step === "renew") {
+        const lease = await client.mutation(api.inspirationDispatch.renewInspirationDispatcher, {
+          ownerUserId, nonce: input.nonce, fence: input.fence, leaseMinutes: input.leaseMinutes,
+        });
+        return NextResponse.json({ ok: true, ...lease });
+      }
+      const released = await client.mutation(api.inspirationDispatch.releaseInspirationDispatcher, { ownerUserId, nonce: input.nonce, fence: input.fence });
+      return NextResponse.json({ ok: released.released, ...released });
+    }
+    if (action === "job") {
+      const input = inspirationJobSchema.parse(body);
+      if (input.step === "list") {
+        const jobs = await client.query(api.inspirationDispatch.listInspirationJobs, {
+          ownerUserId, status: input.status,
+          ...(input.adaptationId ? { adaptationId: bareRef(input.adaptationId) as Id<"inspirationAdaptations"> } : {}),
+        });
+        return NextResponse.json({ count: jobs.length, jobs: jobs.map((job) => ({ id: `job:${job.jobId}`, ...job })) });
+      }
+      if (input.nonce === undefined || input.fence === undefined) {
+        return NextResponse.json({ error: "Every job step needs your dispatcher nonce and fence (inspiration_dispatch claim)." }, { status: 400 });
+      }
+      if (input.step === "reserve") {
+        if (!input.adaptationId || !input.ingestKey || !input.provider || !input.model) {
+          return NextResponse.json({ error: "reserve needs adaptationId, ingestKey, provider, model and estimateUsd." }, { status: 400 });
+        }
+        const result = await client.mutation(api.inspirationDispatch.reserveInspirationJob, {
+          ownerUserId, nonce: input.nonce, fence: input.fence,
+          adaptationId: bareRef(input.adaptationId) as Id<"inspirationAdaptations">, ingestKey: input.ingestKey,
+          provider: input.provider, model: input.model, estimateUsd: input.estimateUsd, note: input.note,
+        });
+        return NextResponse.json({
+          ok: true, id: `job:${result.job.jobId}`, ...result,
+          next: "Now make the one paid call. Record accepted with the provider's request id as soon as you have it; if you cannot tell whether it was accepted, record unknown and stop.",
+        });
+      }
+      if (!input.jobId) return NextResponse.json({ error: `${input.step} needs jobId.` }, { status: 400 });
+      const job = await client.mutation(api.inspirationDispatch.updateInspirationJob, {
+        ownerUserId, nonce: input.nonce, fence: input.fence, jobId: bareRef(input.jobId) as Id<"inspirationJobs">,
+        step: input.step === "unknown" ? "unknown" : input.step,
+        providerHandle: input.providerHandle, settledUsd: input.settledUsd, costExact: input.costExact,
+        found: input.found, evidence: input.evidence, note: input.note,
+      });
+      return NextResponse.json({ ok: true, id: `job:${job.jobId}`, job });
+    }
     if (action === "block") {
       const input = inspirationBlockSchema.parse(body);
       const result = await client.mutation(api.inspiration.blockInspirationAdaptation, {
@@ -112,6 +176,7 @@ export async function POST(request: Request) {
       ownerUserId, ...rest,
       adaptationId: bareRef(input.adaptationId) as Id<"inspirationAdaptations">,
       redoEventId: input.redoEventId ? input.redoEventId.replace(/^inspirationEvent:/, "") as Id<"inspirationEvents"> : undefined,
+      jobId: input.jobId ? bareRef(input.jobId) as Id<"inspirationJobs"> : undefined,
       createdBy: actor,
     };
     if (!rawOutputs?.length) {

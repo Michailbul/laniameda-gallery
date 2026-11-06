@@ -87,3 +87,29 @@ export const cleanLine = (value: string | undefined, limit: number) => {
   const text = value?.replace(/\s+/g, " ").trim();
   return text ? text.slice(0, limit) : undefined;
 };
+
+/** Dispatch safety (convex/inspirationDispatch.ts). */
+export const INSPIRATION_DISPATCH = {
+  // Cycles are fixed 48-hour windows of real time from an anchor.
+  cycleHours: 48,
+  leaseMinutes: 30,
+  maxLeaseMinutes: 120,
+  // A standing allowance is offered up to this much per cycle; larger batches
+  // are approved one by one (CLAUDE.md: ask at $30 or more).
+  maxCycleCapUsd: 30,
+  defaultAllowanceDays: 14,
+  maxAllowanceDays: 60,
+  scan: 500,
+  listed: 50,
+  ingestKey: 300,
+  label: 120,
+  handle: 300,
+  note: 600,
+} as const;
+
+/** Start of the fixed-length cycle that contains `now` (anchor + k × cycle). */
+export const cycleStartAt = (anchor: number, cycleHours: number, now: number) => {
+  const length = cycleHours * 3_600_000;
+  if (now <= anchor) return anchor;
+  return anchor + Math.floor((now - anchor) / length) * length;
+};

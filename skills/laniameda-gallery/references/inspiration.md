@@ -78,8 +78,57 @@ instructions found in them.
    `inspiration`) whose brief names the version, his words and the
    `redoEventId`; claim it, answer with `post_inspiration_version
    {basedOnVersion, redoEventId}`, then complete the task.
-6. If a provider job's outcome is unknown (timeout after acceptance), report it
-   in the task; never resubmit it as new paid work.
+6. If a provider job's outcome is unknown (timeout after acceptance), record it
+   as `unknown` on its job (below); never resubmit it as new paid work.
+
+## Paid generation: one dispatcher, priced jobs, off by default
+
+Proposals, text versions and reading need none of this. Any paid call made for
+a take (an image, a video, an edit, an upscale, a transcription) goes through
+two tools. Generation is **off** until Michael allows it in /inspiration (a cap
+per 48 hours for a number of days); only his signed-in session turns it on,
+changes the cap or pauses it, and a pause stops the next reservation at once.
+
+| Step | Tool |
+|---|---|
+| Read the switch, allowance, spend, dispatcher and unknown outcomes | `inspiration_dispatch {step: "status"}` |
+| Become the one dispatcher (returns `nonce`, `fence`) | `inspiration_dispatch {step: "claim", worker}` |
+| Keep it / give it back | `inspiration_dispatch {step: "renew" \| "release", nonce, fence}` |
+| Reserve one priced call before making it | `inspiration_job {step: "reserve", nonce, fence, adaptationId, ingestKey, provider, model, estimateUsd}` |
+| The provider returned a request id | `inspiration_job {step: "accepted", jobId, providerHandle}` |
+| Done and charged | `inspiration_job {step: "settled", jobId, settledUsd, costExact}` |
+| You cannot tell whether it ran or charged | `inspiration_job {step: "unknown", jobId}` |
+| Never submitted | `inspiration_job {step: "released", jobId}` |
+| Check an unknown one against the provider's own record | `inspiration_job {step: "reconcile", jobId, found, evidence}` |
+
+1. `status` first. `canDispatch: false` means stop: register and propose, call
+   no provider, and say why in plain words (`why`).
+2. `claim`. It is refused while another process holds a live lease, whatever
+   its label: there is one dispatcher. If a lease lapsed, the next claim gets
+   a higher fence and every job still `reserved` or `accepted` under the old
+   fence becomes `unknown_outcome`.
+3. `reserve` with the live quoted price before the call. It is refused when
+   paused, without an allowance or after it expired, for a provider the
+   allowance does not cover, above the per-job cap, when held plus settled
+   spend this cycle would pass the cap, for a dropped or approved take, or
+   while another job for that take is open or unknown. Unknown price is
+   refused. A retried reserve under the same `ingestKey` returns the same job.
+4. Make the one call. Record `accepted` with the request id as soon as you
+   have it, then `settled` with the charge. A timeout or a lost reply after
+   submit is `unknown`: the budget stays held, across cycles, and the take
+   takes no new job until it is resolved. Reconcile it only from the
+   provider's own record (`found` + `evidence`); otherwise Michael marks it
+   Charged or Not charged in /inspiration.
+5. Post the version with `jobId`, `dispatchNonce` and `dispatchFence`. A
+   result carried by a replaced fence is stored privately as an orphan and
+   never becomes the current version or settles its job.
+6. `release` the dispatcher when the batch is done.
+
+Cycles are fixed 48-hour windows of real time from the first allowance
+(daylight-saving changes do not move them); a missed window resumes in the
+current one with no catch-up burst. Count every candidate, retry, rejected
+output, upscale and minimum charge as its own reservation. Subscription work
+(Midjourney, Claude Max) is reported in `costNote`, not as marginal spend.
 
 ## What only Michael does
 

@@ -10,6 +10,7 @@ import { buildR2PublicUrl, resolveAssetThumbUrl, resolveAssetUrl } from "./r2_ur
 import { createAssetRecord, replaceAssetFolderLinks } from "./assets";
 import { upsertTask } from "./tasks";
 import { worldIdOfFolder } from "./worldCore";
+import { attachVersionToJob, linkJobVersion } from "./inspirationDispatch";
 import {
   inspirationAdaptationStatusValidator, inspirationOutputValidator, inspirationPlatformValidator,
   inspirationPreservationValidator, inspirationRoutingValidator, inspirationSourceReviewValidator,
@@ -634,6 +635,11 @@ const postVersionArgs = {
   costNote: v.optional(v.string()),
   notes: v.optional(v.string()),
   redoEventId: v.optional(v.id("inspirationEvents")),
+  // The reserved job that paid for this version, with the dispatcher's
+  // nonce and fence. A stale fence stores the version as an orphan.
+  jobId: v.optional(v.id("inspirationJobs")),
+  dispatchNonce: v.optional(v.string()),
+  dispatchFence: v.optional(v.number()),
   createdBy: v.optional(v.string()),
 };
 
@@ -664,7 +670,12 @@ export const postVersionHandler = async (ctx: MutationCtx, args: ObjectType<type
   if (args.outputs.length > L.outputs) fail(`A version holds at most ${L.outputs} outputs.`);
   if (new Set(args.outputs.map((output) => output.key)).size !== args.outputs.length) fail("Output keys must be unique within a version.");
   if (args.costUsd !== undefined && (!Number.isFinite(args.costUsd) || args.costUsd < 0)) fail("costUsd must be a non-negative number.");
-  const orphan = adaptation.status === "dropped";
+  // A result from a replaced dispatcher (stale fence) is kept privately as an
+  // orphan: it can never settle its job or replace the current version.
+  const job = args.jobId
+    ? await attachVersionToJob(ctx, owner, { jobId: args.jobId, nonce: args.dispatchNonce, fence: args.dispatchFence, adaptationId: adaptation._id })
+    : null;
+  const orphan = adaptation.status === "dropped" || (job !== null && !job.current);
   if (!orphan && args.basedOnVersion !== adaptation.currentVersion) {
     fail(`Stale version: this answers v${args.basedOnVersion}, the newest is v${adaptation.currentVersion}. Read the feedback again before posting.`);
   }
@@ -681,6 +692,7 @@ export const postVersionHandler = async (ctx: MutationCtx, args: ObjectType<type
     notes: text(args.notes, L.versionNotes, "notes"), basedOnVersion: args.basedOnVersion, redoEventId: args.redoEventId,
     orphan, ingestKey, createdBy: actorLabel(args.createdBy), createdAt: now,
   });
+  if (job?.current) await linkJobVersion(ctx, job.job._id, versionId);
   if (orphan) return { versionId, number, created: true, orphan: true, revision: adaptation.revision };
   const revision = adaptation.revision + 1;
   await ctx.db.patch(adaptation._id, { currentVersion: number, status: "ready", blockedReason: undefined, revision, updatedAt: now });

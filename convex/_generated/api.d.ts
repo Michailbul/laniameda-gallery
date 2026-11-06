@@ -56,6 +56,7 @@ import type * as inboxValidators from "../inboxValidators.js";
 import type * as ingest from "../ingest.js";
 import type * as ingest_failures from "../ingest_failures.js";
 import type * as inspiration from "../inspiration.js";
+import type * as inspirationDispatch from "../inspirationDispatch.js";
 import type * as inspirationMedia from "../inspirationMedia.js";
 import type * as inspirationValidators from "../inspirationValidators.js";
 import type * as inventoryExport from "../inventoryExport.js";
@@ -168,6 +169,7 @@ declare const fullApi: ApiFromModules<{
   ingest: typeof ingest;
   ingest_failures: typeof ingest_failures;
   inspiration: typeof inspiration;
+  inspirationDispatch: typeof inspirationDispatch;
   inspirationMedia: typeof inspirationMedia;
   inspirationValidators: typeof inspirationValidators;
   inventoryExport: typeof inventoryExport;

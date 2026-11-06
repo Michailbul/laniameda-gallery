@@ -27,6 +27,14 @@ Last updated: 2026-11-06
 - Spec, verification and limits (frame codes can collide at a few hundred
   frames): agent-docs/features/director-review/PRD.md.
 
+### 2026-11-07 — Inspiration dispatch safety: generation off by default, one dispatcher, priced jobs (branch `feat/inspiration-gates`)
+- Paid generation for inspiration takes is off until Michael allows it in
+  /inspiration (Generation strip: cap per 48 h, days, Pause). One dispatcher
+  lease with a fencing token; every paid call is a priced reservation first;
+  unknown outcomes stay held and are never resubmitted. Tools
+  inspiration_dispatch, inspiration_job; skill 1.34.0. Detail:
+  agent-docs/features/inspiration-review/PRD.md (Dispatch safety).
+
 ### 2026-11-06 — Inspiration review: library, takes, versions, Michael's verdicts (branch `feat/inspiration-review`)
 - `/inspiration` lists saved references (raw and with takes) with filters;
   `/inspiration/<source>` shows the source beside each project take, its

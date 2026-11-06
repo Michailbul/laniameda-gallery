@@ -100,3 +100,39 @@ reference is complete on its own; takes are optional.
 3. Register the existing @romances carousel (8 readable assets) as the first
    real source, once the parent reconciles the ninth.
 4. World pages: a References filter that resolves inspiration relations.
+
+## Dispatch safety (6–7 Nov 2026, branch `feat/inspiration-gates`)
+
+Closes the critic's lease, budget, uncertain-job and revocation gates in code
+(skill:qh797xrkgc61h6ddpf52fnbhzh8hks0b), still with no provider calls.
+
+- Tables `inspirationDispatch` (one per owner: pause switch, Michael's
+  allowance, the single dispatcher lease with a rising fence) and
+  `inspirationJobs` (priced reservations). `convex/inspirationDispatch.ts`.
+- Paused by default; no row = paused. Only a browser session
+  (`ownerSessionMutation`) sets an allowance (cap per 48 h ≤ $30, optional
+  per-job cap, provider list, 1–60 days) or pauses. /inspiration shows a
+  Generation strip: off/on, spend this cycle, Allow / Pause, and every
+  unknown-outcome job with Charged / Not charged.
+- One dispatcher: `claim` is refused while any live lease exists, whatever the
+  label; nonce + fence on every write; a takeover moves in-flight jobs of
+  older fences to `unknown_outcome`.
+- `reserve` before every paid call: refused when paused / no or expired
+  allowance / provider not covered / unknown price / above per-job cap /
+  held + settled this cycle would pass the cap / take dropped or approved /
+  another job for the take open or unknown. Idempotent on ingestKey.
+- Unknown outcomes keep their budget held across cycles and are never
+  resubmitted; `reconcile` needs the provider's own record, otherwise Michael
+  resolves them.
+- `post_inspiration_version` takes `jobId` + nonce + fence; a stale fence
+  stores the version as an orphan that cannot become current.
+- Agent tools `inspiration_dispatch`, `inspiration_job`
+  (`/api/agent/inspiration` actions `dispatch`, `job`); skill 1.34.0.
+- Skill drift fixed: extraction's stop-after-ten rule no longer applies to
+  saved-collection capture; text-only references register as text sources;
+  intake keeps the received representation beside a clean crop; personal
+  originals stay off the public media path.
+- Tests: tests/inspiration-dispatch.test.ts (11).
+
+Still open: private byte delivery for personal originals; Telegram sender
+binding test; Instagram capture coverage; Michael's phone walk-through.
