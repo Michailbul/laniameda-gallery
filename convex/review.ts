@@ -1,10 +1,11 @@
 import { ConvexError, v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
-import { REVIEWER_SUBJECT_PREFIX, actorMatchesUserId, signedOwnerMutation, signedOwnerQuery } from "./actor";
+import { REVIEWER_SUBJECT_PREFIX, TEASER_SUBJECT_PREFIX, actorMatchesUserId, signedOwnerMutation, signedOwnerQuery } from "./actor";
 import { canActorAccessOwnerUserId } from "./authz";
 import { buildR2PublicUrl } from "./r2_url";
-import { assetFolderIds } from "./worldCore";
+import { assetFolderIds, worldsOfAsset } from "./worldCore";
+import { fileAssetsInWorld } from "./worlds";
 import {
   reviewRoleValidator, reviewSectionValidator, reviewStyleEntryValidator,
   reviewVerdictValidator, reviewVersionStatusValidator,
@@ -161,6 +162,10 @@ const viewerValidator = v.object({
   role: reviewRoleValidator,
   email: v.optional(v.string()),
   name: v.optional(v.string()),
+  // The key this viewer's own likes and dislikes are stored under.
+  key: v.optional(v.string()),
+  // The owner looking through the director's eyes (page asDirector).
+  preview: v.optional(v.boolean()),
 });
 
 const pageItemValidator = v.object({
@@ -221,6 +226,9 @@ const pageValidator = v.object({
     createdAt: v.number(),
     isCurrent: v.boolean(),
     isDraft: v.boolean(),
+    // Owner only, on the draft: frames it adds to / takes out of the current round.
+    added: v.optional(v.number()),
+    removed: v.optional(v.number()),
   })),
   versionId: v.optional(v.id("reviewVersions")),
   items: v.array(pageItemValidator),
@@ -238,6 +246,9 @@ export const page = query({
     versionId: v.optional(v.id("reviewVersions")),
     // Owner only: show the draft round being prepared.
     draft: v.optional(v.boolean()),
+    // Owner only: see the page exactly as the director does (published
+    // rounds, no owner tools or making-of). Feedback still saves as the owner.
+    asDirector: v.optional(v.boolean()),
   },
   returns: v.union(v.null(), v.object({ denied: v.literal(true), email: v.optional(v.string()) }), pageValidator),
   handler: async (ctx, args) => {
@@ -251,7 +262,8 @@ export const page = query({
         email: subject.startsWith(REVIEWER_SUBJECT_PREFIX) ? subject.slice(REVIEWER_SUBJECT_PREFIX.length) : undefined,
       };
     }
-    const isOwner = viewer.role === "owner";
+    const preview = Boolean(args.asDirector) && viewer.role === "owner";
+    const isOwner = viewer.role === "owner" && !preview;
 
     const allVersions = await versionsOf(ctx, project._id);
     const visible = allVersions.filter((row) => isOwner || row.status === "published");
@@ -314,6 +326,20 @@ export const page = query({
       }
     }
 
+    // Owner only: what the draft changes against the current round, so the
+    // page can say "Next round · 5 frames waiting" without opening it.
+    let draftChange: { added: number; removed: number } | undefined;
+    if (isOwner && project.draftVersionId) {
+      const draftAssets = new Set((await itemsOf(ctx, project.draftVersionId)).map((row) => row.assetId as string));
+      const currentAssets = project.currentVersionId
+        ? new Set((await itemsOf(ctx, project.currentVersionId)).map((row) => row.assetId as string))
+        : new Set<string>();
+      draftChange = {
+        added: [...draftAssets].filter((id) => !currentAssets.has(id)).length,
+        removed: [...currentAssets].filter((id) => !draftAssets.has(id)).length,
+      };
+    }
+
     const styles = [];
     for (const entry of project.styles) {
       const style = await ctx.db.get(entry.styleId);
@@ -347,7 +373,9 @@ export const page = query({
       }));
 
     return {
-      viewer,
+      viewer: preview
+        ? { role: "director" as const, email: viewer.email, name: viewer.name, key: feedbackKey(viewer), preview: true }
+        : { ...viewer, key: feedbackKey(viewer) },
       mediaBase: mediaBase(),
       project: {
         id: project._id,
@@ -370,6 +398,7 @@ export const page = query({
         createdAt: row.createdAt,
         isCurrent: row._id === project.currentVersionId,
         isDraft: row._id === project.draftVersionId,
+        ...(row._id === project.draftVersionId && draftChange ? draftChange : {}),
       })),
       versionId: shown?._id,
       items,
@@ -391,16 +420,32 @@ export const access = query({
 
 const verdictRowValidator = v.object({
   assetId: v.id("assets"),
+  // The verdict's author: their email for the owner and for their own rows,
+  // otherwise the same short id as `who`.
   email: v.string(),
+  who: v.optional(v.string()),
   role: reviewRoleValidator,
   verdict: reviewVerdictValidator,
   updatedAt: v.number(),
 });
 
+// Short stable ids for the people of a project ("owner", "r1", "r2" …),
+// so frames can show who liked them without handing out emails.
+const peopleIds = (project: Project) => {
+  const index = new Map(project.reviewers.map((row, position) => [row.email, `r${position + 1}`]));
+  return (email: string) => (email === "owner" || project.ownerEmails.includes(email) ? "owner" : index.get(email) ?? "guest");
+};
+
 /** Likes, dislikes and comment counts for the whole project: small and live. */
 export const feedback = query({
   args: { slug: v.string() },
   returns: v.union(v.null(), v.object({
+    // Everyone who can leave feedback, for the avatars on frames. `who` is a
+    // short id; emails are only shown to the owner.
+    people: v.array(v.object({
+      who: v.string(), name: v.string(), initials: v.string(), title: v.optional(v.string()),
+      pictureUrl: v.optional(v.string()), role: v.string(), isYou: v.boolean(),
+    })),
     verdicts: v.array(verdictRowValidator),
     comments: v.array(v.object({
       assetId: v.id("assets"), count: v.number(), open: v.number(), lastAt: v.number(),
@@ -432,9 +477,28 @@ export const feedback = query({
       }
       byAsset.set(row.assetId, entry);
     }
+    const whoOf = peopleIds(project);
+    const mine = feedbackKey(viewer);
+    const isOwner = viewer.role === "owner";
+    const initialsOf = (name: string) =>
+      name.split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((part) => part[0]!.toUpperCase()).join("") || "?";
+    const people = [
+      { who: "owner", name: "Michael", initials: "M", title: "Art director", pictureUrl: undefined, role: "owner", isYou: mine === "owner" },
+      ...project.reviewers.map((row) => {
+        const name = row.name?.trim() || row.email.split("@")[0]!;
+        return {
+          who: whoOf(row.email), name, initials: initialsOf(name), title: row.title,
+          pictureUrl: row.pictureUrl, role: row.role, isYou: row.email === mine,
+        };
+      }),
+    ];
     return {
+      people,
       verdicts: verdictRows.map((row) => ({
-        assetId: row.assetId, email: row.reviewerEmail, role: row.role, verdict: row.verdict, updatedAt: row.updatedAt,
+        assetId: row.assetId,
+        email: isOwner || row.reviewerEmail === mine ? row.reviewerEmail : whoOf(row.reviewerEmail),
+        who: whoOf(row.reviewerEmail),
+        role: row.role, verdict: row.verdict, updatedAt: row.updatedAt,
       })),
       comments: [...byAsset.values()],
       reviewers: viewer.role === "owner"
@@ -447,6 +511,7 @@ export const feedback = query({
 const commentValidator = v.object({
   id: v.id("reviewComments"),
   assetId: v.id("assets"),
+  who: v.optional(v.string()),
   authorName: v.string(),
   authorEmail: v.optional(v.string()),
   authorRole: v.string(),
@@ -457,9 +522,10 @@ const commentValidator = v.object({
   mine: v.boolean(),
 });
 
-const toComment = (row: Doc<"reviewComments">, viewer: Viewer, labels: Map<string, string>) => ({
+const toComment = (row: Doc<"reviewComments">, viewer: Viewer, labels: Map<string, string>, whoOf?: (email: string) => string) => ({
   id: row._id,
   assetId: row.assetId,
+  who: row.authorRole === "agent" ? "agent" : whoOf ? whoOf(row.authorEmail ?? "owner") : undefined,
   authorName: row.authorName,
   authorEmail: viewer.role === "owner" ? row.authorEmail : undefined,
   authorRole: row.authorRole,
@@ -486,7 +552,8 @@ export const comments = query({
       .withIndex("by_project_asset_createdAt", (q) => q.eq("projectId", project._id).eq("assetId", args.assetId))
       .collect();
     const labels = new Map((await versionsOf(ctx, project._id)).map((row) => [row._id as string, row.label]));
-    return rows.map((row) => toComment(row, viewer, labels));
+    const whoOf = peopleIds(project);
+    return rows.map((row) => toComment(row, viewer, labels, whoOf));
   },
 });
 
@@ -948,6 +1015,60 @@ export const itemDetail = query({
   },
 });
 
+// ---------------------------------------------------------------- style shelves
+
+/**
+ * A review style IS a gallery world style: a frame shown in a style must sit
+ * on that style's shelf, so the gallery's styles page, MCP (get_style) and
+ * the review agree. Files the frames onto their style shelves (and off the
+ * style shelf they left), journaled like any world filing so world_undo can
+ * revert it. Frames from another world are skipped, never moved.
+ */
+const syncStyleShelves = async (
+  ctx: MutationCtx,
+  project: Project,
+  moves: Array<{ assetId: Id<"assets">; styleId?: Id<"worldStyles">; previousStyleId?: Id<"worldStyles"> }>,
+) => {
+  if (!project.worldFolderId || moves.length === 0) return { filed: 0 };
+  const shelves = new Map<string, Id<"folders">>();
+  for (const entry of project.styles) {
+    const style = await ctx.db.get(entry.styleId);
+    if (style?.shelfFolderId) shelves.set(entry.styleId, style.shelfFolderId);
+  }
+  const groups = new Map<string, { addTo?: Id<"folders">; removeFrom?: Id<"folders">; assetIds: Id<"assets">[] }>();
+  for (const move of moves) {
+    const addTo = move.styleId ? shelves.get(move.styleId) : undefined;
+    const removeFrom = move.previousStyleId && move.previousStyleId !== move.styleId ? shelves.get(move.previousStyleId) : undefined;
+    if (!addTo && !removeFrom) continue;
+    const asset = await ctx.db.get(move.assetId);
+    if (!asset) continue;
+    const worlds = await worldsOfAsset(ctx, asset);
+    if (worlds.size > 0 && !worlds.has(project.worldFolderId)) continue;
+    if (addTo && !removeFrom && (await assetFolderIds(ctx, asset)).includes(addTo)) continue;
+    const key = `${addTo ?? ""}|${removeFrom ?? ""}`;
+    const group = groups.get(key) ?? { addTo, removeFrom, assetIds: [] };
+    group.assetIds.push(move.assetId);
+    groups.set(key, group);
+  }
+  let filed = 0;
+  for (const group of groups.values()) {
+    for (let start = 0; start < group.assetIds.length; start += 100) {
+      const result = await fileAssetsInWorld(ctx, {
+        ownerUserId: project.ownerUserId,
+        world: project.worldFolderId,
+        assetIds: group.assetIds.slice(start, start + 100),
+        ...(group.addTo ? { addTo: [group.addTo] } : {}),
+        ...(group.removeFrom ? { removeFrom: [group.removeFrom] } : {}),
+        note: "Kept in step with its style in the director review",
+        actor: "review",
+        session: `review-${project.slug}`,
+      });
+      filed += result.changed;
+    }
+  }
+  return { filed };
+};
+
 // ---------------------------------------------------------------- owner writes
 
 const resolveVersion = async (ctx: Ctx, project: Project, version?: string) => {
@@ -1013,6 +1134,7 @@ export const upsertProject = signedOwnerMutation({
     reviewers: v.optional(v.array(v.object({
       email: v.string(), name: v.optional(v.string()),
       role: v.optional(v.union(v.literal("director"), v.literal("viewer"))),
+      title: v.optional(v.string()),
     }))),
     ownerEmails: v.optional(v.array(v.string())),
     styles: v.optional(v.array(reviewStyleEntryValidator)),
@@ -1040,6 +1162,7 @@ export const upsertProject = signedOwnerMutation({
         name: row.name?.trim() || before?.name,
         pictureUrl: before?.pictureUrl,
         role: row.role ?? before?.role ?? "director",
+        title: row.title?.trim() || before?.title,
         addedAt: before?.addedAt ?? now,
         lastSeenAt: before?.lastSeenAt,
       };
@@ -1222,6 +1345,7 @@ export const promote = signedOwnerMutation({
     let added = 0;
     let updated = 0;
     let order = Date.now();
+    const moves: Array<{ assetId: Id<"assets">; styleId?: Id<"worldStyles">; previousStyleId?: Id<"worldStyles"> }> = [];
     for (const assetId of uniqueIds(args.assetIds)) {
       const asset = await ctx.db.get(assetId);
       if (!asset || !canActorAccessOwnerUserId(project.ownerUserId, asset.ownerUserId)) {
@@ -1243,9 +1367,11 @@ export const promote = signedOwnerMutation({
           ...(styleId ? { styleId } : {}),
           ...(args.note !== undefined ? { note: args.note.trim() || undefined } : {}),
         });
+        if (styleId) moves.push({ assetId, styleId, previousStyleId: existing.styleId });
         updated += 1;
         continue;
       }
+      if (styleId) moves.push({ assetId, styleId });
       await ctx.db.insert("reviewItems", {
         ownerUserId: project.ownerUserId,
         projectId: project._id,
@@ -1259,6 +1385,7 @@ export const promote = signedOwnerMutation({
       });
       added += 1;
     }
+    await syncStyleShelves(ctx, project, moves);
     return { draftVersionId: draft._id, draftLabel: draft.label, added, updated };
   },
 });
@@ -1299,13 +1426,18 @@ export const updateItems = signedOwnerMutation({
     const folder = await resolveFolder(ctx, project, args.folderId, args.folderSlug);
     if (args.styleId) assertProjectStyle(project, args.styleId);
     const { draft, rows } = await draftItems(ctx, project, args.itemIds);
+    const moves: Array<{ assetId: Id<"assets">; styleId?: Id<"worldStyles">; previousStyleId?: Id<"worldStyles"> }> = [];
     for (const row of rows) {
       await ctx.db.patch(row._id, {
         ...(folder ? { folderId: folder._id } : {}),
         ...(args.styleId !== undefined ? { styleId: args.styleId ?? undefined } : {}),
         ...(args.note !== undefined ? { note: args.note.trim() || undefined } : {}),
       });
+      if (args.styleId !== undefined && (args.styleId ?? undefined) !== row.styleId) {
+        moves.push({ assetId: row.assetId, styleId: args.styleId ?? undefined, previousStyleId: row.styleId });
+      }
     }
+    await syncStyleShelves(ctx, project, moves);
     return { draftLabel: draft.label, changed: rows.length };
   },
 });
@@ -1503,8 +1635,11 @@ export const signInCard = query({
   handler: async (ctx, args) => {
     const project = await projectBySlug(ctx, args.slug);
     if (!project) return null;
-    let cover: { src: string; w: number; h: number } | undefined;
-    if (project.currentVersionId) {
+    // No frame here any more: this query is public, and unreleased frames
+    // must not reach signed-out callers. The preview behind the sign-in
+    // comes from signInTeaser, which only the review page's server can read.
+    const cover: { src: string; w: number; h: number } | undefined = undefined;
+    if (false as boolean) {
       const first = await ctx.db
         .query("reviewItems")
         .withIndex("by_version_order", (q) => q.eq("versionId", project.currentVersionId!))
@@ -1513,10 +1648,90 @@ export const signInCard = query({
       if (asset && asset.kind === "image") {
         const media = await mediaOf(ctx, asset);
         const thumb = media.thumbs.find((row) => row.w >= 1400) ?? media.thumbs[media.thumbs.length - 1];
-        if (thumb) cover = { src: thumb.src, w: media.width, h: media.height };
+        void thumb;
       }
     }
     return { title: project.title, subtitle: project.subtitle, mediaBase: mediaBase(), cover };
+  },
+});
+
+const TEASER_FRAMES = 30;
+
+/**
+ * The signed-out preview: the real layout of the current round (folders in
+ * order with icons and counts, style labels, the first frames) for the
+ * blurred view behind the sign-in. Only the review page's server may read it
+ * (sub "teaser:<slug>", or anyone who may open the project); the server turns
+ * each frame into a tiny blurred thumbnail before the page gets it.
+ */
+export const signInTeaser = query({
+  args: { slug: v.string() },
+  returns: v.union(v.null(), v.object({
+    title: v.string(),
+    subtitle: v.optional(v.string()),
+    mediaBase: v.string(),
+    round: v.optional(v.object({ label: v.string(), title: v.optional(v.string()), publishedAt: v.optional(v.number()) })),
+    folders: v.array(v.object({
+      section: reviewSectionValidator, area: v.optional(v.string()), name: v.string(),
+      icon: v.optional(v.string()), count: v.number(),
+    })),
+    styles: v.array(v.object({ label: v.string(), count: v.number() })),
+    frames: v.array(v.object({ src: v.string(), w: v.number(), h: v.number(), folder: v.string(), style: v.optional(v.string()) })),
+  })),
+  handler: async (ctx, args) => {
+    const project = await projectBySlug(ctx, args.slug);
+    if (!project) return null;
+    const subject = (await identityOf(ctx))?.subject?.trim() ?? "";
+    const allowed = subject === `${TEASER_SUBJECT_PREFIX}${project.slug}` || Boolean(await resolveViewer(ctx, project));
+    if (!allowed) return null;
+    const version = project.currentVersionId ? await ctx.db.get(project.currentVersionId) : null;
+    const rows = version && version.status === "published" ? await itemsOf(ctx, version._id) : [];
+    const folders = (await foldersOf(ctx, project._id)).filter((row) => !row.archivedAt);
+    const folderIndex = new Map(folders.map((row, index) => [row._id as string, index]));
+    const counts = new Map<string, number>();
+    for (const row of rows) counts.set(row.folderId, (counts.get(row.folderId) ?? 0) + 1);
+    const styleLabels = new Map<string, string>();
+    const styleIndex = new Map<string, number>();
+    for (const [index, entry] of project.styles.entries()) {
+      if (entry.hidden) continue;
+      const style = await ctx.db.get(entry.styleId);
+      if (style) { styleLabels.set(entry.styleId, entry.label?.trim() || style.name); styleIndex.set(entry.styleId, index); }
+    }
+    const styleCounts = new Map<string, number>();
+    for (const row of rows) if (row.styleId) styleCounts.set(row.styleId, (styleCounts.get(row.styleId) ?? 0) + 1);
+    const ordered = [...rows]
+      .filter((row) => folderIndex.has(row.folderId))
+      .sort((a, b) =>
+        (folderIndex.get(a.folderId)! - folderIndex.get(b.folderId)!)
+        || ((a.styleId ? styleIndex.get(a.styleId) ?? 99 : 99) - (b.styleId ? styleIndex.get(b.styleId) ?? 99 : 99))
+        || a.order - b.order);
+    const frames = [];
+    for (const row of ordered) {
+      if (frames.length >= TEASER_FRAMES) break;
+      const asset = await ctx.db.get(row.assetId);
+      if (!asset) continue;
+      const media = await mediaOf(ctx, asset);
+      const thumb = media.thumbs[0];
+      if (!thumb) continue;
+      frames.push({
+        src: thumb.src, w: media.width, h: media.height,
+        folder: folders[folderIndex.get(row.folderId)!]!.name,
+        style: row.styleId ? styleLabels.get(row.styleId) : undefined,
+      });
+    }
+    return {
+      title: project.title,
+      subtitle: project.subtitle,
+      mediaBase: mediaBase(),
+      round: version && version.status === "published"
+        ? { label: version.label, title: version.title, publishedAt: version.publishedAt }
+        : undefined,
+      folders: folders.map((row) => ({
+        section: row.section, area: row.area, name: row.name, icon: row.icon, count: counts.get(row._id) ?? 0,
+      })),
+      styles: [...styleLabels.entries()].map(([id, label]) => ({ label, count: styleCounts.get(id) ?? 0 })),
+      frames,
+    };
   },
 });
 
@@ -1568,5 +1783,29 @@ export const downloadList = query({
       });
     }
     return out;
+  },
+});
+
+/**
+ * Put every frame of the current and draft rounds on its style's shelf in the
+ * gallery (journaled; world_undo reverts). Safe to run again.
+ */
+export const syncStyles = signedOwnerMutation({
+  args: { ...ownerArgs },
+  returns: v.object({ checked: v.number(), filed: v.number() }),
+  handler: async (ctx, args) => {
+    const project = await requireOwnedProject(ctx, args.ownerUserId!, args.slug);
+    const seen = new Set<string>();
+    const moves: Array<{ assetId: Id<"assets">; styleId?: Id<"worldStyles"> }> = [];
+    for (const versionId of [project.currentVersionId, project.draftVersionId]) {
+      if (!versionId) continue;
+      for (const row of await itemsOf(ctx, versionId)) {
+        if (!row.styleId || seen.has(`${row.assetId}:${row.styleId}`)) continue;
+        seen.add(`${row.assetId}:${row.styleId}`);
+        moves.push({ assetId: row.assetId, styleId: row.styleId });
+      }
+    }
+    const { filed } = await syncStyleShelves(ctx, project, moves);
+    return { checked: moves.length, filed };
   },
 });

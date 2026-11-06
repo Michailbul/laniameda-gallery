@@ -43,7 +43,7 @@ const scopeFor = (action: Action, body: Record<string, unknown>): AgentTokenScop
 const PROMOTE_CHUNK = 100;
 
 type Section = (typeof REVIEW_SECTIONS)[number];
-type Reviewer = { email: string; name?: string; pictureUrl?: string; role: "director" | "viewer"; addedAt: number; lastSeenAt?: number };
+type Reviewer = { email: string; name?: string; pictureUrl?: string; role: "director" | "viewer"; title?: string; addedAt: number; lastSeenAt?: number };
 type Overview = {
   project: {
     id: string; slug: string; title: string; subtitle?: string; worldFolderId?: string; publicUrl?: string;
@@ -229,7 +229,7 @@ export async function POST(request: Request) {
         ...projectSummary(overview),
         world: overview.project.worldFolderId,
         reviewers: overview.project.reviewers.map((row) => ({
-          email: row.email, name: row.name, role: row.role, addedAt: iso(row.addedAt), lastSeenAt: iso(row.lastSeenAt),
+          email: row.email, name: row.name, role: row.role, title: row.title, addedAt: iso(row.addedAt), lastSeenAt: iso(row.lastSeenAt),
         })),
         ownerEmails: overview.project.ownerEmails,
         styles: overview.styles.map(styleView),
@@ -424,15 +424,15 @@ export async function POST(request: Request) {
           styles.push({ styleId: styleId as Id<"worldStyles">, ...(label ? { label } : {}), ...(hidden ? { hidden } : {}) });
         }
       }
-      let reviewers: Array<{ email: string; name?: string; role?: "director" | "viewer" }> | undefined;
+      let reviewers: Array<{ email: string; name?: string; role?: "director" | "viewer"; title?: string }> | undefined;
       if (input.reviewers || input.addReviewers || input.removeReviewers) {
         const base = input.reviewers
-          ?? (existing?.project.reviewers ?? []).map((row) => ({ email: row.email, name: row.name, role: row.role }));
+          ?? (existing?.project.reviewers ?? []).map((row) => ({ email: row.email, name: row.name, role: row.role, title: row.title }));
         const byEmail = new Map(base.map((row) => [row.email.trim().toLowerCase(), row]));
         for (const row of input.addReviewers ?? []) {
           const email = row.email.trim().toLowerCase();
           const before = byEmail.get(email);
-          byEmail.set(email, { email, name: row.name ?? before?.name, role: row.role ?? before?.role });
+          byEmail.set(email, { email, name: row.name ?? before?.name, role: row.role ?? before?.role, title: row.title ?? before?.title });
         }
         for (const email of input.removeReviewers ?? []) byEmail.delete(email.trim().toLowerCase());
         reviewers = [...byEmail.values()];
@@ -446,7 +446,7 @@ export async function POST(request: Request) {
       const overview = await overviewOf(slug);
       return NextResponse.json({
         ok: true, created: result.created, ...projectSummary(overview),
-        reviewers: overview.project.reviewers.map((row) => ({ email: row.email, name: row.name, role: row.role })),
+        reviewers: overview.project.reviewers.map((row) => ({ email: row.email, name: row.name, role: row.role, title: row.title })),
         ownerEmails: overview.project.ownerEmails,
         styles: overview.styles.map(styleView).map(({ recipes: _recipes, ...row }) => row),
       });

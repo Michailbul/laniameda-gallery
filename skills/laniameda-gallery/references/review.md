@@ -117,6 +117,29 @@ and never on the real project to test something.
 7. Show Michael what the draft holds (pictures, plain words) and wait for his
    go. Then publish with a title and a note.
 
+## Styles are gallery styles
+
+A review style is a world style (`list_styles`, `get_style`), never a label
+of its own. Promoting a frame into a style, or moving it to another style in
+the draft, files it onto that style's shelf in the gallery (and off the
+style shelf it left), journaled under the session `review-<project>`, so the
+styles page, `get_style` and the review always agree. `world_undo` reverts
+it. Frames of another world are skipped, never moved. A style must be one
+look made one way: when one style holds frames made by clearly different
+recipes (different --sref, profiles or boards) that also look different,
+split it with `save_style` (one style per recipe, each with its recipe,
+template and covers) before the director compares them. Director labels are
+plain words ("Bright day", "Painted panorama"); recipes and codes stay with
+the owner and agents.
+
+## People
+
+Reviewers carry a name and a `title` ("Director · Sula Entertainment",
+"Producer · Fantasy Studios"); the page shows their avatars on the frames
+they liked or commented on. Add one with
+`review_setup {op: "project", addReviewers: [{email, name, title}]}`; a
+person with two Google accounts is listed once per email.
+
 ## Read the director's feedback and act on it
 
 1. `review_feedback {project, onlyNew: true}` reads what came in since

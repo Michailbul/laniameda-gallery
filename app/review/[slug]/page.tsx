@@ -1,12 +1,16 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { convexTokenFor, googleReviewClientId, resolveReviewViewer } from "@/lib/server/review-auth";
 import type { ReviewPage } from "@/lib/review-client";
+import { getReviewTeaserData } from "@/lib/server/review-teaser";
+import { reviewTheme } from "@/lib/review-theme";
 import { ReviewApp } from "@/components/review/ReviewApp";
 import { SignIn } from "@/components/review/SignIn";
+import { TeaserBackdrop } from "@/components/review/Teaser";
 import { reviewFontClass } from "@/components/review/fonts";
 import "@/components/review/review.css";
 
@@ -45,21 +49,34 @@ export default async function ReviewRoute({ params, searchParams }: { params: Pr
   const viewer = await resolveReviewViewer();
   const isDev = process.env.NODE_ENV !== "production";
 
+  // Signed out (or refused): the sign-in card over the real layout of the
+  // current round, blurred. The card paints at once; the backdrop (built on
+  // the server from 48 px blurred thumbnails) streams in behind it, so the
+  // browser makes no extra request and never waits for it.
   const signIn = async (denied?: { email?: string }) => {
-    const card = await fetchQuery(api.review.signInCard, { slug }, options());
+    const [card, data] = await Promise.all([
+      fetchQuery(api.review.signInCard, { slug }, options()).catch(() => null),
+      getReviewTeaserData(slug),
+    ]);
     if (!card) notFound();
+    const round = data?.round;
     return (
       <div className={reviewFontClass}>
         <title>{`${card.title} · Director review`}</title>
-        <SignIn
-          title={card.title}
-          subtitle={card.subtitle}
-          cover={card.cover ? { ...card.cover, url: card.cover.src.startsWith("http") ? card.cover.src : `${card.mediaBase}/${card.cover.src}` } : undefined}
-          clientId={googleReviewClientId()}
-          denied={denied}
-          invite={one(search.invite)}
-          isDev={isDev}
-        />
+        <div className="rv-signin" data-theme={reviewTheme(slug)}>
+          <Suspense fallback={null}>
+            <TeaserBackdrop slug={slug} />
+          </Suspense>
+          <SignIn
+            title={card.title}
+            subtitle={card.subtitle}
+            roundLine={round ? round.title || `Round ${round.label.replace(/^v0\./, "")}` : undefined}
+            clientId={googleReviewClientId()}
+            denied={denied}
+            invite={one(search.invite)}
+            isDev={isDev}
+          />
+        </div>
       </div>
     );
   };
@@ -67,8 +84,15 @@ export default async function ReviewRoute({ params, searchParams }: { params: Pr
   if (!viewer) return signIn();
 
   const token = convexTokenFor(viewer);
-  const draft = one(search.draft) === "1";
-  const pageArgs: { slug: string; draft?: boolean; versionId?: Id<"reviewVersions"> } = { slug, ...(draft ? { draft: true } : {}) };
+  // ?view=director: Michael sees exactly what the director sees (the backend
+  // honours it for the owner only; anyone else gets their normal page).
+  const asDirector = one(search.view) === "director";
+  const draft = !asDirector && one(search.draft) === "1";
+  const pageArgs: { slug: string; draft?: boolean; versionId?: Id<"reviewVersions">; asDirector?: boolean } = {
+    slug,
+    ...(draft ? { draft: true } : {}),
+    ...(asDirector ? { asDirector: true } : {}),
+  };
   const [first, feedback] = await Promise.all([
     fetchQuery(api.review.page, pageArgs, options(token)),
     fetchQuery(api.review.feedback, { slug }, options(token)),
@@ -93,7 +117,7 @@ export default async function ReviewRoute({ params, searchParams }: { params: Pr
       <ReviewApp
         slug={slug}
         initialPage={page}
-        initialArgs={{ versionId: pageArgs.versionId, draft: pageArgs.draft }}
+        initialArgs={{ versionId: pageArgs.versionId, draft: pageArgs.draft, asDirector: pageArgs.asDirector }}
         initialFeedback={feedback}
         initialToken={token ?? null}
         initialSearch={searchString(search)}

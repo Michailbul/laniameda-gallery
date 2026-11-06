@@ -30,6 +30,9 @@ export const reviewerValidator = v.object({
   pictureUrl: v.optional(v.string()),
   // director = gives feedback; viewer = looks only.
   role: v.union(v.literal("director"), v.literal("viewer")),
+  // What they are on the film, shown next to their avatar ("Director",
+  // "Producer · Fantasy Studios").
+  title: v.optional(v.string()),
   addedAt: v.number(),
   lastSeenAt: v.optional(v.number()),
 });

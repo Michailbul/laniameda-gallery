@@ -1,13 +1,13 @@
 "use client";
-/* eslint-disable @next/next/no-img-element -- this page is also served on another domain through a rewrite, so it uses plain <img> with srcset, never next/image. */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { reviewBase } from "@/lib/review-client";
 
-// Signed-out screen: the project title over one frame and a Google sign-in
-// button (Google Identity Services, popup / One Tap). The credential goes to
-// `${base}/api/auth/google`, which sets the review session; then the page
-// reloads into the review. Invite links land here with ?invite=… on failure.
+// The sign-in card. It floats (glass) over the blurred review behind it
+// (TeaserBackdrop, rendered by the server). Google Identity Services gives a
+// credential that goes to `${base}/api/auth/google`, which sets the review
+// session; then the page reloads into the review. Invite links land here
+// with ?invite=… when they fail.
 
 type GoogleId = {
   initialize: (options: Record<string, unknown>) => void;
@@ -26,7 +26,7 @@ declare global {
 type Props = {
   title: string;
   subtitle?: string;
-  cover?: { url: string; w: number; h: number };
+  roundLine?: string;
   clientId: string;
   denied?: { email?: string };
   invite?: string;
@@ -51,7 +51,7 @@ const loadGsi = () =>
     script.addEventListener("error", () => reject(new Error("Google sign-in did not load.")), { once: true });
   });
 
-export function SignIn({ title, subtitle, cover, clientId, denied, invite, isDev }: Props) {
+export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, isDev }: Props) {
   const buttonRef = useRef<HTMLDivElement>(null);
   const [refused, setRefused] = useState<string | null>(denied ? denied.email ?? "This account" : null);
   const [error, setError] = useState<string | null>(null);
@@ -110,7 +110,7 @@ export function SignIn({ title, subtitle, cover, clientId, denied, invite, isDev
           shape: "pill",
           text: "signin_with",
           logo_alignment: "left",
-          width: 280,
+          width: 300,
           locale: "en",
         });
         if (!denied) google.prompt();
@@ -130,7 +130,7 @@ export function SignIn({ title, subtitle, cover, clientId, denied, invite, isDev
     window.google?.accounts?.id?.prompt();
   };
 
-  const devAs = async (as: "director" | "owner") => {
+  const devAs = async (as: "director" | "producer" | "owner") => {
     if (as === "owner") await fetch("/api/auth/dev-login", { method: "POST" }).catch(() => null);
     await fetch(`${reviewBase()}/api/dev-as`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ as }) }).catch(() => null);
     window.location.replace(window.location.pathname);
@@ -144,44 +144,46 @@ export function SignIn({ title, subtitle, cover, clientId, denied, invite, isDev
         : null;
 
   return (
-    <div className="rv-signin">
-      {cover ? (
-                <img className="cover" src={cover.url} width={cover.w} height={cover.h} alt="" fetchPriority="high" decoding="async" />
-      ) : null}
-      <div className="box">
-        <div className="kick">Director review</div>
-        <h1>{title}</h1>
-        <p className="sub">{subtitle?.trim() || "Art direction frames for review. Sign in to look, like and comment."}</p>
+    <div className="rv-card">
+      <div className="kick">Art direction review{roundLine ? ` · ${roundLine}` : ""}</div>
+      <h1>{title}</h1>
+      <p className="sub">
+        {subtitle?.trim() && !/^art direction review$/i.test(subtitle.trim()) ? `${subtitle.trim()}. ` : ""}
+        Sign in with the Google account Michael invited to look, like and comment.
+      </p>
 
-        <div className="act">
-          {inviteMessage && !refused ? <div className="msg err">{inviteMessage}</div> : null}
-          {refused ? (
-            <>
-              <div className="msg err">
-                <b>{refused}</b> has no access to this review. Ask Michael to add it.
-              </div>
-              <button type="button" className="rv-btn solid" onClick={() => void switchAccount()}>Use another account</button>
-            </>
-          ) : null}
-          {clientId ? (
-            <div ref={buttonRef} style={{ display: refused ? "none" : "block", minHeight: 44, opacity: busy ? 0.5 : 1 }} />
-          ) : (
-            <div className="msg">Google sign-in is not switched on yet. Open the private link Michael sent you, or ask him for one.</div>
-          )}
-          {busy ? <div className="msg">Signing in…</div> : null}
-          {error ? <div className="msg err">{error}</div> : null}
-          {isDev ? (
-            <div className="dev">
-              <button type="button" className="rv-btn" onClick={() => void devAs("owner")}>Dev · owner</button>
-              <button type="button" className="rv-btn" onClick={() => void devAs("director")}>Dev · test director</button>
+      <div className="act">
+        {inviteMessage && !refused ? <div className="msg err">{inviteMessage}</div> : null}
+        {refused ? (
+          <>
+            <div className="msg err">
+              <b>{refused}</b> has no access to this review. Ask Michael to add it.
             </div>
-          ) : null}
-        </div>
+            <button type="button" className="rv-btn solid" onClick={() => void switchAccount()}>Use another account</button>
+          </>
+        ) : null}
+        {clientId ? (
+          // A light colour scheme keeps Google's iframe transparent (no white box).
+          <div ref={buttonRef} className="rv-gsi" style={{ display: refused ? "none" : undefined, opacity: busy ? 0.5 : 1 }} />
+        ) : (
+          <div className="msg">Google sign-in is not switched on yet. Open the private link Michael sent you, or ask him for one.</div>
+        )}
+        {busy ? <div className="msg">Signing in…</div> : null}
+        {error ? <div className="msg err">{error}</div> : null}
+        {isDev ? (
+          <div className="dev">
+            <button type="button" className="rv-btn" onClick={() => void devAs("owner")}>Dev · owner</button>
+            <button type="button" className="rv-btn" onClick={() => void devAs("director")}>Dev · director</button>
+            <button type="button" className="rv-btn" onClick={() => void devAs("producer")}>Dev · producer</button>
+          </div>
+        ) : null}
+      </div>
 
-        <div className="foot">
-          <span>Laniameda</span>
+      <div className="foot">
+        <span>Laniameda</span>
+        <span>
           <a href={base ? `${base}/privacy` : "privacy"}>Privacy</a>
-        </div>
+        </span>
       </div>
     </div>
   );

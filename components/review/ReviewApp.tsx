@@ -5,14 +5,18 @@ import { ConvexProvider, ConvexReactClient, useMutation, useQuery } from "convex
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  SECTION_LABEL, SECTION_SINGULAR, downloadFrames, copyText, isTyping, plural, readViewState, reviewBase, shortDate, slugOf, writeViewState,
-  type FeedbackFilter, type GridSize, type ReviewFeedback, type ReviewFolder, type ReviewItem, type ReviewPage, type ReviewSection,
-  type ReviewVersion, type Verdict, type ViewState,
+  LIST_COLORS, LIST_KEYS, SECTION_LABEL, SECTION_SINGULAR, downloadFrames, copyText, emptyLists, isTyping, plural, readLists, readViewState,
+  reviewBase, shortDate, slugOf, writeLists, writeViewState,
+  type FeedbackFilter, type GridSize, type ListKey, type Lists, type ReviewFeedback, type ReviewFolder, type ReviewItem, type ReviewPage,
+  type ReviewSection, type ReviewVersion, type Verdict, type ViewState,
 } from "@/lib/review-client";
+import { reviewTheme } from "@/lib/review-theme";
 import { Grid, type GridGroup, type TileAction, type TileMark } from "./Grid";
 import { Sidebar, TopBar, type AreaGroup } from "./Chrome";
 import { BulkBar } from "./BulkBar";
-import { Check, ThumbDown, ThumbUp } from "./icons";
+import type { Person } from "./people";
+import type { LightboxVerdict } from "./Lightbox";
+import type { Audience } from "./OwnerTools";
 
 // The review page's client app. The server hands it the first round and the
 // feedback (so the first paint has every frame); from then on it subscribes
@@ -21,10 +25,13 @@ import { Check, ThumbDown, ThumbUp } from "./icons";
 // instant: every index is built once per round.
 
 const Lightbox = lazy(() => import("./Lightbox"));
-const RoundPanel = lazy(() => import("./OwnerTools").then((module) => ({ default: module.RoundPanel })));
-const MoveTools = lazy(() => import("./OwnerTools").then((module) => ({ default: module.MoveTools })));
+// Michael's tools load only for him (never for a director, never in "view as director").
+const OwnerStrip = lazy(() => import("./OwnerTools").then((module) => ({ default: module.OwnerStrip })));
+const FeedbackPanel = lazy(() => import("./OwnerTools").then((module) => ({ default: module.FeedbackPanel })));
+const BulkOwnerTools = lazy(() => import("./OwnerTools").then((module) => ({ default: module.BulkOwnerTools })));
+const ListsDock = lazy(() => import("./OwnerTools").then((module) => ({ default: module.ListsDock })));
 
-type Args = { versionId?: Id<"reviewVersions">; draft?: boolean };
+type Args = { versionId?: Id<"reviewVersions">; draft?: boolean; asDirector?: boolean };
 
 type Props = {
   slug: string;
@@ -72,16 +79,17 @@ export function ReviewApp(props: Props) {
 
 const SECTIONS: ReviewSection[] = ["locations", "characters", "scenes"];
 const SECTION_ORDER: Record<ReviewSection, number> = { locations: 0, characters: 1, scenes: 2 };
-const EMPTY_FEEDBACK: ReviewFeedback = { verdicts: [], comments: [], reviewers: [] };
-const FILTER_KEYS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new"];
+const EMPTY_FEEDBACK: ReviewFeedback = { people: [], verdicts: [], comments: [], reviewers: [] };
+const FILTER_KEYS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback"];
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message.replace(/^[\s\S]*ConvexError: /, "").replace(/\s+at [\s\S]*$/, "") : "That did not work.";
 
+const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? name;
+
 function buildIndex(page: ReviewPage) {
   const styleOrder = new Map(page.styles.map((row, position) => [row.id as string, position]));
   const styleBySlug = new Map(page.styles.map((row) => [slugOf(row.label), row]));
-  const styleSlugById = new Map(page.styles.map((row) => [row.id as string, slugOf(row.label)]));
   const folders = [...page.folders].sort((a, b) => SECTION_ORDER[a.section] - SECTION_ORDER[b.section] || a.order - b.order);
   const folderById = new Map(folders.map((row) => [row.id as string, row]));
   const itemsByFolder = new Map<string, ReviewItem[]>();
@@ -113,7 +121,9 @@ function buildIndex(page: ReviewPage) {
   if (sections.length === 0) sections.push("locations");
   const byCode = new Map(page.items.map((item) => [item.code, item]));
   const byAsset = new Map(page.items.map((item) => [item.assetId as string, item]));
-  return { styleOrder, styleBySlug, styleSlugById, folders, folderById, itemsByFolder, sectionCounts, folderCounts, areas, sections, byCode, byAsset };
+  // Styles with frames in this round, so empty ones stay out of the carousel.
+  const roundStyles = new Set(page.items.map((item) => item.styleId as string | undefined).filter(Boolean));
+  return { styleOrder, styleBySlug, folders, folderById, itemsByFolder, sectionCounts, folderCounts, areas, sections, byCode, byAsset, roundStyles };
 }
 
 function initialView(search: string, page: ReviewPage): ViewState {
@@ -139,19 +149,25 @@ function initialView(search: string, page: ReviewPage): ViewState {
   };
 }
 
-type Flash = { key: string; x: number; y: number; label: string; tone: "teal" | "coral" | "plain"; icon?: "up" | "down" | "check" };
+type Flash = { key: string; x: number; y: number; label: string; tone: "like" | "dislike" | "list" | "plain"; color?: string };
 type Toast = { key: number; text: string; error?: boolean };
 type Pending = Map<string, { verdict: Verdict | null; seq: number }>;
+type FeedbackRow = ReviewFeedback["verdicts"][number];
 
 // ------------------------------------------------------------ the page
 
 function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch, isDev }: Props) {
   // ---------------------------------------------------------- data
   const [args, setArgs] = useState<Args>(initialArgs);
-  const argsKey = `${args.versionId ?? ""}|${args.draft ? 1 : 0}`;
+  const argsKey = `${args.versionId ?? ""}|${args.draft ? 1 : 0}|${args.asDirector ? 1 : 0}`;
   const queryArgs = useMemo(
-    () => ({ slug, ...(args.versionId ? { versionId: args.versionId } : {}), ...(args.draft ? { draft: true } : {}) }),
-    [slug, args.versionId, args.draft],
+    () => ({
+      slug,
+      ...(args.versionId ? { versionId: args.versionId } : {}),
+      ...(args.draft ? { draft: true } : {}),
+      ...(args.asDirector ? { asDirector: true } : {}),
+    }),
+    [slug, args.versionId, args.draft, args.asDirector],
   );
   const live = useQuery(api.review.page, queryArgs);
   const livePage = live && !("denied" in live) ? live : undefined;
@@ -166,32 +182,53 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
 
   const viewer = page.viewer;
   const isOwner = viewer.role === "owner";
+  const isPreview = Boolean(viewer.preview);
   const canVote = viewer.role !== "viewer";
-  const myKey = viewer.email ?? "owner";
+  const myKey = viewer.key ?? viewer.email ?? "owner";
   const viewerName = viewer.name ?? viewer.email?.split("@")[0] ?? "You";
 
   const index = useMemo(() => buildIndex(page), [page]);
   const shownVersion = page.versions.find((row) => row.id === page.versionId);
+  const currentVersion = page.versions.find((row) => row.isCurrent);
+
+  // ---------------------------------------------------------- people
+  const people = useMemo(() => new Map<string, Person>(feedback.people.map((row) => [row.who, row])), [feedback.people]);
+  const me = feedback.people.find((row) => row.isYou);
+  // Who the review is for, in plain words ("Alejandro").
+  const audience = useMemo<Audience>(() => {
+    const reviewers = feedback.people.filter((row) => row.role !== "owner" && row.role !== "agent");
+    const lead = reviewers.find((row) => row.role === "director") ?? reviewers[0];
+    return { name: lead ? firstName(lead.name) : "the director", plural: false };
+  }, [feedback.people]);
 
   // ---------------------------------------------------------- feedback
   const seenAt = page.project.feedbackSeenAt ?? 0;
   const fb = useMemo(() => {
-    const names = new Map(feedback.reviewers.map((row) => [row.email, row.name ?? row.email.split("@")[0]!]));
     const mine = new Map<string, Verdict>();
-    const others = new Map<string, Array<{ name: string; verdict: Verdict; at: number }>>();
+    // Reviewers' verdicts (director / viewer roles only): what the owner's filters count.
+    const theirs = new Map<string, FeedbackRow[]>();
+    // Everyone whose face shows on the frame: reviewers, plus your own.
+    const faces = new Map<string, FeedbackRow[]>();
     const fresh = new Set<string>();
     for (const row of feedback.verdicts) {
-      if (row.email === myKey) mine.set(row.assetId, row.verdict);
-      else if (row.role !== "owner") {
-        const list = others.get(row.assetId) ?? [];
-        list.push({ name: names.get(row.email) ?? row.email.split("@")[0]!, verdict: row.verdict, at: row.updatedAt });
-        others.set(row.assetId, list);
+      const own = row.email === myKey;
+      if (own) mine.set(row.assetId, row.verdict);
+      const reviewer = row.role !== "owner";
+      if (reviewer && !own) {
+        const list = theirs.get(row.assetId) ?? [];
+        list.push(row);
+        theirs.set(row.assetId, list);
         if (isOwner && row.updatedAt > seenAt) fresh.add(row.assetId);
+      }
+      if (reviewer || own) {
+        const list = faces.get(row.assetId) ?? [];
+        list.push(row);
+        faces.set(row.assetId, list);
       }
     }
     const comments = new Map(feedback.comments.map((row) => [row.assetId as string, row]));
     if (isOwner) for (const row of feedback.comments) if (!row.lastByOwner && row.lastAt > seenAt) fresh.add(row.assetId);
-    return { mine, others, comments, fresh };
+    return { mine, theirs, faces, comments, fresh };
   }, [feedback, myKey, isOwner, seenAt]);
 
   const [pending, setPending] = useState<Pending>(() => new Map());
@@ -203,25 +240,49 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     [pending, fb],
   );
 
+  // ---------------------------------------------------------- owner lists (keys 3–9)
+  const [lists, setLists] = useState<Lists>(emptyLists);
+  const [viewingList, setViewingList] = useState<ListKey | null>(null);
+  useEffect(() => {
+    if (!isOwner) return;
+    // Read after the first paint, so the server render and the browser agree.
+    const handle = window.requestAnimationFrame(() => setLists(readLists(slug)));
+    return () => window.cancelAnimationFrame(handle);
+  }, [isOwner, slug]);
+  const listsOf = useMemo(() => {
+    const map = new Map<string, string>();
+    if (!isOwner) return map;
+    for (const key of LIST_KEYS) for (const id of lists.items[key]) map.set(id, (map.get(id) ?? "") + key);
+    return map;
+  }, [lists, isOwner]);
+
   const marks = useMemo(() => {
     const map = new Map<string, TileMark>();
     for (const item of page.items) {
       const id = item.assetId as string;
       const mine = mineOf(id);
       let verdict: Verdict | undefined = mine;
-      let by: string | undefined;
       if (isOwner) {
-        const others = fb.others.get(id) ?? [];
-        const likes = others.filter((row) => row.verdict === "like");
-        const dislikes = others.filter((row) => row.verdict === "dislike");
-        verdict = likes.length === 0 && dislikes.length === 0 ? undefined : likes.length >= dislikes.length ? "like" : "dislike";
-        const group = verdict === "like" ? likes : dislikes;
-        by = group.length === 1 ? group[0]!.name : group.length > 1 ? `${group.length} reviewers` : undefined;
+        const rows = fb.theirs.get(id) ?? [];
+        const likes = rows.filter((row) => row.verdict === "like").length;
+        const dislikes = rows.length - likes;
+        verdict = rows.length === 0 ? undefined : likes >= dislikes ? "like" : "dislike";
       }
-      map.set(id, { verdict, mine, by, comments: fb.comments.get(id)?.count ?? 0, fresh: fb.fresh.has(id) });
+      // Your own face follows your click at once; everyone else's comes from the server.
+      const faceRows = (fb.faces.get(id) ?? []).filter((row) => row.email !== myKey);
+      const faces = faceRows.map((row) => `${row.who ?? row.email}:${row.verdict}`);
+      if (mine && me) faces.unshift(`${me.who}:${mine}`);
+      map.set(id, {
+        verdict,
+        mine,
+        faces: faces.join(","),
+        comments: fb.comments.get(id)?.count ?? 0,
+        fresh: fb.fresh.has(id),
+        lists: listsOf.get(id) ?? "",
+      });
     }
     return map;
-  }, [page.items, mineOf, fb, isOwner]);
+  }, [page.items, mineOf, fb, isOwner, myKey, me, listsOf]);
 
   // ---------------------------------------------------------- view
   const [view, setView] = useState<ViewState>(() => initialView(initialSearch, initialPage));
@@ -248,17 +309,22 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     ? index.folders.find((row) => row.section === view.section && row.slug === view.folder) ?? null
     : null;
   const style = view.style ? index.styleBySlug.get(view.style) ?? null : null;
+  const listView = isOwner && viewingList && lists.items[viewingList].length ? viewingList : null;
+  const listSet = useMemo(() => new Set(listView ? lists.items[listView] : []), [listView, lists]);
 
   const scope = useMemo(() => {
+    if (listView) return page.items.filter((item) => listSet.has(item.assetId));
     if (folder) return index.itemsByFolder.get(folder.id) ?? [];
     return index.folders.filter((row) => row.section === view.section).flatMap((row) => index.itemsByFolder.get(row.id) ?? []);
-  }, [index, folder, view.section]);
+  }, [index, folder, view.section, listView, listSet, page.items]);
 
   const styleChips = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of scope) if (item.styleId) counts.set(item.styleId, (counts.get(item.styleId) ?? 0) + 1);
-    return page.styles.map((row) => ({ ...row, slug: slugOf(row.label), count: counts.get(row.id) ?? 0 }));
-  }, [scope, page.styles]);
+    return page.styles
+      .filter((row) => index.roundStyles.has(row.id))
+      .map((row) => ({ ...row, slug: slugOf(row.label), count: counts.get(row.id) ?? 0 }));
+  }, [scope, page.styles, index]);
 
   const styled = useMemo(() => (style ? scope.filter((item) => item.styleId === style.id) : scope), [scope, style]);
 
@@ -270,8 +336,12 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     if (filter === "disliked") return mark.verdict === "dislike";
     if (filter === "commented") return mark.comments > 0;
     if (filter === "todo") return !mark.verdict && mark.comments === 0;
+    if (filter === "feedback") {
+      const comment = fb.comments.get(item.assetId);
+      return (fb.theirs.get(item.assetId)?.length ?? 0) > 0 || Boolean(comment && !comment.lastByOwner);
+    }
     return mark.fresh;
-  }, [marks]);
+  }, [marks, fb]);
 
   const filterCounts = useMemo(() => {
     const counts = Object.fromEntries(FILTER_KEYS.map((key) => [key, 0])) as Record<FeedbackFilter, number>;
@@ -279,11 +349,16 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     return counts;
   }, [styled, passes]);
 
-  // While the filter hides frames you just acted on, they stay until the view changes.
   const visible = useMemo(() => styled.filter((item) => passes(item, view.filter)), [styled, passes, view.filter]);
 
   const groups = useMemo<GridGroup[]>(() => {
+    if (listView) {
+      return index.folders
+        .map((row) => ({ key: row.id as string, title: row.name, kicker: SECTION_SINGULAR[row.section], items: visible.filter((item) => item.folderId === row.id) }))
+        .filter((group) => group.items.length > 0);
+    }
     if (folder && !style) {
+      // "All styles": one section per style, in carousel order.
       const out: GridGroup[] = page.styles
         .map((row) => ({ key: row.id as string, title: row.label, items: visible.filter((item) => item.styleId === row.id) }))
         .filter((group) => group.items.length > 0);
@@ -298,7 +373,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         .filter((group) => group.items.length > 0);
     }
     return [{ key: "frames", items: visible }];
-  }, [folder, style, visible, page.styles, index, view.section]);
+  }, [listView, folder, style, visible, page.styles, index, view.section]);
 
   const flatIds = useMemo(() => groups.flatMap((group) => group.items.map((item) => item.assetId as string)), [groups]);
 
@@ -314,7 +389,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     window.setTimeout(() => setToasts((current) => current.filter((row) => row.key !== key)), 3500);
   }, []);
 
-  const flash = useCallback((ids: string[], label: string, tone: Flash["tone"], icon?: Flash["icon"]) => {
+  const flash = useCallback((ids: string[], label: string, tone: Flash["tone"], color?: string) => {
     seq.current += 1;
     const batch = `f${seq.current}`;
     const points: Array<{ x: number; y: number }> = [];
@@ -329,7 +404,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       }
     }
     if (points.length === 0) return;
-    setFlashes((current) => [...current, ...points.map((point, offset) => ({ ...point, key: `${batch}-${offset}`, label, tone, icon }))]);
+    setFlashes((current) => [...current, ...points.map((point, offset) => ({ ...point, key: `${batch}-${offset}`, label, tone, color }))]);
     window.setTimeout(() => setFlashes((current) => current.filter((row) => !row.key.startsWith(`${batch}-`))), 1000);
   }, []);
 
@@ -345,7 +420,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       return map;
     });
     if (next === null) flash(ids, "Cleared", "plain");
-    else flash(ids, next === "like" ? (ids.length > 1 ? `Liked ${ids.length}` : "Liked") : ids.length > 1 ? `Disliked ${ids.length}` : "Disliked", next === "like" ? "teal" : "coral", next === "like" ? "up" : "down");
+    else flash(ids, next === "like" ? (ids.length > 1 ? `Liked ${ids.length}` : "Liked") : ids.length > 1 ? `Disliked ${ids.length}` : "Disliked", next);
     setVerdictMutation({ slug, assetIds: ids as Id<"assets">[], verdict: next })
       .catch((error) => toast(errorText(error), true))
       .finally(() =>
@@ -369,6 +444,25 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     }
     store.setQuery(api.review.feedback, { slug: mutationArgs.slug }, { ...current, comments });
   });
+
+  const toggleList = useCallback((key: ListKey, ids: string[]) => {
+    if (!isOwner || ids.length === 0) return;
+    const has = ids.every((id) => lists.items[key].includes(id));
+    const items = has ? lists.items[key].filter((id) => !ids.includes(id)) : [...lists.items[key], ...ids.filter((id) => !lists.items[key].includes(id))];
+    const next: Lists = { names: lists.names, items: { ...lists.items, [key]: items } };
+    setLists(next);
+    writeLists(slug, next);
+    const count = ids.length > 1 ? ` · ${ids.length}` : "";
+    flash(ids, `${has ? "Out of" : "In"} ${lists.names[key]}${count}`, "list", LIST_COLORS[key]);
+  }, [isOwner, lists, slug, flash]);
+
+  const renameList = useCallback((key: ListKey, name: string) => {
+    setLists((current) => {
+      const next: Lists = { names: { ...current.names, [key]: name }, items: current.items };
+      writeLists(slug, next);
+      return next;
+    });
+  }, [slug]);
 
   // ---------------------------------------------------------- selection
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
@@ -419,10 +513,12 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
 
   const onSection = useCallback((section: ReviewSection) => {
     const first = index.folders.find((row) => row.section === section && (index.folderCounts.get(row.id) ?? 0) > 0);
+    setViewingList(null);
     changeView({ section, folder: first?.slug ?? "" }, { clear: true });
     window.scrollTo({ top: 0 });
   }, [index, changeView]);
   const onFolder = useCallback((slugValue: string) => {
+    setViewingList(null);
     changeView({ folder: slugValue }, { clear: true });
     setNavOpen(false);
     window.scrollTo({ top: 0 });
@@ -433,15 +529,43 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   }, [changeView]);
   const onFilter = useCallback((filter: FeedbackFilter) => changeView({ filter }), [changeView]);
   const onSize = useCallback((size: GridSize) => changeView({ size }), [changeView]);
+  const onViewList = useCallback((key: ListKey | null) => {
+    setViewingList(key);
+    clearSelection();
+    window.scrollTo({ top: 0 });
+  }, [clearSelection]);
+
+  // Rounds: switching shows the round's title and note under the bar for a moment.
+  const [roundMessage, setRoundMessage] = useState<{ key: string; title: string; note?: string } | null>(null);
+  const messageTimer = useRef(0);
   const onRound = useCallback((version: ReviewVersion | null) => {
-    if (!version || (version.isCurrent && !version.isDraft)) {
-      setArgs({});
-      changeView({ round: "", open: "" }, { clear: true });
-    } else {
-      setArgs({ versionId: version.id });
-      changeView({ round: version.label, open: "" }, { clear: true });
+    const isDefault = !version || (version.isCurrent && !version.isDraft);
+    setArgs((current) => (isDefault ? { asDirector: current.asDirector } : { versionId: version!.id, asDirector: current.asDirector }));
+    changeView({ round: isDefault ? "" : version!.label, open: "" }, { clear: true });
+    // The next round explains itself in the owner strip; published rounds get their note here.
+    if (version && !version.isDraft && (version.title || version.note)) {
+      const title = `${version.label}${version.title ? ` · ${version.title}` : ""}`;
+      setRoundMessage({ key: `${version.id}-${Date.now()}`, title, note: version.note });
+      window.clearTimeout(messageTimer.current);
+      messageTimer.current = window.setTimeout(() => setRoundMessage(null), 6000);
     }
   }, [changeView]);
+  const onPickRound = useCallback((version: ReviewVersion) => {
+    if (version.id === page.versionId) return;
+    onRound(version);
+  }, [onRound, page.versionId]);
+  useEffect(() => () => window.clearTimeout(messageTimer.current), []);
+
+  const roundOrder = useMemo(() => {
+    const published = page.versions.filter((row) => row.status === "published").sort((a, b) => a.number - b.number);
+    const draft = isOwner ? page.versions.find((row) => row.isDraft) : undefined;
+    return draft ? [...published, draft] : published;
+  }, [page.versions, isOwner]);
+  const stepRound = useCallback((delta: number) => {
+    const at = roundOrder.findIndex((row) => row.id === page.versionId);
+    const next = roundOrder[Math.max(0, Math.min(roundOrder.length - 1, (at < 0 ? roundOrder.length - 1 : at) + delta))];
+    if (next && next.id !== page.versionId) onRound(next);
+  }, [roundOrder, page.versionId, onRound]);
 
   // ---------------------------------------------------------- open view
   const [lightbox, setLightbox] = useState<{ ids: string[]; focus: number }>({ ids: [], focus: 0 });
@@ -511,7 +635,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     try {
       const result = await addComment({ slug, assetIds: ids as Id<"assets">[], body });
       toast(`Comment posted on ${plural(result.added, "frame")}.`);
-      flash(ids, "Comment posted", "plain", "check");
+      flash(ids, "Comment posted", "plain");
       return true;
     } catch (error) {
       toast(errorText(error), true);
@@ -530,7 +654,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         const chip = tile.querySelector(".rv-code");
         chip?.classList.add("ok");
         window.setTimeout(() => chip?.classList.remove("ok"), 900);
-        flash([assetId], `Copied ${item.code}`, "plain", "check");
+        flash([assetId], `Copied ${item.code}`, "plain");
       });
       return;
     }
@@ -577,15 +701,21 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   }, []);
 
   // Keys on the hovered frame (the open view handles its own keys).
-  const keys = useRef({ open: false, targets, applyVerdict, openFrame, clearSelection, moveActive, selectedSize: 0, selectAll: () => {}, compose: () => {} });
+  const keys = useRef({
+    open: false, isOwner: false, targets, applyVerdict, openFrame, clearSelection, moveActive, toggleList, stepRound,
+    selectedSize: 0, selectAll: () => {}, compose: () => {},
+  });
   useEffect(() => {
     keys.current = {
       open: Boolean(view.open),
+      isOwner,
       targets,
       applyVerdict,
       openFrame,
       clearSelection,
       moveActive,
+      toggleList,
+      stepRound,
       selectedSize: selected.size,
       selectAll: () => setSelected(new Set(flatRef.current)),
       compose: () => setComposeSignal((value) => value + 1),
@@ -594,18 +724,31 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const state = keys.current;
-      if (state.open || event.altKey || isTyping(event.target)) return;
+      if (state.open || isTyping(event.target)) return;
       if (document.querySelector(".rv-dialog-back")) return;
       const key = event.key.toLowerCase();
+      if (event.altKey && (key === "arrowleft" || key === "arrowright")) {
+        event.preventDefault();
+        state.stepRound(key === "arrowright" ? 1 : -1);
+        return;
+      }
+      if (event.altKey) return;
       if ((event.metaKey || event.ctrlKey) && key === "a") {
         event.preventDefault();
         state.selectAll();
         return;
       }
       if (event.metaKey || event.ctrlKey) return;
-      if (key === "1" || key === "2") {
+      if (key === "[" || key === "]") {
+        state.stepRound(key === "]" ? 1 : -1);
+      } else if (key === "?") {
+        document.querySelector<HTMLButtonElement>(".rv-bar-r .rv-btn.round")?.click();
+      } else if (key === "1" || key === "2") {
         const ids = state.targets();
         if (ids.length) state.applyVerdict(ids, key === "1" ? "like" : "dislike");
+      } else if (state.isOwner && key >= "3" && key <= "9" && key.length === 1) {
+        const ids = state.targets();
+        if (ids.length) state.toggleList(LIST_KEYS[Number(key) - 3]!, ids);
       } else if (key === "c") {
         const ids = state.targets();
         if (ids.length > 1) state.compose();
@@ -614,11 +757,10 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           state.openFrame(ids[0]!, true);
         }
       } else if (key === "o" || key === "enter" || key === " ") {
-        const id = state.targets().length === 1 ? state.targets()[0] : null;
-        const hovered = id ?? null;
-        if (hovered) {
+        const ids = state.targets();
+        if (ids.length === 1) {
           event.preventDefault();
-          state.openFrame(hovered);
+          state.openFrame(ids[0]!);
         }
       } else if (key === "escape") {
         if (state.selectedSize) state.clearSelection();
@@ -640,61 +782,108 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     for (const item of page.items) if (fb.fresh.has(item.assetId)) set.add(item.folderId);
     return set;
   }, [isOwner, page.items, fb.fresh]);
-  const newInRound = useMemo(() => page.items.filter((item) => item.isNew).length, [page.items]);
+
+  // The reviewers' feedback on the shown round, in numbers.
+  const stats = useMemo(() => {
+    let likes = 0;
+    let dislikes = 0;
+    let commented = 0;
+    let fresh = 0;
+    for (const item of page.items) {
+      for (const row of fb.theirs.get(item.assetId) ?? []) {
+        if (row.verdict === "like") likes += 1;
+        else dislikes += 1;
+      }
+      const comment = fb.comments.get(item.assetId);
+      if (comment && comment.count > 0) commented += 1;
+      if (fb.fresh.has(item.assetId)) fresh += 1;
+    }
+    return { likes, dislikes, commented, fresh };
+  }, [page.items, fb]);
 
   const signOut = async () => {
     await fetch(`${reviewBase()}/api/auth/logout`, { method: "POST", credentials: "same-origin" }).catch(() => null);
     window.location.reload();
   };
-  const devAs = async (as: "director" | "owner") => {
+  const devAs = async (as: "director" | "producer" | "owner") => {
     if (as === "owner") await fetch("/api/auth/dev-login", { method: "POST" }).catch(() => null);
     await fetch(`${reviewBase()}/api/dev-as`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ as }) }).catch(() => null);
     window.location.reload();
+  };
+  const exitPreview = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("view");
+    url.searchParams.delete("r");
+    url.searchParams.delete("open");
+    window.location.assign(url.toString());
   };
 
   // ---------------------------------------------------------- render
   const selectedIds = [...selected];
   const selectedItemIds = selectedIds.map((id) => index.byAsset.get(id)?.id).filter(Boolean) as Id<"reviewItems">[];
-  const draftVersion = page.versions.find((row) => row.isDraft);
+  const selectedCodes = selectedIds.map((id) => index.byAsset.get(id)?.code).filter(Boolean) as string[];
   const sectionLabel = SECTION_LABEL[view.section];
   const scopeEmpty = styled.length === 0;
-  const roundNote = shownVersion && (shownVersion.title || shownVersion.note) && view.folder !== undefined ? shownVersion : null;
+  const codeOf = useCallback((assetId: string) => index.byAsset.get(assetId)?.code ?? assetId, [index]);
+
+  const openVerdicts = useMemo<LightboxVerdict[]>(() => {
+    if (!openItem) return [];
+    return (fb.faces.get(openItem.assetId) ?? []).map((row) => ({
+      person: people.get(row.who ?? "") ?? (row.email === myKey ? me : undefined),
+      verdict: row.verdict,
+      at: row.updatedAt,
+    }));
+  }, [openItem, fb, people, myKey, me]);
 
   const footer = (
     <>
       {isOwner ? (
         <Suspense fallback={null}>
-          <RoundPanel
-            slug={slug}
-            versions={page.versions}
-            shown={shownVersion}
-            newCount={newInRound}
-            itemCount={page.items.length}
-            freshCount={fb.fresh.size}
-            showingFresh={view.filter === "new"}
+          <FeedbackPanel
+            people={feedback.people}
             reviewers={feedback.reviewers}
-            onShowRound={onRound}
-            onShowFresh={() => changeView({ filter: view.filter === "new" ? "all" : "new", folder: view.filter === "new" ? view.folder : "" })}
+            audience={audience}
+            stats={stats}
+            onlyTheirs={view.filter === "feedback"}
+            onOnlyTheirs={() => changeView({ filter: view.filter === "feedback" ? "all" : "feedback" })}
             onMarkRead={() => void markSeen({ slug }).then(() => toast("Feedback marked as read.")).catch((error) => toast(errorText(error), true))}
             onToast={toast}
           />
         </Suspense>
       ) : null}
       <div className="rv-who">
-        <span>{isOwner ? `${viewerName} · owner` : viewer.email ?? viewerName}</span>
-        {!isOwner || viewer.email ? <button type="button" onClick={() => void signOut()}>Sign out</button> : null}
+        <span>{isOwner || isPreview ? `${viewerName} · owner` : viewer.email ?? viewerName}</span>
+        {isPreview ? (
+          <button type="button" onClick={exitPreview}>Exit preview</button>
+        ) : !isOwner || viewer.email ? (
+          <button type="button" onClick={() => void signOut()}>Sign out</button>
+        ) : null}
       </div>
-      {isDev ? (
+      {isDev && !isPreview ? (
         <div className="rv-who" style={{ borderTop: 0, paddingTop: 0 }}>
           <span>Dev</span>
-          <button type="button" onClick={() => void devAs(isOwner ? "director" : "owner")}>{isOwner ? "View as test director" : "Back to owner"}</button>
+          {isOwner ? (
+            <>
+              <button type="button" onClick={() => void devAs("director")}>Test director</button>
+              <button type="button" style={{ marginLeft: 10 }} onClick={() => void devAs("producer")}>Producer</button>
+            </>
+          ) : (
+            <button type="button" onClick={() => void devAs("owner")}>Back to owner</button>
+          )}
         </div>
       ) : null}
     </>
   );
 
+  const headKick = listView
+    ? "Your list"
+    : folder
+      ? `${folder.area ? `${folder.area} · ` : ""}${SECTION_SINGULAR[view.section]}`
+      : sectionLabel;
+  const headTitle = listView ? lists.names[listView] : folder ? folder.name : `All ${sectionLabel.toLowerCase()}`;
+
   return (
-    <div className="rv" data-size={view.size} data-nav={navOpen ? "" : undefined}>
+    <div className="rv" data-theme={reviewTheme(slug)} data-size={view.size} data-nav={navOpen ? "" : undefined}>
       <Sidebar
         title={page.project.title}
         subtitle={page.project.subtitle}
@@ -702,7 +891,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         section={view.section}
         sectionCounts={index.sectionCounts}
         areas={index.areas[view.section]}
-        folder={folder}
+        folder={listView ? null : folder}
         folderCounts={index.folderCounts}
         freshFolders={freshFolders}
         onSection={onSection}
@@ -722,86 +911,85 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           filterCounts={filterCounts}
           onFilter={onFilter}
           isOwner={isOwner}
+          directorName={audience.name}
           versions={page.versions}
           versionId={page.versionId}
-          loadingRound={loadingRound}
-          onRound={onRound}
+          onRound={onPickRound}
+          roundMessage={roundMessage}
           size={view.size}
           onSize={onSize}
           onMenu={() => setNavOpen(true)}
-          menuLabel={folder?.name ?? `All ${sectionLabel.toLowerCase()}`}
+          menuLabel={headTitle}
         />
 
-        <main className="rv-content">
-          {roundNote ? (
-            <div className="rv-round-note">
-              <b>{roundNote.label}{roundNote.title ? ` · ${roundNote.title}` : ""}</b>
-              {roundNote.note ? <span>{roundNote.note}</span> : null}
-            </div>
+        <main className="rv-content" data-loading={loadingRound ? "" : undefined}>
+          {isOwner && shownVersion ? (
+            <Suspense fallback={null}>
+              <OwnerStrip
+                slug={slug}
+                shown={shownVersion}
+                current={currentVersion}
+                audience={audience}
+                itemCount={page.items.length}
+                onShowRound={onRound}
+                onToast={toast}
+              />
+            </Suspense>
           ) : null}
-          <div className="rv-head">
-            <div>
-              <div className="kick">
-                {folder ? `${folder.area ? `${folder.area} · ` : ""}${SECTION_SINGULAR[view.section]}` : sectionLabel}
+          <div key={page.versionId ?? "none"} className="rv-fadein">
+            <div className="rv-head">
+              <div>
+                <div className="kick">{headKick}</div>
+                <h2>{headTitle}</h2>
               </div>
-              <h2>{folder ? folder.name : `All ${sectionLabel.toLowerCase()}`}</h2>
-            </div>
-            <div className="meta">
-              <b>{visible.length}</b> {visible.length === 1 ? "frame" : "frames"}
-              {style ? ` · ${style.label}` : ""}
-              <br />
-              {shownVersion ? `${shownVersion.label}${shownVersion.isDraft ? " · draft" : shownVersion.publishedAt ? ` · ${shortDate(shownVersion.publishedAt)}` : ""}` : ""}
-            </div>
-          </div>
-
-          {visible.length === 0 ? (
-            <div className="rv-empty">
-              <b>{scopeEmpty ? "No frames here yet" : "Nothing to show"}</b>
-              {scopeEmpty
-                ? `${folder ? folder.name : sectionLabel}${style ? ` · ${style.label}` : ""} · ${shownVersion?.label ?? ""}`
-                : "No frame matches this filter"}
-              {!scopeEmpty ? (
-                <div style={{ marginTop: 16 }}>
-                  <button type="button" className="rv-btn" onClick={() => onFilter("all")}>Show all frames</button>
-                </div>
+              <div className="meta">
+                <b>{visible.length}</b> {visible.length === 1 ? "frame" : "frames"}
+                {style ? ` · ${style.label}` : ""}
+                <br />
+                {shownVersion ? `${shownVersion.label}${shownVersion.isDraft ? " · next round" : shownVersion.publishedAt ? ` · ${shortDate(shownVersion.publishedAt)}` : ""}` : ""}
+              </div>
+              {listView ? (
+                <button type="button" className="x" onClick={() => onViewList(null)}>Back to folders</button>
               ) : null}
             </div>
-          ) : (
-            <Grid
-              groups={groups}
-              marks={marks}
-              selected={selected}
-              mediaBase={page.mediaBase}
-              canVote={canVote}
-              isOwner={isOwner}
-              size={view.size}
-              targetRef={targetRef}
-              onAct={onAct}
-              onOpen={openFrame}
-              onToggle={toggleSelect}
-              onRange={rangeSelect}
-              onBox={boxSelect}
-              onClear={clearSelection}
-              onSelectGroup={groups.length > 1 ? selectMany : undefined}
-            />
-          )}
+
+            {visible.length === 0 ? (
+              <div className="rv-empty">
+                <b>{scopeEmpty ? "No frames here yet" : "Nothing to show"}</b>
+                {scopeEmpty
+                  ? `${headTitle}${style ? ` · ${style.label}` : ""} · ${shownVersion?.label ?? ""}`
+                  : "No frame matches this filter"}
+                {!scopeEmpty ? (
+                  <div style={{ marginTop: 16 }}>
+                    <button type="button" className="rv-btn" onClick={() => onFilter("all")}>Show all frames</button>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <Grid
+                groups={groups}
+                marks={marks}
+                people={people}
+                selected={selected}
+                mediaBase={page.mediaBase}
+                canVote={canVote}
+                isOwner={isOwner}
+                size={view.size}
+                targetRef={targetRef}
+                onAct={onAct}
+                onOpen={openFrame}
+                onToggle={toggleSelect}
+                onRange={rangeSelect}
+                onBox={boxSelect}
+                onClear={clearSelection}
+                onSelectGroup={groups.length > 1 ? selectMany : undefined}
+              />
+            )}
+          </div>
         </main>
       </div>
 
-      {selected.size === 0 ? (
-        <div className="rv-keys" aria-hidden="true">
-          {canVote ? (
-            <>
-              <span className="k-like"><kbd>1</kbd>Like</span>
-              <span className="k-dis"><kbd>2</kbd>Dislike</span>
-              <span><kbd>C</kbd>Comment</span>
-            </>
-          ) : null}
-          <span><kbd>O</kbd>Open</span>
-          <span><kbd>⌘</kbd>Click to select</span>
-          <span><kbd>⇧</kbd>Drag a box</span>
-        </div>
-      ) : (
+      {selected.size > 0 ? (
         <BulkBar
           count={selected.size}
           canVote={canVote}
@@ -814,13 +1002,15 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           ownerTools={
             isOwner ? (
               <Suspense fallback={null}>
-                <MoveTools
+                <BulkOwnerTools
                   slug={slug}
                   itemIds={selectedItemIds}
+                  codes={selectedCodes}
                   folders={index.folders}
                   styles={page.styles}
-                  isDraft={Boolean(shownVersion?.isDraft)}
-                  draftLabel={draftVersion?.label}
+                  shown={shownVersion}
+                  current={currentVersion}
+                  audience={audience}
                   onDone={clearSelection}
                   onToast={toast}
                 />
@@ -828,7 +1018,20 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
             ) : undefined
           }
         />
-      )}
+      ) : null}
+
+      {isOwner && !openItem ? (
+        <Suspense fallback={null}>
+          <ListsDock lists={lists} viewing={listView} codeOf={codeOf} onRename={renameList} onView={onViewList} onToast={toast} />
+        </Suspense>
+      ) : null}
+
+      {isPreview && !openItem ? (
+        <div className="rv-preview" role="status">
+          <span>You&apos;re seeing what {audience.name} sees</span>
+          <button type="button" className="rv-btn" onClick={exitPreview}>Exit</button>
+        </div>
+      ) : null}
 
       {openItem ? (
         <Suspense fallback={null}>
@@ -844,10 +1047,15 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
             styleLabel={page.styles.find((row) => row.id === openItem.styleId)?.label}
             sectionLabel={SECTION_SINGULAR[index.folderById.get(openItem.folderId)?.section ?? view.section]}
             roundLabel={shownVersion?.label}
-            mark={{ mine: mineOf(openItem.assetId), reviewers: fb.others.get(openItem.assetId) ?? [] }}
+            mine={mineOf(openItem.assetId)}
+            verdicts={openVerdicts}
+            people={people}
             canVote={canVote}
             isOwner={isOwner}
             viewerName={viewerName}
+            viewerWho={me?.who}
+            lists={isOwner ? lists : undefined}
+            onList={isOwner ? (key) => toggleList(key, [openItem.assetId]) : undefined}
             focusComment={lightbox.focus}
             onVerdict={(verdict) => applyVerdict([openItem.assetId], verdict)}
             onNav={navFrame}
@@ -859,8 +1067,11 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       ) : null}
 
       {flashes.map((row) => (
-        <div key={row.key} className={`rv-flash ${row.tone === "plain" ? "" : row.tone}`} style={{ left: row.x, top: row.y }}>
-          {row.icon === "up" ? <ThumbUp /> : row.icon === "down" ? <ThumbDown /> : row.icon === "check" ? <Check /> : null}
+        <div
+          key={row.key}
+          className={`rv-flash ${row.tone === "plain" ? "" : row.tone}`}
+          style={{ left: row.x, top: row.y, ...(row.color ? { "--c": row.color } : {}) } as React.CSSProperties}
+        >
           {row.label}
         </div>
       ))}
@@ -886,4 +1097,3 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     </div>
   );
 }
-
