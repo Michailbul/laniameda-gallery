@@ -88,7 +88,9 @@ function WorldCard({ world, tile }: { world: WorldSummary; tile: JustifiedTile }
   const inset = Math.round(Math.min(38, Math.max(14, tile.width * 0.05)));
   return (
     <Link
-      href={`/w/${world.slug ?? world.folderId}`}
+      /* ?public=1: from Public / Worlds the card opens the world page itself, also for the signed-in
+         owner (proxy.ts otherwise sends the owner's /w/<slug> to the vault view). */
+      href={`/w/${world.slug ?? world.folderId}?public=1`}
       className="lm-world-card"
       style={{
         position: "absolute",
