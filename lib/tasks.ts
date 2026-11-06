@@ -43,7 +43,7 @@ export const TASK_PRIORITIES = [1, 2, 3] as const;
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export const TASK_PRIORITY_LABEL: Record<TaskPriority, string> = { 1: "Now", 2: "Next", 3: "Later" };
 
-export const TASK_SOURCES = ["manual", "comment", "inbox", "newspaper", "feedback"] as const;
+export const TASK_SOURCES = ["manual", "comment", "inbox", "newspaper", "feedback", "inspiration"] as const;
 export type TaskSource = (typeof TASK_SOURCES)[number];
 
 export const TASK_LINK_KINDS = ["asset", "story", "stack", "moodboard", "character", "collection", "doc", "url"] as const;

@@ -28,7 +28,7 @@ import {
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
-import { BookOpen, BookOpenText, Camera, Clapperboard, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, ListChecks, Loader2, Newspaper, Plus, Search as SearchIcon, SlidersHorizontal, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
+import { BookOpen, BookOpenText, Camera, Clapperboard, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, Lightbulb, ListChecks, Loader2, Newspaper, Plus, Search as SearchIcon, SlidersHorizontal, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
 import { deleteAssetSelection } from "@/lib/bulk-delete";
 import { setAssetSelectionLiked } from "@/lib/bulk-like";
 import { useUploadFile } from "@convex-dev/r2/react";
@@ -4537,6 +4537,7 @@ export function GalleryDashboard({
       { key: "tasks", label: "Tasks", hint: "The queue agents claim and finish", icon: ListChecks, href: "/tasks", badge: tasksOpenCount },
       { key: "decisions", label: "Decisions", hint: "Cards waiting for your answer", icon: Layers, href: "/inbox", badge: inboxOpenCount },
       ...(tasksOpenCount !== undefined ? [{ key: "newspaper", label: "Newspaper", hint: "The morning review: done, needs you, decisions", icon: Newspaper, href: "/newspaper" }] : []),
+      ...(tasksOpenCount !== undefined ? [{ key: "inspiration", label: "Inspiration", hint: "Saved references and their project takes", icon: Lightbulb, href: "/inspiration" }] : []),
       ...(tasksOpenCount !== undefined ? [{ key: "settings", label: "Settings", hint: "Edit keys and the Magnific connection", icon: SlidersHorizontal, href: "/settings" }] : []),
     ];
   }, [activeMoodboardsTab, activeStoriesView, applyLocation, bookmarksView, cinematographyView, extraTabView, inboxOpenCount, motionView, storybooksView, tasksOpenCount, viewMode]);

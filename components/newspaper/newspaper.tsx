@@ -12,7 +12,9 @@ import { api } from "@/convex/_generated/api";
 import { ActionButton, Badge, CopyChip, Micro, RADIUS, display, errorText, mono } from "@/components/inbox/inbox-ui";
 import { WorldDocProse } from "@/components/gallery/world-doc-prose";
 import { ActorBadge, OpBadge, clockLabel, fullStamp, timeAgo } from "@/components/gallery/world-ui";
-import { parseNewspaperFacts, type NewspaperNeed, type NewspaperTaskItem, type NewspaperWorld } from "@/lib/newspaper-contract";
+import {
+  parseNewspaperFacts, type NewspaperInspiration, type NewspaperInspirationAdaptation, type NewspaperNeed, type NewspaperTaskItem, type NewspaperWorld,
+} from "@/lib/newspaper-contract";
 import { NEWSPAPER_URL_PATH, dateKeyLabel, isDateKey, moodboardPath, newspaperPath, storybookPath, worldPath } from "@/lib/newspaper";
 
 // The morning newspaper, read on a phone over coffee. One column, the
@@ -217,6 +219,69 @@ function Masthead({ date, paper, editions, onCompile, busy }: { date?: string; p
   </header>;
 }
 
+/* ── Inspiration ─────────────────────────────────────────────────────────── */
+
+// Source beside its take, small: the review itself happens on /inspiration.
+function PairThumb({ src, label }: { src?: string; label: string }) {
+  return <span className="relative block h-[64px] w-[52px] shrink-0 overflow-hidden" style={{ borderRadius: RADIUS, background: "var(--lm-surface-2)", border: HAIR }}>
+    {src
+      // eslint-disable-next-line @next/next/no-img-element -- stored thumbnail
+      ? <img src={src} alt="" className="h-full w-full object-cover" loading="lazy" />
+      : <span className="grid h-full w-full place-items-center"><Micro color="var(--lm-text-ghost)">{label === "Take" ? "text" : "—"}</Micro></span>}
+    <span className="absolute inset-x-0 bottom-0 px-1 py-[2px] text-[8px] font-bold uppercase tracking-[0.1em]" style={{ ...mono, background: "color-mix(in srgb, var(--lm-paper) 78%, transparent)", color: "var(--lm-text-secondary)" }}>{label}</span>
+  </span>;
+}
+
+function InspirationLine({ item, tone }: { item: NewspaperInspirationAdaptation; tone?: string }) {
+  return <li style={{ borderTop: HAIR }}>
+    <Link href={item.path} className="flex items-start gap-3 py-2.5 active:opacity-70">
+      <span className="flex shrink-0 gap-1"><PairThumb src={item.sourceThumbUrl} label="Source" /><PairThumb src={item.outputThumbUrl} label="Take" /></span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-[14px] font-black uppercase leading-5 tracking-tight" style={display}>{item.sourceTitle}</span>
+        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <Micro color={tone ?? "var(--lm-coral)"}>{item.worldName ?? item.targetLabel}</Micro>
+          {item.version > 0 && <Micro>v{item.version}</Micro>}
+          <Micro color="var(--lm-text-ghost)">{timeAgo(item.updatedAt)}</Micro>
+        </span>
+        <span className="mt-1 block text-[12px] leading-5" style={{ color: "var(--lm-text-tertiary)" }}>{item.detail ?? item.intendedUse}</span>
+      </span>
+      <ChevronRight size={15} className="mt-1.5 shrink-0" style={{ color: "var(--lm-text-tertiary)" }} aria-hidden />
+    </Link>
+  </li>;
+}
+
+function InspirationNews({ news }: { news: NewspaperInspiration }) {
+  const open = news.ready.count + news.changesRequested.count + news.blocked.count;
+  return <Section title="Inspiration" count={news.newSources.count + open} tone={news.ready.count > 0 ? "var(--lm-coral)" : undefined}>
+    {news.newSources.count === 0 && open === 0 && <Quiet>No new references and nothing waiting to review.</Quiet>}
+    {news.newSources.count > 0 && <>
+      <Micro className="mb-2 block">{plural(news.newSources.count, "new reference")}</Micro>
+      <div className="-mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+        {news.newSources.items.map((source) => <Link key={source.sourceId} href={source.path} aria-label={`Open ${source.title}`}
+          className="relative block h-[88px] w-[72px] shrink-0 overflow-hidden active:opacity-70" style={{ borderRadius: RADIUS, background: "var(--lm-surface-2)", border: HAIR }}>
+          {source.thumbUrl
+            // eslint-disable-next-line @next/next/no-img-element -- stored thumbnail
+            ? <img src={source.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" />
+            : <span className="grid h-full w-full place-items-center p-1.5 text-center text-[9px] font-bold uppercase leading-3" style={{ ...mono, color: "var(--lm-text-secondary)" }}>{source.title.slice(0, 40)}</span>}
+        </Link>)}
+      </div>
+    </>}
+    {news.ready.count > 0 && <>
+      <Micro className="mb-1 mt-4 block" color="var(--lm-coral)">Ready to review · {news.ready.count}</Micro>
+      <ul>{news.ready.items.map((item) => <InspirationLine key={item.adaptationId} item={item} />)}</ul>
+    </>}
+    {news.changesRequested.count > 0 && <>
+      <Micro className="mb-1 mt-4 block">Changes you asked for · {news.changesRequested.count}</Micro>
+      <ul>{news.changesRequested.items.map((item) => <InspirationLine key={item.adaptationId} item={item} tone="var(--lm-text-secondary)" />)}</ul>
+    </>}
+    {news.blocked.count > 0 && <>
+      <Micro className="mb-1 mt-4 block">Blocked · {news.blocked.count}</Micro>
+      <ul>{news.blocked.items.map((item) => <InspirationLine key={item.adaptationId} item={item} tone="var(--lm-text-secondary)" />)}</ul>
+    </>}
+    <Link href={news.path} className="mt-3 inline-block text-[12px] underline underline-offset-4" style={{ color: "var(--lm-text-tertiary)" }}>Open the inspiration library</Link>
+  </Section>;
+}
+
 /* ── The paper ───────────────────────────────────────────────────────────── */
 
 export function NewspaperScreen({ ownerUserId, date }: { ownerUserId: string; date?: string }) {
@@ -319,6 +384,8 @@ export function NewspaperScreen({ ownerUserId, date }: { ownerUserId: string; da
           <Link href="/tasks" className="underline underline-offset-4">{plural(facts.tasks.created.length, "task")} filed since yesterday</Link>; {facts.totals.open} open in the queue.
         </p>}
       </Section>
+
+      {facts.inspiration && <InspirationNews news={facts.inspiration} />}
 
       <Section title="From the agent" lead={paper.writtenBy && paper.writtenAt ? `${paper.writtenBy.replace(/^agent:/, "")} · ${fullStamp(paper.writtenAt)}` : undefined}>
         {paper.prose

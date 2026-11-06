@@ -17,6 +17,9 @@ export const taskSourceValidator = v.union(
   v.literal("manual"), v.literal("comment"), v.literal("inbox"), v.literal("newspaper"),
   // A note Michael left from any page with the Feedback button: the page, and what is on it.
   v.literal("feedback"),
+  // Michael's explicit Change request / Redo on an inspiration adaptation
+  // version (convex/inspiration.ts); sourceRef is the request's event id.
+  v.literal("inspiration"),
 );
 
 export const taskLinkKindValidator = v.union(

@@ -103,6 +103,43 @@ export const newspaperNeedSchema = z.object({
 });
 export type NewspaperNeed = z.infer<typeof newspaperNeedSchema>;
 
+// The Inspiration section: new references in the window, and every
+// adaptation ready to review, waiting on a change or blocked right now.
+// Compiled facts (convex/inspiration.ts compileInspirationFacts); it never
+// touches the edition's prose.
+const inspirationAdaptationItemSchema = z.object({
+  adaptationId: id(),
+  sourceId: id(),
+  sourceTitle: z.string(),
+  targetLabel: z.string(),
+  worldName: z.string().optional(),
+  intendedUse: z.string(),
+  status: z.string(),
+  version: z.number(),
+  detail: z.string().optional(),
+  sourceThumbUrl: z.string().optional(),
+  outputThumbUrl: z.string().optional(),
+  updatedAt: z.number(),
+  path: z.string(),
+});
+export type NewspaperInspirationAdaptation = z.infer<typeof inspirationAdaptationItemSchema>;
+const inspirationBucketSchema = z.object({ count: z.number(), items: z.array(inspirationAdaptationItemSchema) });
+
+export const newspaperInspirationSchema = z.object({
+  path: z.string(),
+  newSources: z.object({
+    count: z.number(),
+    items: z.array(z.object({
+      sourceId: id(), title: z.string(), kind: z.enum(["media", "text"]), platform: z.string(),
+      creator: z.string().optional(), thumbUrl: z.string().optional(), createdAt: z.number(), path: z.string(),
+    })),
+  }),
+  ready: inspirationBucketSchema,
+  changesRequested: inspirationBucketSchema,
+  blocked: inspirationBucketSchema,
+});
+export type NewspaperInspiration = z.infer<typeof newspaperInspirationSchema>;
+
 export const newspaperFactsSchema = z.object({
   version: z.literal(1),
   since: z.number(),
@@ -124,6 +161,8 @@ export const newspaperFactsSchema = z.object({
   }),
   stacks: z.array(newspaperStackItemSchema),
   needsYou: z.array(newspaperNeedSchema),
+  // Absent on editions compiled before 6 Nov 2026.
+  inspiration: newspaperInspirationSchema.optional(),
 });
 export type NewspaperFacts = z.infer<typeof newspaperFactsSchema>;
 
@@ -183,6 +222,15 @@ export const presentNewspaper = (paper: {
         tasks: { done: facts.tasks.done.map(withUrls), created: facts.tasks.created.map(withUrls), blocked: facts.tasks.blocked.map(withUrls) },
         stacks: facts.stacks.map(withUrls),
         needsYou: facts.needsYou.map(withUrls),
+        ...(facts.inspiration ? {
+          inspiration: {
+            ...withUrls(facts.inspiration),
+            newSources: { ...facts.inspiration.newSources, items: facts.inspiration.newSources.items.map(withUrls) },
+            ready: { ...facts.inspiration.ready, items: facts.inspiration.ready.items.map(withUrls) },
+            changesRequested: { ...facts.inspiration.changesRequested, items: facts.inspiration.changesRequested.items.map(withUrls) },
+            blocked: { ...facts.inspiration.blocked, items: facts.inspiration.blocked.items.map(withUrls) },
+          },
+        } : {}),
       }
       : null,
   };

@@ -112,4 +112,21 @@ export const signedOwnerMutation = ((definition: any) =>
   mutation(withSignedOwner(definition) as any)) as typeof mutation;
 export const signedOwnerAction = ((definition: any) =>
   action(withSignedOwner(definition) as any)) as typeof action;
+// Owner-only decisions (inspiration approve, promote, drop, redo): signed AND
+// minted for a signed-in browser session (claim via=session, set only by
+// /api/auth/convex-token). Agent-token, extension and script tokens carry no
+// such claim, so coarse gallery:write never reaches these.
+const withOwnerSession = (definition: AnyDefinition): AnyDefinition => ({
+  ...definition,
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth?.getUserIdentity() as ({ subject: string } & Record<string, unknown>) | null;
+    if (!identity?.subject?.trim()) throw new ConvexError("Not authenticated.");
+    if (identity.via !== "session") {
+      throw new ConvexError("Only Michael, signed in to the gallery, can do this. Agents may read and propose, not decide.");
+    }
+    return definition.handler(ctx, await resolveOwnerArgs(ctx, args ?? {}));
+  },
+});
+export const ownerSessionMutation = ((definition: any) =>
+  mutation(withOwnerSession(definition) as any)) as typeof mutation;
 /* eslint-enable @typescript-eslint/no-explicit-any */

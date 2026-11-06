@@ -32,6 +32,7 @@ import {
   Sun,
   Trash2,
   ListChecks,
+  Lightbulb,
   Newspaper,
   SlidersHorizontal,
 } from "lucide-react";
@@ -724,6 +725,9 @@ export function GallerySidebar({
         )}
         {tasksOpenCount !== undefined && (
           <NavItem icon={Newspaper} label="Newspaper" href="/newspaper" active={false} collapsed={collapsed} />
+        )}
+        {tasksOpenCount !== undefined && (
+          <NavItem icon={Lightbulb} label="Inspiration" href="/inspiration" active={false} collapsed={collapsed} />
         )}
         {tasksOpenCount !== undefined && (
           <NavItem icon={SlidersHorizontal} label="Settings" href="/settings" active={false} collapsed={collapsed} />

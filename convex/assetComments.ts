@@ -24,7 +24,7 @@ export const assetCommentValidator = v.object({
   audioUrl: v.optional(v.string()),
   audioDurationMs: v.optional(v.number()),
   audioContentType: v.optional(v.string()),
-  source: v.optional(v.literal("inbox")),
+  source: v.optional(v.union(v.literal("inbox"), v.literal("inspiration"))),
   createdAt: v.number(),
   updatedAt: v.number(),
 });
@@ -81,7 +81,7 @@ const ownedComment = async (ctx: QueryCtx, owner: string, commentId: Id<"assetCo
 type CommentRow = {
   _id: Id<"assetComments">; assetId: Id<"assets">; body: string;
   author: "owner" | "agent"; createdAt: number; updatedAt: number;
-  audioStorageId?: Id<"_storage">; audioDurationMs?: number; audioContentType?: string; source?: "inbox";
+  audioStorageId?: Id<"_storage">; audioDurationMs?: number; audioContentType?: string; source?: "inbox" | "inspiration";
 };
 
 const toResult = async (ctx: QueryCtx, comment: CommentRow) => ({

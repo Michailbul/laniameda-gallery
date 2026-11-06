@@ -812,6 +812,9 @@ const createAssetDefinition = {
   },
 };
 export const createAsset = ownerMutation(createAssetDefinition);
+// The same write inside another mutation (inspiration promotion files one
+// approved output with it).
+export const createAssetRecord = createAssetDefinition.handler;
 // The same write for a scheduled job, which carries no signed actor: an
 // in-place edit's result (convex/editRunner.ts) files itself with this.
 export const createAssetInternal = internalMutation(createAssetDefinition);
