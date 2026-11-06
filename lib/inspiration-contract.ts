@@ -95,6 +95,39 @@ export const inspirationPostVersionSchema = z.object({
   costNote: z.string().max(L.reason).optional().describe("Credits and their conversion, or 'subscription'."),
   notes: z.string().max(L.versionNotes).optional().describe("What changed and why (agent view)."),
   redoEventId: z.string().optional().describe("The change request this version answers (from the task brief)."),
+  jobId: z.string().optional().describe("The inspiration_job that paid for these outputs (job:<id> or bare). Required for paid generation."),
+  dispatchNonce: z.string().optional().describe("Your dispatcher nonce from inspiration_dispatch claim."),
+  dispatchFence: z.number().int().optional().describe("Your dispatcher fence. A stale fence stores the version privately as an orphan."),
+});
+
+// Dispatch safety: one dispatcher, priced reservations, quarantine.
+export const inspirationDispatchSchema = z.object({
+  step: z.enum(["status", "claim", "renew", "release"]).describe("status = pause switch, allowance, spend and unknown outcomes; claim = become the one dispatcher (returns nonce + fence); renew; release."),
+  worker: z.string().min(1).max(80).optional().describe("claim: who you are (host + agent)."),
+  nonce: z.string().optional().describe("renew/release: the nonce claim returned."),
+  fence: z.number().int().optional().describe("renew/release: the fence claim returned."),
+  leaseMinutes: z.number().int().min(1).max(120).optional(),
+});
+
+export const inspirationJobSchema = z.object({
+  step: z.enum(["reserve", "accepted", "settled", "unknown", "released", "reconcile", "list"]).describe(
+    "reserve BEFORE any paid call (priced, checked against the pause switch and allowance); accepted = the provider returned a request id; settled = done and charged; unknown = you cannot tell whether it was accepted or charged (quarantine, never resubmit); released = never submitted; reconcile = settle an unknown outcome from the provider's own record (evidence required); list.",
+  ),
+  nonce: z.string().optional().describe("Your dispatcher nonce (all actions but list)."),
+  fence: z.number().int().optional().describe("Your dispatcher fence (all actions but list)."),
+  adaptationId: z.string().optional().describe("reserve / list: the adaptation."),
+  jobId: z.string().optional().describe("The job (job:<id> or bare) for every step after reserve."),
+  ingestKey: z.string().min(1).max(300).optional().describe("reserve: stable submission key; reserving again returns the same job."),
+  provider: z.string().max(120).optional().describe("reserve: fal, magnific, pika, midjourney …"),
+  model: z.string().max(120).optional(),
+  estimateUsd: z.number().min(0).optional().describe("reserve: the live quoted price. Unknown price is refused."),
+  providerHandle: z.string().max(300).optional().describe("The provider's request id."),
+  settledUsd: z.number().min(0).optional(),
+  costExact: z.boolean().optional(),
+  found: z.boolean().optional().describe("reconcile: true = the provider ran it; false = no such job at the provider."),
+  evidence: z.string().max(600).optional().describe("reconcile: the provider record you checked."),
+  status: z.enum(["reserved", "accepted", "settled", "unknown_outcome", "released"]).optional().describe("list filter."),
+  note: z.string().max(600).optional(),
 });
 
 export const inspirationBlockSchema = z.object({

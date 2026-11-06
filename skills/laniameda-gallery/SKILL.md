@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.33.0
+version: 1.34.0
 ---
 
 # Laniameda Gallery
@@ -117,6 +117,9 @@ where they are), read Michael's notes on what he likes before using it, and
 propose a project take only on request, approval or a project rule. Takes are
 versioned drafts that never reach search or worlds; Michael approves and
 promotes, agents never do. A note starts no work; a redo arrives as one task.
+Paid generation for a take is off until Michael allows it; then it runs through
+one dispatcher (`inspiration_dispatch`) with a priced reservation per call
+(`inspiration_job`), and an unknown outcome is held, never resubmitted.
 Read references/inspiration.md.
 
 Director review (`/review/<slug>`; CASSANDRA's is public at

@@ -9,11 +9,18 @@ itself, where it came from, what it is, and why it was worth keeping.
 
 1. **List the items.** Source-specific, below.
 2. **Skip what's already in.** Run query `sources` with the permalinks; drop
-   every `alreadySaved` one. For bookmarks this makes a run incremental: walk
-   newest-first and stop after about 10 saved posts in a row.
-3. **Fetch the media at full quality** into the session scratchpad. The
-   gallery needs a visual: an item with no image or video is not gallery
-   material (see "No media" below).
+   every `alreadySaved` one. For X bookmarks this makes a run incremental: walk
+   newest-first and stop after about 10 saved posts in a row. Never use that
+   stopping rule for inspiration capture from a saved collection (Instagram
+   Saved and the like): an old post can be newly saved behind many saved ones.
+   Walk the whole selected collection, reconcile it against the registered
+   sources, and report a scan that did not reach the end as partial, never as
+   complete (references/inspiration.md).
+3. **Fetch the media at full quality** into the session scratchpad. An asset
+   needs a visual (see "No media" below). A text-only reference Michael chose
+   to keep (a quote, a tool idea, a philosophy note) is still saved: as an
+   inspiration source with `register_inspiration {kind: "text"}`, never with a
+   fabricated picture.
 4. **Pull the text that matters.** A generation prompt in the post, its alt
    text, or an image of a prompt (read it, don't save the screenshot as the
    asset; see the screenshot rule in `SKILL.md`). Plain commentary is not a

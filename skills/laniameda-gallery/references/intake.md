@@ -36,8 +36,16 @@ direct-to-world filing in the steps below.
   buttons, status bars, watermarks. Crop to the picture; never upscale,
   inpaint or invent pixels to fill a gap. A video gets its clean frames or its
   original file, not a screen recording of the app.
-- Keep the clean crop as the source file. A raw screenshot is saved only when
-  the screenshot itself is the reference (a UI, a website, a prompt).
+- Keep the clean crop as the source file. For a reference registered in the
+  Inspiration library, also keep what was actually received (the raw
+  screenshot or the platform file) as its own representation in the same
+  source, labelled: a crop is never the only original, and a screenshot is
+  never reported as the post (`preservation`). Otherwise a raw screenshot is
+  saved only when the screenshot itself is the reference (a UI, a website, a
+  prompt).
+- Personal originals (family photos, faces, children, voice, exact places) are
+  not uploaded through this path yet: gallery media URLs are public. Keep them
+  privately on the iMac and register only what Michael has cleared.
 - Save with assetRole inspiration_capture, the inspiration piece type, the
   real medium (live-action for photos, animation for drawn or rendered work),
   sourceUrl when a permalink is known, an agentDescription of what it shows

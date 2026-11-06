@@ -9,7 +9,8 @@ import { inboxCardFields, inboxCountFields, inboxDecisionFields, inboxStackField
 import { taskEventFields, taskFields } from "./taskValidators";
 import { newspaperFields } from "./newspaperValidators";
 import {
-  inspirationAdaptationFields, inspirationEventFields, inspirationSourceFields, inspirationVersionFields,
+  inspirationAdaptationFields, inspirationDispatchFields, inspirationEventFields, inspirationJobFields,
+  inspirationSourceFields, inspirationVersionFields,
 } from "./inspirationValidators";
 import { mjQueueItemFields } from "./mjQueueValidators";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
@@ -509,6 +510,15 @@ export default defineSchema({
     .index("by_owner_eventKey", ["ownerUserId", "eventKey"])
     .index("by_source_createdAt", ["sourceId", "createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
+  // Dispatch safety (convex/inspirationDispatch.ts): one row per owner with
+  // the pause switch, Michael's allowance and the single dispatcher lease;
+  // jobs are priced reservations made before any provider call.
+  inspirationDispatch: defineTable(inspirationDispatchFields)
+    .index("by_owner", ["ownerUserId"]),
+  inspirationJobs: defineTable(inspirationJobFields)
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_status_updatedAt", ["ownerUserId", "status", "updatedAt"])
+    .index("by_adaptation_createdAt", ["adaptationId", "createdAt"]),
   // The morning newspaper: one edition per owner per Prague date, compiled by
   // the daily cron (or on demand) from the tables above; facts as JSON, the
   // agent's prose beside them. See convex/newspaper.ts.

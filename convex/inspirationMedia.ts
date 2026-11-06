@@ -42,6 +42,9 @@ export const postVersion = ownerAction({
     costNote: v.optional(v.string()),
     notes: v.optional(v.string()),
     redoEventId: v.optional(v.id("inspirationEvents")),
+    jobId: v.optional(v.id("inspirationJobs")),
+    dispatchNonce: v.optional(v.string()),
+    dispatchFence: v.optional(v.number()),
     createdBy: v.optional(v.string()),
   },
   returns: v.object({

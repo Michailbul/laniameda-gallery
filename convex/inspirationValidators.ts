@@ -190,3 +190,72 @@ export const inspirationEventFields = {
   commentId: v.optional(v.id("assetComments")),
   createdAt: v.number(),
 };
+
+/* ── Dispatch safety (convex/inspirationDispatch.ts) ─────────────────────
+ * One owner-level dispatcher lease with a fencing token, a priced job
+ * ledger and Michael's standing allowance. Paid generation for an
+ * adaptation reserves a job here before it calls any provider. With no row,
+ * or paused, nothing can be reserved: automatic generation is off until
+ * Michael sets an allowance and resumes it in the gallery. */
+
+export const inspirationDispatchFields = {
+  ownerUserId: v.string(),
+  // Paused = no reservation succeeds. Default when no row exists.
+  paused: v.boolean(),
+  pausedReason: v.optional(v.string()),
+  // Michael's standing allowance: total per cycle, cap per job, expiry and
+  // the providers it covers (empty = any). Absent cap = no allowance.
+  cycleCapUsd: v.optional(v.number()),
+  perJobCapUsd: v.optional(v.number()),
+  allowanceExpiresAt: v.optional(v.number()),
+  providers: v.array(v.string()),
+  // Fixed-length cycles from an anchor (48 h of real time, DST-proof).
+  cycleHours: v.number(),
+  cycleAnchor: v.number(),
+  // The one dispatcher. fence increases on every new claim; a write carrying
+  // an older fence, or another holder's nonce, is refused.
+  holder: v.optional(v.string()),
+  holderNonce: v.optional(v.string()),
+  leaseUntil: v.optional(v.number()),
+  fence: v.number(),
+  revision: v.number(),
+  updatedAt: v.number(),
+};
+
+export const inspirationJobStatusValidator = v.union(
+  // Reserved before any provider call; budget held.
+  v.literal("reserved"),
+  // The provider (or CLI) accepted it; providerHandle recorded; budget held.
+  v.literal("accepted"),
+  // Finished and charged (settledUsd); counts toward its cycle.
+  v.literal("settled"),
+  // Acceptance or charge unknown (crash, timeout, dispatcher replaced).
+  // Budget stays held across cycles; never resubmitted automatically.
+  v.literal("unknown_outcome"),
+  // Never submitted or confirmed not charged; budget returned.
+  v.literal("released"),
+);
+
+export const inspirationJobFields = {
+  ownerUserId: v.string(),
+  adaptationId: v.id("inspirationAdaptations"),
+  sourceId: v.id("inspirationSources"),
+  // The submission intent key: reserving again under it returns this job.
+  ingestKey: v.string(),
+  status: inspirationJobStatusValidator,
+  fence: v.number(),
+  worker: v.string(),
+  provider: v.string(),
+  model: v.string(),
+  estimateUsd: v.number(),
+  settledUsd: v.optional(v.number()),
+  costExact: v.optional(v.boolean()),
+  providerHandle: v.optional(v.string()),
+  versionId: v.optional(v.id("inspirationVersions")),
+  // Start of the cycle the reservation belongs to.
+  cycleStart: v.number(),
+  note: v.optional(v.string()),
+  resolvedBy: v.optional(v.string()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};

@@ -13,6 +13,7 @@ import {
   ADAPTATION_STATUS_LABEL, PLATFORM_LABEL, inspirationPath, type InspirationAdaptationStatus, type InspirationPlatform,
 } from "@/lib/inspiration";
 import { Chip, HAIR, RULE } from "./parts";
+import { GenerationStrip } from "./generation-strip";
 
 // /inspiration: the library of saved references. Raw sources and their
 // project takes are told apart on every tile: the source picture is the
@@ -220,6 +221,8 @@ export function InspirationLibrary({ ownerUserId }: { ownerUserId: string }) {
         <p className="mt-2 max-w-xl text-[12px] leading-5" style={{ color: "var(--lm-text-tertiary)" }}>
           A reference stays a reference: nothing here is filed into a project until you approve a take and promote it. Notes never start work.
         </p>
+        {/* Subscribes after the first page of the library is in (speed rule). */}
+        {!loading && <GenerationStrip ownerUserId={ownerUserId} />}
       </header>
 
       <div className="sticky top-0 z-10 -mx-4 flex flex-col gap-1.5 px-4 py-3 md:-mx-8 md:px-8" style={{ background: "color-mix(in srgb, var(--lm-paper) 92%, transparent)", backdropFilter: "blur(10px)", borderBottom: HAIR }}>

@@ -510,6 +510,18 @@ only plain collections may be children. One level deep.
 - `inspirationEvents`: append-only notes and decisions (note, keep, unkeep,
   drop, recover, approve, redo, promote, unpromote) keyed by `eventKey`,
   pinned to a source or take and a version; a redo carries its `taskId`.
+- `inspirationDispatch`: one row per owner: `paused` (true by default; no row
+  = paused), Michael's allowance (`cycleCapUsd`, `perJobCapUsd`,
+  `allowanceExpiresAt`, `providers`), fixed `cycleHours` from `cycleAnchor`,
+  and the single dispatcher lease (`holder`, `holderNonce`, `leaseUntil`,
+  `fence`, which rises on every claim).
+- `inspirationJobs`: one priced reservation per paid call: `adaptationId`,
+  `ingestKey`, `status` reserved | accepted | settled | unknown_outcome |
+  released, `fence`, `provider`, `model`, `estimateUsd`, `settledUsd`,
+  `providerHandle`, `versionId`, `cycleStart`. Held = reserved + accepted +
+  unknown (any cycle); settled counts toward its own cycle.
+- `inspirationVersions` also carries the paying `jobId` link through the job's
+  `versionId`; a version posted with a stale fence is an orphan.
 - `assetComments.source` gains `inspiration`: a source note mirrored onto the
   lead asset's thread; it opens no task.
 - `tasks.source` gains `inspiration`: a redo task, `sourceRef` = the event id.
