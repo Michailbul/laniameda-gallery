@@ -130,6 +130,19 @@ function buildIndex(page: ReviewPage) {
   return { styleOrder, styleBySlug, folders, folderById, itemsByFolder, sectionCounts, folderCounts, areas, sections, byCode, byAsset, roundStyles, roundStyleCounts };
 }
 
+// Where the page opens in a section: the folder with the most frames in the
+// round (CASSANDRA: School), not the first in script order.
+function landingFolder(index: ReturnType<typeof buildIndex>, section: ReviewSection) {
+  let best: (typeof index.folders)[number] | undefined;
+  let bestCount = 0;
+  for (const row of index.folders) {
+    if (row.section !== section) continue;
+    const count = index.folderCounts.get(row.id) ?? 0;
+    if (count > bestCount) { best = row; bestCount = count; }
+  }
+  return best;
+}
+
 function initialView(search: string, page: ReviewPage): ViewState {
   const index = buildIndex(page);
   const parsed = readViewState(search, "m");
@@ -138,7 +151,7 @@ function initialView(search: string, page: ReviewPage): ViewState {
       ? parsed.section
       : index.sections.find((value) => index.sectionCounts[value] > 0) ?? index.sections[0]!;
   const inSection = index.folders.filter((row) => row.section === section);
-  const firstFull = inSection.find((row) => (index.folderCounts.get(row.id) ?? 0) > 0);
+  const firstFull = landingFolder(index, section);
   let folder = parsed.folder;
   if (folder === undefined || (folder && !inSection.some((row) => row.slug === folder))) folder = firstFull?.slug ?? "";
   const style = parsed.style && index.styleBySlug.has(parsed.style) ? parsed.style : "";
@@ -327,8 +340,10 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   const styleChips = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of scope) if (item.styleId) counts.set(item.styleId, (counts.get(item.styleId) ?? 0) + 1);
+    // Only styles with frames in what is on screen (folder and section):
+    // an empty style would show as a greyed chip, which reads as noise.
     return page.styles
-      .filter((row) => index.roundStyles.has(row.id))
+      .filter((row) => index.roundStyles.has(row.id) && (counts.get(row.id) ?? 0) > 0)
       .map((row) => ({ ...row, slug: slugOf(row.label), count: counts.get(row.id) ?? 0, roundCount: index.roundStyleCounts.get(row.id) ?? 0 }));
   }, [scope, page.styles, index]);
 
@@ -519,7 +534,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   }, [clearSelection]);
 
   const onSection = useCallback((section: ReviewSection) => {
-    const first = index.folders.find((row) => row.section === section && (index.folderCounts.get(row.id) ?? 0) > 0);
+    const first = landingFolder(index, section);
     setViewingList(null);
     changeView({ section, folder: first?.slug ?? "" }, { clear: true });
     window.scrollTo({ top: 0 });
