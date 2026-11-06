@@ -1809,3 +1809,66 @@ export const syncStyles = signedOwnerMutation({
     return { checked: moves.length, filed };
   },
 });
+/**
+ * Correct the style of frames in any round, published ones included (a
+ * mislabelled style is a correction, not new content). Keeps the gallery's
+ * style shelves in step. Frames by asset id; every copy in that round moves.
+ */
+export const restyleInRound = signedOwnerMutation({
+  args: { ...ownerArgs, version: v.string(), assetIds: v.array(v.id("assets")), styleId: v.id("worldStyles") },
+  returns: v.object({ round: v.string(), changed: v.number() }),
+  handler: async (ctx, args) => {
+    const project = await requireOwnedProject(ctx, args.ownerUserId!, args.slug);
+    assertProjectStyle(project, args.styleId);
+    const version = await resolveVersion(ctx, project, args.version);
+    if (!version) throw new ConvexError(`No round "${args.version}".`);
+    const wanted = new Set<string>(args.assetIds);
+    const moves: Array<{ assetId: Id<"assets">; styleId?: Id<"worldStyles">; previousStyleId?: Id<"worldStyles"> }> = [];
+    let changed = 0;
+    for (const row of await itemsOf(ctx, version._id)) {
+      if (!wanted.has(row.assetId) || row.styleId === args.styleId) continue;
+      await ctx.db.patch(row._id, { styleId: args.styleId });
+      moves.push({ assetId: row.assetId, styleId: args.styleId, previousStyleId: row.styleId });
+      changed += 1;
+    }
+    await syncStyleShelves(ctx, project, moves);
+    return { round: version.label, changed };
+  },
+});
+
+/**
+ * Remove a style from a round: every frame shown in that style leaves the
+ * round (default the draft, made from the current round when there is none;
+ * "current" or a label corrects a published round). With dropFromCarousel the
+ * style also leaves the project's carousel. The gallery's world style and its
+ * frames are untouched.
+ */
+export const removeStyle = signedOwnerMutation({
+  args: {
+    ...ownerArgs,
+    styleId: v.id("worldStyles"),
+    version: v.optional(v.string()),
+    dropFromCarousel: v.optional(v.boolean()),
+  },
+  returns: v.object({ round: v.string(), removed: v.number() }),
+  handler: async (ctx, args) => {
+    const project = await requireOwnedProject(ctx, args.ownerUserId!, args.slug);
+    const version = args.version && args.version !== "draft"
+      ? await resolveVersion(ctx, project, args.version)
+      : await ensureDraft(ctx, project);
+    if (!version) throw new ConvexError(`No round "${args.version}".`);
+    let removed = 0;
+    for (const row of await itemsOf(ctx, version._id)) {
+      if (row.styleId !== args.styleId) continue;
+      await ctx.db.delete(row._id);
+      removed += 1;
+    }
+    if (args.dropFromCarousel) {
+      await ctx.db.patch(project._id, {
+        styles: project.styles.filter((entry) => entry.styleId !== args.styleId),
+        updatedAt: Date.now(),
+      });
+    }
+    return { round: version.label, removed };
+  },
+});
