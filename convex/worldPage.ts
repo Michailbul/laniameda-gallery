@@ -3,6 +3,8 @@ import { paginationOptsValidator } from "convex/server";
 import { internalMutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import { signedOwnerMutation, signedOwnerQuery } from "./actor";
+import { internal } from "./_generated/api";
+import { HERO_RENDITION_WIDTH } from "../lib/topaz";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { canonicalTagKey } from "./helpers";
 import { buildR2PublicUrl, resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
@@ -14,6 +16,7 @@ import {
   HERO_INSERT_MAX_FRAMES,
   editHeroInserts,
   normalizeHeroInserts,
+  separateFilms,
 } from "../lib/world-hero-inserts";
 
 // ---------------------------------------------------------------------------
@@ -188,6 +191,8 @@ const toTile = async (
   ctx: QueryCtx,
   world: WorldContext,
   asset: Doc<"assets"> | null,
+  /** A hero insert frame: its srcset also offers the high-resolution renditions. */
+  hero = false,
 ): Promise<WorldTile | null> => {
   if (!asset) return null;
   if (asset.ownerUserId !== world.root.ownerUserId) return null;
@@ -221,6 +226,13 @@ const toTile = async (
     })
     .sort((a, b) => a.width - b.width);
   if (thumb && asset.thumbWidth) variants.push({ url: thumb, width: asset.thumbWidth });
+  // Large and retina screens pick these through the srcset; phones never do.
+  if (hero && asset.kind === "image") {
+    for (const variant of asset.heroRendition?.variants ?? []) {
+      const url = buildR2PublicUrl(variant.r2Key);
+      if (url) variants.push({ url, width: variant.width });
+    }
+  }
   return {
     id: asset._id,
     kind: asset.kind,
@@ -384,12 +396,13 @@ const loadInserts = async (ctx: QueryCtx, world: WorldContext) => {
     const tiles: WorldTile[] = [];
     for (const id of insert.assetIds.slice(0, HERO_INSERT_MAX_FRAMES)) {
       if (!(await isMemberOf(ctx, id, tree))) continue;
-      const tile = await toTile(ctx, rootWorld, await ctx.db.get(id));
+      const tile = await toTile(ctx, rootWorld, await ctx.db.get(id), true);
       if (tile) tiles.push(tile);
     }
     if (tiles.length) inserts.push({ tiles });
   }
-  return inserts;
+  // A film is never cropped into a split or triptych panel.
+  return separateFilms(inserts, (tile) => tile.kind === "video");
 };
 
 const worldPageReturns = v.union(
@@ -739,12 +752,32 @@ export const setHeroInsert = signedOwnerMutation({
       throw new ConvexError("Frame not found.");
     }
     const world = await heroWorldOf(ctx, ownerUserId, asset, folderId);
-    const edit = editHeroInserts(world.worldPage?.heroInserts ?? [], assetId, action);
+    const current = world.worldPage?.heroInserts ?? [];
+    const films = new Set<string>(asset.kind === "video" ? [assetId] : []);
+    if (action === "pair") {
+      for (const insert of current.slice(-1)) {
+        for (const id of insert.assetIds) {
+          if ((await ctx.db.get(id))?.kind === "video") films.add(id);
+        }
+      }
+    }
+    const edit = editHeroInserts(current, assetId, action, (id) => films.has(id));
     if (edit.changed) {
       await ctx.db.patch(world._id, {
         worldPage: { ...(world.worldPage ?? {}), heroInserts: edit.inserts },
         updatedAt: Date.now(),
       });
+    }
+    // A new hero still gets its 4K rendition (a no-op without a Topaz key on
+    // the deployment; scripts/upscale-hero.ts covers that case).
+    if (
+      edit.changed &&
+      edit.hero &&
+      asset.kind === "image" &&
+      !asset.heroRendition &&
+      (asset.width ?? 0) < HERO_RENDITION_WIDTH
+    ) {
+      await ctx.scheduler.runAfter(0, internal.heroRendition.upscale, { assetId });
     }
     return {
       folderId: world._id,

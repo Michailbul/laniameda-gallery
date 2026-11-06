@@ -341,8 +341,7 @@
 }
 .wp-tile > video[data-playing="true"] { opacity: 1; }
 @media (hover: hover) and (pointer: fine) {
-  .wp-tile:hover > img,
-  .wp-tile:hover > video { transform: scale(1.03); filter: none; }
+  .wp-tile:hover > img { transform: scale(1.03); filter: none; }
 }
 /* Featured (the curator star): a crimson rule down the left edge. */
 .wp-tile[data-featured="true"]::after {
@@ -385,6 +384,16 @@
   overflow: hidden;
   background: #000;
 }
+/* A film is never cropped: whole, at its own aspect, no push, no pin. */
+.wp-tile > video,
+.wp-frame > video { object-fit: contain; background: #000; }
+.wp-cut[data-film="true"] .wp-cut-pin { position: relative; height: 100%; }
+.wp-cut[data-film="true"] .wp-frames,
+.wp-hero[data-film="true"] .wp-frames { animation: none !important; transform: none !important; }
+.wp-cut[data-film="true"] .wp-frame > img,
+.wp-hero[data-film="true"] .wp-frame > img { object-fit: contain; background: #000; }
+.wp-cut[data-film="true"] .wp-cut-shade { display: none; }
+
 .wp-cut-shade {
   position: absolute;
   inset: 0;

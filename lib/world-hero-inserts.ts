@@ -47,13 +47,17 @@ const same = <Id extends string>(a: HeroInsert<Id>[], b: HeroInsert<Id>[]) =>
  * - pair: join the previous (last) insert to make a split or a triptych; a
  *   full previous insert (three frames) or none starts a new one. Pairing a
  *   frame that already sits in the last insert with others is a no-op.
+ *   Splits and triptychs hold stills only: a film never pairs (it plays as
+ *   its own full-width insert, whole) and a still never joins a film.
  */
 export const editHeroInserts = <Id extends string>(
   current: HeroInsert<Id>[],
   assetId: Id,
   action: HeroInsertAction,
+  isVideo: (id: Id) => boolean = () => false,
 ): HeroInsertEdit<Id> => {
   const at = indexOf(current, assetId);
+  if (action === "pair" && isVideo(assetId)) action = "add";
   let next: HeroInsert<Id>[];
   if (action === "remove" || (action === "toggle" && at >= 0)) {
     next = without(current, assetId);
@@ -66,7 +70,11 @@ export const editHeroInserts = <Id extends string>(
     } else {
       next = without(current, assetId);
       const previous = next[next.length - 1];
-      if (previous && previous.assetIds.length < HERO_INSERT_MAX_FRAMES) {
+      if (
+        previous &&
+        previous.assetIds.length < HERO_INSERT_MAX_FRAMES &&
+        !previous.assetIds.some(isVideo)
+      ) {
         next = [...next.slice(0, -1), { assetIds: [...previous.assetIds, assetId] }];
       } else {
         next = [...next, { assetIds: [assetId] }];
@@ -83,6 +91,22 @@ export const editHeroInserts = <Id extends string>(
     changed: !same(current, next),
   };
 };
+
+/**
+ * Films out of shared inserts: each film in a split or triptych becomes its
+ * own insert right after the stills it was grouped with (a film is never
+ * cropped into a panel). Lists without such a group come back unchanged.
+ */
+export const separateFilms = <Id extends string, T extends { id: Id }>(
+  inserts: Array<{ tiles: T[] }>,
+  isVideo: (tile: T) => boolean,
+) =>
+  inserts.flatMap((insert) => {
+    if (insert.tiles.length < 2 || !insert.tiles.some(isVideo)) return [insert];
+    const stills = insert.tiles.filter((tile) => !isVideo(tile));
+    const films = insert.tiles.filter(isVideo).map((tile) => ({ tiles: [tile] }));
+    return stills.length ? [{ tiles: stills }, ...films] : films;
+  });
 
 /** Clean a list an agent or the settings call sends: 1–3 unique frames per insert, no frame twice. */
 export const normalizeHeroInserts = <Id extends string>(inserts: HeroInsert<Id>[]) => {

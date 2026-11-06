@@ -72,7 +72,13 @@ export function WorldHero({
   }, []);
 
   return (
-    <section className="wp-hero" id="top" ref={section} data-offscreen={!onScreen || undefined}>
+    <section
+      className="wp-hero"
+      id="top"
+      ref={section}
+      data-offscreen={!onScreen || undefined}
+      data-film={(single && hasFilm) || undefined}
+    >
       <div className="wp-hero-pin">
         <div className="wp-hero-media" aria-hidden>
           {opening && (

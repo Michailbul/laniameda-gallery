@@ -456,6 +456,13 @@ export const assetDocValidator = v.object({
   starNote: v.optional(v.string()),
   worldPageHidden: v.optional(v.boolean()),
   worldPageHiddenReason: v.optional(v.string()),
+  heroRendition: v.optional(
+    v.object({
+      variants: v.array(v.object({ r2Key: v.string(), width: v.number(), height: v.number() })),
+      model: v.string(),
+      createdAt: v.number(),
+    }),
+  ),
   superLikedAt: v.optional(v.number()),
   curatedByUserId: v.optional(v.string()),
   curatedAt: v.optional(v.number()),

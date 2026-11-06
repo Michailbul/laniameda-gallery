@@ -87,17 +87,33 @@ export const WorldMasonry = memo(function WorldMasonry({
   }, []);
 
   const ratios = useMemo(() => tiles.map((tile) => tile.h / tile.w), [tiles]);
+  // Films never stretch: a clip is never cropped.
+  const locked = useMemo(() => tiles.map((tile) => tile.kind === "video"), [tiles]);
+  // A film insert plays whole, full width at its own aspect; stills hold the
+  // screen for 1.4 screens of scroll.
+  const insertHeights = useMemo(
+    () =>
+      inserts.map((insert) => {
+        const film = filmOf(insert);
+        return film
+          ? Math.round((width + 8) * (film.h / film.w))
+          : Math.round(viewportHeight * INSERT_SCREENS);
+      }),
+    [inserts, width, viewportHeight],
+  );
   const layout = useMemo(
     () =>
       layoutWall({
         ratios,
+        locked,
         inserts: inserts.length,
+        insertHeights,
         width,
         gap: 4,
         insertHeight: Math.round(viewportHeight * INSERT_SCREENS),
         complete,
       }),
-    [ratios, inserts.length, width, viewportHeight, complete],
+    [ratios, locked, inserts.length, insertHeights, width, viewportHeight, complete],
   );
 
   // Which slice of the wall is near the screen.
@@ -186,7 +202,14 @@ export const WorldMasonry = memo(function WorldMasonry({
 
 // ------------------------------------------------------------------ cut
 
-/** A full-screen insert in the wall: the frame pins for a screen and a half and pulls back slowly. */
+/** The film of a one-film insert (a film always plays alone), else null. */
+export const filmOf = (insert: { tiles: WorldTile[] }) =>
+  insert.tiles.length === 1 && insert.tiles[0].kind === "video" ? insert.tiles[0] : null;
+
+/**
+ * A full-screen insert in the wall: stills pin for a screen and a half and
+ * pull back slowly; a film plays whole at its own aspect, never cropped.
+ */
 function Cut({
   top,
   height,
@@ -199,8 +222,9 @@ function Cut({
   owner?: WallOwnerState;
 }) {
   const { ref, near, visible } = useNearVisible<HTMLElement>();
+  const film = tiles.length === 1 && tiles[0].kind === "video";
   return (
-    <section ref={ref} className="wp-cut" style={{ top, height }} aria-hidden>
+    <section ref={ref} className="wp-cut" data-film={film || undefined} style={{ top, height }} aria-hidden>
       <div className="wp-cut-pin">
         <InsertFrames tiles={tiles} near={near} visible={visible} owner={owner} />
         <div className="wp-cut-shade" />
