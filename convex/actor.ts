@@ -30,11 +30,14 @@ export const isLegacyOwnerArgAuthEnabled = () =>
 // sign-in) only open convex/review.ts, which reads the identity itself. They
 // never pass for a gallery owner.
 export const REVIEWER_SUBJECT_PREFIX = "reviewer:";
+// The review page's server reads its signed-out preview with sub
+// "teaser:<slug>"; like reviewer tokens it never passes for an owner.
+export const TEASER_SUBJECT_PREFIX = "teaser:";
 
 const readIdentitySubject = async (ctx: AuthCtx) => {
   const identity = await ctx.auth?.getUserIdentity();
   const subject = identity?.subject?.trim();
-  if (subject?.startsWith(REVIEWER_SUBJECT_PREFIX)) {
+  if (subject?.startsWith(REVIEWER_SUBJECT_PREFIX) || subject?.startsWith(TEASER_SUBJECT_PREFIX)) {
     throw new ConvexError("A review sign-in cannot open the gallery.");
   }
   return subject || undefined;

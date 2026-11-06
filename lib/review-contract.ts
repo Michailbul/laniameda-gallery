@@ -66,6 +66,7 @@ export const reviewReviewerSchema = z.object({
   email: z.string().trim().min(3).max(200).describe("The Google account they sign in with."),
   name: z.string().trim().max(120).optional(),
   role: z.enum(["director", "viewer"]).optional().describe("director (default) likes, dislikes and comments; viewer only looks."),
+  title: z.string().trim().max(80).optional().describe("What they are on the film, shown by their avatar: \"Director\", \"Producer · Fantasy Studios\"."),
 });
 
 export const reviewStyleEntrySchema = z.object({

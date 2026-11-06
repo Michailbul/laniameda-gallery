@@ -1,41 +1,19 @@
 "use client";
-/* eslint-disable @next/next/no-img-element -- this page is also served on another domain through a rewrite, so it uses plain <img> with srcset, never next/image. */
+/* eslint-disable @next/next/no-img-element -- this page is also served on another domain through a rewrite, so it uses plain <img>, never next/image. */
 
-import { memo, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import {
-  SECTION_LABEL, mediaUrl, shortDate,
+  SECTION_LABEL, mediaUrl,
   type FeedbackFilter, type GridSize, type ReviewFolder, type ReviewSection, type ReviewStyle, type ReviewVersion,
 } from "@/lib/review-client";
 import { Check, ChevronDown, Menu } from "./icons";
 import { AllFoldersIcon, FolderIcon } from "./folder-icons";
+import { Floating, usePopover } from "./Floating";
+import { Milestones } from "./Milestones";
 
-// The page chrome: the folder nav on the left and the bar on top (styles,
-// feedback filter, round, size). Plain words only; no recipes or codes.
-
-/** Open/close state for a small menu that closes on outside click and Esc. */
-export function usePopover() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        setOpen(false);
-      }
-    };
-    window.addEventListener("pointerdown", onDown, true);
-    window.addEventListener("keydown", onKey, true);
-    return () => {
-      window.removeEventListener("pointerdown", onDown, true);
-      window.removeEventListener("keydown", onKey, true);
-    };
-  }, [open]);
-  return [open, setOpen, ref] as const;
-}
+// The page chrome: the folder nav on the left and the bar on top (rounds as
+// milestones in the middle, then styles, the feedback filter and frame
+// size). Plain words only; no recipes or codes.
 
 // ------------------------------------------------------------ sidebar
 
@@ -129,23 +107,6 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
 
 // ------------------------------------------------------------ top bar
 
-const FILTERS_DIRECTOR: Array<[FeedbackFilter, string]> = [
-  ["all", "All frames"],
-  ["liked", "Liked"],
-  ["disliked", "Disliked"],
-  ["commented", "With comments"],
-  ["todo", "Not reviewed yet"],
-];
-
-const FILTERS_OWNER: Array<[FeedbackFilter, string]> = [
-  ["all", "All frames"],
-  ["liked", "Approved"],
-  ["disliked", "Disliked"],
-  ["commented", "Commented"],
-  ["todo", "Unreviewed"],
-  ["new", "New feedback"],
-];
-
 export const FILTER_SHORT: Record<FeedbackFilter, string> = {
   all: "All",
   liked: "Liked",
@@ -153,7 +114,27 @@ export const FILTER_SHORT: Record<FeedbackFilter, string> = {
   commented: "Comments",
   todo: "To review",
   new: "New",
+  feedback: "His feedback",
 };
+
+const filterOptions = (isOwner: boolean, director: string): Array<[FeedbackFilter, string]> =>
+  isOwner
+    ? [
+        ["all", "All frames"],
+        ["feedback", `Only ${director}'s feedback`],
+        ["new", "New feedback"],
+        ["liked", `Liked by ${director}`],
+        ["disliked", `Disliked by ${director}`],
+        ["commented", "With comments"],
+        ["todo", "Nobody has looked yet"],
+      ]
+    : [
+        ["all", "All frames"],
+        ["liked", "Liked"],
+        ["disliked", "Disliked"],
+        ["commented", "With comments"],
+        ["todo", "Not reviewed yet"],
+      ];
 
 type StyleChip = ReviewStyle & { count: number; slug: string };
 
@@ -167,10 +148,11 @@ type TopBarProps = {
   filterCounts: Record<FeedbackFilter, number>;
   onFilter: (filter: FeedbackFilter) => void;
   isOwner: boolean;
+  directorName: string;
   versions: ReviewVersion[];
   versionId?: string;
-  loadingRound: boolean;
   onRound: (version: ReviewVersion) => void;
+  roundMessage?: { key: string; title: string; note?: string } | null;
   size: GridSize;
   onSize: (size: GridSize) => void;
   onMenu: () => void;
@@ -179,65 +161,105 @@ type TopBarProps = {
 
 export const TopBar = memo(function TopBar(props: TopBarProps) {
   const {
-    mediaBase, styles, style, allCount, onStyle, filter, filterCounts, onFilter, isOwner,
-    versions, versionId, loadingRound, onRound, size, onSize, onMenu, menuLabel,
+    mediaBase, styles, style, allCount, onStyle, filter, filterCounts, onFilter, isOwner, directorName,
+    versions, versionId, onRound, roundMessage, size, onSize, onMenu, menuLabel,
   } = props;
-  const [filterOpen, setFilterOpen, filterRef] = usePopover();
-  const [roundOpen, setRoundOpen, roundRef] = usePopover();
-  const shown = versions.find((row) => row.id === versionId);
-  const newestFirst = [...versions].sort((a, b) => b.number - a.number);
-  const filters = isOwner ? FILTERS_OWNER : FILTERS_DIRECTOR;
+  const [filterOpen, setFilterOpen, filterRef, filterPop] = usePopover();
+  const [keysOpen, setKeysOpen, keysRef, keysPop] = usePopover();
+  const options = filterOptions(isOwner, directorName);
   const covers = styles.filter((row) => row.cover).slice(0, 4);
 
   return (
     <header className="rv-top">
-      <button type="button" className="rv-btn rv-menu-btn" onClick={onMenu} aria-label="Folders">
-        <Menu size={13} />
-        {menuLabel}
-      </button>
-
-      {styles.length > 0 ? (
-        <div className="rv-styles" role="group" aria-label="Styles">
-          {styles.length > 1 ? (
-            <button type="button" className="rv-style" aria-pressed={style === ""} onClick={() => onStyle("")}>
-              <span className="cv mosaic">
-                {covers.map((row) => (
-                  <img key={row.id} src={mediaUrl(mediaBase, row.cover)} alt="" loading="lazy" decoding="async" fetchPriority="low" />
-                ))}
-              </span>
-              <span className="lb">
-                <b>All styles</b>
-                <span>{allCount} frames</span>
-              </span>
-            </button>
-          ) : null}
-          {styles.map((row) => (
-            <button
-              key={row.id}
-              type="button"
-              className="rv-style"
-              aria-pressed={style === row.slug}
-              data-empty={row.count === 0 ? "" : undefined}
-              onClick={() => onStyle(style === row.slug ? "" : row.slug)}
-            >
-              <span className="cv">
-                {row.cover ? <img src={mediaUrl(mediaBase, row.cover)} alt="" loading="lazy" decoding="async" fetchPriority="low" /> : null}
-              </span>
-              <span className="lb">
-                <b>{row.label}</b>
-                <span>{row.count} {row.count === 1 ? "frame" : "frames"}</span>
-              </span>
-            </button>
-          ))}
+      <div className="rv-bar">
+        <div className="rv-bar-l">
+          <button type="button" className="rv-btn rv-menu-btn" onClick={onMenu} aria-label="Folders">
+            <Menu size={13} />
+            {menuLabel}
+          </button>
         </div>
-      ) : (
-        <div className="rv-styles" />
-      )}
-
-      <div className="rv-tools">
-        <div style={{ position: "relative" }} ref={filterRef}>
+        <Milestones versions={versions} shownId={versionId} isOwner={isOwner} directorName={directorName} onPick={onRound} />
+        <div className="rv-bar-r">
           <button
             type="button"
+            ref={keysRef}
+            className="rv-btn round"
+            aria-label="Keyboard keys"
+            aria-expanded={keysOpen}
+            onClick={() => setKeysOpen(!keysOpen)}
+          >
+            ?
+          </button>
+          {keysOpen ? (
+            <Floating anchorRef={keysRef} popRef={keysPop} placement="bottom-end" className="rv-keysheet" label="Keys">
+              <div className="rv-pop-h" style={{ padding: "4px 0 12px" }}>Keys on the frame under the pointer</div>
+              <dl>
+                <dt><kbd>1</kbd></dt><dd>Like</dd>
+                <dt><kbd>2</kbd></dt><dd>Dislike</dd>
+                <dt><kbd>C</kbd></dt><dd>Comment</dd>
+                <dt><kbd>O</kbd><kbd>↵</kbd></dt><dd>Open large</dd>
+                <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Next and previous frame</dd>
+                <dt><kbd>[</kbd><kbd>]</kbd></dt><dd>Earlier or later round</dd>
+                <dt><kbd>⌘</kbd><kbd>click</kbd></dt><dd>Select frames</dd>
+                <dt><kbd>⇧</kbd><kbd>drag</kbd></dt><dd>Select with a box</dd>
+                <dt><kbd>⌘</kbd><kbd>A</kbd></dt><dd>Select all on screen</dd>
+                {isOwner ? (<><dt><kbd>3</kbd>–<kbd>9</kbd></dt><dd>Put in list A–G</dd></>) : null}
+                <dt><kbd>Esc</kbd></dt><dd>Close, clear the selection</dd>
+              </dl>
+            </Floating>
+          ) : null}
+        </div>
+      </div>
+      {roundMessage ? (
+        <div key={roundMessage.key} className="rv-roundmsg" role="status">
+          <b>{roundMessage.title}</b>
+          {roundMessage.note}
+        </div>
+      ) : null}
+
+      <div className="rv-stylebar">
+        {styles.length > 0 ? (
+          <div className="rv-styles" role="group" aria-label="Styles">
+            {styles.length > 1 ? (
+              <button type="button" className="rv-style" aria-pressed={style === ""} onClick={() => onStyle("")}>
+                <span className="cv mosaic">
+                  {covers.map((row) => (
+                    <img key={row.id} src={mediaUrl(mediaBase, row.cover)} alt="" decoding="async" fetchPriority="low" />
+                  ))}
+                </span>
+                <span className="lb">
+                  <b>All styles</b>
+                  <span>{allCount} frames</span>
+                </span>
+              </button>
+            ) : null}
+            {styles.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                className="rv-style"
+                aria-pressed={style === row.slug}
+                data-empty={row.count === 0 ? "" : undefined}
+                onClick={() => onStyle(style === row.slug ? "" : row.slug)}
+              >
+                <span className="cv">
+                  {row.cover ? <img src={mediaUrl(mediaBase, row.cover)} alt="" decoding="async" fetchPriority="low" /> : null}
+                </span>
+                <span className="lb">
+                  <b>{row.label}</b>
+                  <span>{row.count} {row.count === 1 ? "frame" : "frames"}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="rv-styles" />
+        )}
+
+        <div className="rv-tools">
+          <button
+            type="button"
+            ref={filterRef}
             className="rv-btn"
             data-on={filter !== "all" ? "" : undefined}
             aria-haspopup="menu"
@@ -249,8 +271,8 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
             <ChevronDown size={11} />
           </button>
           {filterOpen ? (
-            <div className="rv-pop rv-pop-right" role="menu">
-              {filters.map(([value, label]) => (
+            <Floating anchorRef={filterRef} popRef={filterPop} placement="bottom-end" role="menu">
+              {options.map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
@@ -267,62 +289,15 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
                   <span className="r">{filterCounts[value]}</span>
                 </button>
               ))}
-            </div>
+            </Floating>
           ) : null}
-        </div>
-
-        {versions.length > 0 ? (
-          <div style={{ position: "relative" }} ref={roundRef}>
-            <button
-              type="button"
-              className="rv-btn"
-              data-on={shown && !shown.isCurrent ? "" : undefined}
-              aria-haspopup="menu"
-              aria-expanded={roundOpen}
-              onClick={() => setRoundOpen(!roundOpen)}
-            >
-              {loadingRound ? <span className="rv-loading" /> : null}
-              {shown?.label ?? "Round"}
-              {shown?.isDraft ? <span className="sub">Draft</span> : shown?.publishedAt ? <span className="sub">{shortDate(shown.publishedAt)}</span> : null}
-              <ChevronDown size={11} />
-            </button>
-            {roundOpen ? (
-              <div className="rv-pop rv-pop-right" role="menu" style={{ minWidth: 280 }}>
-                <div className="rv-pop-h">Rounds</div>
-                {newestFirst.map((row) => (
-                  <button
-                    key={row.id}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={row.id === versionId}
-                    className="rv-opt"
-                    onClick={() => {
-                      onRound(row);
-                      setRoundOpen(false);
-                    }}
-                  >
-                    <span className="ck">{row.id === versionId ? <Check size={13} /> : null}</span>
-                    <span>
-                      <b>{row.label}</b>
-                      {row.title ? <span className="note">{row.title}</span> : null}
-                    </span>
-                    <span className="r">
-                      {row.isDraft ? <span className="tag draft">Draft</span> : row.isCurrent ? <span className="tag cur">Current</span> : null}{" "}
-                      {row.publishedAt ? shortDate(row.publishedAt) : ""}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
+          <div className="rv-size" role="group" aria-label="Frame size">
+            {(["s", "m", "l"] as GridSize[]).map((value) => (
+              <button key={value} type="button" aria-pressed={size === value} onClick={() => onSize(value)} title={`${value.toUpperCase()} frames`}>
+                {value.toUpperCase()}
+              </button>
+            ))}
           </div>
-        ) : null}
-
-        <div className="rv-size" role="group" aria-label="Frame size">
-          {(["s", "m", "l"] as GridSize[]).map((value) => (
-            <button key={value} type="button" aria-pressed={size === value} onClick={() => onSize(value)} title={`${value.toUpperCase()} frames`}>
-              {value.toUpperCase()}
-            </button>
-          ))}
         </div>
       </div>
     </header>

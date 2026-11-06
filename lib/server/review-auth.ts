@@ -130,7 +130,7 @@ export function mintReviewerConvexToken(email: string) {
 // open (set by /review/<slug>/api/dev-as). Ignored in production builds, and
 // only for the listed test address.
 export const REVIEW_DEV_AS_COOKIE = "rv_dev_as";
-export const REVIEW_DEV_AS_EMAILS = ["director.test@example.com"];
+export const REVIEW_DEV_AS_EMAILS = ["director.test@example.com", "producer.test@example.com"];
 export const reviewDevAsAllowed = () => process.env.NODE_ENV !== "production";
 
 export async function resolveReviewViewer(): Promise<ReviewViewerAuth | null> {

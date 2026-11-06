@@ -6,20 +6,19 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  ago, copyText, isTyping, mediaUrl, srcSetOf, thumbAtLeast,
-  type ReviewItem, type Verdict,
+  LIST_COLORS, LIST_KEYS, ago, copyText, isTyping, mediaUrl, srcSetOf, thumbAtLeast,
+  type ListKey, type Lists, type ReviewItem, type Verdict,
 } from "@/lib/review-client";
-import { Bubble, ChevronLeft, ChevronRight, Close, Copy, Download, ThumbDown, ThumbUp } from "./icons";
+import { ChevronLeft, ChevronRight, Close, Copy } from "./icons";
+import { Avatar, personOf, type Person } from "./people";
 
 // The open view: the frame as large as the screen allows (the 1440 rendition
 // at once, the original once it has loaded or on zoom), arrows through the
-// frames on screen, and a side panel with like / dislike, the comment thread
-// and, for Michael only, how the frame was made.
+// frames on screen, and a side panel: like / dislike / comment as quiet text
+// actions with their keys, who liked it, the comment thread with faces and,
+// for Michael only, his lists and how the frame was made.
 
-export type LightboxMark = {
-  mine?: Verdict;
-  reviewers: Array<{ name: string; verdict: Verdict; at: number }>;
-};
+export type LightboxVerdict = { person?: Person; verdict: Verdict; at: number };
 
 type Props = {
   slug: string;
@@ -33,10 +32,15 @@ type Props = {
   styleLabel?: string;
   sectionLabel: string;
   roundLabel?: string;
-  mark: LightboxMark;
+  mine?: Verdict;
+  verdicts: LightboxVerdict[];
+  people: Map<string, Person>;
   canVote: boolean;
   isOwner: boolean;
   viewerName: string;
+  viewerWho?: string;
+  lists?: Lists;
+  onList?: (key: ListKey) => void;
   focusComment: number;
   onVerdict: (verdict: Verdict) => void;
   onNav: (delta: number) => void;
@@ -59,7 +63,7 @@ const fastConnection = () => {
 export default function Lightbox(props: Props) {
   const {
     slug, item, position, total, prev, next, mediaBase, folderName, styleLabel, sectionLabel, roundLabel,
-    mark, canVote, isOwner, viewerName, focusComment, onVerdict, onNav, onClose, onDownload, onToast,
+    mine, verdicts, people, canVote, isOwner, viewerName, viewerWho, lists, onList, focusComment, onVerdict, onNav, onClose, onDownload, onToast,
   } = props;
   const assetId = item.assetId as Id<"assets">;
   const large = mediaUrl(mediaBase, thumbAtLeast(item.thumbs, 1400)?.src);
@@ -165,6 +169,7 @@ export default function Lightbox(props: Props) {
         {
           id: `pending-${Date.now()}` as Id<"reviewComments">,
           assetId: id,
+          who: viewerWho,
           authorName: viewerName,
           authorEmail: undefined,
           authorRole: isOwner ? "owner" : "director",
@@ -218,9 +223,9 @@ export default function Lightbox(props: Props) {
   };
 
   // ----------------------------------------------------------- keys
-  const keyState = useRef({ onNav, onClose, onVerdict, toggle: () => {} });
+  const keyState = useRef({ onNav, onClose, onVerdict, onList, toggle: () => {} });
   useEffect(() => {
-    keyState.current = { onNav, onClose, onVerdict, toggle: () => toggleZoom() };
+    keyState.current = { onNav, onClose, onVerdict, onList, toggle: () => toggleZoom() };
   });
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -249,6 +254,8 @@ export default function Lightbox(props: Props) {
         areaRef.current?.focus();
       } else if (key === "z") {
         keys.toggle();
+      } else if (keys.onList && key >= "3" && key <= "9") {
+        keys.onList(LIST_KEYS[Number(key) - 3]!);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -328,7 +335,7 @@ export default function Lightbox(props: Props) {
       <aside className="rv-lb-side">
         <div className="rv-lb-bar">
           <button type="button" className={`rv-chip${copied ? " ok" : ""}`} onClick={() => void copyCode()} title="Copy this frame's code">
-            <Copy /> {copied ? "Copied" : item.code}
+            <Copy size={11} /> {copied ? "Copied" : item.code}
           </button>
           {item.isNew ? <span className="rv-chip new">New</span> : null}
           <button type="button" className="close" onClick={onClose} aria-label="Close (Esc)">
@@ -343,33 +350,62 @@ export default function Lightbox(props: Props) {
           {item.note ? <div className="cap">{item.note}</div> : null}
         </div>
 
-        {canVote ? (
-          <div className="rv-lb-verdict">
-            <button type="button" className="rv-pill like" aria-pressed={mark.mine === "like"} onClick={() => onVerdict("like")}>
-              <ThumbUp /> {mark.mine === "like" ? "Liked" : "Like"} <kbd>1</kbd>
-            </button>
-            <button type="button" className="rv-pill dislike" aria-pressed={mark.mine === "dislike"} onClick={() => onVerdict("dislike")}>
-              <ThumbDown /> {mark.mine === "dislike" ? "Disliked" : "Dislike"} <kbd>2</kbd>
-            </button>
-          </div>
-        ) : null}
-
-        <div className="rv-lb-row">
-          <button type="button" className="rv-btn" onClick={onDownload}>
-            <Download size={12} /> Download original
+        <div className="rv-lb-acts">
+          {canVote ? (
+            <>
+              <button type="button" className="rv-act like" aria-pressed={mine === "like"} onClick={() => onVerdict("like")}>
+                <kbd>1</kbd>
+                <span>{mine === "like" ? "Liked" : "Like"}</span>
+              </button>
+              <button type="button" className="rv-act dislike" aria-pressed={mine === "dislike"} onClick={() => onVerdict("dislike")}>
+                <kbd>2</kbd>
+                <span>{mine === "dislike" ? "Disliked" : "Dislike"}</span>
+              </button>
+              <button type="button" className="rv-act" onClick={() => areaRef.current?.focus()}>
+                <kbd>C</kbd>
+                <span>Comment</span>
+              </button>
+            </>
+          ) : null}
+          <button type="button" className="rv-act" onClick={onDownload}>
+            <span>Download original</span>
           </button>
         </div>
 
-        {isOwner && mark.reviewers.length > 0 ? (
+        {verdicts.length > 0 ? (
           <div>
-            <div className="rv-lb-h">Director</div>
-            <div className="rv-marks">
-              {mark.reviewers.map((row) => (
-                <div key={`${row.name}-${row.verdict}`} className="rv-mark">
-                  {row.verdict === "like" ? <ThumbUp size={13} /> : <ThumbDown size={13} />}
-                  <b>{row.name}</b> {row.verdict === "like" ? "liked it" : "disliked it"}
+            <div className="rv-lb-h">Who liked it</div>
+            <div className="rv-verdicts">
+              {verdicts.map((row, index) => (
+                <div key={`${row.person?.who ?? index}-${row.verdict}`} className="rv-verdict">
+                  <Avatar person={row.person} verdict={row.verdict} />
+                  <span style={{ minWidth: 0 }}>
+                    <b>{row.person?.isYou ? "You" : row.person?.name ?? "Someone"}</b>
+                    {row.person?.title ? <span> · {row.person.title}</span> : null}
+                  </span>
+                  <span className={`v ${row.verdict}`}>{row.verdict === "like" ? "Liked" : "Disliked"}</span>
                   <span className="t" suppressHydrationWarning>{ago(row.at)}</span>
                 </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {isOwner && lists && onList ? (
+          <div>
+            <div className="rv-lb-h">Your lists</div>
+            <div className="rv-lb-lists">
+              {LIST_KEYS.map((key, index) => (
+                <button
+                  key={key}
+                  type="button"
+                  aria-pressed={lists.items[key].includes(item.assetId)}
+                  style={{ "--c": LIST_COLORS[key] } as React.CSSProperties}
+                  onClick={() => onList(key)}
+                >
+                  <kbd>{index + 3}</kbd>
+                  {lists.names[key]}
+                </button>
               ))}
             </div>
           </div>
@@ -400,39 +436,40 @@ export default function Lightbox(props: Props) {
 
         <div>
           <div className="rv-lb-h">
-            <Bubble size={11} /> Comments {thread?.length ? <b>{thread.length}</b> : null}
+            Comments {thread?.length ? <b>{thread.length}</b> : null}
           </div>
           <div className="rv-thread">
             {thread === undefined ? <div className="rv-cm-empty">Loading…</div> : null}
             {thread?.length === 0 ? <div className="rv-cm-empty">No comments on this frame yet.</div> : null}
-            {thread?.map((row) => (
-              <div key={row.id} className="rv-cm" data-resolved={row.resolvedAt ? "" : undefined}>
-                <div className="who">
-                  <b className={row.authorRole === "owner" || row.authorRole === "agent" ? "owner" : undefined}>{row.authorName}</b>
-                  <span suppressHydrationWarning>{ago(row.createdAt)}{row.versionLabel ? ` · ${row.versionLabel}` : ""}{row.resolvedAt ? " · done" : ""}</span>
-                  {isOwner && !String(row.id).startsWith("pending") ? (
-                    <button
-                      type="button"
-                      className="x"
-                      onClick={() => void resolveComment({ slug, commentId: row.id, resolved: !row.resolvedAt }).catch(() => onToast("Could not update the comment.", true))}
-                    >
-                      {row.resolvedAt ? "Reopen" : "Done"}
-                    </button>
-                  ) : null}
-                  {(row.mine || isOwner) && !String(row.id).startsWith("pending") ? (
-                    <button
-                      type="button"
-                      className="x"
-                      style={isOwner ? { marginLeft: 8 } : undefined}
-                      onClick={() => void deleteComment({ slug, commentId: row.id }).catch(() => onToast("Could not delete the comment.", true))}
-                    >
-                      Delete
-                    </button>
-                  ) : null}
+            {thread?.map((row) => {
+              const person = personOf(people, row.who);
+              const pending = String(row.id).startsWith("pending");
+              return (
+                <div key={row.id} className="rv-cm" data-resolved={row.resolvedAt ? "" : undefined}>
+                  <Avatar person={person ?? { who: row.who ?? row.authorName, name: row.authorName, initials: row.authorName.slice(0, 1).toUpperCase(), role: row.authorRole, isYou: row.mine }} large />
+                  <div style={{ minWidth: 0 }}>
+                    <div className="who">
+                      <b>{row.mine ? "You" : person?.name ?? row.authorName}</b>
+                      {person?.title ? <span className="ttl">{person.title}</span> : null}
+                      <span className="tm" suppressHydrationWarning>{ago(row.createdAt)}{row.versionLabel ? ` · ${row.versionLabel}` : ""}{row.resolvedAt ? " · done" : ""}</span>
+                    </div>
+                    <p>{row.body}</p>
+                    {!pending && (isOwner || row.mine) ? (
+                      <div className="tools">
+                        {isOwner ? (
+                          <button type="button" onClick={() => void resolveComment({ slug, commentId: row.id, resolved: !row.resolvedAt }).catch(() => onToast("Could not update the comment.", true))}>
+                            {row.resolvedAt ? "Reopen" : "Mark done"}
+                          </button>
+                        ) : null}
+                        <button type="button" onClick={() => void deleteComment({ slug, commentId: row.id }).catch(() => onToast("Could not delete the comment.", true))}>
+                          Delete
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-                <p>{row.body}</p>
-              </div>
-            ))}
+              );
+            })}
             <div ref={threadEnd} />
           </div>
           {canVote ? (
@@ -452,7 +489,7 @@ export default function Lightbox(props: Props) {
               />
               <div className="rv-send">
                 <span>⌘ Enter to send</span>
-                <button type="button" className="rv-btn coral" disabled={!body.trim() || sending} onClick={() => void send()}>
+                <button type="button" className="rv-btn accent" disabled={!body.trim() || sending} onClick={() => void send()}>
                   Send
                 </button>
               </div>

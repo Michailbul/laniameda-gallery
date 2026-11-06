@@ -2,8 +2,9 @@
 /* eslint-disable @next/next/no-img-element -- this page is also served on another domain through a rewrite, so it uses plain <img> with srcset, never next/image. */
 
 import { memo, useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
-import { mediaUrl, srcSetOf, thumbAtLeast, type ReviewItem, type Verdict } from "@/lib/review-client";
-import { Bubble, Check, ThumbDown, ThumbUp } from "./icons";
+import { LIST_COLORS, mediaUrl, srcSetOf, thumbAtLeast, type ListKey, type ReviewItem, type Verdict } from "@/lib/review-client";
+import { Check } from "./icons";
+import { Avatar, facesTitle, type Person } from "./people";
 
 // The frames. Rows are justified in CSS (review.css, .rv-grid/.rv-t): every
 // frame keeps its aspect ratio, a row shares one height, and the server
@@ -18,11 +19,16 @@ export type GridGroup = {
 };
 
 export type TileMark = {
+  // The frame's state for this viewer: their own verdict (director), or the
+  // director's (owner). Drives the outline and the dimming.
   verdict?: Verdict;
   mine?: Verdict;
-  by?: string;
+  // Everyone's verdicts as "who:like,who:dislike" (a string keeps tiles memoised).
+  faces: string;
   comments: number;
   fresh: boolean;
+  // Owner lists the frame is in, e.g. "AC".
+  lists: string;
 };
 
 export type TileAction = "like" | "dislike" | "comment" | "copy";
@@ -30,6 +36,7 @@ export type TileAction = "like" | "dislike" | "comment" | "copy";
 type GridProps = {
   groups: GridGroup[];
   marks: Map<string, TileMark>;
+  people: Map<string, Person>;
   selected: Set<string>;
   mediaBase: string;
   canVote: boolean;
@@ -70,11 +77,13 @@ const sizesFor = (ratio: number, base: number, size: GridProps["size"]) => {
 // largest paint); the rest load lazily as they near the screen.
 const EAGER = 2;
 const HIGH = 1;
+// Frames past the first screens skip rendering until they come near (content-visibility).
+const NEAR = 12;
 // Very large views render in steps so a click never waits on hundreds of tiles.
 const STEP = 120;
 
 export function Grid(props: GridProps) {
-  const { groups, marks, selected, mediaBase, canVote, isOwner, size, targetRef, onAct, onOpen, onToggle, onRange, onBox, onClear, onSelectGroup } = props;
+  const { groups, marks, people, selected, mediaBase, canVote, isOwner, size, targetRef, onAct, onOpen, onToggle, onRange, onBox, onClear, onSelectGroup } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const suppressClick = useRef(false);
@@ -281,9 +290,12 @@ export function Grid(props: GridProps) {
                   sizes={sizesFor(item.width / Math.max(1, item.height), base, size)}
                   eager={position < EAGER}
                   high={position < HIGH}
+                  far={position >= NEAR}
                   verdict={mark?.verdict}
                   mine={mark?.mine}
-                  by={mark?.by}
+                  faces={mark?.faces ?? ""}
+                  lists={mark?.lists ?? ""}
+                  people={people}
                   comments={mark?.comments ?? 0}
                   fresh={mark?.fresh ?? false}
                   selected={selected.has(item.assetId)}
@@ -307,9 +319,12 @@ type TileProps = {
   sizes: string;
   eager: boolean;
   high: boolean;
+  far: boolean;
   verdict?: Verdict;
   mine?: Verdict;
-  by?: string;
+  faces: string;
+  lists: string;
+  people: Map<string, Person>;
   comments: number;
   fresh: boolean;
   selected: boolean;
@@ -317,12 +332,23 @@ type TileProps = {
   isOwner: boolean;
 };
 
+const MAX_FACES = 4;
+
 const Tile = memo(function Tile(props: TileProps) {
-  const { item, mediaBase, sizes, eager, high, verdict, mine, by, comments, fresh, selected, canVote, isOwner } = props;
+  const { item, mediaBase, sizes, eager, high, far, verdict, mine, faces, lists, people, comments, fresh, selected, canVote, isOwner } = props;
   const ratio = item.width / Math.max(1, item.height);
   const poster = thumbAtLeast(item.thumbs, 960);
   const [playing, setPlaying] = useState(false);
   const isVideo = item.kind === "video";
+  const faceList = faces
+    ? faces.split(",").map((entry) => {
+        const [who, value] = entry.split(":");
+        return { person: people.get(who!), verdict: value as Verdict };
+      })
+    : [];
+  // Likes first, then dislikes; a few faces and a count for the rest.
+  faceList.sort((a, b) => (a.verdict === b.verdict ? 0 : a.verdict === "like" ? -1 : 1));
+  const shown = faceList.slice(0, MAX_FACES);
 
   return (
     <div
@@ -330,6 +356,7 @@ const Tile = memo(function Tile(props: TileProps) {
       data-id={item.assetId}
       data-v={verdict}
       data-sel={selected ? "" : undefined}
+      data-far={far ? "" : undefined}
       style={{ "--ar": ratio.toFixed(4) } as React.CSSProperties}
       onPointerEnter={isVideo ? () => setPlaying(true) : undefined}
       onPointerLeave={isVideo ? () => setPlaying(false) : undefined}
@@ -360,26 +387,21 @@ const Tile = memo(function Tile(props: TileProps) {
       </div>
 
       <div className="rv-t-marks">
-        {fresh ? <span className="rv-chip fresh" title="New feedback">New</span> : null}
-        {isOwner && mine && mine !== verdict ? (
-          <span className="rv-chip mine">{mine === "like" ? <ThumbUp /> : <ThumbDown />}You</span>
-        ) : null}
-        {verdict === "like" ? (
-          <span className="rv-chip like">
-            <ThumbUp />
-            {isOwner ? by ?? "Liked" : "Liked"}
-          </span>
-        ) : null}
-        {verdict === "dislike" ? (
-          <span className="rv-chip dislike">
-            <ThumbDown />
-            {isOwner ? by ?? "Disliked" : "Disliked"}
+        {isOwner && lists
+          ? [...lists].map((key) => (
+              <span key={key} className="rv-chip list" style={{ "--c": LIST_COLORS[key as ListKey] } as React.CSSProperties}>{key}</span>
+            ))
+          : null}
+        {fresh ? <span className="rv-fresh" title="New feedback since you last looked" /> : null}
+        {shown.length ? (
+          <span className="rv-avs" title={facesTitle(faceList)}>
+            {shown.map((face, index) => <Avatar key={`${face.person?.who ?? index}`} person={face.person} verdict={face.verdict} />)}
+            {faceList.length > MAX_FACES ? <span className="rv-chip" style={{ marginLeft: 4 }}>+{faceList.length - MAX_FACES}</span> : null}
           </span>
         ) : null}
         {comments > 0 ? (
-          <span className="rv-chip">
-            <Bubble />
-            {comments}
+          <span className="rv-chip" title={`${comments} ${comments === 1 ? "comment" : "comments"}`}>
+            {comments} {comments === 1 ? "comment" : "comments"}
           </span>
         ) : null}
         {selected ? (
@@ -391,16 +413,16 @@ const Tile = memo(function Tile(props: TileProps) {
 
       {canVote ? (
         <div className="rv-t-acts">
-          <button type="button" className="rv-pill like" data-act="like" aria-pressed={mine === "like"} title="Like (1)">
-            <ThumbUp />
+          <button type="button" className="rv-act like" data-act="like" aria-pressed={mine === "like"}>
+            <kbd>1</kbd>
             <span>{mine === "like" ? "Liked" : "Like"}</span>
           </button>
-          <button type="button" className="rv-pill dislike" data-act="dislike" aria-pressed={mine === "dislike"} title="Dislike (2)">
-            <ThumbDown />
+          <button type="button" className="rv-act dislike" data-act="dislike" aria-pressed={mine === "dislike"}>
+            <kbd>2</kbd>
             <span>{mine === "dislike" ? "Disliked" : "Dislike"}</span>
           </button>
-          <button type="button" className="rv-pill" data-act="comment" title="Comment (C)">
-            <Bubble />
+          <button type="button" className="rv-act" data-act="comment">
+            <kbd>C</kbd>
             <span>Comment</span>
           </button>
         </div>

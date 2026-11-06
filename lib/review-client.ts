@@ -62,7 +62,7 @@ export const slugOf = (value: string) =>
 
 // ------------------------------------------------------------- view state
 
-export type FeedbackFilter = "all" | "liked" | "disliked" | "commented" | "todo" | "new";
+export type FeedbackFilter = "all" | "liked" | "disliked" | "commented" | "todo" | "new" | "feedback";
 export type GridSize = "s" | "m" | "l";
 
 export type ViewState = {
@@ -75,7 +75,7 @@ export type ViewState = {
   open: string; // frame code when the open view shows a frame
 };
 
-const FILTERS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new"];
+const FILTERS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback"];
 const SIZES: GridSize[] = ["s", "m", "l"];
 const SECTIONS: ReviewSection[] = ["locations", "characters", "scenes"];
 
@@ -190,4 +190,41 @@ export const downloadFrames = (base: string, assetIds: string[]) => {
   document.body.appendChild(form);
   form.submit();
   form.remove();
+};
+
+// ------------------------------------------------------------- owner lists
+
+export const LIST_KEYS = ["A", "B", "C", "D", "E", "F", "G"] as const;
+export type ListKey = (typeof LIST_KEYS)[number];
+export const LIST_COLORS: Record<ListKey, string> = {
+  A: "#E8A838", B: "#79B791", C: "#7FA7E0", D: "#C58BE0", E: "#FF8C42", F: "#E07FA7", G: "#B9C77A",
+};
+export type Lists = { names: Record<ListKey, string>; items: Record<ListKey, string[]> };
+
+export const emptyLists = (): Lists => ({
+  names: Object.fromEntries(LIST_KEYS.map((key) => [key, `List ${key}`])) as Record<ListKey, string>,
+  items: Object.fromEntries(LIST_KEYS.map((key) => [key, []])) as unknown as Record<ListKey, string[]>,
+});
+
+export const readLists = (slug: string): Lists => {
+  const base = emptyLists();
+  try {
+    const raw = JSON.parse(window.localStorage.getItem(`rv-lists:${slug}`) ?? "null") as Partial<Lists> | null;
+    if (!raw) return base;
+    for (const key of LIST_KEYS) {
+      if (typeof raw.names?.[key] === "string" && raw.names[key]) base.names[key] = raw.names[key];
+      if (Array.isArray(raw.items?.[key])) base.items[key] = raw.items[key].filter((id): id is string => typeof id === "string");
+    }
+  } catch {
+    // A broken entry starts the lists fresh.
+  }
+  return base;
+};
+
+export const writeLists = (slug: string, lists: Lists) => {
+  try {
+    window.localStorage.setItem(`rv-lists:${slug}`, JSON.stringify(lists));
+  } catch {
+    // Private mode or a full store: lists live for this visit only.
+  }
 };
