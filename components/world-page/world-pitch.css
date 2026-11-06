@@ -162,8 +162,8 @@
 @keyframes wp-draw { to { stroke-dashoffset: 0; } }
 @keyframes wp-fill { to { fill-opacity: 1; stroke-width: 0; } }
 
-/* The line is the page's first text paint: it starts barely visible rather
-   than invisible, so it never holds back the largest paint. */
+/* The line is the page's largest text, so Chrome takes it as the LCP: it
+   paints at once and only drifts into place (no fade, no delay). */
 .wp-tagline {
   position: absolute;
   left: 0;
@@ -175,12 +175,12 @@
   letter-spacing: 0.32em;
   color: var(--wp-ivory);
   text-shadow: 0 2px 14px rgba(0, 0, 0, 0.8);
-  animation: wp-rise 1.4s ease 1.2s both;
+  animation: wp-rise 1.6s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 .wp-tagline b { color: var(--wp-accent); font-weight: 700; }
 @keyframes wp-rise {
-  from { opacity: 0.02; transform: translateY(8px); }
-  to { opacity: 1; transform: none; }
+  from { transform: translateY(10px); letter-spacing: 0.4em; }
+  to { transform: none; letter-spacing: 0.32em; }
 }
 
 .wp-hero-black {
