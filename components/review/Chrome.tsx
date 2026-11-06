@@ -7,6 +7,7 @@ import {
   type FeedbackFilter, type GridSize, type ReviewFolder, type ReviewSection, type ReviewStyle, type ReviewVersion,
 } from "@/lib/review-client";
 import { Check, ChevronDown, Menu } from "./icons";
+import { AllFoldersIcon, FolderIcon } from "./folder-icons";
 
 // The page chrome: the folder nav on the left and the bar on top (styles,
 // feedback filter, round, size). Plain words only; no recipes or codes.
@@ -84,6 +85,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
           data-empty={sectionTotal === 0 ? "" : undefined}
           onClick={() => onFolder("")}
         >
+          <AllFoldersIcon />
           All {SECTION_LABEL[section].toLowerCase()}
           <span className="n">{sectionTotal}</span>
         </button>
@@ -102,7 +104,8 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
                     data-empty={count === 0 ? "" : undefined}
                     onClick={() => onFolder(row.slug)}
                   >
-                    {row.name}
+                    <FolderIcon name={row.icon} section={row.section} />
+                    <span className="nm">{row.name}</span>
                     {freshFolders.has(row.id) ? <span className="dot" title="New feedback" /> : null}
                     <span className="n">{count}</span>
                   </button>

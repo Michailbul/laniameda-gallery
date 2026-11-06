@@ -100,7 +100,8 @@ function buildIndex(page: ReviewPage) {
     folderCounts.set(folder.id, count);
     sectionCounts[folder.section] += count;
     const groups = areas[folder.section];
-    const area = folder.area ?? "";
+    // Locations read as one list in script order; characters keep their groups.
+    const area = folder.section === "locations" ? "" : folder.area ?? "";
     let group = groups.find((row) => row.area === area);
     if (!group) {
       group = { area, folders: [] };
