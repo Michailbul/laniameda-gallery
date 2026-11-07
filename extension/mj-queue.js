@@ -9,6 +9,8 @@
   const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
   const OPEN_KEY = "stgMjQueueOpen";
   const BATCH_KEY = "stgMjQueueBatch";
+  const RAIL_KEY = "stgMjQueueRail";
+  const SCOPE_KEY = "stgMjQueueScope";
   const REFRESH_OPEN_MS = 60000;
   const REFRESH_CLOSED_MS = 180000;
   const SEND_CONFIRM_MS = 5000;
@@ -20,6 +22,7 @@
 
   const compose = () => globalScope.SaveToGalleryMjQueueCompose;
   const space = (value) => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+  const capital = (value) => (value ? value.charAt(0).toUpperCase() + value.slice(1) : value);
 
   // ── Pure helpers (tested) ──
 
@@ -91,7 +94,86 @@
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  globalScope.SaveToGalleryMjQueue = { nextQueued, jobIdsIn, promptNeedle, parseRefLines, refLines };
+  // ── Threads: one batch is one thread (an agent session's line of work) ──
+
+  const left = (batch) => (batch.queued || 0) + (batch.injected || 0);
+
+  function worldLabel(worldKey) {
+    const key = space(worldKey);
+    return key ? key.replace(/[-_]+/g, " ").toUpperCase() : "OTHER";
+  }
+
+  // The thread's own words: "Dear Annete · the monster's hand" → "the monster's hand"
+  // when it sits under the Dear Annete group already.
+  function threadName(batch) {
+    const name = space(batch && batch.batch);
+    const world = worldLabel(batch && batch.worldKey).toLowerCase();
+    const parts = name.split(/\s+·\s+/);
+    if (parts.length > 1 && parts[0].toLowerCase().replace(/[-_]+/g, " ") === world) return parts.slice(1).join(" · ");
+    return name;
+  }
+
+  // Groups by world; inside a group, threads with prompts to send come first
+  // (newest first), finished ones after. scope "open" leaves finished ones out.
+  function threadGroups(batches, scope) {
+    const groups = new Map();
+    for (const batch of batches || []) {
+      const done = left(batch) === 0;
+      if (scope === "open" && done) continue;
+      const key = space(batch.worldKey) || "";
+      if (!groups.has(key)) groups.set(key, { worldKey: key, label: worldLabel(key), threads: [], left: 0 });
+      const group = groups.get(key);
+      group.threads.push({ ...batch, name: threadName(batch), left: left(batch), done });
+      group.left += left(batch);
+    }
+    const byOpenThenNew = (a, b) => Number(a.done) - Number(b.done) || (b.updatedAt || 0) - (a.updatedAt || 0);
+    const out = [...groups.values()];
+    for (const group of out) group.threads.sort(byOpenThenNew);
+    return out.sort((a, b) => b.left - a.left || a.label.localeCompare(b.label));
+  }
+
+  // The threads in rail order, for stepping with the keyboard.
+  function threadOrder(batches, scope) {
+    return threadGroups(batches, scope).flatMap((group) => group.threads.map((thread) => thread.batchKey));
+  }
+
+  const FILTERS = {
+    open: (item) => item.status === "queued" || item.status === "injected",
+    sent: (item) => item.status === "sent",
+    skipped: (item) => item.status === "skipped",
+    all: () => true,
+  };
+
+  // The items a filter shows; the one in the bar always stays in view.
+  function filterItems(items, filter, activeId) {
+    const keep = FILTERS[filter] || FILTERS.open;
+    return (items || []).filter((item) => item.id === activeId || keep(item));
+  }
+
+  function filterCounts(items) {
+    const counts = { open: 0, sent: 0, skipped: 0, all: 0 };
+    for (const item of items || []) {
+      counts.all += 1;
+      for (const key of ["open", "sent", "skipped"]) if (FILTERS[key](item)) counts[key] += 1;
+    }
+    return counts;
+  }
+
+  // Thread counts from the items on hand, so a send shows in the rail at once.
+  function recount(batches, items) {
+    return (batches || []).map((batch) => {
+      const own = (items || []).filter((item) => item.batchKey === batch.batchKey);
+      if (!own.length) return batch;
+      const count = (status) => own.filter((item) => item.status === status).length;
+      return { ...batch, total: own.length, queued: count("queued"), injected: count("injected"), sent: count("sent"), skipped: count("skipped") };
+    });
+  }
+
+  globalScope.SaveToGalleryMjQueue = {
+    recount,
+    nextQueued, jobIdsIn, promptNeedle, parseRefLines, refLines,
+    threadName, threadGroups, threadOrder, filterItems, filterCounts,
+  };
 
   const onMidjourney =
     typeof document !== "undefined" &&
@@ -106,7 +188,11 @@
     batches: [],
     items: [],
     batchKey: "",
-    showDone: false,
+    // Which items of the thread show: open (to send), sent, skipped, all.
+    filter: "open",
+    // The threads rail on the left, and whether it lists finished threads.
+    railOpen: true,
+    scope: "open",
     activeId: null,
     readback: "",
     sending: false,
@@ -253,7 +339,7 @@
     state.batches = Array.isArray(res.batches) ? res.batches : [];
     state.items = Array.isArray(res.items) ? res.items : [];
     if (!state.batches.some((batch) => batch.batchKey === state.batchKey)) {
-      state.batchKey = state.batches[0]?.batchKey || "";
+      state.batchKey = threadOrder(state.batches, "open")[0] || threadOrder(state.batches, "all")[0] || "";
     }
     if (options.quiet) renderSoft();
     else render();
@@ -268,6 +354,7 @@
     }
     const index = state.items.findIndex((entry) => entry.id === item.id);
     if (index !== -1 && res.item) state.items[index] = res.item;
+    state.batches = recount(state.batches, state.items);
     state.error = "";
     return res.item || null;
   }
@@ -281,9 +368,39 @@
   }
 
   function visibleItems() {
-    return batchItems().filter(
-      (item) => state.showDone || item.id === state.activeId || item.status === "queued" || item.status === "injected",
-    );
+    return filterItems(batchItems(), state.filter, state.activeId);
+  }
+
+  function remember(values) {
+    try {
+      chrome.storage.local.set(values);
+    } catch {
+      // storage unavailable after a reload
+    }
+  }
+
+  function selectThread(batchKey) {
+    if (!batchKey || batchKey === state.batchKey) return;
+    state.batchKey = batchKey;
+    state.activeId = null;
+    state.editingId = null;
+    state.editDraft = null;
+    state.message = "";
+    state.filter = "open";
+    remember({ [BATCH_KEY]: batchKey });
+    render();
+    const list = panel && panel.querySelector(".stg-q-list");
+    if (list) list.scrollTop = 0;
+  }
+
+  // ⌥⇧↓ / ⌥⇧↑: the next or previous thread in the rail.
+  function stepThread(delta) {
+    const order = threadOrder(state.batches, state.scope);
+    if (!order.length) return;
+    const at = order.indexOf(state.batchKey);
+    const next = order[(at + delta + order.length) % order.length];
+    if (!state.open) setOpen(true);
+    selectThread(next);
   }
 
   function inject(item) {
@@ -622,14 +739,14 @@
       return card;
     }
 
-    const cmd = el("div", "stg-q-cmd stg-q-cmd--clamp", item.command);
-    cmd.title = "Click to show the whole command";
-    cmd.addEventListener("click", () => cmd.classList.toggle("stg-q-cmd--clamp"));
-    card.appendChild(cmd);
-
+    // In the bar, the readback shows the command; otherwise the queued one, clamped.
     if (active) {
-      const readback = el("div", "stg-q-readback");
-      card.appendChild(readback);
+      card.appendChild(el("div", "stg-q-readback"));
+    } else {
+      const cmd = el("div", "stg-q-cmd stg-q-cmd--clamp", item.command);
+      cmd.title = "Click to show the whole command";
+      cmd.addEventListener("click", () => cmd.classList.toggle("stg-q-cmd--clamp"));
+      card.appendChild(cmd);
     }
     if (item.status === "sent") {
       const meta = [item.sentAt ? `Sent ${new Date(item.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Sent"];
@@ -677,6 +794,66 @@
     return state.items.filter((item) => item.status === "queued" || item.status === "injected").length;
   }
 
+  function ago(time) {
+    if (!time) return "";
+    const minutes = Math.max(0, Math.round((Date.now() - time) / 60000));
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.round(minutes / 60);
+    return hours < 48 ? `${hours}h` : `${Math.round(hours / 24)}d`;
+  }
+
+  function progressBar(batch) {
+    const bar = el("span", "stg-q-pbar");
+    const total = Math.max(1, batch.total || 0);
+    for (const [key, value] of [["sent", batch.sent], ["injected", batch.injected], ["skipped", batch.skipped]]) {
+      if (!value) continue;
+      const part = el("span", `stg-q-pbar-part stg-q-pbar-part--${key}`);
+      part.style.width = `${(100 * value) / total}%`;
+      bar.appendChild(part);
+    }
+    return bar;
+  }
+
+  function renderRail() {
+    const rail = el("nav", "stg-q-rail");
+    rail.setAttribute("aria-label", "Threads");
+    const head = el("div", "stg-q-rhead");
+    head.append(
+      el("span", "stg-q-rtitle", "Threads"),
+      button(state.scope === "open" ? "Open" : "All", "stg-q-btn--ghost stg-q-btn--tiny", () => {
+        state.scope = state.scope === "open" ? "all" : "open";
+        remember({ [SCOPE_KEY]: state.scope });
+        render();
+      }, state.scope === "open" ? "Showing threads with prompts to send. Click to show finished ones too." : "Showing every thread. Click to show only open ones."),
+    );
+    rail.appendChild(head);
+    const groups = threadGroups(state.batches, state.scope);
+    if (!groups.length) rail.appendChild(el("div", "stg-q-rempty", state.batches.length ? "Every thread is sent." : "No threads yet."));
+    for (const group of groups) {
+      const section = el("div", "stg-q-rgroup");
+      section.appendChild(el("div", "stg-q-rglabel", group.label));
+      for (const thread of group.threads) {
+        const row = el("button", `stg-q-thread${thread.batchKey === state.batchKey ? " stg-q-thread--active" : ""}${thread.done ? " stg-q-thread--done" : ""}`);
+        row.type = "button";
+        row.title = thread.batch;
+        row.addEventListener("mousedown", (event) => event.preventDefault());
+        row.addEventListener("click", () => selectThread(thread.batchKey));
+        const top = el("span", "stg-q-trow");
+        top.append(
+          el("span", "stg-q-tname", capital(thread.name)),
+          el("span", `stg-q-tcount${thread.left ? "" : " stg-q-tcount--done"}`, thread.left ? String(thread.left) : "✓"),
+        );
+        const meta = el("span", "stg-q-tmeta", `${thread.sent}/${thread.total} sent${thread.skipped ? ` · ${thread.skipped} skipped` : ""} · ${ago(thread.updatedAt)}`);
+        row.append(top, progressBar(thread), meta);
+        section.appendChild(row);
+      }
+      rail.appendChild(section);
+    }
+    return rail;
+  }
+
+  const FILTER_LABEL = { open: "To send", sent: "Sent", skipped: "Skipped", all: "All" };
+
   function render() {
     if (!root) return;
     const count = openCount();
@@ -687,60 +864,67 @@
     if (!state.open) return;
 
     panel.textContent = "";
+    panel.classList.toggle("stg-q-panel--rail", state.railOpen);
     const top = el("div", "stg-q-top");
-    top.append(el("span", "stg-q-brand", "MJ Queue"));
-    const select = el("select", "stg-q-batch");
-    select.setAttribute("aria-label", "Batch");
-    for (const batch of state.batches) {
-      const left = batch.queued + batch.injected;
-      const option = el("option", "", `${batch.batch} · ${left ? `${left} to send` : "done"}`);
-      option.value = batch.batchKey;
-      select.appendChild(option);
-    }
-    select.value = state.batchKey;
-    select.addEventListener("change", () => {
-      state.batchKey = select.value;
-      state.activeId = null;
-      try {
-        chrome.storage.local.set({ [BATCH_KEY]: state.batchKey });
-      } catch {
-        // storage unavailable after a reload
-      }
-      render();
-    });
     top.append(
-      select,
+      button(state.railOpen ? "◧" : "☰", "stg-q-btn--icon", () => {
+        state.railOpen = !state.railOpen;
+        remember({ [RAIL_KEY]: state.railOpen });
+        render();
+      }, state.railOpen ? "Hide the threads" : "Show the threads"),
+      el("span", "stg-q-brand", "MJ Queue"),
+      el("span", "stg-q-total", count ? `${count} to send · ${threadOrder(state.batches, "open").length} threads` : "all sent"),
       button("↻", "stg-q-btn--icon", () => refresh(), "Refresh"),
       button("×", "stg-q-btn--icon", () => setOpen(false), "Close (⌥⇧Q)"),
     );
     panel.appendChild(top);
 
-    const bar = el("div", "stg-q-bar");
-    const items = batchItems();
-    const done = items.filter((item) => item.status === "sent").length;
-    bar.append(
-      el("span", "stg-q-progress", items.length ? `${done} of ${items.length} sent` : ""),
-      button(state.showDone ? "Hide done" : "Show done", "stg-q-btn--ghost", () => {
-        state.showDone = !state.showDone;
-        render();
-      }),
-      button("Next →", "stg-q-btn--primary", injectNext, "Inject the next queued prompt (⌥⇧N)"),
-    );
-    panel.appendChild(bar);
+    const body = el("div", "stg-q-body");
+    if (state.railOpen) body.appendChild(renderRail());
+    const main = el("div", "stg-q-main");
 
-    if (state.error) panel.appendChild(el("div", "stg-q-error", state.error));
-    if (state.message) panel.appendChild(el("div", "stg-q-message", state.message));
+    const batch = state.batches.find((entry) => entry.batchKey === state.batchKey);
+    const items = batchItems();
+    const head = el("div", "stg-q-thead");
+    head.append(
+      el("span", "stg-q-tworld", batch ? worldLabel(batch.worldKey) : ""),
+      el("span", "stg-q-ttitle", batch ? capital(threadName(batch)) : "No thread"),
+    );
+    main.appendChild(head);
+
+    const bar = el("div", "stg-q-bar");
+    const counts = filterCounts(items);
+    const tabs = el("div", "stg-q-tabs");
+    for (const key of ["open", "sent", "skipped", "all"]) {
+      const tab = button(`${FILTER_LABEL[key]} ${counts[key]}`, `stg-q-tab${state.filter === key ? " stg-q-tab--on" : ""}`, () => {
+        state.filter = key;
+        render();
+      });
+      tab.disabled = !counts[key] && key !== "open";
+      tabs.appendChild(tab);
+    }
+    const next = button("Next →", "stg-q-btn--primary", injectNext, "Put the next prompt of this thread in the bar (⌥⇧N)");
+    next.disabled = !counts.open;
+    bar.append(tabs, next);
+    main.appendChild(bar);
+
+    if (state.error) main.appendChild(el("div", "stg-q-error", state.error));
+    if (state.message) main.appendChild(el("div", "stg-q-message", state.message));
 
     const list = el("div", "stg-q-list");
     const shown = visibleItems();
     if (state.loading) list.appendChild(el("div", "stg-q-empty", "Loading the queue…"));
     else if (!state.batches.length) list.appendChild(el("div", "stg-q-empty", "No queued prompts yet. Agents add them in the gallery."));
-    else if (!shown.length) list.appendChild(el("div", "stg-q-empty", "All sent in this batch."));
+    else if (!shown.length) list.appendChild(el("div", "stg-q-empty", state.filter === "open" ? "Everything in this thread is sent or skipped." : "Nothing here."));
     for (const item of shown) list.appendChild(itemCard(item, items.indexOf(item)));
-    panel.appendChild(list);
+    main.appendChild(list);
+    body.appendChild(main);
+    panel.appendChild(body);
 
-    panel.appendChild(el("div", "stg-q-hint", "⌥⇧N inject next · Send is your click or your Enter · one job each"));
+    panel.appendChild(el("div", "stg-q-hint", "⌥⇧N next prompt · ⌥⇧↑↓ threads · ⌥⇧Q open/close · Send is your click or your Enter, one job each"));
     renderActiveReadback();
+    const active = panel.querySelector(".stg-q-thread--active");
+    if (active) active.scrollIntoView({ block: "nearest" });
   }
 
   // Background updates (a captured job id, a quiet re-read) wait while an
@@ -774,9 +958,11 @@
   function start() {
     build();
     try {
-      chrome.storage.local.get([OPEN_KEY, BATCH_KEY], (stored) => {
+      chrome.storage.local.get([OPEN_KEY, BATCH_KEY, RAIL_KEY, SCOPE_KEY], (stored) => {
         state.open = Boolean(stored?.[OPEN_KEY]);
         state.batchKey = String(stored?.[BATCH_KEY] || "");
+        state.railOpen = stored?.[RAIL_KEY] !== false;
+        state.scope = stored?.[SCOPE_KEY] === "all" ? "all" : "open";
         refresh();
       });
     } catch {
@@ -790,6 +976,10 @@
           event.preventDefault();
           event.stopPropagation();
           injectNext();
+        } else if (event.code === "ArrowDown" || event.code === "ArrowUp") {
+          event.preventDefault();
+          event.stopPropagation();
+          stepThread(event.code === "ArrowDown" ? 1 : -1);
         } else if (event.code === "KeyQ") {
           event.preventDefault();
           event.stopPropagation();

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.0 (7 Nov 2026)
+
+- Queue threads: each batch is a thread in a rail on the left of the queue
+  panel, grouped by world, with a progress bar, how many prompts are left to
+  send and when it last changed. Open threads come first; finished ones fold
+  away (Open / All). The chosen thread fills the right side with To send /
+  Sent / Skipped / All tabs and bigger reference pictures. A send shows in
+  the rail at once. ⌥⇧↑ / ⌥⇧↓ step through threads; the rail hides with the
+  button top left and remembers that.
+
 ## 0.19.1 (6 Nov 2026)
 
 - Queue reference thumbnails show the whole image (wide lettering no longer
