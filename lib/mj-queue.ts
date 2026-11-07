@@ -51,6 +51,24 @@ export function batchKeyOf(batch: string) {
   return space(batch).toLowerCase();
 }
 
+// A thread is one batch. Its id is a stable short hash of the batch key
+// (FNV-1a, 32 bit): "thr-" and eight hex digits. Michael copies it from the
+// extension's Queue panel; agents may pass it wherever a batch label goes.
+// The extension carries a twin (extension/mj-queue-compose.js).
+export const MJ_THREAD_ID = /^thr-[0-9a-f]{8}$/;
+
+export function threadIdOf(batchKey: string) {
+  let hash = 0x811c9dc5;
+  for (const char of batchKeyOf(batchKey)) {
+    const code = char.codePointAt(0) ?? 0;
+    for (const byte of code < 0x80 ? [code] : new TextEncoder().encode(char)) {
+      hash ^= byte;
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+  }
+  return `thr-${hash.toString(16).padStart(8, "0")}`;
+}
+
 /**
  * Image prompts first, then the prose, then the reference flags, the profile
  * codes and the params as written. V8.2 has no omni or character reference

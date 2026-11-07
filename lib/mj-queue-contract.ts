@@ -33,13 +33,13 @@ export const mjQueueItemInputSchema = z.object({
 });
 
 export const mjQueueAddSchema = z.object({
-  batch: z.string().trim().min(1).max(MJ_QUEUE_LIMITS.batch).describe("Batch label Michael sees, e.g. Dear Annete · name lettering studies. Items join an existing batch with the same label."),
+  batch: z.string().trim().min(1).max(MJ_QUEUE_LIMITS.batch).describe("The thread (batch) label Michael sees, e.g. Dear Annete · name lettering studies, or a thread id thr-xxxxxxxx he copied from the Queue panel. Items join an existing thread with the same label or id. One thread per line of work (a direction, a round)."),
   world: z.string().trim().min(1).optional().describe("World key (dear-annete), name or root id."),
   items: z.array(mjQueueItemInputSchema).min(1).max(MJ_QUEUE_LIMITS.itemsPerCall),
 });
 
 export const mjQueueListSchema = z.object({
-  batch: z.string().trim().min(1).optional().describe("Only this batch (its label)."),
+  batch: z.string().trim().min(1).optional().describe("Only this thread: its label or its id thr-xxxxxxxx."),
   world: z.string().trim().min(1).optional(),
   status: z.enum(MJ_QUEUE_STATUSES).optional(),
   includeDone: z.boolean().optional().describe("Default true. false leaves sent and skipped items out."),

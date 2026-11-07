@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.21.0 (7 Nov 2026)
+
+- Every thread has an id (thr-xxxxxxxx) with a copy chip in the thread
+  header and the id in its rail row. Paste it to an agent: the gallery tools
+  take it wherever a thread name goes.
+
 ## 0.20.0 (7 Nov 2026)
 
 - Queue threads: each batch is a thread in a rail on the left of the queue

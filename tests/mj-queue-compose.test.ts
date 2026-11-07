@@ -1,10 +1,11 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { composeMjCommand, pinnedVersion, type MjQueueComposable } from "../lib/mj-queue";
+import { composeMjCommand, pinnedVersion, threadIdOf, MJ_THREAD_ID, type MjQueueComposable } from "../lib/mj-queue";
 
 type ComposeApi = {
   composeMjCommand: (item: MjQueueComposable) => { command: string; warnings: string[] };
   pinnedVersion: (params: string) => string;
   sameCommand: (a: string, b: string) => boolean;
+  threadIdOf: (batchKey: string) => string;
 };
 const twin = () => (globalThis as typeof globalThis & { SaveToGalleryMjQueueCompose: ComposeApi }).SaveToGalleryMjQueueCompose;
 
@@ -58,5 +59,17 @@ describe("composeMjCommand", () => {
       expect(twin().pinnedVersion(params)).toBe(pinnedVersion(params));
     }
     expect(twin().sameCommand("a  b --ar 3:1 ", "a b --ar 3:1")).toBe(true);
+  });
+});
+
+describe("thread ids", () => {
+  const labels = ["Dear Annete · the monster's hand · round 2", "  DEAR ANNETE ·  the monster's hand · round 2 ", "Andromeda · Anya — wardrobe ✦", ""];
+  test("the gallery and the extension give the same id, stable across case and spacing", () => {
+    for (const label of labels) {
+      expect(twin().threadIdOf(label)).toBe(threadIdOf(label));
+      expect(threadIdOf(label)).toMatch(MJ_THREAD_ID);
+    }
+    expect(threadIdOf(labels[0])).toBe(threadIdOf(labels[1]));
+    expect(threadIdOf(labels[0])).not.toBe(threadIdOf("Dear Annete · the monster's hand · round 1"));
   });
 });

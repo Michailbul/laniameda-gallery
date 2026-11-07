@@ -305,6 +305,29 @@
   padding: 10px 12px 0;
 }
 
+.stg-q-theadrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stg-q-tid {
+  padding: 2px 8px;
+  color: rgba(255, 244, 234, 0.75);
+  background: #0a0805;
+  border-color: rgba(255, 244, 234, 0.14);
+  font: 600 10px/1.3 "JetBrains Mono", ui-monospace, monospace;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.stg-q-tid--done {
+  color: #191919;
+  background: #79b791;
+  border-color: #79b791;
+}
+
 .stg-q-tworld {
   color: rgba(255, 244, 234, 0.4);
   font: 700 9.5px/1.3 "JetBrains Mono", ui-monospace, monospace;
