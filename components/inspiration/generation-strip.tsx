@@ -18,6 +18,9 @@ type Status = FunctionReturnType<typeof api.inspirationDispatch.getInspirationDi
 const CAPS = [5, 10, 20] as const;
 const DAYS = [7, 14, 30] as const;
 
+// Whole cents on the allowance line: "$0.00 of $10.00", never "$0.000".
+const money = (value: number) => `$${value.toFixed(2)}`;
+
 const when = (ms: number) => new Date(ms).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" });
 
 function Pick<T extends number>({ values, value, onPick, format }: { values: readonly T[]; value: T; onPick: (value: T) => void; format: (value: T) => string }) {
@@ -86,7 +89,7 @@ export function GenerationStrip({ ownerUserId }: { ownerUserId: string }) {
         <Chip tone={on ? "coral" : "ink"}>{on ? "Generation on" : "Generation off"}</Chip>
         <p className="min-w-0 text-[12px] leading-5" style={{ color: "var(--lm-text-secondary)" }}>
           {on && status.allowance
-            ? <>{usd(used)} of ${status.allowance.cycleCapUsd} used until {when(status.cycleEnd)}{status.allowance.expiresAt ? ` · allowed until ${new Date(status.allowance.expiresAt).toLocaleDateString()}` : ""}</>
+            ? <>{money(used)} of {money(status.allowance.cycleCapUsd)} used until {when(status.cycleEnd)}{status.allowance.expiresAt ? ` · allowed until ${new Date(status.allowance.expiresAt).toLocaleDateString()}` : ""}</>
             : <>Takes are made only when you allow it. Saving and proposing go on.</>}
         </p>
       </div>
