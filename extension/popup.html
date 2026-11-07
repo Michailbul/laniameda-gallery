@@ -2,6 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <link rel="stylesheet" href="mj-queue-panel.css">
   <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
 
@@ -89,6 +90,10 @@
       border: 1px solid var(--border);
       border-radius: 11px;
       background: var(--surface);
+    }
+
+    .mode-switch--three {
+      grid-template-columns: repeat(3, 1fr);
     }
 
     .mode-tab {
@@ -934,7 +939,7 @@
 
     <div class="sep"></div>
 
-    <div class="mode-switch" role="tablist" aria-label="Extension mode">
+    <div class="mode-switch mode-switch--three" role="tablist" aria-label="Extension mode">
       <button
         id="addModeTab"
         class="mode-tab"
@@ -951,7 +956,17 @@
         aria-selected="false"
         aria-controls="bookmarkModePanel"
       >Bookmark</button>
+      <button
+        id="queueModeTab"
+        class="mode-tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="mjqRoot"
+      >MJ Queue</button>
     </div>
+
+    <section id="mjqRoot" role="tabpanel" aria-labelledby="queueModeTab" hidden></section>
 
     <section id="addModePanel" class="section" role="tabpanel" aria-labelledby="addModeTab">
       <div class="drop-heading">
@@ -1109,6 +1124,7 @@
       </div>
     </div>
 
+    <div class="gallery-only">
     <div class="sep"></div>
 
     <div class="section">
@@ -1176,8 +1192,12 @@
         <span class="how-text">Refine later in app</span>
       </div>
     </footer>
+    </div>
   </main>
 
+  <script src="mj-queue-compose.js"></script>
+  <script src="mj-queue.js"></script>
+  <script src="mj-queue-panel.js"></script>
   <script src="collection-classification.js"></script>
   <script src="drop-upload.js"></script>
   <script src="popup.js"></script>

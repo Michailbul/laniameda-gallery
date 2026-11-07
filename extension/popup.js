@@ -14,6 +14,7 @@ const addModeTabEl = document.getElementById("addModeTab");
 const bookmarkModeTabEl = document.getElementById("bookmarkModeTab");
 const addModePanelEl = document.getElementById("addModePanel");
 const bookmarkModePanelEl = document.getElementById("bookmarkModePanel");
+const queueModeTabEl = document.getElementById("queueModeTab");
 
 const bookmarkUrlEl = document.getElementById("bookmarkUrl");
 const bookmarkTitleEl = document.getElementById("bookmarkTitle");
@@ -165,13 +166,19 @@ const destinationFolderId = async () => {
 };
 
 const setExtensionMode = (mode, { persist = false } = {}) => {
-  extensionMode = mode === "bookmark" ? "bookmark" : "add";
+  extensionMode = mode === "bookmark" || mode === "queue" ? mode : "add";
   const isAddMode = extensionMode === "add";
+  const isQueue = extensionMode === "queue";
   addModeTabEl.setAttribute("aria-selected", String(isAddMode));
-  bookmarkModeTabEl.setAttribute("aria-selected", String(!isAddMode));
+  bookmarkModeTabEl.setAttribute("aria-selected", String(extensionMode === "bookmark"));
+  queueModeTabEl?.setAttribute("aria-selected", String(isQueue));
   addModePanelEl.hidden = !isAddMode;
-  bookmarkModePanelEl.hidden = isAddMode;
-  modeBadgeEl.textContent = `${isAddMode ? "add" : "bookmark"} mode · v${chrome.runtime.getManifest().version}`;
+  bookmarkModePanelEl.hidden = extensionMode !== "bookmark";
+  // The MJ Queue tab takes the whole panel; the gallery settings hide.
+  document.body.classList.toggle("mjq-mode", isQueue);
+  globalThis.SaveToGalleryMjQueuePanel?.setVisible(isQueue);
+  const label = { add: "add", bookmark: "bookmark", queue: "queue" }[extensionMode];
+  modeBadgeEl.textContent = `${label} mode · v${chrome.runtime.getManifest().version}`;
   if (persist) {
     void chrome.storage.sync.set({ [EXTENSION_MODE_KEY]: extensionMode });
   }
@@ -956,6 +963,10 @@ addModeTabEl.addEventListener("click", () => {
 
 bookmarkModeTabEl.addEventListener("click", () => {
   setExtensionMode("bookmark", { persist: true });
+});
+
+queueModeTabEl?.addEventListener("click", () => {
+  setExtensionMode("queue", { persist: true });
 });
 
 worldModeTabEl?.addEventListener("click", () => {
