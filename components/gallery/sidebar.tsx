@@ -36,6 +36,7 @@ import {
   Projector,
   Newspaper,
   SlidersHorizontal,
+  Send,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -724,6 +725,9 @@ export function GallerySidebar({
         )}
         {tasksOpenCount !== undefined && (
           <NavItem icon={ListChecks} label="Tasks" href="/tasks" active={false} collapsed={collapsed} badge={tasksOpenCount} />
+        )}
+        {tasksOpenCount !== undefined && (
+          <NavItem icon={Send} label="Midjourney queue" href="/queue" active={false} collapsed={collapsed} />
         )}
         {tasksOpenCount !== undefined && (
           <NavItem icon={Newspaper} label="Newspaper" href="/newspaper" active={false} collapsed={collapsed} />

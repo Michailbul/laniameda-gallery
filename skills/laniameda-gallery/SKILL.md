@@ -88,7 +88,7 @@ building one; the inbox tools already return a stack's `url` the same way.
 | X bookmark | The post's text, author, quote and note; linked to actual media when saved | save_bookmarks / list_bookmarks; references/bookmarks.md |
 | YouTube reference | Separate video/channel research and copied stills; themes are labels rather than collection IDs | save_video_refs / list_video_refs / get_video_ref; references/video-refs.md |
 | Curated view | Reusable gallery filter preset using owner menu-filter IDs | list_menu_filters, list_filter_presets, save_filter_preset; references/stories.md |
-| Midjourney prompt queue | Prompts an agent prepares for Michael to send in Midjourney, with image prompts, srefs, profile codes and params set, grouped in threads (one per direction, id thr-xxxxxxxx he copies); he reviews and sends each from the extension, one click per job | queue_mj_prompts, list_mj_queue, update_mj_queue_item; references/mj-queue.md. Never automate submitting |
+| Midjourney prompt queue | Prompts an agent prepares for Michael to send in Midjourney, with image prompts, srefs, profile codes and params set, grouped in threads (one per direction, id thr-xxxxxxxx he copies); he reviews and sends each from the extension, one click per job, or copies it from the gallery page (/w/<world>/queue, /queue; `url` in the answers) | queue_mj_prompts, list_mj_queue, update_mj_queue_item; references/mj-queue.md. Never automate submitting |
 | Midjourney sref library | Liked style codes/mixtures with version settings, source prompts and saved examples in a normal collection | save_sref / list_srefs; references/midjourney-srefs.md |
 
 Motion and Cinematography are discovery views over tagged media/Skills, not new

@@ -10,7 +10,8 @@
  *   /w/<worldKey|rootId>                a world or plain root collection
  *   /w/<world>/<shelfId>                one shelf, style branch or storybook of it
  *   /w/<world>/instructions             the world's docs (HUMAN / AGENT view)
- *   /w/<world>/journal | tasks | moodboards | folders
+ *   /w/<world>/journal | tasks | queue | moodboards | folders
+ *   /queue[?thread=thr-…]               the Midjourney queue, every world (app/queue)
  *   /storybooks[/<id>]  /moodboards[/<id>]  /stories[/<id>]  /skills[/<id>]
  *   /bookmarks  /motion  /cinematography
  *   ?asset=<id>                         the detail panel, over any of the above
@@ -24,7 +25,7 @@ export const GALLERY_ORIGIN = "https://gallery.laniameda.space";
 /** The query parameter that opens one piece in the detail panel. */
 export const ASSET_PARAM = "asset";
 
-export const WORLD_TABS = ["instructions", "journal", "tasks", "moodboards", "folders"] as const;
+export const WORLD_TABS = ["instructions", "journal", "tasks", "queue", "moodboards", "folders"] as const;
 export type WorldTab = (typeof WORLD_TABS)[number];
 
 export type GalleryRoute =
@@ -139,6 +140,17 @@ export const galleryPageUrl = (route: GalleryRoute, asset?: string | null) =>
 export const worldStylesPath = (world: string, style?: string | null) =>
   `/w/${segment(world)}/styles${style ? `/${segment(style)}` : ""}`;
 export const worldStylesUrl = (world: string, style?: string | null) => `${GALLERY_ORIGIN}${worldStylesPath(world, style)}`;
+
+/**
+ * The Midjourney queue on the website: one world's Queue tab
+ * (/w/<world>/queue) or every world (/queue), opened on a thread with
+ * ?thread=thr-xxxxxxxx. Same rows as the extension's MJ Queue tab.
+ */
+export const mjQueuePath = ({ world, thread }: { world?: string | null; thread?: string | null } = {}) => {
+  const base = world ? `/w/${segment(world)}/queue` : "/queue";
+  return thread ? `${base}?thread=${encodeURIComponent(thread)}` : base;
+};
+export const mjQueueUrl = (options: { world?: string | null; thread?: string | null } = {}) => `${GALLERY_ORIGIN}${mjQueuePath(options)}`;
 
 /** True for every path the dashboard renders. */
 export const isGalleryPath = (pathname: string) => parseGalleryRoute(pathname) !== null;
