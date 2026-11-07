@@ -4,7 +4,7 @@ import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { recordWorldChange, resolveWorld } from "./worldCore";
-import { resolveAssetThumbUrl } from "./r2_url";
+import { buildR2PublicUrl, resolveAssetThumbUrl } from "./r2_url";
 import {
   taskAskValidator, taskDocValidator, taskEventDocValidator, taskLinkValidator, taskPriorityValidator, taskSourceValidator, taskStatusValidator,
 } from "./taskValidators";
@@ -628,6 +628,9 @@ const cardThumbValidator = v.object({
   url: v.string(),
   width: v.optional(v.number()),
   height: v.optional(v.number()),
+  // Question frames only: the 480/960 grid renditions and the card thumb with
+  // their widths, so a large option frame loads what its column needs.
+  srcSet: v.optional(v.string()),
 });
 
 const taskCardValidator = v.object({
@@ -641,21 +644,54 @@ const taskCardValidator = v.object({
   askView: v.optional(v.object({
     question: v.string(),
     context: v.array(cardThumbValidator),
-    options: v.array(v.object({ label: v.string(), recommended: v.boolean(), pics: v.array(cardThumbValidator) })),
+    // missing: frames the option named that no longer resolve (deleted), so
+    // the card says "pictures missing" instead of drawing nothing.
+    options: v.array(v.object({ label: v.string(), recommended: v.boolean(), pics: v.array(cardThumbValidator), missing: v.number() })),
   })),
 });
 
-const cardThumb = async (ctx: QueryCtx, owner: string, candidate: string) => {
+type CardThumb = { assetId: Id<"assets">; url: string; width?: number; height?: number; srcSet?: string };
+
+/** One card's asset reads, shared by its thumbs and its question: each asset is read once. */
+type ThumbMemo = Map<string, Promise<{ thumb: CardThumb; srcSet?: string } | null>>;
+
+const readThumb = async (ctx: QueryCtx, owner: string, candidate: string) => {
   const id = ctx.db.normalizeId("assets", candidate);
   const asset = id ? await ctx.db.get(id) : null;
   if (!asset || !owns(owner, asset)) return null;
   const url = await resolveAssetThumbUrl(ctx, asset);
-  return url ? { assetId: asset._id, url, width: asset.width ?? undefined, height: asset.height ?? undefined } : null;
+  if (!url) return null;
+  // The grid renditions below the thumb, then the thumb at its own width.
+  const widths = new Set<number>();
+  const set = [...(asset.thumbVariants ?? [])]
+    .sort((a, b) => a.width - b.width)
+    .flatMap((variant) => {
+      const variantUrl = buildR2PublicUrl(variant.r2Key);
+      if (!variantUrl || widths.has(variant.width)) return [];
+      widths.add(variant.width);
+      return [`${variantUrl} ${variant.width}w`];
+    });
+  if (set.length && asset.thumbWidth && !widths.has(asset.thumbWidth)) set.push(`${url} ${asset.thumbWidth}w`);
+  return {
+    thumb: { assetId: asset._id, url, width: asset.width ?? undefined, height: asset.height ?? undefined },
+    srcSet: set.length > 1 ? set.join(", ") : undefined,
+  };
 };
 
-const cardThumbs = async (ctx: QueryCtx, owner: string, ids: string[] | undefined) => {
-  const out = [];
-  for (const thumb of await Promise.all((ids ?? []).map((id) => cardThumb(ctx, owner, id)))) if (thumb) out.push(thumb);
+const cardThumb = async (ctx: QueryCtx, owner: string, candidate: string, memo?: ThumbMemo, withSrcSet = false): Promise<CardThumb | null> => {
+  let read = memo?.get(candidate);
+  if (!read) {
+    read = readThumb(ctx, owner, candidate);
+    memo?.set(candidate, read);
+  }
+  const found = await read;
+  if (!found) return null;
+  return withSrcSet && found.srcSet ? { ...found.thumb, srcSet: found.srcSet } : found.thumb;
+};
+
+const cardThumbs = async (ctx: QueryCtx, owner: string, ids: string[] | undefined, memo?: ThumbMemo) => {
+  const out: CardThumb[] = [];
+  for (const thumb of await Promise.all((ids ?? []).map((id) => cardThumb(ctx, owner, id, memo, true)))) if (thumb) out.push(thumb);
   return out;
 };
 
@@ -720,7 +756,8 @@ export const listTaskCards = ownerQuery({
         }
       }
       const ids = [...new Set(candidates.map((candidate) => ctx.db.normalizeId("assets", candidate)).filter((id): id is Id<"assets"> => Boolean(id)))].slice(0, 12);
-      const thumbs = (await Promise.all(ids.map((id) => cardThumb(ctx, owner, id)))).filter((thumb) => thumb !== null).slice(0, 8);
+      const memo: ThumbMemo = new Map();
+      const thumbs = (await Promise.all(ids.map((id) => cardThumb(ctx, owner, id, memo)))).filter((thumb) => thumb !== null).slice(0, 8);
       let lastAnswer: { body: string; at: number } | undefined;
       if (task.status === "open" || task.status === "claimed") {
         const recent = await ctx.db.query("taskEvents").withIndex("by_task_createdAt", (q) => q.eq("taskId", task._id)).order("desc").take(4);
@@ -730,10 +767,11 @@ export const listTaskCards = ownerQuery({
       }
       const askView = ask && {
         question: ask.question,
-        context: await cardThumbs(ctx, owner, ask.assetIds),
-        options: await Promise.all(ask.options.map(async (option) => ({
-          label: option.label, recommended: option.recommended === true, pics: await cardThumbs(ctx, owner, option.assetIds),
-        }))),
+        context: await cardThumbs(ctx, owner, ask.assetIds, memo),
+        options: await Promise.all(ask.options.map(async (option) => {
+          const pics = await cardThumbs(ctx, owner, option.assetIds, memo);
+          return { label: option.label, recommended: option.recommended === true, pics, missing: Math.max(0, (option.assetIds?.length ?? 0) - pics.length) };
+        })),
       };
       out.push({ ...(await withWorld(ctx, task)), thumbs, ...(lastAnswer ? { lastAnswer } : {}), ...(askView ? { askView } : {}) });
     }

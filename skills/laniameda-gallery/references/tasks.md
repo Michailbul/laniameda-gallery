@@ -84,6 +84,11 @@ as a scoring table and three paragraphs of experiment jargon ("S1 vs S2, seed
 - `recommended: true` on your pick, one at most. It is marked "Agent pick".
 - `assetIds` on the ask itself: context frames shown above the options, when
   the options are actions.
+- The card draws each option's frames large (column per option, stacked on a
+  phone; a click on a frame opens it full size, a click on the option picks
+  it). Never delete or archive a frame an open question shows: the option
+  then reads "Pictures missing" and he has to pick by name (7 Nov 2026, the
+  cabin question lost all its frames before he answered).
 - `result`: the reasoning, tables and numbers, if any. He sees it only when he
   opens Details. Write it for the next agent, not for him.
 - Every option must lead somewhere you can act on without a second question.
