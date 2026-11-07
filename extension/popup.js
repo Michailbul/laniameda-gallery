@@ -15,6 +15,8 @@ const bookmarkModeTabEl = document.getElementById("bookmarkModeTab");
 const addModePanelEl = document.getElementById("addModePanel");
 const bookmarkModePanelEl = document.getElementById("bookmarkModePanel");
 const queueModeTabEl = document.getElementById("queueModeTab");
+const editModeTabEl = document.getElementById("editModeTab");
+const quickEditRootEl = document.getElementById("qeRoot");
 
 const bookmarkUrlEl = document.getElementById("bookmarkUrl");
 const bookmarkTitleEl = document.getElementById("bookmarkTitle");
@@ -166,9 +168,13 @@ const destinationFolderId = async () => {
 };
 
 const setExtensionMode = (mode, { persist = false } = {}) => {
-  extensionMode = mode === "bookmark" || mode === "queue" ? mode : "add";
+  extensionMode = mode === "bookmark" || mode === "queue" || mode === "edit" ? mode : "add";
   const isAddMode = extensionMode === "add";
   const isQueue = extensionMode === "queue";
+  const isEdit = extensionMode === "edit";
+  editModeTabEl?.setAttribute("aria-selected", String(isEdit));
+  if (quickEditRootEl) quickEditRootEl.hidden = !isEdit;
+  document.body.classList.toggle("qe-mode", isEdit);
   addModeTabEl.setAttribute("aria-selected", String(isAddMode));
   bookmarkModeTabEl.setAttribute("aria-selected", String(extensionMode === "bookmark"));
   queueModeTabEl?.setAttribute("aria-selected", String(isQueue));
@@ -177,7 +183,7 @@ const setExtensionMode = (mode, { persist = false } = {}) => {
   // The MJ Queue tab takes the whole panel; the gallery settings hide.
   document.body.classList.toggle("mjq-mode", isQueue);
   globalThis.SaveToGalleryMjQueuePanel?.setVisible(isQueue);
-  const label = { add: "add", bookmark: "bookmark", queue: "queue" }[extensionMode];
+  const label = { add: "add", bookmark: "bookmark", queue: "queue", edit: "prompt edit" }[extensionMode];
   modeBadgeEl.textContent = `${label} mode · v${chrome.runtime.getManifest().version}`;
   if (persist) {
     void chrome.storage.sync.set({ [EXTENSION_MODE_KEY]: extensionMode });
@@ -967,6 +973,10 @@ bookmarkModeTabEl.addEventListener("click", () => {
 
 queueModeTabEl?.addEventListener("click", () => {
   setExtensionMode("queue", { persist: true });
+});
+
+editModeTabEl?.addEventListener("click", () => {
+  setExtensionMode("edit", { persist: true });
 });
 
 worldModeTabEl?.addEventListener("click", () => {

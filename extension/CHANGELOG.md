@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.23.0 (7 Nov 2026)
+
+- Quick edit on midjourney.com: select words in the Imagine bar (or prompt
+  text on the page) and a small ✎ Edit pill appears; click it or press ⌥E,
+  type what to change, Enter. Haiku 5.5 (or DeepSeek V4.1) rewrites the
+  selection, or the whole prompt when nothing is selected, and the bar gets
+  the new text, still selected, with Undo (or ⌘Z in the box). Image links and
+  parameters are kept. Page selections are copied, with Put in bar.
+- World chip (DA / AN / —) and model chip (H / DS) on the box; a fourth side
+  panel tab, Prompt edit, holds the world, the model and each world's system
+  prompt (edit and it saves; Reset brings the default back).
+- Runs through the gallery (/api/extension/prompt-edit): fal first, Pika when
+  fal is blocked. Nothing is sent to Midjourney.
+
 ## 0.22.0 (7 Nov 2026)
 
 - The Midjourney queue moved into the side panel: a third tab, MJ Queue,

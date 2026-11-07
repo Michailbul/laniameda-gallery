@@ -74,6 +74,7 @@ import type * as newspaper from "../newspaper.js";
 import type * as newspaperValidators from "../newspaperValidators.js";
 import type * as notifications from "../notifications.js";
 import type * as perceptualHash from "../perceptualHash.js";
+import type * as promptEditRunner from "../promptEditRunner.js";
 import type * as prompts from "../prompts.js";
 import type * as providerCredentials from "../providerCredentials.js";
 import type * as providerVault from "../providerVault.js";
@@ -189,6 +190,7 @@ declare const fullApi: ApiFromModules<{
   newspaperValidators: typeof newspaperValidators;
   notifications: typeof notifications;
   perceptualHash: typeof perceptualHash;
+  promptEditRunner: typeof promptEditRunner;
   prompts: typeof prompts;
   providerCredentials: typeof providerCredentials;
   providerVault: typeof providerVault;

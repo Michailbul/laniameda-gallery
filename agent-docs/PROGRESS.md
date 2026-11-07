@@ -27,6 +27,22 @@ Last updated: 2026-11-06
 - Spec, verification and limits (frame codes can collide at a few hundred
   frames): agent-docs/features/director-review/PRD.md.
 
+### 2026-11-07 — Midjourney quick edit in the extension (0.23.0)
+- extension/mj-quick-edit.js (midjourney.com only): ✎ pill on a selection in
+  the Imagine bar or page text, ⌥E, a one-line box (world chip, model chip,
+  instruction); the result replaces the selection (or the whole prompt) with
+  Undo. Shadow DOM. Defaults per world in mj-quick-edit-defaults.js; the side
+  panel's Prompt edit tab (mj-quick-edit-settings.js) edits them
+  (chrome.storage.local quickEditWorld / quickEditModel / quickEditPrompts).
+- /api/extension/prompt-edit → convex/promptEditRunner.ts `rewrite`
+  (signed owner action): keys from Settings (providerVault), fal OpenRouter
+  route first (anthropic/claude-haiku-5.5, deepseek/deepseek-v4.1-flash),
+  Pika /v1/chat/completions when fal is blocked (Haiku 4.5 stands in there).
+  Image links masked as [[IMGn]] and restored (lib/mj-quick-edit.ts).
+- On 7 Nov both fal (locked, TOP_UP) and Pika (insufficient balance) were out
+  of credit: the route answers "Could not edit: fal needs a top-up · Pika
+  needs a top-up" until one is topped up.
+
 ### 2026-11-07 — Midjourney queue on the gallery website
 - components/mj-queue/mj-queue-board.tsx: threads in a rail (To send / All,
   grouped by world), a thread's prompts with reference thumbnails, note,
