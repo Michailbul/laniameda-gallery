@@ -8,6 +8,21 @@ Imagine bar), one job per click. Never automate submitting, never build a
 loop, timer or background sender on top of this: Midjourney blocks accounts
 for scripted use (see the Midjourney pacing rules in CLAUDE.md).
 
+## Threads
+
+A batch is a **thread**: one line of work (a direction, a round), e.g.
+"Dear Annete · the monster's hand · round 2". Name it `<World> · <direction> ·
+round N` and keep one thread per agent session's direction, so the panel
+stays organized. The extension shows threads in a rail grouped by world, with
+what is left to send. Every thread has a stable id, `thr-` + eight hex digits
+(a hash of the label, the same in the gallery and the extension). Michael
+copies it from the panel and pastes it to an agent; pass it as `batch` to
+`queue_mj_prompts` (items join that thread) or to `list_mj_queue` (read only
+that thread). `list_mj_queue` returns `threadId` on every batch and item.
+The agents' Midjourney Chrome on the iMac runs the same extension with the
+same settings (LaunchAgent `com.laniameda.mj-chrome`), so a prompt queued here
+shows in Michael's panel on every machine and a send on one shows on all.
+
 ## Queue a batch
 
 `queue_mj_prompts {batch, world?, items[]}`, up to 50 items per call. A batch

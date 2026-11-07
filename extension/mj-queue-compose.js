@@ -79,5 +79,20 @@
     return space(a) === space(b);
   }
 
-  globalScope.SaveToGalleryMjQueueCompose = { composeMjCommand, pinnedVersion, sameCommand };
+  // Twin of threadIdOf in lib/mj-queue.ts: "thr-" + FNV-1a (32 bit) of the batch key.
+  function threadIdOf(batchKey) {
+    const key = space(batchKey).toLowerCase();
+    let hash = 0x811c9dc5;
+    for (const char of key) {
+      const code = char.codePointAt(0) || 0;
+      const bytes = code < 0x80 ? [code] : new TextEncoder().encode(char);
+      for (const byte of bytes) {
+        hash ^= byte;
+        hash = Math.imul(hash, 0x01000193) >>> 0;
+      }
+    }
+    return `thr-${hash.toString(16).padStart(8, "0")}`;
+  }
+
+  globalScope.SaveToGalleryMjQueueCompose = { composeMjCommand, pinnedVersion, sameCommand, threadIdOf };
 })(typeof globalThis !== "undefined" ? globalThis : self);

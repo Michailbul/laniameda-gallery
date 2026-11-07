@@ -27,6 +27,16 @@ Last updated: 2026-11-06
 - Spec, verification and limits (frame codes can collide at a few hundred
   frames): agent-docs/features/director-review/PRD.md.
 
+### 2026-11-07 — Midjourney queue threads (extension 0.21.0, skill 1.36.0)
+- The Queue panel shows batches as threads (rail grouped by world, progress,
+  left to send, To send / Sent / Skipped / All tabs, ⌥⇧↑↓). Each thread has a
+  copyable id thr-xxxxxxxx (FNV-1a of the batch key, twin in lib/mj-queue.ts and
+  extension/mj-queue-compose.js); /api/agent/mj-queue returns threadId and
+  accepts the id as `batch`. The iMac's agents' Midjourney Chrome runs the same
+  extension through ~/.config/laniameda/mj-chrome/keeper.py (LaunchAgent
+  com.laniameda.mj-chrome): branded Chrome ignores --load-extension, so it
+  installs over the DevTools pipe each start and restores Michael's settings.
+
 ### 2026-11-07 — Private originals for inspiration (branch `feat/inspiration-private-media`)
 - Personal photos, faces and voice are kept in Convex file storage and served
   only through /api/inspiration/media/<id> (Michael's session or an owner

@@ -843,13 +843,51 @@
           el("span", "stg-q-tname", capital(thread.name)),
           el("span", `stg-q-tcount${thread.left ? "" : " stg-q-tcount--done"}`, thread.left ? String(thread.left) : "✓"),
         );
-        const meta = el("span", "stg-q-tmeta", `${thread.sent}/${thread.total} sent${thread.skipped ? ` · ${thread.skipped} skipped` : ""} · ${ago(thread.updatedAt)}`);
+        const meta = el("span", "stg-q-tmeta", `${compose().threadIdOf(thread.batchKey)} · ${thread.sent}/${thread.total} sent${thread.skipped ? ` · ${thread.skipped} skipped` : ""} · ${ago(thread.updatedAt)}`);
         row.append(top, progressBar(thread), meta);
         section.appendChild(row);
       }
       rail.appendChild(section);
     }
     return rail;
+  }
+
+  // The thread's id, one click to copy: Michael pastes it to an agent, which
+  // passes it to list_mj_queue / queue_mj_prompts as the batch.
+  function copyText(text) {
+    const fallback = () => {
+      const area = el("textarea");
+      area.value = text;
+      area.style.cssText = "position:fixed;opacity:0;left:-9999px";
+      document.body.appendChild(area);
+      area.select();
+      try {
+        document.execCommand("copy");
+      } finally {
+        area.remove();
+      }
+    };
+    try {
+      if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text).catch(fallback);
+    } catch {
+      // clipboard API blocked here
+    }
+    fallback();
+    return Promise.resolve();
+  }
+
+  function threadIdChip(batch) {
+    const id = compose().threadIdOf(batch.batchKey);
+    const chip = button(id, "stg-q-tid", async () => {
+      await copyText(id);
+      chip.textContent = "Copied";
+      chip.classList.add("stg-q-tid--done");
+      setTimeout(() => {
+        chip.textContent = id;
+        chip.classList.remove("stg-q-tid--done");
+      }, 1200);
+    }, `Copy this thread's id (${batch.batch}) to hand it to an agent`);
+    return chip;
   }
 
   const FILTER_LABEL = { open: "To send", sent: "Sent", skipped: "Skipped", all: "All" };
@@ -886,10 +924,10 @@
     const batch = state.batches.find((entry) => entry.batchKey === state.batchKey);
     const items = batchItems();
     const head = el("div", "stg-q-thead");
-    head.append(
-      el("span", "stg-q-tworld", batch ? worldLabel(batch.worldKey) : ""),
-      el("span", "stg-q-ttitle", batch ? capital(threadName(batch)) : "No thread"),
-    );
+    const headTop = el("div", "stg-q-theadrow");
+    headTop.appendChild(el("span", "stg-q-tworld", batch ? worldLabel(batch.worldKey) : ""));
+    if (batch) headTop.appendChild(threadIdChip(batch));
+    head.append(headTop, el("span", "stg-q-ttitle", batch ? capital(threadName(batch)) : "No thread"));
     main.appendChild(head);
 
     const bar = el("div", "stg-q-bar");
