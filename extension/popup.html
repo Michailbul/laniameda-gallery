@@ -96,6 +96,28 @@
       grid-template-columns: repeat(3, 1fr);
     }
 
+    .mode-switch--four {
+      grid-template-columns: repeat(4, 1fr);
+    }
+
+    /* ── Prompt edit tab (mj-quick-edit-settings.js) ── */
+    body.qe-mode .gallery-only { display: none !important; }
+    .qe { padding: 14px 20px 24px; display: flex; flex-direction: column; gap: 8px; }
+    .qe-how { font-size: 12px; line-height: 1.5; color: var(--text-2); margin-bottom: 4px; }
+    .qe-how kbd { font-family: var(--mono); font-size: 11px; padding: 1px 5px; border: 1px solid var(--border-focus); border-radius: 4px; background: white; }
+    .qe-label { font-family: var(--mono); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--text-3); margin-top: 6px; }
+    .qe-seg { display: flex; gap: 4px; padding: 3px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); }
+    .qe-seg button { flex: 1; padding: 7px 6px; border: 0; border-radius: 6px; background: transparent; color: var(--text-3); font: 600 11px/1 var(--sans); cursor: pointer; }
+    .qe-seg button[aria-selected="true"] { background: white; color: var(--ink); box-shadow: 0 2px 8px rgba(32, 23, 16, 0.07); }
+    .qe-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .qe-saved { font-family: var(--mono); font-size: 10px; color: var(--coral); }
+    .qe-text { width: 100%; min-height: 280px; resize: vertical; padding: 10px 11px; border: 1px solid var(--border); border-radius: 9px; background: white; color: var(--ink); font: 400 12px/1.5 var(--mono); outline: none; }
+    .qe-text:focus { border-color: var(--border-focus); }
+    .qe-actions { display: flex; align-items: center; justify-content: space-between; }
+    .qe-reset { padding: 6px 10px; border: 1px solid var(--border-focus); border-radius: 7px; background: white; color: var(--ink); font: 600 11px/1 var(--sans); cursor: pointer; }
+    .qe-reset:disabled { opacity: .4; cursor: default; }
+    .qe-count, .qe-note { font-family: var(--mono); font-size: 10px; color: var(--text-3); }
+
     .mode-tab {
       padding: 9px 10px;
       border: 0;
@@ -939,7 +961,7 @@
 
     <div class="sep"></div>
 
-    <div class="mode-switch mode-switch--three" role="tablist" aria-label="Extension mode">
+    <div class="mode-switch mode-switch--four" role="tablist" aria-label="Extension mode">
       <button
         id="addModeTab"
         class="mode-tab"
@@ -964,9 +986,19 @@
         aria-selected="false"
         aria-controls="mjqRoot"
       >MJ Queue</button>
+      <button
+        id="editModeTab"
+        class="mode-tab"
+        type="button"
+        role="tab"
+        aria-selected="false"
+        aria-controls="qeRoot"
+        title="Quick edit of Midjourney prompts: world, model, system prompt"
+      >Prompt edit</button>
     </div>
 
     <section id="mjqRoot" role="tabpanel" aria-labelledby="queueModeTab" hidden></section>
+    <section id="qeRoot" role="tabpanel" aria-labelledby="editModeTab" hidden></section>
 
     <section id="addModePanel" class="section" role="tabpanel" aria-labelledby="addModeTab">
       <div class="drop-heading">
@@ -1198,6 +1230,8 @@
   <script src="mj-queue-compose.js"></script>
   <script src="mj-queue.js"></script>
   <script src="mj-queue-panel.js"></script>
+  <script src="mj-quick-edit-defaults.js"></script>
+  <script src="mj-quick-edit-settings.js"></script>
   <script src="collection-classification.js"></script>
   <script src="drop-upload.js"></script>
   <script src="popup.js"></script>

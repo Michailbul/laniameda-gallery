@@ -20,6 +20,7 @@ const FOLDERS_ROUTE_PATH = "/api/extension/folders";
 const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
 const MOODBOARDS_ROUTE_PATH = "/api/extension/moodboards";
 const MJ_QUEUE_ROUTE_PATH = "/api/extension/mj-queue";
+const QUICK_EDIT_ROUTE_PATH = "/api/extension/prompt-edit";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const X_POST_ROUTE_PATH = "/api/extension/x-post";
 const COMMENTS_ROUTE_PATH = "/api/extension/comments";
@@ -1169,6 +1170,32 @@ async function mjQueueRequest(message) {
   return data;
 }
 
+// Quick edit of a Midjourney prompt (mj-quick-edit.js): the gallery runs one
+// short call on Haiku 5.5 or DeepSeek V4.1 (fal, then Pika) and returns the text.
+async function quickEditRequest(message) {
+  const config = await getConfig();
+  const body = {
+    prompt: String(message.prompt || ""),
+    selection: message.selection ? String(message.selection) : undefined,
+    instruction: String(message.instruction || ""),
+    system: message.system ? String(message.system) : undefined,
+    model: message.model === "deepseek" ? "deepseek" : "haiku",
+  };
+  let response;
+  try {
+    response = await fetch(normalizeRouteUrl(config.apiUrl, QUICK_EDIT_ROUTE_PATH), {
+      method: "POST",
+      headers: apiHeaders(config),
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}` };
+  }
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data?.ok) return { ok: false, status: response.status, error: data?.error || `HTTP ${response.status}` };
+  return data;
+}
+
 // ── Collections (stored as `folders` rows) ──
 
 async function getFolders() {
@@ -1524,6 +1551,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "getFolders") {
     getFolders()
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "mjQuickEdit") {
+    quickEditRequest(message)
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
