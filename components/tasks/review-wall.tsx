@@ -15,7 +15,7 @@ import { CopyChip, Micro, errorText } from "@/components/inbox/inbox-ui";
 import { useDesktop } from "@/components/inbox/evidence";
 import { ZoomViewer } from "@/components/inbox/zoom-viewer";
 import { timeAgo } from "@/components/gallery/world-ui";
-import { ASK_LETTERS, TASK_LIMITS, gistOf, taskRef, taskToMarkdown, type TaskStatus } from "@/lib/tasks";
+import { ASK_LETTERS, TASK_LIMITS, gistOf, missingPicturesNote, taskRef, taskToMarkdown, type TaskStatus } from "@/lib/tasks";
 
 // The review wall: Michael's side of the task queue as a production wall. One
 // row per world, every task a storyboard frame pinned to graph paper. A task
@@ -359,8 +359,24 @@ const CSS = `
 .lmw-choice b{flex:0 0 auto;width:34px;height:34px;display:grid;place-items:center;font:900 16px/1 var(--lm-font-display);background:var(--lm-coral);color:var(--lm-paper);border-radius:var(--lm-radius)}
 .lmw-choice span{font:600 14px/1.3 var(--lm-font-display);overflow-wrap:anywhere}
 .lmw-choice em,.lmw-ask-head em{font:700 9px/1 var(--lm-font);font-style:normal;letter-spacing:.14em;text-transform:uppercase;color:var(--lmw-ember);margin-left:auto;white-space:nowrap}
-.lmw-ask{display:grid;gap:10px;padding:14px 16px 2px}
-.lmw-ask-col{display:flex;flex-direction:column;gap:6px;min-width:0;padding:6px;border:1.5px solid var(--lm-border);border-radius:var(--lm-radius);background:var(--lm-surface-2);transition:border-color var(--lmw-dur)}
+.lmw-ask{display:grid;grid-template-columns:repeat(var(--cols,2),minmax(0,1fr));gap:10px;padding:14px 16px 2px;align-items:start}
+.lmw-ask-col{display:flex;flex-direction:column;gap:6px;min-width:0;padding:6px;border:1.5px solid var(--lm-border);border-radius:var(--lm-radius);background:var(--lm-surface-2);transition:border-color var(--lmw-dur);cursor:pointer}
+.lmw-ask-missing{align-self:flex-start;margin:2px 2px 4px;padding:4px 7px;font:600 9.5px/1 var(--lm-font);letter-spacing:.12em;text-transform:uppercase;color:var(--lm-text-tertiary);border:1px dashed var(--lm-border-strong);border-radius:2px}
+.lmw-choice span.lmw-ask-missing{margin:0 0 0 auto;flex:0 0 auto;align-self:center;font:600 9.5px/1 var(--lm-font);letter-spacing:.12em;white-space:nowrap}
+.lmw-choice em + .lmw-ask-missing{margin-left:8px}
+.lmw-choice:has(.lmw-ask-missing){flex-wrap:wrap;row-gap:8px}
+.lmw-choice:has(.lmw-ask-missing) > span:first-of-type{flex:1 1 12ch;min-width:12ch}
+@media (max-width:640px){.lmw-choice span.lmw-ask-missing{margin-left:48px}.lmw-choice em + .lmw-ask-missing{margin-left:48px}}
+.lmw-ask-gone{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0;padding:14px 16px 2px;font:500 13px/1.4 var(--lm-font-display);color:var(--lm-text-secondary)}
+.lmw-ask-gone .lmw-ask-missing{margin:0}
+.lmw-ask-col.nopics .lmw-ask-head{opacity:.85}
+@media (max-width:640px){
+  /* A phone stacks the options; each one's frames sit two to a row. */
+  .lmw-ask{grid-template-columns:minmax(0,1fr)}
+  .lmw-ask-pics{display:grid !important;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .lmw-ask-pics .cell{max-height:none !important}
+  .lmw-ask-pics .cell:only-child{grid-column:1 / -1}
+}
 .lmw-ask-col:hover{border-color:var(--lm-coral)}
 .lmw-ask-col.rec{border-color:var(--lmw-ember)}
 .lmw-ask-head{display:flex;align-items:center;gap:10px;min-height:40px;padding:2px 2px 2px 0;text-align:left;background:none;border:0;color:var(--lm-text-primary);cursor:pointer}
@@ -696,35 +712,45 @@ function PictureSet({ thumbs, onZoom }: { thumbs: Thumb[]; onZoom: (thumb: Thumb
   </div>;
 }
 
+// A question frame's column is a quarter of the media pane on a desktop, half
+// the screen on a phone (two frames a row).
+const ASK_PIC_SIZES = "(max-width: 640px) 46vw, (max-width: 899px) 30vw, 22vw";
+
 /**
- * A blocked task's ask: one column per picture option, side by side, its
- * frames stacked in the same order in every column so rows compare across.
- * Every option, pictured or not, is also a pick button in the sheet's
- * bottom bar, so all of them show without scrolling. A click on a column
- * head, a pick button or the letter key sends the pick as his answer.
+ * A blocked task's ask: one column per option, side by side (stacked on a
+ * phone), each with its letter and label on top and its frames below in the
+ * same order in every column, so rows compare across. The whole column is
+ * one click: it sends the pick as his answer, like the letter key. A frame
+ * click opens it large instead. An option whose frames are gone keeps its
+ * column with a "pictures missing" note, so it can still be picked by name.
  */
 function AskBoard({ ask, disabled, onPick, onZoom }: {
   ask: NonNullable<Card["askView"]>; disabled: boolean; onPick: (index: number) => void; onZoom: (thumb: Thumb) => void;
 }) {
   const options = ask.options.map((option, index) => ({ ...option, index, letter: ASK_LETTERS[index]! }));
-  const pictured = options.filter((option) => option.pics.length > 0);
-  return <>
-    {pictured.length > 0 && <div className="lmw-ask" style={{ gridTemplateColumns: `repeat(${pictured.length}, minmax(0, 1fr))` }}>
-      {pictured.map((option) => <div key={option.letter} className={`lmw-ask-col${option.recommended ? " rec" : ""}`}>
-        <button type="button" className="lmw-ask-head" disabled={disabled} onClick={() => onPick(option.index)}>
+  if (!options.some((option) => option.pics.length > 0)) return null;
+  return <div className="lmw-ask" style={{ "--cols": options.length } as CSSProperties}>
+    {options.map((option) => {
+      const note = missingPicturesNote(option.pics.length, option.missing);
+      return <div key={option.letter} className={`lmw-ask-col${option.recommended ? " rec" : ""}${option.pics.length ? "" : " nopics"}`}
+        onClick={() => { if (!disabled) onPick(option.index); }}>
+        <button type="button" className="lmw-ask-head" disabled={disabled} onClick={(event) => { event.stopPropagation(); onPick(option.index); }}>
           <b>{option.letter}</b><span>{option.label}</span>{option.recommended && <em>Agent pick</em>}
         </button>
-        <div className="lmw-ask-pics">
-          {option.pics.map((thumb) => <div key={thumb.assetId} className="cell" style={{ aspectRatio: `${aspectOf(thumb)}` }} role="button" tabIndex={0} aria-label="Open full size"
-            onClick={() => onZoom(thumb)} onKeyDown={(event) => { if (event.key === "Enter") onZoom(thumb); }}>
-            {/* eslint-disable-next-line @next/next/no-img-element -- the gallery's own thumbnail */}
-            <img src={thumb.url} alt="" draggable={false} decoding="async" />
-            <span className="chip"><CopyChip value={`asset:${thumb.assetId}`} label={thumb.assetId.slice(-6)} /></span>
+        {option.pics.length > 0 && <div className="lmw-ask-pics">
+          {option.pics.map((thumb, index) => <div key={thumb.assetId} className="cell" style={{ aspectRatio: `${aspectOf(thumb)}` }} role="button" tabIndex={0} aria-label="Open full size"
+            onClick={(event) => { event.stopPropagation(); onZoom(thumb); }}
+            onKeyDown={(event) => { if (event.key === "Enter") { event.stopPropagation(); onZoom(thumb); } }}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- the gallery's own renditions with their srcset */}
+            <img src={thumb.url} srcSet={thumb.srcSet} sizes={thumb.srcSet ? ASK_PIC_SIZES : undefined} alt="" draggable={false} decoding="async"
+              loading={index === 0 ? "eager" : "lazy"} />
+            <span className="chip" onClick={(event) => event.stopPropagation()}><CopyChip value={`asset:${thumb.assetId}`} label={thumb.assetId.slice(-6)} /></span>
           </div>)}
-        </div>
-      </div>)}
-    </div>}
-  </>;
+        </div>}
+        {note && <span className="lmw-ask-missing">{note}</span>}
+      </div>;
+    })}
+  </div>;
 }
 
 /** The words an action asks for: Answer, Rework or Note. ⌘↵ sends, Esc goes back. */
@@ -858,6 +884,7 @@ function FocusSheet({ card, stamp, field, showWorld, hasPrev, hasNext, onClose, 
       <div className="lmw-sbody">
         {sheetThumbs.length > 0 && <PictureSet thumbs={sheetThumbs} onZoom={setZoom} />}
         {ask && <AskBoard ask={ask} disabled={busy || Boolean(stamp)} onPick={pick} onZoom={setZoom} />}
+        {ask && !pictures && <p className="lmw-ask-gone"><span className="lmw-ask-missing">Pictures missing</span> Pick by name below, or answer in words.</p>}
         {choices && <div className="lmw-choices">
           {choices.map((choice) => <button key={choice.letter} type="button" className="lmw-choice" disabled={busy}
             onClick={() => void send(`${choice.letter}: ${choice.text}`)}>
@@ -1062,8 +1089,8 @@ function DecideDeck({ tasks, stamps, stacks, startId, act, undo, agentsBusy, onE
   const ask = card?.status === "blocked" ? card.askView : undefined;
   const question = card ? questionOf(card) : "";
   const choices = card?.status === "blocked" && !ask ? parseChoices(question) ?? parseChoices(card.result?.slice(0, 300)) : null;
-  const options: Array<{ letter: string; text: string; recommended?: boolean; send: string }> = ask
-    ? ask.options.map((option, i) => ({ letter: ASK_LETTERS[i]!, text: option.label, recommended: option.recommended, send: `Picked ${ASK_LETTERS[i]}: ${option.label}` }))
+  const options: Array<{ letter: string; text: string; recommended?: boolean; send: string; note?: string | null }> = ask
+    ? ask.options.map((option, i) => ({ letter: ASK_LETTERS[i]!, text: option.label, recommended: option.recommended, send: `Picked ${ASK_LETTERS[i]}: ${option.label}`, note: missingPicturesNote(option.pics.length, option.missing) }))
     : (choices ?? []).map((choice) => ({ letter: choice.letter, text: choice.text, send: `${choice.letter}: ${choice.text}` }));
   const textKind: Kind | undefined = card ? (card.status === "blocked" ? "answer" : "rework") : undefined;
 
@@ -1188,6 +1215,7 @@ function DecideDeck({ tasks, stamps, stacks, startId, act, undo, agentsBusy, onE
                 ? <>
                   {options.map((option) => <button key={option.letter} type="button" className={`lmw-choice${option.recommended ? " rec" : ""}`} onClick={() => decide(card, "choice", option.send)}>
                     <b>{option.letter}</b><span>{option.text}</span>{option.recommended && <em>Agent pick</em>}
+                    {!pictured && option.note && <span className="lmw-ask-missing">{option.note}</span>}
                   </button>)}
                   <button type="button" className="lmw-stamp" onClick={() => setField("answer")}>Other answer<kbd>↵</kbd></button>
                   <button type="button" className="lmw-stamp" onClick={() => decide(card, "discard")}>Not needed<kbd>2</kbd></button>

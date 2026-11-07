@@ -1,4 +1,4 @@
-import { assertSingleWorld, assetFolderIds as worldAssetFolderIds, journalAssetMembership } from "./worldCore";
+import { assertSingleWorld, assetFolderIds as worldAssetFolderIds, journalAssetMembership, recordWorldChange, worldsOfFolders } from "./worldCore";
 import {
   internalMutation,
   internalQuery,
@@ -4370,12 +4370,89 @@ export const replaceAssetMedia = ownerMutation({
   },
 });
 
+/**
+ * Who deleted an asset and through which path. Required on every hard
+ * delete: on 7 Nov 2026 36 DEAR ANNETE frames went with no journal entry
+ * (the old ten-minute archive), and nothing said who or how.
+ */
+export const deleteTraceValidator = {
+  via: v.string(),
+  actor: v.optional(v.string()),
+  session: v.optional(v.string()),
+};
+export type DeleteTrace = { via: string; actor?: string; session?: string };
+
+/**
+ * The trace a hard delete leaves, written in the same transaction as the
+ * delete: one assetDeletions row always (also for assets in no world), and
+ * an `assets.delete` entry in the journal of every world the asset was in.
+ */
+export const recordAssetDeletion = async (
+  ctx: MutationCtx,
+  asset: Doc<"assets">,
+  folderIds: Id<"folders">[],
+  trace: DeleteTrace,
+) => {
+  const owner = asset.ownerUserId ?? "";
+  const via = (trace.via ?? "").trim().slice(0, 80) || "unknown";
+  const actor = trace.actor?.trim().slice(0, 80) || "unknown";
+  const session = trace.session?.trim().slice(0, 80) || undefined;
+  const worldIds = [...(await worldsOfFolders(ctx, [asset.folderId, ...folderIds]))];
+  const record = {
+    assetId: asset._id,
+    kind: asset.kind,
+    name: asset.name ?? undefined,
+    fileName: asset.fileName ?? undefined,
+    ingestKey: asset.ingestKey ?? undefined,
+    sourceUrl: asset.sourceUrl ?? undefined,
+    folderIds,
+    primaryFolderId: asset.folderId ?? undefined,
+    tagIds: asset.tagIds,
+    createdAt: asset.createdAt,
+  };
+  await ctx.db.insert("assetDeletions", {
+    ownerUserId: owner,
+    assetId: asset._id,
+    via,
+    actor,
+    ...(session ? { session } : {}),
+    kind: asset.kind,
+    ...(record.name ? { name: record.name.slice(0, 200) } : {}),
+    ...(record.fileName ? { fileName: record.fileName.slice(0, 300) } : {}),
+    ...(record.ingestKey ? { ingestKey: record.ingestKey.slice(0, 500) } : {}),
+    folderIds,
+    worldFolderIds: worldIds,
+    deletedAt: Date.now(),
+  });
+  const label = (asset.name || asset.fileName || asset.ingestKey || "").slice(0, 80);
+  for (const worldFolderId of worldIds) {
+    await recordWorldChange(ctx, {
+      ownerUserId: owner,
+      worldFolderId,
+      op: "assets.delete",
+      targetType: "asset",
+      targetId: asset._id,
+      summary: `Deleted asset:${asset._id}${label ? ` (${label})` : ""} for good · via ${via}`,
+      before: { ...record, via },
+      after: null,
+      actor,
+      session,
+    });
+  }
+};
+
 // The one true asset delete: row, tag links + usage, folder/beat links,
 // lineage, blobs (Convex + R2), pack reconciliation, semantic reindex.
 // EVERY delete path (single, bulk, wipe) must go through this — the bulk
 // paths used to re-implement it and silently skipped tag usage, pack
-// reconciliation and the semantic cleanup.
-const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
+// reconciliation and the semantic cleanup. It journals the delete first
+// (recordAssetDeletion), so no path can delete silently.
+export const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">, trace: DeleteTrace) => {
+  const memberships = await ctx.db
+    .query("assetFolders")
+    .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
+    .collect();
+  await recordAssetDeletion(ctx, asset, [...new Set(memberships.map((link) => link.folderId))], trace);
   const links = await ctx.db
     .query("assetTags")
     .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
@@ -4402,16 +4479,12 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
 
   // Collection/beat memberships die with the asset — orphaned links would
   // ghost-occupy folder slots and inflate counts.
-  const folderLinks = await ctx.db
-    .query("assetFolders")
-    .withIndex("by_asset", (q) => q.eq("assetId", asset._id))
-    .collect();
-  for (const link of folderLinks) {
+  for (const link of memberships) {
     await ctx.db.delete(link._id);
   }
   await recountFolderMembers(
     ctx,
-    folderLinks.map((link) => link.folderId),
+    memberships.map((link) => link.folderId),
   );
 
   const storageIds = dedupeIds(
@@ -4483,6 +4556,8 @@ const deleteAssetCascade = async (ctx: MutationCtx, asset: Doc<"assets">) => {
 export const internalDeleteAsset = internalMutation({
   args: {
     id: v.id("assets"),
+    // How this delete was asked for; journaled with the delete.
+    ...deleteTraceValidator,
   },
   returns: v.null(),
   handler: async (ctx, args) => {
@@ -4490,7 +4565,7 @@ export const internalDeleteAsset = internalMutation({
     if (!asset) {
       throw new ConvexError("Asset not found.");
     }
-    await deleteAssetCascade(ctx, asset);
+    await deleteAssetCascade(ctx, asset, { via: args.via, actor: args.actor, session: args.session });
     return null;
   },
 });
@@ -4507,11 +4582,18 @@ export const deleteAsset = mutation({
     id: v.id("assets"),
     actorUserId: v.string(),
     adminSecret: v.string(),
+    via: v.optional(v.string()),
+    session: v.optional(v.string()),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
     assertCurationAdmin(args.actorUserId, args.adminSecret);
-    await ctx.runMutation(internalDeleteAssetMutation, { id: args.id });
+    await ctx.runMutation(internalDeleteAssetMutation, {
+      id: args.id,
+      via: args.via ?? "admin.deleteAsset",
+      actor: args.actorUserId,
+      session: args.session,
+    });
     return null;
   },
 });
@@ -4548,7 +4630,7 @@ export const cleanupOrphanedAssetFolderLinks = internalMutation({
 });
 
 export const bulkDeleteAssets = internalMutation({
-  args: { ids: v.array(v.id("assets")) },
+  args: { ids: v.array(v.id("assets")), actor: v.optional(v.string()), session: v.optional(v.string()) },
   returns: v.number(),
   handler: async (ctx, args) => {
     let count = 0;
@@ -4557,7 +4639,7 @@ export const bulkDeleteAssets = internalMutation({
       if (!asset) {
         continue;
       }
-      await deleteAssetCascade(ctx, asset);
+      await deleteAssetCascade(ctx, asset, { via: "cli.bulkDeleteAssets", actor: args.actor ?? "cli", session: args.session });
       count++;
     }
     return count;
@@ -4593,7 +4675,7 @@ export const wipeAllAssets = internalMutation({
 
     if (!dryRun) {
       for (const asset of assets) {
-        await deleteAssetCascade(ctx, asset);
+        await deleteAssetCascade(ctx, asset, { via: "cli.wipeAllAssets", actor: "cli" });
       }
     }
 
@@ -4917,6 +4999,8 @@ export const mergeDuplicateAssets = internalMutation({
   args: {
     ownerUserId: v.string(),
     assetIds: v.array(v.id("assets")),
+    actor: v.optional(v.string()),
+    session: v.optional(v.string()),
   },
   returns: v.object({
     keeperId: v.union(v.id("assets"), v.null()),
@@ -5097,7 +5181,11 @@ export const mergeDuplicateAssets = internalMutation({
       }
       const refreshed = await ctx.db.get(loser.asset._id);
       if (refreshed) {
-        await deleteAssetCascade(ctx, refreshed);
+        await deleteAssetCascade(ctx, refreshed, {
+          via: `merge.duplicate:keeper=${keeper.asset._id}`,
+          actor: args.actor ?? "dedupe",
+          session: args.session,
+        });
       }
     }
 

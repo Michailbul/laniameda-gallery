@@ -359,7 +359,7 @@ const saveXPost = async (ctx: ActionCtx, input: SaveXPostInput): Promise<SaveXPo
     return { bookmarkId: result.bookmarkId, assetId, created: result.created, linkedAssetIds: [] };
   } catch (error) {
     if (created.created) {
-      await ctx.runMutation(deleteAssetMutation, { id: assetId });
+      await ctx.runMutation(deleteAssetMutation, { id: assetId, via: "rollback.bookmark-save", actor: "gallery" });
     }
     throw error;
   }

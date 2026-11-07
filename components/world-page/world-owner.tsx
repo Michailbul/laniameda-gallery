@@ -213,14 +213,14 @@ export function useWorldOwner({
         setArchivedIds(new Set(now.archivedIds).add(id));
         markPaint(startedAt);
         void archive({ ownerUserId, assetId: id as Id<"assets"> })
-          .then(() => setNotice("Deleted in 10 min · D or double-click restores"))
+          .then(() => setNotice("Archived · D or double-click restores"))
           .catch(() => {
             setArchivedIds((current) => {
               const copy = new Set(current);
               copy.delete(id);
               return copy;
             });
-            setNotice("Could not delete");
+            setNotice("Could not archive");
           });
       }
     };

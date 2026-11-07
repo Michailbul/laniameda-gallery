@@ -2,9 +2,11 @@ export type AssetDeleteResult =
   | { assetId: string; ok: true }
   | { assetId: string; ok: false; error: string };
 
-async function deleteSelectedAsset(assetId: string, request: typeof fetch) {
+async function deleteSelectedAsset(assetId: string, request: typeof fetch, via?: string) {
+  // The screen that asked; the delete's journal entry names it.
+  const query = via ? `?via=${encodeURIComponent(via)}` : "";
   for (let attempt = 0; ; attempt++) {
-    const response = await request(`/api/assets/${encodeURIComponent(assetId)}`, {
+    const response = await request(`/api/assets/${encodeURIComponent(assetId)}${query}`, {
       method: "DELETE",
     });
     if (response.ok) return;
@@ -32,6 +34,8 @@ export async function deleteAssetSelection(
   options: {
     request?: typeof fetch;
     onResult?: (result: AssetDeleteResult, completed: number, total: number) => void;
+    /** The screen asking, e.g. "dashboard.selection"; journaled with each delete. */
+    via?: string;
   } = {},
 ): Promise<AssetDeleteResult[]> {
   const ids = [...new Set(assetIds)];
@@ -42,7 +46,7 @@ export async function deleteAssetSelection(
   for (const assetId of ids) {
     let result: AssetDeleteResult;
     try {
-      await deleteSelectedAsset(assetId, request);
+      await deleteSelectedAsset(assetId, request, options.via);
       result = { assetId, ok: true };
     } catch (error) {
       result = {

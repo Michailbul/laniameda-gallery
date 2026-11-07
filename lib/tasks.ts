@@ -263,3 +263,7 @@ export const gistOf = (body: string | undefined, max = 280) => {
     .trim();
   return plain.length > max ? `${plain.slice(0, max - 1).replace(/\s+\S*$/, "")}…` : plain;
 };
+
+/** What a question's option says when its frames are gone (deleted, or never given): never an empty box. */
+export const missingPicturesNote = (shown: number, missing: number) =>
+  shown === 0 ? "Pictures missing" : missing > 0 ? `${missing} picture${missing === 1 ? "" : "s"} missing` : null;

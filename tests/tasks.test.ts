@@ -9,7 +9,7 @@ import { addAssetComment } from "../convex/assetComments";
 import { decideInboxCard, postInboxCards, setInboxCardComment } from "../convex/inbox";
 import { getWorldContext } from "../convex/worlds";
 import {
-  TASK_LIMITS, agentActor, askProblem, bareTaskRef, jargonIn, summaryProblem, titleProblem, leaseActive, linkRef, parseLinkRef, taskAge, taskRef, taskToMarkdown, titleFromText,
+  TASK_LIMITS, agentActor, askProblem, bareTaskRef, jargonIn, missingPicturesNote, summaryProblem, titleProblem, leaseActive, linkRef, parseLinkRef, taskAge, taskRef, taskToMarkdown, titleFromText,
 } from "../lib/tasks";
 import { completeInputProblem, taskCompleteSchema, taskCreateSchema, taskEditSchema, taskListSchema } from "../lib/tasks-contract";
 import { createMockConvexMutationCtx } from "./helpers/mock-convex-context";
@@ -185,6 +185,31 @@ describe("tasks backend", () => {
     expect(mine.task.title).toBe("Look at asset:j57abc and ~/x/y.md");
   });
 
+  test("an option whose frames were deleted says its pictures are missing", async () => {
+    const env = await setup();
+    const { task } = await env.create({});
+    await env.call(claimTask, { taskId: task._id, claimedBy: "agent:claude-eallin" });
+    const kept = await env.asset({ thumbR2Key: "kept.jpg" });
+    const doomed = await env.asset({ thumbR2Key: "doomed.jpg" });
+    await env.call(completeTask, {
+      taskId: task._id, status: "blocked", actor: "agent:claude-eallin", result: "Two cabins.",
+      ask: { question: "Which cabin?", options: [{ label: "Lantern", assetIds: [kept, doomed] }, { label: "Coach", assetIds: [doomed], recommended: true }] },
+    });
+    await env.db.delete(doomed);
+    const base = process.env.R2_PUBLIC_BASE_URL;
+    process.env.R2_PUBLIC_BASE_URL = "https://r2.test";
+    const [card] = await env.call(listTaskCards, {}).finally(() => { if (base === undefined) delete process.env.R2_PUBLIC_BASE_URL; else process.env.R2_PUBLIC_BASE_URL = base; });
+    expect(card.askView.options).toMatchObject([
+      { label: "Lantern", pics: [{ assetId: kept }], missing: 1 },
+      { label: "Coach", pics: [], missing: 1, recommended: true },
+    ]);
+    expect(missingPicturesNote(0, 1)).toBe("Pictures missing");
+    expect(missingPicturesNote(0, 0)).toBe("Pictures missing");
+    expect(missingPicturesNote(1, 1)).toBe("1 picture missing");
+    expect(missingPicturesNote(1, 2)).toBe("2 pictures missing");
+    expect(missingPicturesNote(2, 0)).toBeNull();
+  });
+
   test("complete writes the result and links; blocked waits for Michael; his comment reopens", async () => {
     const env = await setup();
     const a2 = await env.asset({ agentDescription: "The repaired hands." });
@@ -193,7 +218,10 @@ describe("tasks backend", () => {
     await expect(env.call(completeTask, { taskId: task._id, result: "x", actor: "agent:claude-artist" })).rejects.toThrow("held by agent:claude-eallin");
     await expect(env.call(completeTask, { taskId: task._id, result: "  ", actor: "agent:claude-eallin" })).rejects.toThrow("name the asset");
     // A question for Michael is pictures: prose alone, a stranger's frame or a missing one is refused.
-    const left = await env.asset({ agentDescription: "Left hand fixed.", thumbR2Key: "left.jpg" });
+    const left = await env.asset({
+      agentDescription: "Left hand fixed.", thumbR2Key: "left.jpg", thumbWidth: 1440,
+      thumbVariants: [{ r2Key: "left-960.webp", width: 960, height: 640, size: 1 }, { r2Key: "left-480.webp", width: 480, height: 320, size: 1 }],
+    });
     const right = await env.asset({ agentDescription: "Right hand fixed.", thumbR2Key: "right.jpg" });
     const theirs = await env.db.insert("assets", { ownerUserId: "stranger", kind: "image", tagIds: [], createdAt: Date.now() });
     const ask = (ids: string[]) => ({ question: "Which hand reads better?", options: [{ label: "Left", assetIds: [`asset:${ids[0]}`] }, { label: "Right", assetIds: [ids[1]], recommended: true }] });
@@ -206,7 +234,9 @@ describe("tasks backend", () => {
     const base = process.env.R2_PUBLIC_BASE_URL;
     process.env.R2_PUBLIC_BASE_URL = "https://r2.test";
     const [card] = await env.call(listTaskCards, {}).finally(() => { if (base === undefined) delete process.env.R2_PUBLIC_BASE_URL; else process.env.R2_PUBLIC_BASE_URL = base; });
-    expect(card.askView).toMatchObject({ question: "Which hand reads better?", context: [], options: [{ label: "Left", recommended: false, pics: [{ assetId: left }] }, { label: "Right", recommended: true, pics: [{ assetId: right }] }] });
+    expect(card.askView).toMatchObject({ question: "Which hand reads better?", context: [], options: [{ label: "Left", recommended: false, pics: [{ assetId: left }], missing: 0 }, { label: "Right", recommended: true, pics: [{ assetId: right }], missing: 0 }] });
+    // A question frame carries its renditions, smallest first, so a large option loads what it needs.
+    expect(card.askView.options[0].pics[0].srcSet).toBe("https://r2.test/left-480.webp 480w, https://r2.test/left-960.webp 960w, https://r2.test/left.jpg 1440w");
     expect(card.thumbs.map((thumb: AnyDoc) => thumb.assetId).slice(0, 2)).toEqual([left, right]);
     expect(taskToMarkdown(card)).toContain(`- B: Right [agent pick] (asset:${right})`);
     expect(await env.call(countOpenTasks, {})).toEqual([{ worldFolderId: env.world, worldName: "DEAR ANNETE", open: 0, claimed: 0, blocked: 1, done: 0 }]);

@@ -170,6 +170,10 @@ const deleteArgsValidator = v.object({
   target: targetValidator,
   id: v.optional(v.union(v.id("prompts"), v.id("assets"), v.id("designInspirations"))),
   ingestKey: v.optional(v.string()),
+  // Journaled with an asset delete. The route sets actor from the token.
+  actor: v.optional(v.string()),
+  session: v.optional(v.string()),
+  via: v.optional(v.string()),
 });
 
 const normalizeTags = (names: string[]) => {
@@ -1364,6 +1368,9 @@ export const deleteFromApi: ReturnType<typeof action> = ownerAction({
 
       await ctx.runMutation(internal.assets.internalDeleteAsset, {
         id: assetId,
+        via: args.via ?? "agent.delete_gallery_item",
+        actor: args.actor ?? "agent",
+        session: args.session,
       });
       return {
         target: "asset" as const,
