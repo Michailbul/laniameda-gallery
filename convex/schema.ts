@@ -86,11 +86,29 @@ export default defineSchema({
   reviewComments: defineTable(reviewCommentFields)
     .index("by_project_asset_createdAt", ["projectId", "assetId", "createdAt"])
     .index("by_project_createdAt", ["projectId", "createdAt"]),
+  // An archived asset (D on a board): grayed out, listed in the Archive tray,
+  // restorable for as long as it stays here. Archive never deletes; only an
+  // explicit "Delete for good" from the tray does (assetReview.purge).
+  // deleteAt is legacy: the old ten-minute auto-delete, retired 7 Nov 2026.
   assetArchive: defineTable({
     ownerUserId: v.string(), assetId: v.id("assets"),
-    deleteAt: v.number(),
+    archivedAt: v.optional(v.number()),
+    deleteAt: v.optional(v.number()),
   }).index("by_asset", ["assetId"])
     .index("by_owner", ["ownerUserId"]),
+  // One row per hard-deleted asset, written in the same transaction as the
+  // delete (assets.recordAssetDeletion): what it was, where it was filed, who
+  // deleted it and through which path. World assets also get an
+  // `assets.delete` world-journal entry; this table covers the rest too.
+  assetDeletions: defineTable({
+    ownerUserId: v.string(), assetId: v.string(),
+    via: v.string(), actor: v.string(), session: v.optional(v.string()),
+    kind: v.string(),
+    name: v.optional(v.string()), fileName: v.optional(v.string()), ingestKey: v.optional(v.string()),
+    folderIds: v.array(v.id("folders")), worldFolderIds: v.array(v.id("folders")),
+    deletedAt: v.number(),
+  }).index("by_owner_deletedAt", ["ownerUserId", "deletedAt"])
+    .index("by_asset", ["assetId"]),
   // Private agent reference documents, kept out of public repository bundles.
   // These are instructions, not creative media or gallery Skills.
   agentInstructions: defineTable({

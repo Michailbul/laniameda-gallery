@@ -253,7 +253,7 @@ function Stack({ ownerUserId, view, rows, notes, onward }: {
       let deleted = 0;
       if (result.deleteAssetIds.length > 0) {
         // Real deletion through the gallery's own admin-checked delete route.
-        const outcomes = await deleteAssetSelection(result.deleteAssetIds);
+        const outcomes = await deleteAssetSelection(result.deleteAssetIds, { via: "inbox.duplicates" });
         const gone = outcomes.filter((outcome) => outcome.ok).map((outcome) => outcome.assetId as Id<"assets">);
         if (gone.length) await recordDeletions({ ownerUserId, cardId, deletedAssetIds: gone });
         deleted = gone.length;

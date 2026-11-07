@@ -389,6 +389,8 @@ export const saveFromExtension = ownerAction({
         if (createdAssetId) {
           await ctx.runMutation(deleteAssetMutation, {
             id: createdAssetId,
+            via: "rollback.design-save",
+            actor: "gallery",
           });
         }
         throw error;
@@ -449,6 +451,8 @@ export const saveFromExtension = ownerAction({
     } catch (error) {
       await ctx.runMutation(deleteAssetMutation, {
         id: assetId,
+        via: "rollback.design-save",
+        actor: "gallery",
       });
       throw error;
     }

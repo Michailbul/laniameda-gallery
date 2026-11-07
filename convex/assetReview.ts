@@ -1,17 +1,29 @@
 import { ConvexError, v } from "convex/values";
-import { makeFunctionReference } from "convex/server";
+import type { Doc } from "./_generated/dataModel";
 import { internalMutation } from "./_generated/server";
 import { signedOwnerMutation, signedOwnerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
+import { deleteAssetCascade } from "./assets";
 
-export const ARCHIVE_DELAY_MS = 10 * 60 * 1000;
-const finishRef = makeFunctionReference<"mutation">(
-  "assetReview:finishDeletion",
-);
-const deleteRef = makeFunctionReference<"mutation">(
-  "assets:internalDeleteAsset",
-);
+/**
+ * Archive (D on a board) is soft: the frame grays out, sits in the Archive
+ * tray and comes back with D or Restore, for as long as Michael wants.
+ * Nothing is deleted until he asks for it with "Delete for good" in the tray
+ * (purge), and that delete is journaled.
+ *
+ * Until 7 Nov 2026 archive scheduled a hard delete ten minutes later, with no
+ * journal entry: 36 DEAR ANNETE frames archived at 16:29 were gone at 16:39.
+ */
+
+/** The world-page hide reason archive sets, so restore undoes only its own hide. */
+export const ARCHIVE_HIDE_REASON = "Archived (D)";
+
+/** Most frames one "Delete for good" removes in one transaction. */
+export const PURGE_BATCH = 25;
+
+const archivedAtOf = (entry: Doc<"assetArchive">) =>
+  entry.archivedAt ?? entry._creationTime;
 
 export const archive = signedOwnerMutation({
   args: { ownerUserId: v.string(), assetId: v.id("assets") },
@@ -24,15 +36,14 @@ export const archive = signedOwnerMutation({
       .query("assetArchive")
       .withIndex("by_asset", (q) => q.eq("assetId", assetId))
       .unique();
-    if (existing) return existing.deleteAt;
-    const deleteAt = Date.now() + ARCHIVE_DELAY_MS;
-    const archiveId = await ctx.db.insert("assetArchive", {
-      ownerUserId,
-      assetId,
-      deleteAt,
-    });
-    await ctx.scheduler.runAfter(ARCHIVE_DELAY_MS, finishRef, { archiveId });
-    return deleteAt;
+    if (existing) return archivedAtOf(existing);
+    const archivedAt = Date.now();
+    await ctx.db.insert("assetArchive", { ownerUserId, assetId, archivedAt });
+    // Off the world page, as the old delete took it off; restore brings it back.
+    if (!asset.worldPageHidden) {
+      await ctx.db.patch(assetId, { worldPageHidden: true, worldPageHiddenReason: ARCHIVE_HIDE_REASON });
+    }
+    return archivedAt;
   },
 });
 
@@ -47,8 +58,11 @@ export const restore = signedOwnerMutation({
     if (!entry) return null;
     if (!canActorAccessOwnerUserId(ownerUserId, entry.ownerUserId))
       throw new ConvexError("Asset not found.");
-    // Deleting the ticket makes any already scheduled callback harmless.
     await ctx.db.delete(entry._id);
+    const asset = await ctx.db.get(assetId);
+    if (asset?.worldPageHidden && asset.worldPageHiddenReason === ARCHIVE_HIDE_REASON) {
+      await ctx.db.patch(assetId, { worldPageHidden: undefined, worldPageHiddenReason: undefined });
+    }
     return null;
   },
 });
@@ -58,7 +72,7 @@ export const list = signedOwnerQuery({
   returns: v.array(
     v.object({
       assetId: v.id("assets"),
-      deleteAt: v.number(),
+      archivedAt: v.number(),
       name: v.string(),
       thumb: v.union(v.string(), v.null()),
     }),
@@ -85,30 +99,75 @@ export const list = signedOwnerQuery({
               null);
         result.push({
           assetId: entry.assetId,
-          deleteAt: entry.deleteAt,
+          archivedAt: archivedAtOf(entry),
           name: asset.name || "Archived asset",
           thumb,
         });
       }
     }
-    return result;
+    return result.sort((a, b) => b.archivedAt - a.archivedAt);
   },
 });
 
+/**
+ * "Delete for good" in the Archive tray: Michael's explicit cleanup. Deletes
+ * only frames that are archived right now, each journaled (via archive.purge).
+ */
+export const purge = signedOwnerMutation({
+  args: {
+    ownerUserId: v.string(),
+    assetIds: v.array(v.id("assets")),
+    session: v.optional(v.string()),
+  },
+  returns: v.object({ deleted: v.number(), skipped: v.number() }),
+  handler: async (ctx, { ownerUserId, assetIds, session }) => {
+    const ids = [...new Set(assetIds)];
+    if (ids.length > PURGE_BATCH)
+      throw new ConvexError(`Delete at most ${PURGE_BATCH} frames at a time.`);
+    let deleted = 0;
+    let skipped = 0;
+    for (const assetId of ids) {
+      const entry = await ctx.db
+        .query("assetArchive")
+        .withIndex("by_asset", (q) => q.eq("assetId", assetId))
+        .unique();
+      const asset = await ctx.db.get(assetId);
+      if (
+        !entry ||
+        !asset ||
+        !canActorAccessOwnerUserId(ownerUserId, entry.ownerUserId) ||
+        !canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId)
+      ) {
+        skipped += 1;
+        continue;
+      }
+      await deleteAssetCascade(ctx, asset, {
+        via: "archive.purge",
+        actor: "owner",
+        session: session ?? "archive-tray",
+      });
+      await ctx.db.delete(entry._id);
+      deleted += 1;
+    }
+    return { deleted, skipped };
+  },
+});
+
+/**
+ * Retired: the old ten-minute auto-delete. Jobs scheduled before 7 Nov 2026
+ * still call it; it no longer deletes anything. The frame stays archived.
+ */
 export const finishDeletion = internalMutation({
   args: { archiveId: v.id("assetArchive") },
   returns: v.null(),
   handler: async (ctx, { archiveId }) => {
     const entry = await ctx.db.get(archiveId);
-    if (!entry || entry.deleteAt > Date.now()) return null;
-    const asset = await ctx.db.get(entry.assetId);
-    if (
-      asset &&
-      canActorAccessOwnerUserId(entry.ownerUserId, asset.ownerUserId)
-    ) {
-      await ctx.runMutation(deleteRef, { id: entry.assetId });
+    if (entry && entry.deleteAt !== undefined) {
+      await ctx.db.patch(archiveId, {
+        archivedAt: archivedAtOf(entry),
+        deleteAt: undefined,
+      });
     }
-    await ctx.db.delete(archiveId);
     return null;
   },
 });

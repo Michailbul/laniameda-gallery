@@ -204,8 +204,8 @@ to him, and never creates or reorders them unless asked.
   Record exclusions here, never as ids in code.
 - Keys on a hovered frame (vault, world page and its admin view,
   `lib/asset-hotkeys.ts`): **F** toggles the curator star (featured pieces lead
-  the world page), **D** archives (restorable for ten minutes, then the normal
-  delete), **H** toggles the frame as a hero insert on its world page
+  the world page), **D** archives (soft: grayed, off the world page, in the
+  Archive tray until restored; never deleted by itself), **H** toggles the frame as a hero insert on its world page
   (**Shift+H** pairs it into the previous insert as a split or triptych),
   **C** comments (an `assetComments` row, read with `list_asset_comments`).
   World page only: **2** drops the frame from the page (`worldPageHidden`, 2
@@ -342,7 +342,17 @@ Tables:
 - `worldDocs` — a world's files: `WORLD.md` (≤ 8,000 chars), `LEARNINGS.md`
   (≤ 40 entries / 6,000 chars), `docs/<kebab>.md` (≤ 8 docs, 12,000 chars).
   Caps live in `lib/world-docs.ts` and are enforced on write.
+- `assetDeletions` — one row per hard-deleted asset (7 Nov 2026), written in the
+  same transaction as the delete by `assets.deleteAssetCascade`: `assetId`,
+  `via` (the path: `archive.purge`, `agent.delete_gallery_item`,
+  `ui.dashboard.selection`, `ui.inbox.duplicates`, `merge.duplicate:keeper=<id>`,
+  `cli.*`, `rollback.*`), `actor`, `session`, `kind`, `name`, `fileName`,
+  `ingestKey`, `folderIds`, `worldFolderIds`, `deletedAt`. A world asset also
+  gets an `assets.delete` journal entry (below). Every delete path must pass a
+  trace; there is no silent delete.
 - `worldChanges` — the journal: `op` (`doc.write`, `doc.delete`, `assets.file`,
+  `assets.delete` (a hard delete; `targetId` is the asset id, `before` holds its
+  file name, ingest key and collections; never undoable),
   `shelf.create`, `shelf.update`, `moodboard.*`, `profile.save`, `story.save`,
   `world.mark`, `world.move`, `world.recount`, `world.universe`, `style.save`, `style.merge`), actor (`agent:<token label>` or `owner`), optional `session`,
   JSON `before` / `after`, `revertOf` / `revertedBy`. Written in the same
@@ -993,12 +1003,16 @@ surviving effective graph alongside that immutable original archive.
 ## Asset hotkeys and private review notes
 
 Owner gallery hotkeys apply to the hovered frame or the current expanded pack member.
-`D` inserts an owner-scoped `assetArchive` ticket and schedules deletion after
-600,000 ms. Repeated requests keep the first deadline. The asset remains visible,
-dimmed, and recoverable from the Archive tray. Double-click restores it by deleting
-the ticket. Scheduled callbacks use the ticket ID, so a restored and re-archived
-asset cannot be removed by an older job. Final deletion uses the existing asset
-cascade. Closing the browser does not stop the server timer.
+`D` inserts an owner-scoped `assetArchive` ticket (`archivedAt`) and hides the
+frame from its world page (`worldPageHiddenReason: "Archived (D)"`). Archive is
+soft and has no timer: the asset stays dimmed and recoverable from the Archive
+tray for as long as it is there. D again, double-click or Restore deletes the
+ticket and undoes only archive's own world-page hide. The only way an archived
+frame is deleted is **Delete for good** in the tray (`assetReview:purge`, at most
+25 per call, archived frames only), Michael's explicit cleanup; each delete is
+journaled (`via: archive.purge`). Until 7 Nov 2026 D scheduled a hard delete after
+ten minutes with no journal entry (36 DEAR ANNETE frames went that way at
+16:39 that day); jobs left from then run `finishDeletion`, which now deletes nothing.
 
 `C` saves through native asset comments, which create Tasks for the next agent
 routine. The existing reviewer-note shortcut retains priority in the expanded edit

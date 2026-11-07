@@ -25,7 +25,7 @@ import "./asset-review.css";
 type Target = { id: string; src: string; name: string };
 export type ArchiveItem = {
   assetId: string;
-  deleteAt: number;
+  archivedAt: number;
   name: string;
   thumb: string | null;
 };
@@ -38,6 +38,7 @@ export type ArchiveItem = {
 export type ArchiveStore = {
   active: () => boolean;
   items: () => ArchiveItem[];
+  /** When the asset was archived, if it is; undefined otherwise. */
   deleteAt: (assetId: string) => number | undefined;
   trayOpen: () => boolean;
   subscribe: (listener: () => void) => () => void;
@@ -80,7 +81,7 @@ export function createArchiveStore(): ArchiveStore {
       if (next === items && nextActive === active) return;
       items = next;
       active = nextActive;
-      byId = new Map(next.map((item) => [item.assetId, item.deleteAt]));
+      byId = new Map(next.map((item) => [item.assetId, item.archivedAt]));
       if (!next.length) trayOpen = false;
       emit();
     },
@@ -163,38 +164,22 @@ function useTrayOpen() {
   return useSyncExternalStore(store.subscribe, store.trayOpen, () => false);
 }
 
-/** Seconds left before an archived asset deletes, ticking once a second. */
-function useCountdown(deleteAt: number | undefined) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (deleteAt === undefined) return;
-    const interval = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(interval);
-  }, [deleteAt]);
-  if (deleteAt === undefined) return "";
-  const seconds = Math.min(600, Math.max(0, Math.ceil((deleteAt - now) / 1000)));
-  return seconds
-    ? `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
-    : "Deleting…";
-}
-
 /**
  * The archived state on a frame: the picture stays visible, grayed, with
- * one small chip that counts down and restores. Nothing covers the image.
+ * one small chip that restores. Nothing covers the image. Archive never
+ * deletes: only "Delete for good" in the Archive tray does.
  */
 export function ArchivedChip({
   assetId,
-  deleteAt,
 }: {
   assetId: string;
-  deleteAt: number;
+  /** When it was archived (kept for callers; the chip does not count down). */
+  deleteAt?: number;
 }) {
   const store = useArchiveStore();
-  const left = useCountdown(deleteAt);
   return (
     <span className="asset-review-chip" data-review-restore>
       <span className="asset-review-chip-label">Archived</span>
-      <span className="asset-review-chip-time">{left}</span>
       <button
         type="button"
         onClick={(event) => {
@@ -281,9 +266,8 @@ export function ReviewHeaderHints({ assetId }: { assetId?: string }) {
   );
 }
 
-function ArchiveTrayItem({ item }: { item: ArchiveItem }) {
+function ArchiveTrayItem({ item, onPurge, purging }: { item: ArchiveItem; onPurge?: (assetId: string) => void; purging: boolean }) {
   const store = useArchiveStore();
-  const left = useCountdown(item.deleteAt);
   return (
     <div className="asset-review-archive-item">
       <button
@@ -302,7 +286,6 @@ function ArchiveTrayItem({ item }: { item: ArchiveItem }) {
           />
         )}
       </button>
-      <span>{left}</span>
       <button
         type="button"
         className="asset-review-restore"
@@ -310,14 +293,46 @@ function ArchiveTrayItem({ item }: { item: ArchiveItem }) {
       >
         Restore
       </button>
+      {onPurge && (
+        <button
+          type="button"
+          className="asset-review-purge"
+          disabled={purging}
+          onClick={() => onPurge(item.assetId)}
+          title="Delete this frame for good. It cannot come back."
+        >
+          Delete for good
+        </button>
+      )}
     </div>
   );
 }
 
-export function ArchiveTray() {
+export function ArchiveTray({ ownerUserId }: { ownerUserId?: string } = {}) {
   const store = useArchiveStore();
   const open = useTrayOpen();
   const items = useArchiveItems();
+  const purge = useMutation(api.assetReview.purge);
+  const [purging, setPurging] = useState(false);
+  const [purgeError, setPurgeError] = useState<string>();
+  // Michael's explicit cleanup: one frame, or everything in the tray, after a
+  // confirm. The only way an archived frame is deleted; each one is journaled.
+  const purgeIds = async (ids: string[]) => {
+    if (!ownerUserId || !ids.length || purging) return;
+    const what = ids.length === 1 ? "this frame" : `these ${ids.length} frames`;
+    if (!window.confirm(`Delete ${what} for good? This cannot be undone.`)) return;
+    setPurging(true);
+    setPurgeError(undefined);
+    try {
+      for (let start = 0; start < ids.length; start += 25) {
+        await purge({ ownerUserId, assetIds: ids.slice(start, start + 25) as Id<"assets">[] });
+      }
+    } catch (error) {
+      setPurgeError(error instanceof Error ? error.message : "Could not delete.");
+    } finally {
+      setPurging(false);
+    }
+  };
   useEffect(() => {
     if (!open) return;
     // Escape closes the tray first, before it reaches an open detail view.
@@ -343,10 +358,26 @@ export function ArchiveTray() {
           ×
         </button>
       </header>
-      <p>Deleted when the timer ends. Restore, or double-click a frame.</p>
+      <p>Archived frames stay until you restore or delete them. Restore, or double-click a frame.</p>
+      {ownerUserId && items.length > 0 && (
+        <button
+          type="button"
+          className="asset-review-purge all"
+          disabled={purging}
+          onClick={() => void purgeIds(items.map((item) => item.assetId))}
+        >
+          {purging ? "Deleting…" : `Delete all ${items.length} for good`}
+        </button>
+      )}
+      {purgeError && <p role="alert">{purgeError}</p>}
       <div className="asset-review-archive-grid">
         {items.map((item) => (
-          <ArchiveTrayItem key={item.assetId} item={item} />
+          <ArchiveTrayItem
+            key={item.assetId}
+            item={item}
+            purging={purging}
+            onPurge={ownerUserId ? (assetId) => void purgeIds([assetId]) : undefined}
+          />
         ))}
         {!items.length && <p>Archive is empty.</p>}
       </div>
@@ -588,7 +619,7 @@ export function AssetReviewControls({
           ownerUserId: ownerUserId!,
           assetId: target.id as Id<"assets">,
         })
-          .then(() => notify("Archived · deletes in 10 minutes · D restores"))
+          .then(() => notify("Archived · D restores · delete for good in the Archive tray"))
           .catch((error) =>
             notify(
               error instanceof Error ? error.message : "Could not archive asset",
@@ -655,7 +686,7 @@ export function AssetReviewControls({
   return (
     <ArchiveStoreContext.Provider value={store}>
       {children}
-      {active && <ArchiveTray />}
+      {active && <ArchiveTray ownerUserId={ownerUserId} />}
       {promoteElement}
       {active &&
         editor &&

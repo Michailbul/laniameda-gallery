@@ -212,6 +212,9 @@ export type WorldChangeOp =
   | "doc.write"
   | "doc.delete"
   | "assets.file"
+  // A hard delete (never undoable; the bytes are gone). Written by
+  // assets.recordAssetDeletion in the same transaction as the delete.
+  | "assets.delete"
   | "shelf.create"
   | "shelf.update"
   | "moodboard.create"

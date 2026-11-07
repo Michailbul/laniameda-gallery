@@ -1206,7 +1206,7 @@ export function GalleryDashboard({
       try {
         // This handler deletes media; Skill cards use native Skill deletion.
         const response = await fetch(
-          `/api/assets/${encodeURIComponent(assetId)}`,
+          `/api/assets/${encodeURIComponent(assetId)}?via=dashboard.single`,
           { method: "DELETE" },
         );
         if (!response.ok) {
@@ -3082,6 +3082,7 @@ export function GalleryDashboard({
     setBulkCurationStatus(undefined);
     try {
       const results = await deleteAssetSelection(ids, {
+        via: "dashboard.selection",
         onResult: (result, completed, total) => {
           setBulkDeleteProgress({ completed, total });
           if (!result.ok) return;

@@ -9,7 +9,7 @@ import {
 } from "@/lib/server/admin";
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ assetId: string }> },
 ) {
   try {
@@ -38,6 +38,8 @@ export async function DELETE(
       id: assetId as Id<"assets">,
       actorUserId: user.ownerUserId,
       adminSecret,
+      // Which screen asked (the gallery's delete selection sends it).
+      via: `ui.${(new URL(request.url).searchParams.get("via") ?? "delete").replace(/[^a-z0-9._-]/gi, "").slice(0, 40) || "delete"}`,
     });
 
     return NextResponse.json({

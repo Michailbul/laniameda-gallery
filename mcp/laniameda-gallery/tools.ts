@@ -843,11 +843,12 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
     {
       title: "Delete Gallery Item",
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
-      description: "Delete a prompt or asset for the authenticated user.",
+      description: "Delete a prompt or asset for the authenticated user, for good. Only on Michael's explicit request for the named items. Every asset delete is journaled (world journal op assets.delete) with this token's label and the session.",
       inputSchema: {
         target: z.enum(["prompt", "asset"]),
         id: z.string().optional(),
         ingestKey: z.string().optional(),
+        session: z.string().max(80).optional().describe("Journal session label of the work."),
       },
     },
     async (input) => jsonText(await apiFetch("/api/agent/ingest/delete", input)),
