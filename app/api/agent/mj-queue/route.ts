@@ -6,6 +6,7 @@ import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import { mjQueueAddSchema, mjQueueItemRef, mjQueueListSchema, mjQueueUpdateSchema } from "@/lib/mj-queue-contract";
 import { MJ_THREAD_ID, threadIdOf } from "@/lib/mj-queue";
+import { mjQueueUrl } from "@/lib/gallery-routes";
 
 // Midjourney prompt queue for agents: queue prompts with every reference set,
 // read the queue back with the composed commands, edit, reorder or skip.
@@ -16,10 +17,16 @@ const scopes: Record<(typeof actions)[number], AgentTokenScope> = {
   list: "gallery:read", queue: "gallery:write", update: "gallery:write",
 };
 
-const withRef = <T extends { id: string; batchKey?: string }>(row: T) => ({
-  ...row, ref: mjQueueItemRef(row.id), ...(row.batchKey ? { threadId: threadIdOf(row.batchKey) } : {}),
+// `url` is the thread's page on the gallery website (the world's Queue tab, or
+// /queue without a world), where Michael copies prompts or marks them sent.
+const threadUrl = (batchKey: string, worldKey?: string) => mjQueueUrl({ world: worldKey, thread: threadIdOf(batchKey) });
+const withRef = <T extends { id: string; batchKey?: string; worldKey?: string }>(row: T) => ({
+  ...row, ref: mjQueueItemRef(row.id),
+  ...(row.batchKey ? { threadId: threadIdOf(row.batchKey), url: threadUrl(row.batchKey, row.worldKey) } : {}),
 });
-const withThreadId = <T extends { batchKey: string }>(batch: T) => ({ ...batch, threadId: threadIdOf(batch.batchKey) });
+const withThreadId = <T extends { batchKey: string; worldKey?: string }>(batch: T) => ({
+  ...batch, threadId: threadIdOf(batch.batchKey), url: threadUrl(batch.batchKey, batch.worldKey),
+});
 
 type Client = ReturnType<typeof getServerConvexClient>;
 
@@ -57,6 +64,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         ...result,
         threadId: threadIdOf(batch),
+        url: threadUrl(result.batchKey, result.worldKey),
         created: result.items.filter((item) => item.created).length,
         items: result.items.map(withRef),
       });

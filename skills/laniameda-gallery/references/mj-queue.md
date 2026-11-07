@@ -79,3 +79,24 @@ the item in the gallery; Skip; ↑ moves it up. Next → (⌥⇧N, also on the p
 puts the following queued item in the bar. After a send the item is marked
 sent and the job id is taken from the new row in his feed (the page only;
 nothing is asked of Midjourney's API).
+
+## On the gallery website
+
+The same queue is a page in the gallery, for running prompts by hand from any
+device (phone included). It reads the same rows as the extension: a change in
+one shows in the other (the page live, the panel on its next refresh).
+
+- One world: the world's **Queue** tab, `https://gallery.laniameda.space/w/<world>/queue`
+  (also reachable from every collection inside the world).
+- Every world: `https://gallery.laniameda.space/queue`, threads grouped by world.
+- One thread: add `?thread=thr-xxxxxxxx`. `queue_mj_prompts` and
+  `list_mj_queue` return this link as `url` on the batch and on every item:
+  link Michael there when a batch is ready ("ready to send: <url>").
+
+Threads sit in a rail (To send / All); a thread shows each prompt with its
+reference thumbnails, title, note, warnings and the full command (tap to read
+it whole), COPY, and COPY ALL for what is left to send. **Mark sent** records a
+prompt he ran by hand (`status: sent`, `sentCommand` = the copied command), so
+the extension and the agents skip it; Undo sent puts it back to queued. Every
+thread and prompt has a copyable id (thr-…, mjq:…) to paste to an agent. The
+page never submits anything to Midjourney.

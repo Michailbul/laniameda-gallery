@@ -27,6 +27,20 @@ Last updated: 2026-11-06
 - Spec, verification and limits (frame codes can collide at a few hundred
   frames): agent-docs/features/director-review/PRD.md.
 
+### 2026-11-07 — Midjourney queue on the gallery website
+- components/mj-queue/mj-queue-board.tsx: threads in a rail (To send / All,
+  grouped by world), a thread's prompts with reference thumbnails, note,
+  warnings, the full command (tap to expand), COPY, COPY ALL (what is left),
+  Mark sent / Undo sent through api.mjQueue.updateItem (sent + sentCommand),
+  copyable thr- and mjq: ids, ?thread=thr-… in the address.
+- Two places: the world's Queue tab (/w/<world>/queue, WORLD_TABS, collection
+  tabs, lazy WorldQueueTab chunk) and /queue (all worlds, world chips);
+  sidebar and browse sheet link it. Same Convex rows as the extension panel.
+- Speed: the rail subscribes to listQueue with a batch no thread has (counts,
+  no items); the open thread subscribes to its own items. No backend change.
+- /api/agent/mj-queue returns `url` (lib/gallery-routes mjQueueUrl) on batches,
+  items and queue results; skill references/mj-queue.md "On the gallery website".
+
 ### 2026-11-07 — Midjourney queue threads (extension 0.22.0, skill 1.36.0)
 - 0.22.0: the queue lives in the side panel's MJ Queue tab (extension/mj-queue-panel.js); on midjourney.com
   mj-queue.js only does the bar work (inject, Enter on his Send click, readback, job id) by message.

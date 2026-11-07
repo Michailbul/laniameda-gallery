@@ -2,11 +2,11 @@
 
 import { useConvexAuth, useQuery } from "convex/react";
 import Link from "next/link";
-import { FileText, FolderOpen, Grid3X3, LayoutGrid, ListChecks, Palette, Projector, ScrollText } from "lucide-react";
+import { FileText, FolderOpen, Grid3X3, LayoutGrid, ListChecks, Palette, Projector, ScrollText, Send } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
-export type CollectionTab = "pieces" | "folders" | "moodboards" | "docs" | "journal" | "tasks";
+export type CollectionTab = "pieces" | "folders" | "moodboards" | "docs" | "journal" | "tasks" | "queue";
 
 /**
  * The views of one collection, as tabs under its breadcrumb: its pieces, its
@@ -16,7 +16,8 @@ export type CollectionTab = "pieces" | "folders" | "moodboards" | "docs" | "jour
  * A marked world (folders.worldKey) and every collection inside it also get
  * Instructions (WORLD.md, LEARNINGS.md, docs/ and the open_world context,
  * HUMAN or AGENT) right after Pieces, Tasks (the world's queue, with the
- * count that waits) and Journal (every change, with undo).
+ * count that waits), Queue (the world's Midjourney prompts, to copy or send)
+ * and Journal (every change, with undo).
  */
 export function CollectionTabs({
   ownerUserId,
@@ -81,6 +82,7 @@ export function CollectionTabs({
     ...(showWorldTabs
       ? [
         { key: "tasks" as const, label: "Tasks", icon: ListChecks, count: taskCount, title: "Work waiting for an agent in this world, and what needs you" },
+        { key: "queue" as const, label: "Queue", icon: Send, title: "Midjourney prompts agents prepared for this world: copy them, or mark the ones you ran" },
         { key: "journal" as const, label: "Journal", icon: ScrollText, title: "Every change to this world, with undo" },
       ]
       : []),

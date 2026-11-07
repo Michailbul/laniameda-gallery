@@ -32,6 +32,7 @@ export const MoodboardsTab = lazyComponent(() => import("./moodboards-tab").then
 export const WorldInstructionsPanel = lazyComponent(() => import("./world-instructions").then((m) => m.WorldInstructionsPanel), ViewSkeleton);
 export const WorldJournalTab = lazyComponent(() => import("./world-journal-tab").then((m) => m.WorldJournalTab), ViewSkeleton);
 export const WorldTasksTab = lazyComponent(() => import("./world-tasks-tab").then((m) => m.WorldTasksTab), ViewSkeleton);
+export const WorldQueueTab = lazyComponent(() => import("./world-queue-tab").then((m) => m.WorldQueueTab), ViewSkeleton);
 
 /**
  * Mounts its children from the first time `open` is true and keeps them
@@ -88,7 +89,7 @@ export function usePreloadDashboardChunks(owner: boolean) {
       ? [
           SkillModal, StorybooksView, FeaturedPanel, MoodboardPicker, AddToPanel, PublishAllDialog,
           SkillsView, StoriesView, MotionView, BookmarksView, MidjourneySrefsView, MoodboardsTab,
-          WorldInstructionsPanel, WorldJournalTab, WorldTasksTab,
+          WorldInstructionsPanel, WorldJournalTab, WorldTasksTab, WorldQueueTab,
         ].map((component) => component.preload)
       : [SkillModal.preload];
     const stopRest = preloadInIdle(rest, 6000);

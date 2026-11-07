@@ -28,7 +28,7 @@ import {
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
-import { BookOpen, BookOpenText, Camera, Clapperboard, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, Lightbulb, ListChecks, Loader2, Newspaper, Plus, Projector, Search as SearchIcon, SlidersHorizontal, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
+import { BookOpen, BookOpenText, Camera, Clapperboard, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, Lightbulb, ListChecks, Loader2, Newspaper, Plus, Projector, Search as SearchIcon, Send, SlidersHorizontal, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
 import { deleteAssetSelection } from "@/lib/bulk-delete";
 import { MAIN_DIRECTOR_REVIEW, directorReviewPath } from "@/components/review-promote/promote-model";
 import { setAssetSelectionLiked } from "@/lib/bulk-like";
@@ -117,6 +117,7 @@ import {
   WorldInstructionsPanel,
   WorldJournalTab,
   WorldTasksTab,
+  WorldQueueTab,
   usePreloadDashboardChunks,
 } from "./lazy-dashboard";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
@@ -461,7 +462,7 @@ export function GalleryDashboard({
   // A marked world's Docs or Journal tab, keyed by the world root the same way.
   const [worldPanel, setWorldPanel] = useState<{
     collectionId: string;
-    tab: "docs" | "journal" | "tasks";
+    tab: "docs" | "journal" | "tasks" | "queue";
   } | null>(null);
   // The style last chosen inside a world (its Styles group): its shelves then
   // show that style only. Opening a style branch sets it, the world root
@@ -4326,7 +4327,7 @@ export function GalleryDashboard({
           ? ("folders" as const)
           : activeWorldPanel === "docs"
             ? ("instructions" as const)
-            : activeWorldPanel === "journal" || activeWorldPanel === "tasks"
+            : activeWorldPanel === "journal" || activeWorldPanel === "tasks" || activeWorldPanel === "queue"
               ? activeWorldPanel
               : moodboardsViewActive
                 ? ("moodboards" as const)
@@ -4419,7 +4420,7 @@ export function GalleryDashboard({
           const target = String((child ?? root)._id);
           setSelectedFolderId(target);
           setViewModeRaw(route.tab === "folders" ? "collections" : "grid");
-          if (route.tab === "instructions" || route.tab === "journal" || route.tab === "tasks") {
+          if (route.tab === "instructions" || route.tab === "journal" || route.tab === "tasks" || route.tab === "queue") {
             setWorldPanel({ collectionId: target, tab: route.tab === "instructions" ? "docs" : route.tab });
           }
           if (route.tab === "moodboards") setMoodboardsCollectionId(target);
@@ -4537,6 +4538,7 @@ export function GalleryDashboard({
       { key: "motion", label: "Motion", hint: "Motion design by facet", icon: Clapperboard, active: motionView, onOpen: open({ kind: "motion" }) },
       { key: "cinematography", label: "Cinematography", hint: "Camera moves and shot packs", icon: Camera, active: cinematographyView, onOpen: open({ kind: "cinematography" }) },
       { key: "tasks", label: "Tasks", hint: "The queue agents claim and finish", icon: ListChecks, href: "/tasks", badge: tasksOpenCount },
+      ...(tasksOpenCount !== undefined ? [{ key: "mj-queue", label: "Midjourney queue", hint: "Prompts agents prepared, to copy or send", icon: Send, href: "/queue" }] : []),
       { key: "decisions", label: "Decisions", hint: "Cards waiting for your answer", icon: Layers, href: "/inbox", badge: inboxOpenCount },
       ...(tasksOpenCount !== undefined ? [{ key: "newspaper", label: "Newspaper", hint: "The morning review: done, needs you, decisions", icon: Newspaper, href: "/newspaper" }] : []),
       ...(tasksOpenCount !== undefined ? [{ key: "inspiration", label: "Inspiration", hint: "Saved references and their project takes", icon: Lightbulb, href: "/inspiration" }] : []),
@@ -6206,7 +6208,7 @@ export function GalleryDashboard({
                       tab === "moodboards" ? activeCollectionFolder._id : null,
                     );
                     setWorldPanel(
-                      tab === "docs" || tab === "journal" || tab === "tasks"
+                      tab === "docs" || tab === "journal" || tab === "tasks" || tab === "queue"
                         ? { collectionId: activeCollectionFolder._id, tab }
                         : null,
                     );
@@ -6289,6 +6291,13 @@ export function GalleryDashboard({
                           : null,
                       );
                     }}
+                  />
+                ) : activeWorldPanel === "queue" && activeWorldRoot ? (
+                  <WorldQueueTab
+                    key={`queue-${activeWorldKey}`}
+                    ownerUserId={ownerUserId}
+                    worldKey={activeWorldKey}
+                    worldName={activeWorldRoot.name}
                   />
                 ) : activeWorldPanel === "tasks" && activeWorldRoot ? (
                   <WorldTasksTab
