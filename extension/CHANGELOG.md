@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.22.0 (7 Nov 2026)
+
+- The Midjourney queue moved into the side panel: a third tab, MJ Queue,
+  next to Add to gallery and Bookmark, in the panel's own look. Threads
+  first (grouped by world, progress, left to send, copyable id); a thread
+  opens with its prompts, To send / Sent / Skipped / All, ‹ › to step
+  threads, Esc back. A strip on top says whether the tab is Midjourney
+  Create and offers Open Create or Reload. Put in bar, Send (your click),
+  Edit, Skip and the bar readback work as before; your own Enter in the bar
+  still counts as Send. The floating box on midjourney.com is gone: the page
+  script only does the bar work for the panel. ⌥⇧N on the page puts the
+  next prompt in the bar while the panel is open.
+
 ## 0.21.0 (7 Nov 2026)
 
 - Every thread has an id (thr-xxxxxxxx) with a copy chip in the thread

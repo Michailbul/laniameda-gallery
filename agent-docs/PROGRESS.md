@@ -27,7 +27,9 @@ Last updated: 2026-11-06
 - Spec, verification and limits (frame codes can collide at a few hundred
   frames): agent-docs/features/director-review/PRD.md.
 
-### 2026-11-07 — Midjourney queue threads (extension 0.21.0, skill 1.36.0)
+### 2026-11-07 — Midjourney queue threads (extension 0.22.0, skill 1.36.0)
+- 0.22.0: the queue lives in the side panel's MJ Queue tab (extension/mj-queue-panel.js); on midjourney.com
+  mj-queue.js only does the bar work (inject, Enter on his Send click, readback, job id) by message.
 - The Queue panel shows batches as threads (rail grouped by world, progress,
   left to send, To send / Sent / Skipped / All tabs, ⌥⇧↑↓). Each thread has a
   copyable id thr-xxxxxxxx (FNV-1a of the batch key, twin in lib/mj-queue.ts and

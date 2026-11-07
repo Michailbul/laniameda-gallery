@@ -2,8 +2,8 @@
 
 Agents prepare Midjourney prompts; Michael sends them. The queue holds each
 prompt with everything already set (image prompts, style references, profile
-codes, params) so he only reviews and clicks Send in the extension's Queue
-panel on midjourney.com. Every job is his own click (or his own Enter in the
+codes, params) so he only reviews and clicks Send in the extension's side
+panel (MJ Queue tab) beside midjourney.com. Every job is his own click (or his own Enter in the
 Imagine bar), one job per click. Never automate submitting, never build a
 loop, timer or background sender on top of this: Midjourney blocks accounts
 for scripted use (see the Midjourney pacing rules in CLAUDE.md).
@@ -13,8 +13,8 @@ for scripted use (see the Midjourney pacing rules in CLAUDE.md).
 A batch is a **thread**: one line of work (a direction, a round), e.g.
 "Dear Annete · the monster's hand · round 2". Name it `<World> · <direction> ·
 round N` and keep one thread per agent session's direction, so the panel
-stays organized. The extension shows threads in a rail grouped by world, with
-what is left to send. Every thread has a stable id, `thr-` + eight hex digits
+stays organized. The extension shows threads in its side panel (tab MJ Queue, next to Add to
+gallery and Bookmark), grouped by world, with what is left to send. Every thread has a stable id, `thr-` + eight hex digits
 (a hash of the label, the same in the gallery and the extension). Michael
 copies it from the panel and pastes it to an agent; pass it as `batch` to
 `queue_mj_prompts` (items join that thread) or to `list_mj_queue` (read only
@@ -67,12 +67,15 @@ item with `position` (0-based in its batch); `status: skipped` sets it aside,
 `queued` puts it back. Agents never set `sent`: that is recorded by the
 extension after Michael's click.
 
-## In Midjourney (the extension, 0.19+)
+## In Midjourney (the extension, 0.22+)
 
-A QUEUE pill sits bottom-right on midjourney.com with the count still to send
-(⌥⇧Q opens it). Per item: Inject writes the composed command into the Imagine
-bar and shows what the bar now holds (AS QUEUED, or EDITED when he changed
-it); Send presses Enter once for him; Edit changes the item in the gallery;
-Skip; ↑ moves it up. Next → (⌥⇧N) injects the following queued item. After a
-send the item is marked sent and the job id is taken from the new row in his
-feed (the page only; nothing is asked of Midjourney's API).
+The queue is the MJ Queue tab of the extension's side panel (next to Add to
+gallery and Bookmark). It lists threads (grouped by world, what is left to
+send, copyable id); a thread opens with its prompts. A strip on top says
+whether the active tab is Midjourney Create. Per item: Put in bar writes the
+composed command into the Imagine bar and shows what the bar holds (AS QUEUED,
+or EDITED when he changed it); Send presses Enter once for him; Edit changes
+the item in the gallery; Skip; ↑ moves it up. Next → (⌥⇧N, also on the page)
+puts the following queued item in the bar. After a send the item is marked
+sent and the job id is taken from the new row in his feed (the page only;
+nothing is asked of Midjourney's API).

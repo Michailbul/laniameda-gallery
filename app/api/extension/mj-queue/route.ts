@@ -5,7 +5,7 @@ import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/serve
 import { clientErrorMessage } from "@/lib/server/route-error";
 import { mjQueueListSchema, mjQueueUpdateSchema } from "@/lib/mj-queue-contract";
 
-// The extension's Queue panel on midjourney.com: GET reads the batches and
+// The extension's MJ Queue tab (side panel): GET reads the batches and
 // their prompts with the composed commands; POST saves an edit, a skip, a
 // reorder or the record of a send Michael made himself.
 
