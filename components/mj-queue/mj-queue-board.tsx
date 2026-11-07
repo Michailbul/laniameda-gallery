@@ -337,7 +337,8 @@ function PromptRow({ ownerUserId, item, index, copied, onCopy }: {
     try {
       await update(sent
         ? { ownerUserId, itemId: item.id, status: "sent", sentCommand: item.command }
-        : { ownerUserId, itemId: item.id, status: "queued" });
+        // Undo also clears the recorded command, so nobody reads it as sent.
+        : { ownerUserId, itemId: item.id, status: "queued", ...(item.status === "sent" ? { sentCommand: "" } : {}) });
     } catch (caught) {
       const data = (caught as { data?: unknown })?.data;
       setError(typeof data === "string" ? data : "Could not save. Try again.");
@@ -403,9 +404,11 @@ function IdChip({ value, label, title }: { value: string; label?: string; title?
 }
 
 const CSS = `
-.mjq{--mjq-rail:300px;--mjq-top:0px;position:relative;color:var(--lm-text-primary);font-family:var(--lm-font-display);-webkit-text-size-adjust:100%}
-.mjq.is-page{--lm-font:var(--font-geist-mono,ui-monospace),ui-monospace,"SF Mono",monospace;--lm-font-display:var(--font-geist-sans,system-ui),system-ui,sans-serif;
-  min-height:100dvh;background:var(--lm-paper);
+.mjq{--mjq-rail:300px;--mjq-top:0px;position:relative;color:var(--lm-text-primary);-webkit-text-size-adjust:100%;
+  /* Resolved here from the next/font variables (as in the review wall): the :root tokens can be invalid inside the dashboard, and a font: shorthand would then drop whole. */
+  --lm-font:var(--font-geist-mono,ui-monospace),ui-monospace,"SF Mono",monospace;--lm-font-display:var(--font-geist-sans,system-ui),system-ui,sans-serif;
+  font-family:var(--lm-font-display)}
+.mjq.is-page{min-height:100dvh;background:var(--lm-paper);
   background-image:linear-gradient(var(--lm-grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--lm-grid-line) 1px,transparent 1px);background-size:24px 24px;
   padding-bottom:calc(48px + env(safe-area-inset-bottom))}
 .mjq button{-webkit-tap-highlight-color:transparent;font-family:inherit}
@@ -433,6 +436,7 @@ const CSS = `
 .mjq-body{display:block;padding:8px 12px 0}
 @media (min-width:820px){.mjq-body{display:grid;grid-template-columns:var(--mjq-rail) minmax(0,1fr);gap:24px;padding:12px 24px 0;align-items:start}}
 .mjq-rail{display:flex;flex-direction:column;gap:6px}
+.mjq-rail > *{flex-shrink:0}
 @media (min-width:820px){.mjq-rail{position:sticky;top:calc(var(--mjq-top) + 12px);max-height:calc(100dvh - var(--mjq-top) - 24px);overflow:auto;padding-right:6px;scrollbar-width:thin}}
 .mjq-seg{display:inline-flex;align-self:flex-start;border:1.5px solid var(--lm-border-strong);border-radius:var(--lm-radius);overflow:hidden;margin:4px 0 6px}
 .mjq-seg button{font:700 9.5px/1 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;padding:9px 11px;color:var(--lm-text-tertiary);min-height:32px;background:none;border:0;cursor:pointer}
