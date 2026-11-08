@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.25.1 (8 Nov 2026)
+
+- A preset carried into the next prompt only fills in settings the prompt
+  does not have: a prompt arriving with its own --ar keeps it. Pasted or
+  dropped prompts get no packs. Checked with the Midjourney queue: a queued
+  prompt goes into the bar exactly as written, Send works, and the next
+  prompt of your own gets the preset back.
+
 ## 0.25.0 (8 Nov 2026)
 
 - Moodboards and profiles have the dock's first line to themselves, next to
