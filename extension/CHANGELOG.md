@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.26.2 (8 Nov 2026)
+
+- A copy with no sign-in takes it from a local-config.json file next to the
+  extension's files (git-ignored, left alone by the sync). Two copies loaded
+  from one folder, or a reinstall, are signed in without pasting the token.
+  A token saved in the popup still wins.
+
 ## 0.26.1 (8 Nov 2026)
 
 - With the extension loaded twice in one browser, the quick edit box shows

@@ -108,7 +108,32 @@ function apiHeaders(config) {
   return headers;
 }
 
+// An unpacked copy can carry its sign-in next to its files, in
+// local-config.json ({ "apiToken": "...", "apiUrl": "..." }; git-ignored and
+// never touched by the sync). A copy with no token in its own storage takes it
+// from there, so a second copy loaded from the same folder, or a reinstall, is
+// signed in without pasting anything. A token set in the popup always wins.
+async function seedConfigFromLocalFile() {
+  try {
+    const cfg = await chrome.storage.sync.get(["apiToken", "apiUrl"]);
+    if (String(cfg.apiToken || "").trim()) return;
+    const res = await fetch(chrome.runtime.getURL("local-config.json"), { cache: "no-store" });
+    if (!res.ok) return;
+    const file = await res.json();
+    const apiToken = String(file?.apiToken || "").trim();
+    if (!apiToken) return;
+    const next = { apiToken };
+    const apiUrl = String(file?.apiUrl || "").trim();
+    if (apiUrl && !String(cfg.apiUrl || "").trim()) next.apiUrl = apiUrl;
+    await chrome.storage.sync.set(next);
+  } catch {
+    /* no local file, or an unreadable one: the popup is the way in */
+  }
+}
+const localConfigSeeded = seedConfigFromLocalFile();
+
 async function getConfig() {
+  await localConfigSeeded;
   return new Promise((resolve) => {
     chrome.storage.sync.get(
       [
