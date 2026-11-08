@@ -242,20 +242,24 @@
     // The board and profiles picked last, per world: every new prompt gets them.
     sticky: {},
     signature: "",
+    worldsSignature: "",
     loading: true,
     error: "",
     requestId: 0,
+    fetchedAt: 0,
   };
   let dock = null;
   let worldSelect = null;
   let activeLabel = null;
   let strip = null;
-  let profileRow = null;
+  let profileSep = null;
   let profileStrip = null;
   let statusLine = null;
+  let packs = null;
   let textarea = null;
   let layoutQueued = false;
   let snapshot = null;
+  let wasShown = false;
   // True while the prompt is empty: the next words typed get the remembered flag.
   let freshPrompt = true;
 
@@ -271,10 +275,9 @@
   const compose = { hover: new Set(), holdUntil: 0, engaged: false, href: "" };
   const COMPOSE_HOLD_MS = 350;
 
-  // The dock and the packs show only while a prompt is being written: the
-  // prompt or one of our bars has focus, or the pointer rests on a bar. The
-  // rest of the time they fold away and the page (the grid, a single image)
-  // is clear.
+  // The dock shows only while a prompt is being written: the prompt or the
+  // dock has focus, or the pointer rests on the dock. The rest of the time it
+  // folds away and the page (the grid, a single image) is clear.
   function isComposing() {
     if (location.href !== compose.href) {
       compose.href = location.href;
@@ -282,7 +285,7 @@
     }
     const active = document.activeElement;
     if (textarea && active === textarea && (compose.engaged || wordsOf(textarea.value))) return true;
-    if (active && active.closest && active.closest(".stg-mb-dock, .stg-pp-bar")) return true;
+    if (active && active.closest && active.closest(".stg-mb-dock")) return true;
     if (compose.hover.size > 0) return true;
     return Date.now() < compose.holdUntil;
   }
@@ -297,12 +300,8 @@
   let composeTimer = null;
   function notifyCompose() {
     queueLayout();
-    document.dispatchEvent(new CustomEvent("stg-compose-change"));
     clearTimeout(composeTimer);
-    composeTimer = setTimeout(() => {
-      queueLayout();
-      document.dispatchEvent(new CustomEvent("stg-compose-change"));
-    }, COMPOSE_HOLD_MS + 30);
+    composeTimer = setTimeout(queueLayout, COMPOSE_HOLD_MS + 30);
   }
 
   function engage() {
@@ -334,6 +333,22 @@
     return area.closest("div.fixed") || area.parentElement?.parentElement || area.parentElement;
   }
 
+  // Looking for Midjourney's settings panel walks many boxes, so the answer
+  // is kept for a moment; a resize, a click or a focus change asks afresh.
+  const PANEL_TTL_MS = 250;
+  const panelCache = { at: 0, area: null, value: null };
+  function promptPanel(area) {
+    const now = Date.now();
+    if (panelCache.area === area && now - panelCache.at < PANEL_TTL_MS) return panelCache.value;
+    panelCache.area = area;
+    panelCache.at = now;
+    panelCache.value = findPromptPanel(area);
+    return panelCache.value;
+  }
+  const forgetPanel = () => {
+    panelCache.at = 0;
+  };
+
   function boardCodes() {
     return state.moodboards.map((board) => board.mjCode);
   }
@@ -350,11 +365,14 @@
     if (snapshot) snapshot.hidden = true;
   }
 
+  // The small thumb shows at once (usually cached); the full picture replaces
+  // it when it has loaded, so the sheet is quick and then sharp.
   function showSnapshot(board, chip) {
     if (!dock || !snapshot) return;
     snapshot.textContent = "";
     const row = el("div", "stg-mb-snap-row");
     const empty = el("div", "stg-mb-snap-empty", "No images yet");
+    const list = Array.isArray(board.previews) ? board.previews : [];
     const urls = snapshotImages(board);
     let shown = urls.length;
     if (!urls.length) row.appendChild(empty);
@@ -362,14 +380,32 @@
       const img = el("img", "stg-mb-snap-img");
       img.alt = "";
       img.decoding = "async";
+      const thumb = list.find((item) => item && item.url === url)?.thumbUrl;
       img.addEventListener("error", () => {
+        // A thumb that fails still gets the full picture before giving up.
+        if (img.dataset.full !== "1" && thumb && thumb !== url) {
+          img.dataset.full = "1";
+          img.src = url;
+          return;
+        }
         img.remove();
         shown -= 1;
         if (shown <= 0 && !empty.isConnected) row.appendChild(empty);
-        placeSnapshot(chip);
       });
-      img.addEventListener("load", () => placeSnapshot(chip));
-      img.src = url;
+      if (thumb && thumb !== url) {
+        img.src = thumb;
+        const full = new Image();
+        full.decoding = "async";
+        full.addEventListener("load", () => {
+          if (img.isConnected && img.dataset.full !== "1") {
+            img.dataset.full = "1";
+            img.src = url;
+          }
+        });
+        full.src = url;
+      } else {
+        img.src = url;
+      }
       row.appendChild(img);
     }
     const meta = el("div", "stg-mb-snap-meta");
@@ -382,7 +418,8 @@
     placeSnapshot(chip);
   }
 
-  // Opens on the side of the dock away from the prompt bar, so the bar stays clear.
+  // Opens on the side of the dock away from the prompt bar, so the bar stays
+  // clear. Tiles have a fixed height, so the sheet never jumps as pictures land.
   function placeSnapshot(chip) {
     if (!dock || !snapshot || snapshot.hidden || !chip.isConnected) return;
     const dockRect = dock.getBoundingClientRect();
@@ -406,9 +443,12 @@
   }
 
   function dropDock() {
-    document.querySelectorAll(".stg-mb-dock, .stg-mb-snap").forEach((node) => node.remove());
+    document
+      .querySelectorAll(".stg-mb-dock, .stg-mb-snap, .stg-pp-bar")
+      .forEach((node) => node.remove());
     dock = null;
     snapshot = null;
+    packs = null;
   }
 
   function askBackground(world) {
@@ -506,10 +546,13 @@
     return keys[0] || "";
   }
 
-  // Timed and on-focus refreshes keep the codes already shown when one call
-  // fails; the error appears only when nothing is loaded or on a ↻ click.
+  // Codes are fetched when the page opens, on a world switch, on ↻, and when
+  // a prompt starts more than 45 s after the last fetch. Nothing polls in the
+  // background. A failed refresh keeps the codes already shown; the error
+  // appears only when nothing is loaded or on a ↻ click.
   async function refresh(options = {}) {
     const requestId = ++state.requestId;
+    state.fetchedAt = Date.now();
     let key = state.worldKey || DEFAULT_WORLD_KEY;
     let res = await send(key);
     if (!res.ok && !isAuthFailure(res) && res.status) {
@@ -523,14 +566,15 @@
     if (requestId !== state.requestId) return;
     state.loading = false;
     if (!res.ok) {
+      state.fetchedAt = 0;
       if (!extensionAlive()) return;
       if (!options.manual && state.moodboards.length && !isAuthFailure(res)) return;
       const detail = String(res.error || "").replace(/^HTTP \d+\s*/, "").slice(0, 80);
       state.error = isAuthFailure(res)
         ? "Gallery token missing. Open the extension settings."
         : detail
-          ? `Could not refresh moodboards. ${detail}`
-          : "Could not refresh moodboards.";
+          ? `Could not load moodboards. ${detail}`
+          : "Could not load moodboards.";
       render();
       return;
     }
@@ -539,13 +583,17 @@
     state.worldKey = res.world?.key || key;
     const next = Array.isArray(res.moodboards) ? res.moodboards : [];
     const profiles = Array.isArray(res.profiles) ? res.profiles : [];
-    const signature = JSON.stringify([state.worldKey, state.worlds, next, profiles]);
+    const signature = JSON.stringify([state.worldKey, next, profiles]);
     if (signature !== state.signature) {
       state.signature = signature;
       state.moodboards = next;
       state.profiles = profiles;
     }
     render();
+  }
+
+  function refreshIfStale() {
+    if (Date.now() - state.fetchedAt > REFRESH_INTERVAL_MS) refresh();
   }
 
   function profileCodes() {
@@ -609,13 +657,18 @@
     }
     if (freshPrompt) {
       freshPrompt = false;
-      const next = withStickyFlag(value, stickyCodes(stickyFor(), boardCodes(), profileCodes()));
-      if (next) {
-        const caret = textarea.selectionStart;
+      const codes = stickyCodes(stickyFor(), boardCodes(), profileCodes());
+      if (withStickyFlag(value, codes)) {
+        // Runs after Midjourney has handled the keystroke. Uses the text as it
+        // is by then, so fast typing never loses the flag.
         setTimeout(() => {
-          if (!textarea || textarea.value !== value) return;
+          if (!textarea || !textarea.isConnected) return;
+          const next = withStickyFlag(textarea.value, codes);
+          if (!next) return;
+          const start = textarea.selectionStart;
+          const end = textarea.selectionEnd;
           writeTextareaValue(textarea, next);
-          textarea.setSelectionRange(caret, caret);
+          textarea.setSelectionRange(start, end);
           syncActive();
         }, 0);
       }
@@ -642,15 +695,19 @@
       chip.classList.toggle("stg-mb-chip--armed", !on && sticky.includes(chip.dataset.code));
       chip.setAttribute("aria-pressed", on ? "true" : "false");
     }
-    for (const chip of profileStrip.querySelectorAll(".stg-mb-pchip")) {
+    for (const chip of profileStrip.children) {
       const on = codes.includes(chip.dataset.code);
       chip.classList.toggle("stg-mb-pchip--on", on);
       chip.classList.toggle("stg-mb-pchip--armed", !on && sticky.includes(chip.dataset.code));
       chip.setAttribute("aria-pressed", on ? "true" : "false");
     }
-    if (codes.length) activeLabel.textContent = `-p ${codes.join(" ")}`;
-    else activeLabel.textContent = sticky.length && waiting ? `next prompt: -p ${sticky.join(" ")}` : "";
+    let label = "";
+    if (codes.length) label = `-p ${codes.join(" ")}`;
+    else if (sticky.length && waiting) label = `next · -p ${sticky.join(" ")}`;
+    activeLabel.textContent = label;
+    activeLabel.title = label;
     activeLabel.classList.toggle("stg-mb-active--next", !codes.length && sticky.length > 0);
+    packs?.sync();
   }
 
   // A profile has no pictures: its hover card is the name, the world's role
@@ -670,26 +727,38 @@
     placeSnapshot(chip);
   }
 
+  // Rebuilt only when the list changes, so a refresh never closes the menu
+  // while it is open.
   function renderWorlds() {
+    const signature = JSON.stringify([state.worlds.map((world) => [world.key, world.name]), state.worldKey]);
+    if (worldSelect.dataset.signature === signature) return;
+    worldSelect.dataset.signature = signature;
     worldSelect.textContent = "";
-    for (const world of state.worlds) {
+    const worlds = state.worlds.length ? state.worlds : state.worldKey ? [{ key: state.worldKey, name: state.worldKey }] : [];
+    for (const world of worlds) {
       const option = el("option", "", world.name);
       option.value = world.key;
       worldSelect.appendChild(option);
     }
     worldSelect.value = state.worldKey;
+    worldSelect.title = worlds.find((world) => world.key === state.worldKey)?.name || "Gallery world";
   }
+
+  // The prompt packs are Dear Annete's lexicon: the Packs button shows only
+  // in its worlds.
+  const worldHasPacks = (key) => /^dear-annete/.test(String(key || ""));
 
   function render() {
     if (!dock) return;
     renderWorlds();
     let message = "";
-    if (state.loading && !state.moodboards.length) message = "Moodboards…";
+    if (state.loading && !state.moodboards.length) message = "Loading moodboards…";
     else if (state.error) message = state.error;
-    else if (!state.moodboards.length) message = "No moodboard codes in this world.";
+    else if (!state.moodboards.length && !state.profiles.length) message = "No moodboard codes in this world.";
     statusLine.textContent = message;
     statusLine.hidden = !message;
     statusLine.classList.toggle("stg-mb-status--error", Boolean(state.error));
+    packs?.setEnabled(worldHasPacks(state.worldKey));
 
     const existing = strip.dataset.signature;
     if (existing !== state.signature) {
@@ -725,21 +794,38 @@
         chip.addEventListener("blur", hideSnapshot);
         profileStrip.appendChild(chip);
       }
-      profileRow.hidden = state.profiles.length === 0;
+      profileSep.hidden = state.profiles.length === 0 || state.moodboards.length === 0;
     }
     syncActive();
   }
 
+  // The quick edit (mj-quick-edit.js) follows the dock's world, so one switch
+  // sets both the moodboards and the system prompt the rewrite uses.
+  function quickEditWorldFor(key) {
+    if (/^dear-annete/.test(key)) return "dear-annete";
+    if (/^andromeda/.test(key)) return "andromeda-anya";
+    return null;
+  }
+
+  // One line: world · moodboards | profiles · flag · Packs. The packs panel
+  // opens under it when asked for.
   function buildDock() {
     dock = el("div", "stg-mb-dock");
     dock.hidden = true;
-    const top = el("div", "stg-mb-top");
+    dock.setAttribute("role", "toolbar");
+    dock.setAttribute("aria-label", "Gallery moodboards");
+    const row = el("div", "stg-mb-row");
+    const world = el("div", "stg-mb-worldbox");
     worldSelect = el("select", "stg-mb-world");
     worldSelect.setAttribute("aria-label", "Gallery world");
     worldSelect.addEventListener("change", () => {
       state.worldKey = worldSelect.value;
       try {
-        chrome.storage.local.set({ [WORLD_STORAGE_KEY]: state.worldKey });
+        const qe = quickEditWorldFor(state.worldKey);
+        chrome.storage.local.set({
+          [WORLD_STORAGE_KEY]: state.worldKey,
+          ...(qe ? { quickEditWorld: qe } : {}),
+        });
       } catch {
         // storage unavailable after an extension reload
       }
@@ -753,24 +839,39 @@
     const refreshButton = el("button", "stg-mb-refresh", "↻");
     refreshButton.type = "button";
     refreshButton.title = "Refresh moodboards";
+    refreshButton.setAttribute("aria-label", "Refresh moodboards");
     refreshButton.addEventListener("mousedown", (event) => event.preventDefault());
     refreshButton.addEventListener("click", () => refresh({ manual: true }));
-    activeLabel = el("span", "stg-mb-active");
-    top.append(worldSelect, refreshButton, activeLabel);
+    world.append(worldSelect, refreshButton);
 
+    statusLine = el("span", "stg-mb-status");
     strip = el("div", "stg-mb-strip");
-    profileRow = el("div", "stg-mb-prow");
-    profileRow.hidden = true;
+    profileSep = el("span", "stg-mb-sep");
+    profileSep.hidden = true;
     profileStrip = el("div", "stg-mb-pstrip");
-    profileRow.append(el("span", "stg-mb-plabel", "Profiles"), profileStrip);
-    statusLine = el("div", "stg-mb-status");
+    activeLabel = el("span", "stg-mb-active");
+    row.append(world, statusLine, strip, profileSep, profileStrip, activeLabel);
+
+    const createSection = globalScope.SaveToGalleryPromptPacks?.createSection;
+    packs =
+      typeof createSection === "function"
+        ? createSection({ getTextarea: () => textarea, onResize: queueLayout })
+        : null;
+    if (packs) row.appendChild(packs.toggle);
+
     snapshot = el("div", "stg-mb-snap");
     snapshot.hidden = true;
     snapshot.setAttribute("role", "tooltip");
-    dock.append(top, statusLine, strip, profileRow, snapshot);
+    dock.append(row);
+    if (packs) dock.appendChild(packs.section);
+    dock.appendChild(snapshot);
     dock.addEventListener("mouseenter", () => setHover("dock", true));
     dock.addEventListener("mouseleave", () => setHover("dock", false));
     document.body.appendChild(dock);
+  }
+
+  function setStyle(node, name, value) {
+    if (node.style[name] !== value) node.style[name] = value;
   }
 
   function layout() {
@@ -789,6 +890,7 @@
         textarea.addEventListener("keydown", engage);
       }
       freshPrompt = !textarea || !wordsOf(textarea.value);
+      forgetPanel();
       syncActive();
     }
     // A submit empties the prompt without an input event: notice it here.
@@ -799,6 +901,8 @@
     const bar = findBar(textarea);
     if (!bar) {
       if (dock) dock.hidden = true;
+      hideSnapshot();
+      wasShown = false;
       return;
     }
     if (!dock || !dock.isConnected) {
@@ -809,7 +913,12 @@
     if (!isComposing()) {
       dock.hidden = true;
       hideSnapshot();
+      wasShown = false;
       return;
+    }
+    if (!wasShown) {
+      wasShown = true;
+      refreshIfStale();
     }
     const rect = bar.getBoundingClientRect();
     dock.hidden = false;
@@ -822,24 +931,30 @@
     ) {
       document.body.insertBefore(dock, queueRoot);
     }
-    dock.style.left = `${Math.round(rect.left)}px`;
-    dock.style.width = `${Math.round(rect.width)}px`;
+    setStyle(dock, "left", `${Math.round(rect.left)}px`);
+    setStyle(dock, "width", `${Math.round(rect.width)}px`);
     // Midjourney's settings panel is open: sit past it, or step aside.
-    const panel = findPromptPanel(textarea);
+    const panel = promptPanel(textarea);
     const above = panel ? !panel.below : rect.top > window.innerHeight * 0.5;
     const edgeTop = panel ? panel.top : rect.top;
     const edgeBottom = panel ? panel.bottom : rect.bottom;
+    dock.classList.toggle("stg-mb-dock--above", above);
     // Bottom prompt (narrow): sit above it. Top prompt (wide): sit under it.
     if (above) {
-      dock.style.top = "auto";
-      dock.style.bottom = `${Math.round(window.innerHeight - edgeTop + DOCK_GAP_PX)}px`;
+      setStyle(dock, "top", "auto");
+      setStyle(dock, "bottom", `${Math.round(window.innerHeight - edgeTop + DOCK_GAP_PX)}px`);
     } else {
-      dock.style.bottom = "auto";
-      dock.style.top = `${Math.round(edgeBottom + DOCK_GAP_PX)}px`;
+      setStyle(dock, "bottom", "auto");
+      setStyle(dock, "top", `${Math.round(edgeBottom + DOCK_GAP_PX)}px`);
     }
-    const placed = dock.getBoundingClientRect();
-    dock.hidden = Boolean(panel) && (placed.top < 0 || placed.bottom > window.innerHeight);
+    if (panel) {
+      const placed = dock.getBoundingClientRect();
+      dock.hidden = placed.top < 0 || placed.bottom > window.innerHeight;
+    }
     dock.dataset.panel = panel ? "open" : "";
+    // A flag cut down to a few letters says nothing: hide it until there is room.
+    const clipped = activeLabel.scrollWidth > activeLabel.clientWidth + 1 && activeLabel.clientWidth < 90;
+    activeLabel.classList.toggle("stg-mb-active--clipped", clipped);
   }
 
   function queueLayout() {
@@ -860,27 +975,38 @@
     } catch {
       refresh();
     }
+    // Midjourney changes the page all the time (the grid loads, jobs
+    // progress). While no prompt is being written and the prompt box is still
+    // there, those changes need no work at all.
     new MutationObserver((records) => {
       if (dock && records.every((record) => dock.contains(record.target))) return;
+      if (textarea && textarea.isConnected && dock && dock.hidden && !isComposing()) {
+        if (!freshPrompt && !wordsOf(textarea.value)) freshPrompt = true;
+        return;
+      }
       queueLayout();
     }).observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("resize", queueLayout);
-    document.addEventListener("focusin", notifyCompose);
+    window.addEventListener("resize", () => {
+      forgetPanel();
+      queueLayout();
+    });
+    document.addEventListener("pointerup", forgetPanel, true);
+    document.addEventListener("focusin", () => {
+      forgetPanel();
+      notifyCompose();
+    });
     document.addEventListener("focusout", (event) => {
-      // Leaving the prompt for the page (not for one of our bars) ends the writing.
+      // Leaving the prompt for the page (not for the dock) ends the writing.
       const next = event.relatedTarget;
-      if (event.target === textarea && !(next && next.closest && next.closest(".stg-mb-dock, .stg-pp-bar"))) {
+      if (event.target === textarea && !(next && next.closest && next.closest(".stg-mb-dock"))) {
         compose.engaged = false;
       }
       compose.holdUntil = Date.now() + COMPOSE_HOLD_MS;
       notifyCompose();
     });
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") refresh();
+      if (document.visibilityState === "visible") refreshIfStale();
     });
-    setInterval(() => {
-      if (document.visibilityState === "visible") refresh();
-    }, REFRESH_INTERVAL_MS);
     queueLayout();
   }
 
