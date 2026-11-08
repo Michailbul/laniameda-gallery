@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.24.1 (8 Nov 2026)
+
+- Packs sits next to the world, so the line never breaks around it; world
+  names shorten in the dock ("DA — ART DECO", full name on hover) and chips
+  are a touch tighter, so a full Dear Annete line fits on one row.
+
 ## 0.24.0 (8 Nov 2026)
 
 - The Midjourney dock is one slim line (34 px, was about 230 px with the
