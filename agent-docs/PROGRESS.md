@@ -27,6 +27,13 @@ Last updated: 2026-11-06
 - Spec, verification and limits (frame codes can collide at a few hundred
   frames): agent-docs/features/director-review/PRD.md.
 
+### 2026-11-08 — Midjourney dock keys and world picker fix (extension 0.27.0)
+- `extension/mj-hotkeys.js` (shared by the dock and the side panel): actions board/profile/preset 1–9 (positional, dock order), world prev/next/pick, preset save; defaults ⌥N, ⌥⇧N, ⌃⌥N, ⌥[ ⌥] ⌥W ⌥S; combos are `Ctrl+Alt+Shift+Meta+<event.code>` (code, so ⌥1 is not "¡" on a Mac); stored in sync `stgMjHotkeys` {enabled, bindings}. ⌥E and ⌥⇧N are reserved.
+- Dock: capture keydown on window, acts only while its own dock is on screen (getClientRects), so a second loaded copy never toggles a code twice; skips other inputs; hold a modifier for key badges (`data-key` + `.stg-mb-dock--keys`).
+- Side panel: tab renamed MJ settings; `mj-hotkeys-settings.js` prepends a key editor (record, Backspace clears, a taken key moves with a note, Reset).
+- World picker: native `<select>` replaced by a dock-owned list (`.stg-mb-wmenu`). Cause of "the picker disappears": `layout()` re-inserts the dock at the end of `<body>` whenever Midjourney appends there, and moving a focused `<select>` closes its native popup. The new list's buttons never take focus from the prompt.
+- 0.26.2 (same day): an unpacked copy with no token seeds it from a git-ignored `extension/local-config.json`.
+
 ### 2026-11-08 — Midjourney dock second pass: families, main profiles, live updates (extension 0.26.0)
 - Moodboards render one line per family from `groupBoards()` (prefix before
   "·", short world prefix dropped; families of one and loose boards → MORE;

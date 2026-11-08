@@ -2463,10 +2463,108 @@ html.stg-x-capturing .stg-badge {
   box-shadow: inset 0 0 0 1px #f26157;
 }
 
-.stg-mb-world option {
+.stg-mb-world {
+  display: block;
+  text-align: left;
+}
+
+.stg-mb-world[aria-expanded="true"] {
+  background-color: rgba(242, 97, 87, 0.12);
+}
+
+/* The world list: the dock's own, so nothing closes it under the pointer. */
+.stg-mb-wmenu {
+  position: fixed;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 220px;
+  max-width: min(340px, calc(100vw - 8px));
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: #0a0805;
+  border: 1px solid rgba(255, 244, 234, 0.16);
+  border-radius: 10px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5);
+}
+
+.stg-mb-witem {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0 10px;
+  height: 26px;
+  flex: none;
+  color: rgba(255, 244, 234, 0.78);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font: 700 10px/26px "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.stg-mb-witem:hover,
+.stg-mb-witem--hot {
   color: #fff4ea;
-  background: #191919;
+  background: rgba(255, 244, 234, 0.08);
+}
+
+.stg-mb-witem[aria-selected="true"] {
+  color: #f26157;
+}
+
+.stg-mb-witem[aria-selected="true"]::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 7px 1px 0;
+  vertical-align: middle;
+  background: #f26157;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #f26157;
+}
+
+/* Hold ⌥ (or the key's modifier): each chip shows its key. */
+.stg-mb-dock--keys [data-key] {
+  position: relative;
+}
+
+.stg-mb-dock--keys [data-key]::after {
+  content: attr(data-key);
+  position: absolute;
+  top: -10px;
+  right: -7px;
+  z-index: 1;
+  min-width: 13px;
+  height: 13px;
+  padding: 0 3px;
+  color: #0a0805;
+  background: #f26157;
+  border-radius: 4px;
+  box-shadow: 0 0 0 2px #0a0805;
+  font: 700 8.5px/13px "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0;
+  text-align: center;
   text-transform: none;
+  pointer-events: none;
+}
+
+.stg-mb-flash {
+  animation: stg-mb-flash 0.45s ease-out;
+}
+
+@keyframes stg-mb-flash {
+  0% { box-shadow: 0 0 0 0 rgba(242, 97, 87, 0.85); }
+  100% { box-shadow: 0 0 0 7px rgba(242, 97, 87, 0); }
 }
 
 .stg-mb-refresh {

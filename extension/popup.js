@@ -183,7 +183,7 @@ const setExtensionMode = (mode, { persist = false } = {}) => {
   // The MJ Queue tab takes the whole panel; the gallery settings hide.
   document.body.classList.toggle("mjq-mode", isQueue);
   globalThis.SaveToGalleryMjQueuePanel?.setVisible(isQueue);
-  const label = { add: "add", bookmark: "bookmark", queue: "queue", edit: "prompt edit" }[extensionMode];
+  const label = { add: "add", bookmark: "bookmark", queue: "queue", edit: "mj settings" }[extensionMode];
   modeBadgeEl.textContent = `${label} mode · v${chrome.runtime.getManifest().version}`;
   if (persist) {
     void chrome.storage.sync.set({ [EXTENSION_MODE_KEY]: extensionMode });

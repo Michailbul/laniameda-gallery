@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.27.0 (8 Nov 2026)
+
+- Keys for the Midjourney dock. While a prompt is being written: ⌥1–⌥9 add
+  or remove the moodboard in that place, ⌥⇧1–⌥⇧9 the profile, ⌃⌥1–⌃⌥9 the
+  preset; ⌥[ and ⌥] step through worlds, ⌥W opens the world list, ⌥S saves a
+  preset. Hold ⌥ to see each chip's key on it.
+- Every key is set in the side panel's new MJ settings tab (was Prompt edit):
+  click a key, press the new one; Backspace clears it, Reset brings the
+  defaults back, a key taken from another slot says so, ⌥E stays the quick
+  edit's. Synced; open Midjourney tabs follow at once.
+- The world picker no longer closes as it opens. It is the dock's own list
+  now (arrows, Enter, Esc work), and picking a world keeps the prompt focused.
+  The native list closed whenever the dock moved itself to stay on top.
+
 ## 0.26.2 (8 Nov 2026)
 
 - A copy with no sign-in takes it from a local-config.json file next to the

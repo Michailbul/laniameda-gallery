@@ -117,6 +117,24 @@
     .qe-reset { padding: 6px 10px; border: 1px solid var(--border-focus); border-radius: 7px; background: white; color: var(--ink); font: 600 11px/1 var(--sans); cursor: pointer; }
     .qe-reset:disabled { opacity: .4; cursor: default; }
     .qe-count, .qe-note { font-family: var(--mono); font-size: 10px; color: var(--text-3); }
+    .hk { padding: 14px 20px 0; display: flex; flex-direction: column; gap: 8px; }
+    .hk + .qe { padding-top: 10px; }
+    .hk-head { display: flex; align-items: center; justify-content: space-between; }
+    .hk-title { margin-top: 0; color: var(--ink); }
+    .hk-toggle { min-width: 46px; padding: 5px 10px; border: 1px solid var(--border-focus); border-radius: 999px; background: white; color: var(--text-3); font: 700 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; cursor: pointer; }
+    .hk-toggle[aria-pressed="true"] { color: white; background: var(--coral); border-color: var(--coral); }
+    .hk--off .hk-grid, .hk--off .hk-list { opacity: .4; pointer-events: none; }
+    .hk-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+    .hk-list { display: flex; flex-direction: column; gap: 4px; }
+    .hk-cell { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 3px 3px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+    .hk-slot { width: 12px; font: 700 11px/1 var(--mono); color: var(--text-3); }
+    .hk-name { flex: 1; font: 600 11px/1.2 var(--sans); color: var(--ink); }
+    .hk-key { flex: 1; min-width: 0; padding: 6px 6px; border: 1px solid var(--border-focus); border-radius: 6px; background: white; color: var(--ink); font: 700 11px/1 var(--mono); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hk-list .hk-key { flex: 0 0 96px; }
+    .hk-key:hover { border-color: var(--coral); }
+    .hk-key--off { color: var(--text-3); font-weight: 500; }
+    .hk-key--rec { color: var(--coral); border-color: var(--coral); box-shadow: 0 0 0 3px rgba(242, 97, 87, .14); font-family: var(--sans); font-weight: 600; }
+    .hk-rule { height: 1px; margin-top: 10px; background: var(--border); }
 
     .mode-tab {
       padding: 9px 10px;
@@ -993,8 +1011,8 @@
         role="tab"
         aria-selected="false"
         aria-controls="qeRoot"
-        title="Quick edit of Midjourney prompts: world, model, system prompt"
-      >Prompt edit</button>
+        title="Midjourney: dock keys, and the quick edit's world, model and system prompt"
+      >MJ settings</button>
     </div>
 
     <section id="mjqRoot" role="tabpanel" aria-labelledby="queueModeTab" hidden></section>
@@ -1232,6 +1250,8 @@
   <script src="mj-queue-panel.js"></script>
   <script src="mj-quick-edit-defaults.js"></script>
   <script src="mj-quick-edit-settings.js"></script>
+  <script src="mj-hotkeys.js"></script>
+  <script src="mj-hotkeys-settings.js"></script>
   <script src="collection-classification.js"></script>
   <script src="drop-upload.js"></script>
   <script src="popup.js"></script>
