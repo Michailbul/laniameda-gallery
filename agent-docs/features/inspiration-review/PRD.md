@@ -162,3 +162,68 @@ Limits: no display copy without EXIF yet (the owner sees the original as
 received); no thumbnails (the grid never previews private files); files over
 20 MB stay on the iMac; owner deletion/export of a private original is not
 built.
+
+## Remaining safety checks (8 Nov 2026, branch `claude/inspiration-safety`)
+
+Closes the open items of task td71p8q3k90ceqeb64ttxywkes8hs3x2 (critic
+skill:qh797xrkgc61h6ddpf52fnbhzh8hks0b P0.3, P0.4, P0.1 leftovers, the two
+PRD limitations and the fault drill).
+
+- **P0.4 provenance.** Table `inspirationCaptures`: one row per intake event
+  and representation (key, revision, representation, platform, channel,
+  sourceUrl, creator, caption, assets, content hashes, private files). Every
+  `register` records one. Same bytes from two platforms = one asset, two
+  captures; screenshot then full file = two captures, the source keeps both
+  assets and its preservation upgrades (never downgrades); a Telegram edit is
+  a new revision under the same key, never a new source or take; a capture
+  key belongs to one source. Asset level: `assetCaptures` keeps every other
+  sourceUrl a deduplicated save came from (`alsoSavedFrom` on
+  get_gallery_item); the first URL still sits on the asset.
+- **Telegram binding (P0.3).** A Telegram capture (channel telegram or a
+  `telegram:` key) needs the verified numeric sender = the owner's own
+  Telegram id, chat type private and chat id = sender id, plus the message
+  id. Groups, channels, other senders and bare telegram keys are refused
+  before anything is written. Forwards Michael sends are kept with
+  `forwardedFrom`. Raw ids are stored, never returned.
+- **Narrow tokens (P0.3).** Scopes `inspiration:capture` (register text,
+  links and private originals, attach, read back without drafts) and
+  `inspiration:adapt` + `worldIds` (read library and feedback; propose, post,
+  block, dispatch only for takes in its worlds). Created and edited at
+  /agents with a project picker; OAuth consent copy added. Enforced in
+  `/api/agent/inspiration` (lib/agent-scopes.ts); every other agent route
+  still requires gallery:* so narrow tokens reach nothing else.
+- **Private originals.** Attach is now the action
+  `inspirationPrivateNode:attachPrivateMedia`: the first bytes are sniffed
+  (lib/file-signature.ts) against the declared type; a mismatch (HTML error
+  page, truncated, wrong format) is refused and the upload deleted. Images get
+  a WebP display copy (2048) and thumbnail (480) via sharp with no metadata
+  (EXIF, GPS, maker notes, ICC), autoOriented; HEIC sharp cannot decode,
+  video and voice stay `original_only` with a note. The gated route serves
+  `?variant=display|thumb|original` (default: the clean copy) and
+  `&download=1` on the original. Owner session only: delete for good (bytes,
+  copies, row; tombstone in `inspirationPrivateDeletions`), clear or withdraw
+  a named processor per source (`clearedProcessors`, `externalProcessing`
+  cleared), `/api/inspiration/export` (JSON list). `reserve` refuses a paid
+  job whose provider is not cleared for every private file of the source.
+  The source page shows Private files (clean-copy status, Original download,
+  two-tap Delete, Outside services: Allow / Withdraw, Export list) and How it
+  arrived (captures).
+- **Library cursor.** `beforeTie` / `nextBeforeTie` (the last row's
+  `_creationTime`) page cleanly through equal `updatedAt`.
+- **Promotion undo.** A promotion that created its asset, undone with the
+  asset on no other shelf, puts it in the Archive tray (worldPageHidden,
+  reason "Promotion undone"); promoting again restores it.
+- **Fault drill.** `scripts/inspiration-fault-drill.ts` runs crash after
+  provider acceptance → takeover quarantine → refused resubmission and stale
+  settle → reconcile from the provider record, on the live deployment under a
+  throwaway `drill:<ts>` owner (no provider call, no spend, Michael's account
+  untouched).
+- Tests: tests/inspiration-captures.test.ts (7), inspiration-private (12),
+  dispatch processor gate (1). Mock Convex creation times are now unique and
+  increasing, like Convex.
+
+Limits: world-scoped tokens are enforced in the Next route, not inside Convex
+(Convex only accepts tokens Next mints); a capture token cannot save public
+media into ordinary assets (that path still needs gallery:write); EXIF-free
+copies exist for images only; >300 sources sharing one updatedAt at a page
+edge would still need a second scan.

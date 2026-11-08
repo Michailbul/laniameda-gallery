@@ -84,14 +84,14 @@ describe("inspiration review", () => {
 
   test("a text-only idea is a source without fabricated media", async () => {
     const idea = await agent(registerInspirationSource)(ctx, {
-      ownerUserId: OWNER, ingestKey: "telegram:idea:1", kind: "text", title: "Memory is a room you redecorate",
+      ownerUserId: OWNER, ingestKey: "idea:1", kind: "text", title: "Memory is a room you redecorate",
       platform: "telegram", text: "Every time you remember, you rebuild.", preservation: "text",
     });
     const detail = await agent(getInspiration)(ctx, { ownerUserId: OWNER, sourceId: idea.sourceId });
     expect(detail.assets).toEqual([]);
     expect(detail.text).toBe("Every time you remember, you rebuild.");
     await expect(agent(registerInspirationSource)(ctx, {
-      ownerUserId: OWNER, ingestKey: "telegram:idea:2", kind: "text", title: "Empty", platform: "telegram", preservation: "text",
+      ownerUserId: OWNER, ingestKey: "idea:2", kind: "text", title: "Empty", platform: "telegram", preservation: "text",
     })).rejects.toThrow("no placeholder media");
     const { adaptationId } = await propose(idea.sourceId, { targetWorldId: undefined, targetLabel: "Philosophy channel", ingestKey: "adapt:idea" });
     const version = await agent(postInspirationVersion)(ctx, { ownerUserId: OWNER, adaptationId, ingestKey: "v1:idea", basedOnVersion: 0, outputs: [], text: "Premise: a narrator repaints one room per memory." });

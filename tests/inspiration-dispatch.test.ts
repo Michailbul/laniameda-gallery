@@ -54,7 +54,7 @@ describe("inspiration dispatch safety", () => {
     adaptations = [];
     for (const index of [1, 2, 3]) {
       const source = await agent(registerInspirationSource)(ctx, {
-        ownerUserId: OWNER, ingestKey: `telegram:idea:${index}`, kind: "text", title: `Idea ${index}`,
+        ownerUserId: OWNER, ingestKey: `idea:${index}`, kind: "text", title: `Idea ${index}`,
         platform: "telegram", text: "A room you redecorate every time you remember it.", preservation: "text",
       });
       const proposal = await agent(proposeInspirationAdaptation)(ctx, {
@@ -225,5 +225,23 @@ describe("inspiration dispatch safety", () => {
     // A missed week resumes in the current cycle: one window, no burst of back cycles.
     expect(cycleStartAt(anchor, 48, anchor + 7 * 24 * HOUR + HOUR)).toBe(anchor + 144 * HOUR);
     expect(cycleStartAt(anchor, 48, anchor - HOUR)).toBe(anchor);
+  });
+
+  test("private originals: no paid job may use a processor Michael has not cleared for that source", async () => {
+    await allow(5);
+    const lease = await claim();
+    const adaptation = (await env.db.get(adaptations[0] as never)) as Any;
+    const mediaId = await env.db.insert("inspirationPrivateMedia", {
+      ownerUserId: OWNER, storageId: "_storage:1", sourceId: adaptation.sourceId, ingestKey: "p1", kind: "image",
+      contentType: "image/jpeg", size: 10, sha256: "ab", externalProcessing: "none", createdBy: "agent", createdAt: T0,
+    });
+    await expect(reserve(lease, adaptations[0], "job:private")).rejects.toThrow(/not cleared fal/);
+    // Cleared for another processor only: still refused for fal.
+    await env.db.patch(mediaId, { externalProcessing: "cleared", clearedProcessors: [{ name: "pika", clearedAt: T0 }] });
+    await expect(reserve(lease, adaptations[0], "job:private")).rejects.toThrow(/not cleared fal/);
+    await env.db.patch(mediaId, { clearedProcessors: [{ name: "pika", clearedAt: T0 }, { name: "fal", clearedAt: T0 }] });
+    expect((await reserve(lease, adaptations[0], "job:private")).created).toBe(true);
+    // A source with no private files is unaffected.
+    expect((await reserve(lease, adaptations[1], "job:public")).created).toBe(true);
   });
 });

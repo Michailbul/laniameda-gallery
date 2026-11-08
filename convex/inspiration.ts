@@ -13,7 +13,7 @@ import { worldIdOfFolder } from "./worldCore";
 import { attachVersionToJob, linkJobVersion } from "./inspirationDispatch";
 import { privateMediaOfSource, privateMediaView, privateMediaViewValidator } from "./inspirationPrivate";
 import {
-  inspirationAdaptationStatusValidator, inspirationOutputValidator, inspirationPlatformValidator,
+  inspirationAdaptationStatusValidator, inspirationCaptureViaValidator, inspirationOutputValidator, inspirationPlatformValidator,
   inspirationPreservationValidator, inspirationRoutingValidator, inspirationSourceReviewValidator,
 } from "./inspirationValidators";
 import { INSPIRATION_LIMITS as L, cleanLine, inspirationPath } from "../lib/inspiration";
@@ -267,6 +267,139 @@ const worldNameOf = async (ctx: Ctx, id: Id<"folders"> | undefined, memo: Map<st
   return memo.get(id) || undefined;
 };
 
+/* ── Captures: one row per intake event and representation (P0.4) ─────── */
+
+type Preservation = Source["preservation"];
+type CaptureVia = Infer<typeof inspirationCaptureViaValidator>;
+
+// Higher = more of the source held. Ties keep what the source already has.
+const PRESERVATION_RANK: Record<Preservation, number> = {
+  unavailable: 0, text: 1, link_only: 2, screenshot_only: 3, keyframes_only: 4, source_served_file: 5, owner_uploaded_bytes: 5,
+};
+export const preservationRank = (value: Preservation) => PRESERVATION_RANK[value] ?? 0;
+
+const idString = v.union(v.string(), v.number());
+const captureInputValidator = v.object({
+  key: v.optional(v.string()),
+  revision: v.optional(v.number()),
+  representation: v.optional(inspirationPreservationValidator),
+  via: v.optional(v.object({
+    channel: inspirationCaptureViaValidator.fields.channel,
+    chatType: inspirationCaptureViaValidator.fields.chatType,
+    chatId: v.optional(idString), senderId: v.optional(idString), messageId: v.optional(idString),
+    bot: v.optional(v.string()), forwardedFrom: v.optional(v.string()),
+  })),
+});
+
+const idText = (value: string | number | undefined) => {
+  if (value === undefined) return undefined;
+  const text = String(value).trim();
+  return text ? text.slice(0, 40) : undefined;
+};
+
+/** Michael's numeric Telegram id(s), from the owner the token was minted for. */
+const ownerTelegramIds = (owner: string) =>
+  resolveUserIdCandidates(owner).map((candidate) => candidate.replace(/^telegram:/, "")).filter((candidate) => /^\d+$/.test(candidate));
+
+type CheckedCapture = { key: string; revision: number; representation: Preservation; via?: CaptureVia };
+
+/**
+ * Validate the intake event. Telegram is bound to Michael himself: the
+ * verified numeric sender must be his own id, in his private chat with the
+ * bot (chat id = his id). Groups, channels, other senders and owner-looking
+ * forwards from someone else are refused before anything is written. A
+ * telegram: capture key without that proof is refused too.
+ */
+export const checkCapture = (
+  owner: string, input: Infer<typeof captureInputValidator> | undefined, ingestKey: string, preservation: Preservation,
+): CheckedCapture => {
+  const key = cleanLine(input?.key, L.ingestKey) ?? ingestKey;
+  const revision = Math.max(1, Math.floor(input?.revision ?? 1));
+  const representation = input?.representation ?? preservation;
+  const raw = input?.via;
+  const via: CaptureVia | undefined = raw ? {
+    channel: raw.channel, chatType: raw.chatType, chatId: idText(raw.chatId), senderId: idText(raw.senderId),
+    messageId: idText(raw.messageId), bot: cleanLine(raw.bot, 80), forwardedFrom: cleanLine(raw.forwardedFrom, 200),
+  } : undefined;
+  const telegramKey = /^telegram:/i.test(key) || /^telegram:/i.test(ingestKey);
+  if (via?.channel === "telegram" || telegramKey) {
+    if (via?.channel !== "telegram") fail("A Telegram capture needs via.channel telegram with the verified sender, chat type and chat id.");
+    if (via!.chatType !== "private") fail("Only Michael's private chat with the bot is accepted. Group and channel messages are not saved.");
+    const mine = ownerTelegramIds(owner);
+    if (!via!.senderId || !mine.includes(via!.senderId)) fail("This Telegram message is not from Michael's own account. Nothing was saved.");
+    if (via!.chatId !== via!.senderId) fail("This message did not come through Michael's private chat with the bot. Nothing was saved.");
+    if (!via!.messageId) fail("A Telegram capture needs the message id, so replays apply once.");
+  }
+  return { key, revision, representation, via };
+};
+
+type CaptureContext = {
+  platform: Source["platform"]; sourceUrl?: string; creator?: string; creatorUrl?: string; caption?: string; text?: string;
+  sourceCollections: string[]; assetIds: Id<"assets">[]; capturedAt?: number; createdBy: string;
+};
+
+const capturesByKey = (ctx: Ctx, owner: string, key: string) =>
+  readOwned(owner, (candidate) => ctx.db.query("inspirationCaptures")
+    .withIndex("by_owner_captureKey", (q) => q.eq("ownerUserId", candidate).eq("captureKey", key)).take(50));
+
+/**
+ * One capture row per (key, revision, representation). A replay of the same
+ * event adds late album members and nothing else; a key already used for
+ * another source is refused (no silent merge of two posts).
+ */
+const recordCapture = async (ctx: MutationCtx, owner: string, sourceId: Id<"inspirationSources">, capture: CheckedCapture, context: CaptureContext) => {
+  const rows = await capturesByKey(ctx, owner, capture.key);
+  if (rows.some((row) => row.sourceId !== sourceId)) fail(`Capture ${capture.key} already belongs to another reference.`);
+  const hashes = async (ids: Id<"assets">[]) => {
+    const out: string[] = [];
+    for (const id of ids) {
+      const hash = (await ctx.db.get(id))?.contentHash;
+      if (hash && !out.includes(hash)) out.push(hash);
+    }
+    return out;
+  };
+  const now = Date.now();
+  const same = rows.find((row) => row.captureRevision === capture.revision && row.representation === capture.representation);
+  if (same) {
+    const add = context.assetIds.filter((id) => !same.assetIds.includes(id));
+    if (add.length) {
+      const assetIds = [...same.assetIds, ...add].slice(0, L.assets);
+      await ctx.db.patch(same._id, { assetIds, contentHashes: await hashes(assetIds), updatedAt: now });
+    }
+    return { captureId: same._id, created: false };
+  }
+  const captureId = await ctx.db.insert("inspirationCaptures", {
+    ownerUserId: owner, sourceId, captureKey: capture.key, captureRevision: capture.revision, representation: capture.representation,
+    platform: context.platform, via: capture.via, sourceUrl: context.sourceUrl, creator: context.creator, creatorUrl: context.creatorUrl,
+    caption: context.caption, text: context.text, sourceCollections: context.sourceCollections, assetIds: context.assetIds,
+    contentHashes: await hashes(context.assetIds), privateMediaIds: [], capturedAt: context.capturedAt,
+    createdBy: context.createdBy, createdAt: now, updatedAt: now,
+  });
+  return { captureId, created: true };
+};
+
+/** The capture a private original arrived with, by key (newest revision). */
+export const captureForKey = async (ctx: Ctx, owner: string, sourceId: Id<"inspirationSources">, key: string) => {
+  const rows = (await capturesByKey(ctx, owner, key)).filter((row) => row.sourceId === sourceId);
+  return rows.sort((a, b) => b.captureRevision - a.captureRevision || b.createdAt - a.createdAt)[0] ?? null;
+};
+
+const captureView = (row: Doc<"inspirationCaptures">) => ({
+  captureId: row._id, captureKey: row.captureKey, captureRevision: row.captureRevision, representation: row.representation,
+  platform: row.platform, channel: row.via?.channel, chatType: row.via?.chatType, bot: row.via?.bot, forwardedFrom: row.via?.forwardedFrom,
+  sourceUrl: row.sourceUrl, creator: row.creator, creatorUrl: row.creatorUrl, caption: row.caption,
+  sourceCollections: row.sourceCollections, assetIds: row.assetIds, contentHashes: row.contentHashes,
+  privateMediaIds: row.privateMediaIds, capturedAt: row.capturedAt, createdBy: row.createdBy, createdAt: row.createdAt,
+});
+
+const captureViewValidator = v.object({
+  captureId: v.id("inspirationCaptures"), captureKey: v.string(), captureRevision: v.number(), representation: inspirationPreservationValidator,
+  platform: inspirationPlatformValidator, channel: v.optional(v.string()), chatType: v.optional(v.string()), bot: v.optional(v.string()),
+  forwardedFrom: v.optional(v.string()), sourceUrl: v.optional(v.string()), creator: v.optional(v.string()), creatorUrl: v.optional(v.string()),
+  caption: v.optional(v.string()), sourceCollections: v.array(v.string()), assetIds: v.array(v.id("assets")), contentHashes: v.array(v.string()),
+  privateMediaIds: v.array(v.id("inspirationPrivateMedia")), capturedAt: v.optional(v.number()), createdBy: v.string(), createdAt: v.number(),
+});
+
 /* ── List (the library) ─────────────────────────────────────────────────── */
 
 const listRowValidator = v.object({
@@ -301,24 +434,36 @@ export const listInspiration = ownerQuery({
     status: v.optional(inspirationAdaptationStatusValidator),
     includeDrafts: v.optional(v.boolean()),
     before: v.optional(v.number()),
+    // Tie-break for before: the _creationTime of the last row scanned. With
+    // it, sources sharing that updatedAt are not skipped at a page edge.
+    beforeTie: v.optional(v.number()),
     limit: v.optional(v.number()),
   },
-  returns: v.object({ rows: v.array(listRowValidator), nextBefore: v.optional(v.number()), scanned: v.number() }),
+  returns: v.object({
+    rows: v.array(listRowValidator), nextBefore: v.optional(v.number()), nextBeforeTie: v.optional(v.number()), scanned: v.number(),
+  }),
   handler: async (ctx, args) => {
     const limit = Math.min(L.page, Math.max(1, Math.floor(args.limit ?? 30)));
+    const before = args.before;
+    const tie = args.beforeTie;
     const scanned = await readOwned(args.ownerUserId, (candidate) => ctx.db.query("inspirationSources")
-      .withIndex("by_owner_updatedAt", (q) => args.before === undefined
+      .withIndex("by_owner_updatedAt", (q) => before === undefined
         ? q.eq("ownerUserId", candidate)
-        : q.eq("ownerUserId", candidate).lt("updatedAt", args.before))
+        : tie === undefined ? q.eq("ownerUserId", candidate).lt("updatedAt", before) : q.eq("ownerUserId", candidate).lte("updatedAt", before))
       .order("desc").take(L.scan));
-    const sorted = scanned.filter((row) => owns(args.ownerUserId, row)).sort((a, b) => b.updatedAt - a.updatedAt);
+    // Order = (updatedAt, _creationTime) descending, the index's own order;
+    // the cursor is the pair, so equal timestamps page cleanly.
+    const sorted = scanned
+      .filter((row) => owns(args.ownerUserId, row))
+      .filter((row) => before === undefined || tie === undefined || row.updatedAt < before || row._creationTime < tie)
+      .sort((a, b) => b.updatedAt - a.updatedAt || b._creationTime - a._creationTime);
     const review = args.review ?? "active";
     const category = args.category?.trim().toLowerCase();
     const rows = [];
-    let last: number | undefined;
+    let last: Source | undefined;
     for (const source of sorted) {
       if (rows.length >= limit) break;
-      last = source.updatedAt;
+      last = source;
       if (review === "active" ? source.review === "dropped" : review !== "all" && source.review !== review) continue;
       if (args.kind && source.kind !== args.kind) continue;
       if (args.platform && source.platform !== args.platform) continue;
@@ -349,8 +494,10 @@ export const listInspiration = ownerQuery({
       rows.push({ ...sourceFieldsView(source), lead, savedCount: source.assetIds.length + privateCount, privateCount, adaptations: adaptationRows });
     }
     // More remain when the page filled before the scan ended, or the scan itself was cut.
-    const more = (rows.length >= limit && last !== sorted.at(-1)?.updatedAt) || sorted.length >= L.scan;
-    return { rows, nextBefore: more ? last : undefined, scanned: sorted.length };
+    const more = (rows.length >= limit && last !== sorted.at(-1)) || sorted.length >= L.scan;
+    return {
+      rows, nextBefore: more ? last?.updatedAt : undefined, nextBeforeTie: more ? last?._creationTime : undefined, scanned: sorted.length,
+    };
   },
 });
 
@@ -370,6 +517,8 @@ export const getInspiration = ownerQuery({
     assets: v.array(assetViewValidator),
     // Private originals: bytes only through the authenticated route.
     privateMedia: v.array(privateMediaViewValidator),
+    // Every intake event and representation, oldest first (P0.4).
+    captures: v.array(captureViewValidator),
     story: v.optional(v.object({ storyId: v.id("stories"), title: v.string(), body: v.string() })),
     notes: v.array(noteViewValidator),
     adaptations: v.array(v.object({
@@ -416,7 +565,27 @@ export const getInspiration = ownerQuery({
       });
     }
     const privateMedia = (await privateMediaOfSource(ctx, args.ownerUserId, source._id)).map(privateMediaView);
-    return { ...sourceFieldsView(source), assets, privateMedia, story, notes, adaptations };
+    const captures = (await ctx.db.query("inspirationCaptures").withIndex("by_source_createdAt", (q) => q.eq("sourceId", source._id))
+      .order("asc").take(L.captures)).filter((row) => owns(args.ownerUserId, row)).map(captureView);
+    return { ...sourceFieldsView(source), assets, privateMedia, captures, story, notes, adaptations };
+  },
+});
+
+/** The project an adaptation (or a job's adaptation) is for: the agent route's world check for narrow tokens. */
+export const inspirationTargetWorld = ownerQuery({
+  args: { ownerUserId: v.string(), adaptationId: v.optional(v.id("inspirationAdaptations")), jobId: v.optional(v.id("inspirationJobs")) },
+  returns: v.object({ worldId: v.optional(v.id("folders")) }),
+  handler: async (ctx, args) => {
+    let adaptationId = args.adaptationId;
+    if (args.jobId) {
+      const job = await ctx.db.get(args.jobId);
+      if (!job || !owns(args.ownerUserId, job)) return {};
+      adaptationId = job.adaptationId;
+    }
+    if (!adaptationId) return {};
+    const adaptation = await ctx.db.get(adaptationId);
+    if (!adaptation || !owns(args.ownerUserId, adaptation)) return {};
+    return adaptation.targetWorldId ? { worldId: adaptation.targetWorldId } : {};
   },
 });
 
@@ -517,12 +686,17 @@ export const registerInspirationSource = ownerMutation({
     sourceCollections: v.optional(v.array(v.string())),
     savedBecause: v.optional(v.string()),
     capturedAt: v.optional(v.number()),
+    capture: v.optional(captureInputValidator),
     createdBy: v.optional(v.string()),
   },
-  returns: v.object({ sourceId: v.id("inspirationSources"), created: v.boolean(), revision: v.number(), path: v.string() }),
+  returns: v.object({
+    sourceId: v.id("inspirationSources"), created: v.boolean(), revision: v.number(), path: v.string(),
+    captureId: v.id("inspirationCaptures"), captureCreated: v.boolean(), preservation: inspirationPreservationValidator,
+  }),
   handler: async (ctx, args) => {
     const owner = args.ownerUserId;
     const ingestKey = requiredText(args.ingestKey, L.ingestKey, "ingestKey");
+    const capture = checkCapture(owner, args.capture, ingestKey, args.preservation);
     const assetIds = await checkAssets(ctx, owner, args.assetIds ?? []);
     if (args.storyId) {
       const story = await ctx.db.get(args.storyId);
@@ -549,6 +723,11 @@ export const registerInspirationSource = ownerMutation({
     };
     const categories = labels(args.categories, L.categories, L.category);
     const collections = labels(args.sourceCollections, L.sourceCollections, L.label);
+    const createdBy = actorLabel(args.createdBy);
+    const context = {
+      platform: args.platform, sourceUrl: fields.sourceUrl, creator: fields.creator, creatorUrl: fields.creatorUrl,
+      caption: fields.caption, text: fields.text, sourceCollections: collections, assetIds, capturedAt: args.capturedAt, createdBy,
+    };
     const existing = await findSourceByKey(ctx, owner, ingestKey);
     if (existing) {
       const patch: Partial<Source> = {};
@@ -561,16 +740,28 @@ export const registerInspirationSource = ownerMutation({
       if (addCategories.length) patch.categories = [...existing.categories, ...addCategories].slice(0, L.categories);
       const addCollections = collections.filter((value) => !existing.sourceCollections.includes(value));
       if (addCollections.length) patch.sourceCollections = [...existing.sourceCollections, ...addCollections].slice(0, L.sourceCollections);
-      if (Object.keys(patch).length === 0) return { sourceId: existing._id, created: false, revision: existing.revision, path: inspirationPath(existing._id) };
-      await ctx.db.patch(existing._id, { ...patch, revision: existing.revision + 1, updatedAt: now });
-      return { sourceId: existing._id, created: false, revision: existing.revision + 1, path: inspirationPath(existing._id) };
+      // A better representation (the full file after a screenshot) upgrades
+      // the source; the earlier one stays as its own capture and asset.
+      if (preservationRank(args.preservation) > preservationRank(existing.preservation)) patch.preservation = args.preservation;
+      const recorded = await recordCapture(ctx, owner, existing._id, capture, context);
+      const changed = Object.keys(patch).length > 0 || recorded.created;
+      const revision = changed ? existing.revision + 1 : existing.revision;
+      if (changed) await ctx.db.patch(existing._id, { ...patch, revision, updatedAt: now });
+      return {
+        sourceId: existing._id, created: false, revision, path: inspirationPath(existing._id),
+        captureId: recorded.captureId, captureCreated: recorded.created, preservation: patch.preservation ?? existing.preservation,
+      };
     }
     const sourceId = await ctx.db.insert("inspirationSources", {
       ownerUserId: owner, ingestKey, kind: args.kind, platform: args.platform, ...fields,
       assetIds, preservation: args.preservation, categories, sourceCollections: collections,
-      review: "new", revision: 1, adaptationCount: 0, createdBy: actorLabel(args.createdBy), createdAt: now, updatedAt: now,
+      review: "new", revision: 1, adaptationCount: 0, createdBy, createdAt: now, updatedAt: now,
     });
-    return { sourceId, created: true, revision: 1, path: inspirationPath(sourceId) };
+    const recorded = await recordCapture(ctx, owner, sourceId, capture, context);
+    return {
+      sourceId, created: true, revision: 1, path: inspirationPath(sourceId),
+      captureId: recorded.captureId, captureCreated: recorded.created, preservation: args.preservation,
+    };
   },
 });
 
@@ -972,6 +1163,10 @@ export const promoteInspirationOutput = ownerSessionMutation({
       ingestKey: `inspiration-promote:${adaptation._id}:v${version!.number}:${output!.key}`,
     });
     const asset = (await ctx.db.get(created.assetId))!;
+    // Promoted again after an undo archived it: take it back out of the tray.
+    if (!created.created && asset.ingestKey?.startsWith(`inspiration-promote:${adaptation._id}:`)) {
+      await unarchiveUndonePromotion(ctx, asset);
+    }
     const before = await ctx.db.query("assetFolders").withIndex("by_asset_folder", (q) => q.eq("assetId", asset._id).eq("folderId", args.folderId)).unique();
     let linkId: Id<"assetFolders"> | undefined;
     if (!before) {
@@ -1001,6 +1196,25 @@ export const promoteInspirationOutput = ownerSessionMutation({
   },
 });
 
+/** The world-page hide reason a promotion undo sets, so a re-promotion clears only its own hide. */
+export const UNDO_PROMOTION_HIDE_REASON = "Promotion undone";
+
+const archiveUndonePromotion = async (ctx: MutationCtx, asset: Doc<"assets">) => {
+  const entry = await ctx.db.query("assetArchive").withIndex("by_asset", (q) => q.eq("assetId", asset._id)).unique();
+  if (entry) return false;
+  await ctx.db.insert("assetArchive", { ownerUserId: asset.ownerUserId!, assetId: asset._id, archivedAt: Date.now() });
+  if (!asset.worldPageHidden) await ctx.db.patch(asset._id, { worldPageHidden: true, worldPageHiddenReason: UNDO_PROMOTION_HIDE_REASON });
+  return true;
+};
+
+const unarchiveUndonePromotion = async (ctx: MutationCtx, asset: Doc<"assets">) => {
+  const entry = await ctx.db.query("assetArchive").withIndex("by_asset", (q) => q.eq("assetId", asset._id)).unique();
+  if (entry) await ctx.db.delete(entry._id);
+  if (asset.worldPageHidden && asset.worldPageHiddenReason === UNDO_PROMOTION_HIDE_REASON) {
+    await ctx.db.patch(asset._id, { worldPageHidden: undefined, worldPageHiddenReason: undefined });
+  }
+};
+
 /** Undo the promotion: removes only the membership it added, if that very membership is still there. */
 export const undoInspirationPromotion = ownerSessionMutation({
   args: { ownerUserId: v.string(), adaptationId: v.id("inspirationAdaptations"), eventKey: v.string(), expectedRevision: v.number() },
@@ -1013,6 +1227,7 @@ export const undoInspirationPromotion = ownerSessionMutation({
     checkRevision(adaptation, args.expectedRevision, "adaptation");
     const promotion = adaptation.promotion ?? fail("Nothing is promoted.");
     const asset = await ctx.db.get(promotion.assetId);
+    let archived = false;
     if (asset && promotion.linkId) {
       const link = await ctx.db.get(promotion.linkId);
       // Same row = still the membership this promotion made; a later
@@ -1021,6 +1236,10 @@ export const undoInspirationPromotion = ownerSessionMutation({
         const remaining = (await ctx.db.query("assetFolders").withIndex("by_asset", (q) => q.eq("assetId", asset._id)).collect())
           .filter((row) => row._id !== link._id).map((row) => row.folderId);
         await replaceAssetFolderLinks(ctx, owner, asset, remaining);
+        // A piece this promotion created, now on no shelf, would float in
+        // the vault as an unfiled draft. It goes to the Archive tray instead:
+        // grayed, recoverable, never deleted. Promoting again restores it.
+        if (promotion.createdAsset && remaining.length === 0) archived = await archiveUndonePromotion(ctx, asset);
       }
     }
     const now = Date.now();
@@ -1029,6 +1248,7 @@ export const undoInspirationPromotion = ownerSessionMutation({
     const eventId = await insertEvent(ctx, {
       ownerUserId: adaptation.ownerUserId, eventKey: key, sourceId: adaptation.sourceId, adaptationId: adaptation._id,
       version: promotion.version, action: "unpromote", author: "owner", createdAt: now,
+      ...(archived ? { body: "The promoted piece was on no other shelf: moved to the Archive tray." } : {}),
     });
     return { duplicate: false, eventId, revision, assetId: promotion.assetId };
   },

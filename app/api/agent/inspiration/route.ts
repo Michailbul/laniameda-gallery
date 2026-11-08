@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { requireAgentAuth, AgentAuthError, type AgentTokenScope } from "@/lib/server/agent-auth";
+import { requireAgentAuthAny, AgentAuthError } from "@/lib/server/agent-auth";
+import { INSPIRATION_ACTION_SCOPES, adaptReachesWorld } from "@/lib/agent-scopes";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import { resolveUploadedMedia, UploadError } from "@/lib/server/agent-uploads";
@@ -23,11 +24,8 @@ import { agentActor } from "@/lib/tasks";
 
 const actions = ["list", "get", "feedback", "register", "propose", "post_version", "block", "dispatch", "job", "private_media"] as const;
 const ownerOnly = ["keep", "drop", "recover", "approve", "promote", "unpromote", "redo", "note", "resume", "set_allowance", "resolve_job"] as const;
-const scopes: Record<(typeof actions)[number], AgentTokenScope> = {
-  list: "gallery:read", get: "gallery:read", feedback: "gallery:read",
-  register: "gallery:write", propose: "gallery:write", post_version: "gallery:write", block: "gallery:write",
-  dispatch: "gallery:write", job: "gallery:write", private_media: "gallery:write",
-};
+
+const forbidden = (message: string) => NextResponse.json({ error: message }, { status: 403 });
 
 const bare = (value: string, prefix: string) => value.replace(new RegExp(`^${prefix}:`), "").trim();
 
@@ -40,10 +38,24 @@ export async function POST(request: Request) {
       }, { status: 403 });
     }
     const action = z.enum(actions).parse(body.action);
-    const agent = await requireAgentAuth(request, scopes[action]);
+    const agent = await requireAgentAuthAny(request, INSPIRATION_ACTION_SCOPES[action]);
     const ownerUserId = agent.ownerUserId;
     const client = getServerConvexClient(ownerUserId);
     const actor = agentActor(agent.label || agent.tokenPrefix);
+    // Narrow tokens (lib/agent-scopes.ts). A takes token works only on its
+    // own projects; a capture token registers and reads back, nothing more.
+    const adaptOnly = agent.granted === "inspiration:adapt";
+    const captureOnly = agent.granted === "inspiration:capture";
+    const outsideWorlds = `This token makes takes only for its own projects. Ask Michael to add the project at /agents.`;
+    const checkTarget = async (target: { adaptationId?: string; jobId?: string }) => {
+      if (!adaptOnly) return null;
+      const reach = await client.query(api.inspiration.inspirationTargetWorld, {
+        ownerUserId,
+        ...(target.adaptationId ? { adaptationId: bareRef(target.adaptationId) as Id<"inspirationAdaptations"> } : {}),
+        ...(target.jobId ? { jobId: bareRef(target.jobId) as Id<"inspirationJobs"> } : {}),
+      });
+      return adaptReachesWorld(agent, reach.worldId) ? null : forbidden(outsideWorlds);
+    };
 
     if (action === "list") {
       const input = inspirationListSchema.parse(body);
@@ -63,7 +75,7 @@ export async function POST(request: Request) {
     if (action === "get") {
       const input = inspirationGetSchema.parse(body);
       const source = await client.query(api.inspiration.getInspiration, {
-        ownerUserId, sourceId: bareRef(input.sourceId) as Id<"inspirationSources">, includeDrafts: input.includeDrafts ?? true,
+        ownerUserId, sourceId: bareRef(input.sourceId) as Id<"inspirationSources">, includeDrafts: captureOnly ? false : input.includeDrafts ?? true,
       });
       if (!source) return NextResponse.json({ error: "Inspiration source not found." }, { status: 404 });
       return NextResponse.json({
@@ -83,6 +95,9 @@ export async function POST(request: Request) {
     }
     if (action === "register") {
       const input = inspirationRegisterSchema.parse(body);
+      if (captureOnly && (input.assetIds?.length || input.storyId)) {
+        return forbidden("A capture token registers text, links and private originals. Linking existing gallery pieces needs a gallery:write token.");
+      }
       const result = await client.mutation(api.inspiration.registerInspirationSource, {
         ownerUserId, ...input,
         assetIds: input.assetIds?.map((id) => bare(id, "asset") as Id<"assets">),
@@ -94,6 +109,7 @@ export async function POST(request: Request) {
     if (action === "propose") {
       const input = inspirationProposeSchema.parse(body);
       const { world, ...rest } = input;
+      if (adaptOnly && !adaptReachesWorld(agent, world ? bare(world, "collection") : undefined)) return forbidden(outsideWorlds);
       const result = await client.mutation(api.inspiration.proposeInspirationAdaptation, {
         ownerUserId, ...rest, sourceId: bareRef(input.sourceId) as Id<"inspirationSources">,
         ...(world ? { targetWorldId: bare(world, "collection") as Id<"folders"> } : {}),
@@ -144,6 +160,8 @@ export async function POST(request: Request) {
         if (!input.adaptationId || !input.ingestKey || !input.provider || !input.model) {
           return NextResponse.json({ error: "reserve needs adaptationId, ingestKey, provider, model and estimateUsd." }, { status: 400 });
         }
+        const denied = await checkTarget({ adaptationId: input.adaptationId });
+        if (denied) return denied;
         const result = await client.mutation(api.inspirationDispatch.reserveInspirationJob, {
           ownerUserId, nonce: input.nonce, fence: input.fence,
           adaptationId: bareRef(input.adaptationId) as Id<"inspirationAdaptations">, ingestKey: input.ingestKey,
@@ -155,6 +173,8 @@ export async function POST(request: Request) {
         });
       }
       if (!input.jobId) return NextResponse.json({ error: `${input.step} needs jobId.` }, { status: 400 });
+      const deniedJob = await checkTarget({ jobId: input.jobId });
+      if (deniedJob) return deniedJob;
       const job = await client.mutation(api.inspirationDispatch.updateInspirationJob, {
         ownerUserId, nonce: input.nonce, fence: input.fence, jobId: bareRef(input.jobId) as Id<"inspirationJobs">,
         step: input.step === "unknown" ? "unknown" : input.step,
@@ -173,18 +193,22 @@ export async function POST(request: Request) {
         });
       }
       if (!input.storageId || !input.ingestKey) return NextResponse.json({ error: "attach needs storageId and ingestKey." }, { status: 400 });
-      const result = await client.mutation(api.inspirationPrivate.attachPrivateMedia, {
+      const result = await client.action(api.inspirationPrivateNode.attachPrivateMedia, {
         ownerUserId, storageId: input.storageId as Id<"_storage">, ingestKey: input.ingestKey,
         sourceId: input.sourceId ? bareRef(input.sourceId) as Id<"inspirationSources"> : undefined,
         sha256: input.sha256, width: input.width, height: input.height, label: input.label, createdBy: actor,
+        captureKey: input.captureKey,
       });
       return NextResponse.json({
         ok: true, ...result, url: `${GALLERY_ORIGIN}${result.media.url}`,
-        next: "The url opens only for Michael's session or an owner agent token. Never paste it, or the file, into prompts, logs or mirrors; no outside processor may see it unless Michael clears one.",
+        ...(result.media.displayUrl ? { displayUrl: `${GALLERY_ORIGIN}${result.media.displayUrl}` } : {}),
+        next: "The url opens only for Michael's session or an owner agent token; it serves the clean copy (no EXIF/GPS) when there is one, the original only with ?variant=original. Never paste it, or the file, into prompts, logs or mirrors; no outside processor may see it unless Michael clears one (clearedProcessors).",
       });
     }
     if (action === "block") {
       const input = inspirationBlockSchema.parse(body);
+      const deniedBlock = await checkTarget({ adaptationId: input.adaptationId });
+      if (deniedBlock) return deniedBlock;
       const result = await client.mutation(api.inspiration.blockInspirationAdaptation, {
         ownerUserId, adaptationId: bareRef(input.adaptationId) as Id<"inspirationAdaptations">, reason: input.reason,
       });
@@ -192,6 +216,8 @@ export async function POST(request: Request) {
     }
 
     const input = inspirationPostVersionSchema.parse(body);
+    const deniedVersion = await checkTarget({ adaptationId: input.adaptationId });
+    if (deniedVersion) return deniedVersion;
     const { outputs: rawOutputs, ...rest } = input;
     const common = {
       ownerUserId, ...rest,

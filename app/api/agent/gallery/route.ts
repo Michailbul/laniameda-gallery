@@ -229,7 +229,14 @@ export async function POST(request: Request) {
               ownerUserId: agent.ownerUserId,
             }).catch(() => [])
           : [];
-        return NextResponse.json({ asset, characters, comments });
+        // Every other source the same bytes were saved from (additive).
+        const alsoSavedFrom = asset
+          ? await client.query(api.assets.listAssetCaptures, {
+              assetId: parsed.id as Id<"assets">,
+              ownerUserId: agent.ownerUserId,
+            }).catch(() => [])
+          : [];
+        return NextResponse.json({ asset, characters, comments, ...(alsoSavedFrom.length ? { alsoSavedFrom } : {}) });
       }
       if (parsed.kind === "skill") {
         return NextResponse.json({ skill: null, hint: `No Skill ${parsed.id} is readable by this token (list_skills or search_skills to find it); get_gallery_item reads ${GALLERY_ITEM_PREFIXES}.` });

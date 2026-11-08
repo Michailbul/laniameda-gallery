@@ -3,7 +3,9 @@ import { makeFunctionReference } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getServerConvexClient } from "@/lib/server/convex";
 
-export type AgentTokenScope = "gallery:read" | "gallery:write" | "gallery:delete";
+import { grantingScope, type AgentTokenScope } from "@/lib/agent-scopes";
+
+export type { AgentTokenScope } from "@/lib/agent-scopes";
 
 export type AgentAuthContext = {
   tokenId: Id<"agentTokens">;
@@ -11,6 +13,8 @@ export type AgentAuthContext = {
   tokenPrefix: string;
   label: string;
   scopes: AgentTokenScope[];
+  // inspiration:adapt tokens: the world roots they may work on.
+  worldIds?: string[];
 };
 
 export class AgentAuthError extends Error {
@@ -60,10 +64,7 @@ const bearerTokenFromRequest = (request: Request) => {
   return token || undefined;
 };
 
-export const requireAgentAuth = async (
-  request: Request,
-  requiredScope: AgentTokenScope,
-): Promise<AgentAuthContext> => {
+const authenticate = async (request: Request): Promise<AgentAuthContext> => {
   const token = bearerTokenFromRequest(request);
   if (!token) {
     throw new AgentAuthError("Missing bearer token.");
@@ -80,6 +81,14 @@ export const requireAgentAuth = async (
     );
   }
 
+  return auth;
+};
+
+export const requireAgentAuth = async (
+  request: Request,
+  requiredScope: AgentTokenScope,
+): Promise<AgentAuthContext> => {
+  const auth = await authenticate(request);
   // Authentication and permission failures need different responses. A valid
   // token without Delete permission must not be treated as an expired token,
   // and reconnecting never grants a scope without the owner's consent.
@@ -91,4 +100,20 @@ export const requireAgentAuth = async (
   }
 
   return auth;
+};
+
+/** Any one of the scopes is enough; returns which one let the token in. */
+export const requireAgentAuthAny = async (
+  request: Request,
+  allowed: readonly AgentTokenScope[],
+): Promise<AgentAuthContext & { granted: AgentTokenScope }> => {
+  const auth = await authenticate(request);
+  const granted = grantingScope(auth, allowed);
+  if (!granted) {
+    throw new AgentAuthError(
+      `This agent token cannot do this (needs one of: ${allowed.join(", ")}). The signed-in gallery owner can edit this token's permissions at /agents.`,
+      403,
+    );
+  }
+  return { ...auth, granted };
 };

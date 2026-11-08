@@ -6,6 +6,7 @@ import {
 } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { inspirationJobStatusValidator } from "./inspirationValidators";
+import { privateFilesBlockingProcessor } from "./inspirationPrivate";
 import { INSPIRATION_DISPATCH as D, cleanLine, cycleStartAt } from "../lib/inspiration";
 
 // Dispatch safety for inspiration generation. The rules, enforced here:
@@ -320,6 +321,11 @@ export const reserveInspirationJob = ownerMutation({
     if (adaptation!.status === "approved") fail("This adaptation is approved. A new version needs his redo first.");
     const source = await ctx.db.get(adaptation!.sourceId);
     if (!source || source.review === "dropped") fail("Michael dropped this source. No new spend on it.");
+    // Private originals reach an outside processor only once Michael cleared it for this source.
+    const unclearedFiles = await privateFilesBlockingProcessor(ctx, owner, source!._id, provider);
+    if (unclearedFiles > 0) {
+      fail(`Michael has not cleared ${provider} for this source's private files (${unclearedFiles}). Nothing was reserved; he clears a processor on the source page.`);
+    }
     const prior = await ctx.db.query("inspirationJobs").withIndex("by_adaptation_createdAt", (q) => q.eq("adaptationId", adaptation!._id))
       .order("desc").take(D.listed);
     const open = prior.find((job) => OPEN.has(job.status));

@@ -535,10 +535,31 @@ only plain collections may be children. One level deep.
 - `inspirationPrivateMedia`: personal originals in Convex file storage
   (`storageId`, never a public URL), optional `sourceId`, `ingestKey`, `kind`
   image | video | audio, `contentType`, `size`, hex `sha256` from storage's
-  own record, `externalProcessing` none. Served only by
-  `/api/inspiration/media/<id>` (session or owner agent token, `private,
-  no-store`, byte ranges) through the Convex HTTP action
-  `/inspiration/private-media`.
+  own record, `signature` (what the first bytes are; checked against the
+  type before the row exists), `captureId`, `derivatives` pending | ready |
+  original_only | failed with `displayStorageId` / `thumbStorageId` (WebP,
+  no EXIF/GPS/ICC), `externalProcessing` none | cleared with
+  `clearedProcessors` [{name, clearedAt}]. Served only by
+  `/api/inspiration/media/<id>[?variant=display|thumb|original][&download=1]`
+  (session or owner agent token, `private, no-store`, byte ranges) through
+  the Convex HTTP action `/inspiration/private-media`; no variant = the clean
+  copy when there is one. Attach runs `inspirationPrivateNode:attachPrivateMedia`
+  (sniff, record, cut copies). Delete and processor clearance are
+  `ownerSessionMutation`s; `inspirationPrivateDeletions` keeps a tombstone
+  (hash, size, type, when, by).
+- `inspirationCaptures`: one per intake event and representation:
+  `sourceId`, `captureKey`, `captureRevision`, `representation`, `platform`,
+  `via` {channel telegram | share_sheet | browser | agent | import, chatType,
+  chatId, senderId, messageId, bot, forwardedFrom} (Telegram ids are stored,
+  never returned by reads), `sourceUrl`, `creator`, `caption`, `text`,
+  `sourceCollections`, `assetIds`, `contentHashes`, `privateMediaIds`.
+  Unique per (owner, key, revision, representation); a key belongs to one
+  source.
+- `assetCaptures`: every other source a deduplicated asset was saved from
+  (`sourceUrl`, `ingestKey`, `ingestSource`, `matchedBy` contentHash |
+  ingestKey); read as `alsoSavedFrom` on `get_gallery_item`.
+- `agentTokens.scopes` gains `inspiration:capture` and `inspiration:adapt`;
+  `worldIds` lists the projects an adapt token may work on.
 - `assetComments.source` gains `inspiration`: a source note mirrored onto the
   lead asset's thread; it opens no task.
 - `tasks.source` gains `inspiration`: a redo task, `sourceRef` = the event id.

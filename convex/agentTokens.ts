@@ -1,6 +1,6 @@
 import { ConvexError, v, type Infer } from "convex/values";
-import type { Doc } from "./_generated/dataModel";
-import { mutation, query } from "./_generated/server";
+import type { Doc, Id } from "./_generated/dataModel";
+import { mutation, query, type MutationCtx } from "./_generated/server";
 import { agentTokenScopeValidator } from "./validators";
 
 type AgentTokenScope = Infer<typeof agentTokenScopeValidator>;
@@ -12,6 +12,7 @@ const agentTokenPublicValidator = v.object({
   tokenPrefix: v.string(),
   label: v.string(),
   scopes: v.array(agentTokenScopeValidator),
+  worldIds: v.optional(v.array(v.id("folders"))),
   canEditScopes: v.boolean(),
   expiresAt: v.optional(v.number()),
   revokedAt: v.optional(v.number()),
@@ -26,6 +27,7 @@ const authenticatedTokenValidator = v.object({
   tokenPrefix: v.string(),
   label: v.string(),
   scopes: v.array(agentTokenScopeValidator),
+  worldIds: v.optional(v.array(v.id("folders"))),
 });
 
 const resolveIssuerSecret = () =>
@@ -56,6 +58,28 @@ const normalizeScopes = (scopes: AgentTokenScope[] | undefined) => {
   return Array.from(new Set(values));
 };
 
+// inspiration:adapt is world-scoped: it needs at least one of the owner's
+// world roots, and only that scope carries worlds.
+const normalizeWorlds = async (
+  ctx: MutationCtx,
+  ownerUserId: string,
+  scopes: AgentTokenScope[],
+  worldIds: Id<"folders">[] | undefined,
+) => {
+  if (!scopes.includes("inspiration:adapt")) return undefined;
+  const unique = Array.from(new Set(worldIds ?? [])).slice(0, 20);
+  if (unique.length === 0) {
+    throw new ConvexError("Pick at least one project for a token that makes takes.");
+  }
+  for (const id of unique) {
+    const folder = await ctx.db.get(id);
+    if (!folder || folder.ownerUserId !== ownerUserId || folder.parentFolderId !== undefined || folder.kind !== undefined) {
+      throw new ConvexError("A takes token works on your own projects (root collections) only.");
+    }
+  }
+  return unique;
+};
+
 // The label check conservatively protects older OAuth tokens minted before
 // durable oauthCodeHash storage. Neither kind of OAuth grant is editable here.
 const isOAuthToken = (token: Doc<"agentTokens">) =>
@@ -68,6 +92,7 @@ const toPublicToken = (token: Doc<"agentTokens">) => ({
   tokenPrefix: token.tokenPrefix,
   label: token.label,
   scopes: token.scopes,
+  ...(token.worldIds ? { worldIds: token.worldIds } : {}),
   canEditScopes:
     !isOAuthToken(token) &&
     !token.revokedAt &&
@@ -88,6 +113,7 @@ export const createAgentToken = mutation({
     tokenPrefix: v.string(),
     label: v.optional(v.string()),
     scopes: v.optional(v.array(agentTokenScopeValidator)),
+    worldIds: v.optional(v.array(v.id("folders"))),
     expiresAt: v.optional(v.number()),
   },
   returns: agentTokenPublicValidator,
@@ -122,13 +148,16 @@ export const createAgentToken = mutation({
     }
 
     const now = Date.now();
+    const scopes = normalizeScopes(args.scopes);
+    const worldIds = await normalizeWorlds(ctx, ownerUserId, scopes, args.worldIds);
     const tokenId = await ctx.db.insert("agentTokens", {
       ownerUserId,
       tokenHash,
       ...(oauthCodeHash ? { oauthCodeHash } : {}),
       tokenPrefix,
       label: normalizeLabel(args.label),
-      scopes: normalizeScopes(args.scopes),
+      scopes,
+      ...(worldIds ? { worldIds } : {}),
       expiresAt: args.expiresAt,
       createdAt: now,
       updatedAt: now,
@@ -212,6 +241,7 @@ export const updateAgentTokenScopes = mutation({
     ownerUserId: v.string(),
     tokenId: v.id("agentTokens"),
     scopes: v.array(agentTokenScopeValidator),
+    worldIds: v.optional(v.array(v.id("folders"))),
   },
   returns: agentTokenPublicValidator,
   handler: async (ctx, args) => {
@@ -237,15 +267,18 @@ export const updateAgentTokenScopes = mutation({
     if (token.revokedAt || (token.expiresAt && token.expiresAt <= now)) {
       throw new ConvexError("Only an active token's permissions can be changed.");
     }
+    const worldIds = await normalizeWorlds(ctx, ownerUserId, scopes, args.worldIds ?? token.worldIds);
+    const sameWorlds = (worldIds ?? []).join() === (token.worldIds ?? []).join();
     if (
+      sameWorlds &&
       scopes.length === token.scopes.length &&
       scopes.every((scope) => token.scopes.includes(scope))
     ) {
       return toPublicToken(token);
     }
 
-    await ctx.db.patch(token._id, { scopes, updatedAt: now });
-    return toPublicToken({ ...token, scopes, updatedAt: now });
+    await ctx.db.patch(token._id, { scopes, worldIds, updatedAt: now });
+    return toPublicToken({ ...token, scopes, worldIds, updatedAt: now });
   },
 });
 
@@ -288,6 +321,7 @@ export const authenticateAgentToken = mutation({
       tokenPrefix: token.tokenPrefix,
       label: token.label,
       scopes: token.scopes,
+      ...(token.worldIds ? { worldIds: token.worldIds } : {}),
     };
   },
 });

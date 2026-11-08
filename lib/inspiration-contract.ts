@@ -25,6 +25,7 @@ export const inspirationListSchema = z.object({
   status: z.enum(INSPIRATION_ADAPTATION_STATUSES).optional(),
   includeDrafts: z.boolean().optional().describe("Include each adaptation's newest unpromoted output. Off by default: drafts are not production material. Turn it on only when you are deliberately building from inspiration."),
   before: z.number().optional().describe("Cursor: the nextBefore of the previous page."),
+  beforeTie: z.number().optional().describe("Cursor tie-break: the nextBeforeTie of the previous page. Pass it with before so sources saved in the same millisecond are not skipped."),
   limit: z.number().int().min(1).max(L.page).optional(),
 });
 
@@ -38,6 +39,21 @@ export const inspirationFeedbackSchema = z.object({
   sourceId: sourceRef().optional(),
   adaptationId: z.string().optional(),
   limit: z.number().int().min(1).max(L.events).optional(),
+});
+
+export const inspirationCaptureSchema = z.object({
+  key: z.string().min(1).max(L.ingestKey).optional().describe("The intake identity: telegram:dm:<messageId>, instagram:<shortcode>, x:<postId>. Default: the source ingestKey."),
+  revision: z.number().int().min(1).max(10_000).optional().describe("A Telegram message edit is revision 2, 3 ... under the same key: a new capture row, never a new source and never a new take."),
+  representation: z.enum(INSPIRATION_PRESERVATION).optional().describe("What this capture holds. Default: preservation. A screenshot first and the full file later are two captures; the source keeps both and its preservation upgrades."),
+  via: z.object({
+    channel: z.enum(["telegram", "share_sheet", "browser", "agent", "import"]),
+    chatType: z.enum(["private", "group", "supergroup", "channel"]).optional().describe("Telegram: the chat type from the update. Only private is accepted."),
+    chatId: z.union([z.string(), z.number()]).optional().describe("Telegram: message.chat.id."),
+    senderId: z.union([z.string(), z.number()]).optional().describe("Telegram: message.from.id, the verified numeric sender. Must be Michael's own Telegram id."),
+    messageId: z.union([z.string(), z.number()]).optional(),
+    bot: z.string().max(80).optional().describe("The bot username that received it."),
+    forwardedFrom: z.string().max(200).optional().describe("A forwarded post's original author (data only, never identity)."),
+  }).optional(),
 });
 
 export const inspirationRegisterSchema = z.object({
@@ -58,6 +74,7 @@ export const inspirationRegisterSchema = z.object({
   sourceCollections: z.array(z.string().max(L.label)).max(L.sourceCollections).optional().describe("Observed source collections (an Instagram Saved collection name): provenance and a routing hint, not a world."),
   savedBecause: z.string().max(L.note).optional().describe("Why Michael saved it, only when he said so. Never invent a reason."),
   capturedAt: z.number().optional(),
+  capture: inspirationCaptureSchema.optional().describe("The intake event: its own key, revision, representation and the channel it came through. Every register records one capture; send this to keep separate contexts (two platforms with the same bytes, a screenshot then the full file, a Telegram edit)."),
 });
 
 export const inspirationProposeSchema = z.object({
@@ -145,4 +162,5 @@ export const inspirationPrivateMediaSchema = z.object({
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional(),
   label: z.string().max(120).optional(),
+  captureKey: z.string().min(1).max(L.ingestKey).optional().describe("attach: the capture key the source was registered with (capture.key), so these bytes are filed under that intake event."),
 });

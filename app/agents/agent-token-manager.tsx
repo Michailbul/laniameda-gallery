@@ -15,14 +15,16 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useTelegramAuth } from "@/components/TelegramAuthProvider";
 import { requestJson } from "@/lib/app-api";
-
-type AgentTokenScope = "gallery:read" | "gallery:write" | "gallery:delete";
+import { useConvexAuth, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { AGENT_TOKEN_SCOPES, SCOPE_HINT, SCOPE_LABEL, type AgentTokenScope } from "@/lib/agent-scopes";
 
 type AgentToken = {
   _id: string;
   tokenPrefix: string;
   label: string;
   scopes: AgentTokenScope[];
+  worldIds?: string[];
   canEditScopes?: boolean;
   expiresAt?: number;
   revokedAt?: number;
@@ -42,11 +44,38 @@ type TokenUpdateResponse = {
   token: AgentToken;
 };
 
-const SCOPES: Array<{ value: AgentTokenScope; label: string }> = [
-  { value: "gallery:read", label: "Read" },
-  { value: "gallery:write", label: "Write" },
-  { value: "gallery:delete", label: "Delete" },
-];
+const SCOPES: Array<{ value: AgentTokenScope; label: string; hint: string }> = AGENT_TOKEN_SCOPES.map((value) => ({
+  value, label: SCOPE_LABEL[value], hint: SCOPE_HINT[value],
+}));
+
+type WorldOption = { worldId: string; name: string };
+
+/** The projects a takes-only token may work on (inspiration:adapt). */
+function ProjectPicker({ worlds, value, onChange, disabled }: {
+  worlds: WorldOption[] | undefined; value: string[]; onChange: (next: string[]) => void; disabled?: boolean;
+}) {
+  if (!worlds) return <p className="mt-2 text-xs text-neutral-500">Loading projects…</p>;
+  return (
+    <div className="mt-2 border-l-2 border-[var(--line)] pl-3">
+      <div className="mb-1 text-xs font-medium text-neutral-700">Projects it may make takes for</div>
+      <div className="flex flex-wrap gap-x-4 gap-y-2">
+        {worlds.map((world) => (
+          <label key={world.worldId} className="flex items-center gap-2 text-xs text-neutral-700">
+            <Checkbox
+              checked={value.includes(world.worldId)}
+              disabled={disabled}
+              onCheckedChange={(checked) => onChange(checked === true
+                ? Array.from(new Set([...value, world.worldId]))
+                : value.filter((id) => id !== world.worldId))}
+            />
+            {world.name}
+          </label>
+        ))}
+      </div>
+      {value.length === 0 ? <p className="mt-1 text-xs text-red-700">Pick at least one project.</p> : null}
+    </div>
+  );
+}
 
 const formatDate = (value?: number) => {
   if (!value) return "Never";
@@ -72,10 +101,16 @@ export function AgentTokenManager() {
   const [busy, setBusy] = useState(false);
   const [editingTokenId, setEditingTokenId] = useState<string | null>(null);
   const [editedScopes, setEditedScopes] = useState<AgentTokenScope[]>([]);
+  const [worldIds, setWorldIds] = useState<string[]>([]);
+  const [editedWorldIds, setEditedWorldIds] = useState<string[]>([]);
+  const { isAuthenticated } = useConvexAuth();
+  const worldRows = useQuery(api.worlds.listWorlds, isAuthenticated && user ? { ownerUserId: user.ownerUserId } : "skip");
+  const worlds = useMemo(() => worldRows?.map((row) => ({ worldId: row.worldId as string, name: row.name })), [worldRows]);
+  const worldName = useCallback((id: string) => worlds?.find((world) => world.worldId === id)?.name ?? "a project", [worlds]);
 
   const canCreate = useMemo(
-    () => Boolean(label.trim()) && scopes.length > 0 && !busy,
-    [busy, label, scopes.length],
+    () => Boolean(label.trim()) && scopes.length > 0 && !busy && (!scopes.includes("inspiration:adapt") || worldIds.length > 0),
+    [busy, label, scopes, worldIds.length],
   );
 
   const loadTokens = useCallback(async () => {
@@ -111,6 +146,7 @@ export function AgentTokenManager() {
         body: JSON.stringify({
           label,
           scopes,
+          ...(scopes.includes("inspiration:adapt") ? { worldIds } : {}),
           expiresInDays: Number(expiresInDays) || undefined,
         }),
       });
@@ -140,11 +176,13 @@ export function AgentTokenManager() {
     if (!token.canEditScopes || busy) return;
     setEditingTokenId(token._id);
     setEditedScopes([...token.scopes]);
+    setEditedWorldIds([...(token.worldIds ?? [])]);
     setError(null);
   };
 
   const savePermissions = async () => {
     if (!editingTokenId || editedScopes.length === 0 || busy) return;
+    if (editedScopes.includes("inspiration:adapt") && editedWorldIds.length === 0) return;
     setBusy(true);
     setError(null);
     try {
@@ -153,7 +191,10 @@ export function AgentTokenManager() {
         {
           method: "PATCH",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ scopes: editedScopes }),
+          body: JSON.stringify({
+            scopes: editedScopes,
+            ...(editedScopes.includes("inspiration:adapt") ? { worldIds: editedWorldIds } : {}),
+          }),
         },
       );
       setTokens((current) =>
@@ -270,10 +311,20 @@ export function AgentTokenManager() {
                         checked={scopes.includes(scope.value)}
                         onCheckedChange={() => toggleScope(scope.value)}
                       />
-                      {scope.label}
+                      <span>
+                        {scope.label}
+                        <span className="block text-[11px] text-neutral-500">{scope.hint}</span>
+                      </span>
                     </label>
                   ))}
                 </div>
+                {scopes.includes("inspiration:adapt") ? (
+                  <ProjectPicker worlds={worlds} value={worldIds} onChange={setWorldIds} disabled={busy} />
+                ) : null}
+                <p className="mt-3 text-xs text-neutral-500">
+                  For a helper that only saves inspiration, tick Capture alone. For a project helper, tick
+                  Takes alone and pick its projects. Neither can read or change the rest of the gallery.
+                </p>
                 <p className="mt-3 text-xs text-neutral-500">
                   Delete permits removing content. Agents still need your explicit
                   approval for the named items before deleting them.
@@ -304,7 +355,8 @@ export function AgentTokenManager() {
                       <div className="truncate font-medium">{token.label}</div>
                       <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-neutral-500">
                         <span>{token.tokenPrefix}</span>
-                        <span>{token.scopes.join(", ")}</span>
+                        <span>{token.scopes.map((scope) => SCOPE_LABEL[scope] ?? scope).join(", ")}</span>
+                        {token.worldIds?.length ? <span>· {token.worldIds.map(worldName).join(", ")}</span> : null}
                       </div>
                       <div className="mt-1 text-neutral-500 sm:hidden">
                         Last used {formatDate(token.lastUsedAt)} · Expires {formatDate(token.expiresAt)}
@@ -356,13 +408,16 @@ export function AgentTokenManager() {
                           </label>
                         ))}
                       </div>
+                      {editedScopes.includes("inspiration:adapt") ? (
+                        <ProjectPicker worlds={worlds} value={editedWorldIds} onChange={setEditedWorldIds} disabled={busy} />
+                      ) : null}
                       <p className="mt-3 text-neutral-500">
                         Changes apply to this connection immediately; its token stays the same.
                         Enabling Delete grants access, not approval to delete any item.
                         Agents must obtain your approval for each named item or batch.
                       </p>
                       <div className="mt-3 flex gap-2">
-                        <Button disabled={busy || editedScopes.length === 0} onClick={() => void savePermissions()}>
+                        <Button disabled={busy || editedScopes.length === 0 || (editedScopes.includes("inspiration:adapt") && editedWorldIds.length === 0)} onClick={() => void savePermissions()}>
                           Save permissions
                         </Button>
                         <Button variant="outline" disabled={busy} onClick={() => setEditingTokenId(null)}>

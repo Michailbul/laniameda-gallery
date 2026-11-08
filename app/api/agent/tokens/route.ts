@@ -9,6 +9,7 @@ import {
   tokenPrefix,
   type AgentTokenScope,
 } from "@/lib/server/agent-auth";
+import { isAgentTokenScope } from "@/lib/agent-scopes";
 
 const createAgentTokenMutation = makeFunctionReference<"mutation">(
   "agentTokens:createAgentToken",
@@ -17,11 +18,6 @@ const listAgentTokensQuery = makeFunctionReference<"query">(
   "agentTokens:listAgentTokens",
 );
 
-const VALID_SCOPES = new Set<AgentTokenScope>([
-  "gallery:read",
-  "gallery:write",
-  "gallery:delete",
-]);
 
 const parseBody = async (request: Request) => {
   try {
@@ -36,12 +32,15 @@ const parseScopes = (value: unknown): AgentTokenScope[] | undefined => {
     return undefined;
   }
 
-  const scopes = value.filter(
-    (scope): scope is AgentTokenScope =>
-      typeof scope === "string" && VALID_SCOPES.has(scope as AgentTokenScope),
-  );
+  const scopes = value.filter((scope): scope is AgentTokenScope => isAgentTokenScope(scope));
   return scopes.length > 0 ? Array.from(new Set(scopes)) : undefined;
 };
+
+const parseWorldIds = (value: unknown) =>
+  Array.isArray(value)
+    ? value.filter((id): id is string => typeof id === "string" && id.length > 0 && id.length <= 64)
+      .map((id) => id.replace(/^collection:/, "")).slice(0, 20)
+    : undefined;
 
 const parseExpiresAt = (value: unknown) => {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
@@ -86,6 +85,7 @@ export async function POST(request: Request) {
       tokenPrefix: tokenPrefix(rawToken),
       label: typeof body.label === "string" ? body.label : undefined,
       scopes: parseScopes(body.scopes),
+      worldIds: parseWorldIds(body.worldIds),
       expiresAt: parseExpiresAt(body.expiresInDays),
     });
 

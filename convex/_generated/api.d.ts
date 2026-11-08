@@ -60,6 +60,7 @@ import type * as inspiration from "../inspiration.js";
 import type * as inspirationDispatch from "../inspirationDispatch.js";
 import type * as inspirationMedia from "../inspirationMedia.js";
 import type * as inspirationPrivate from "../inspirationPrivate.js";
+import type * as inspirationPrivateNode from "../inspirationPrivateNode.js";
 import type * as inspirationValidators from "../inspirationValidators.js";
 import type * as inventoryExport from "../inventoryExport.js";
 import type * as membershipAudit from "../membershipAudit.js";
@@ -176,6 +177,7 @@ declare const fullApi: ApiFromModules<{
   inspirationDispatch: typeof inspirationDispatch;
   inspirationMedia: typeof inspirationMedia;
   inspirationPrivate: typeof inspirationPrivate;
+  inspirationPrivateNode: typeof inspirationPrivateNode;
   inspirationValidators: typeof inspirationValidators;
   inventoryExport: typeof inventoryExport;
   membershipAudit: typeof membershipAudit;

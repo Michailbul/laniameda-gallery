@@ -47,6 +47,12 @@ direct-to-world filing in the steps below.
   go through this path: gallery media URLs are public. Keep them with
   `inspiration_private_media` (references/inspiration.md, "Personal originals
   stay private"); files over 20 MB stay on the iMac.
+- Every `register_inspiration` from Telegram carries `capture.via` with the
+  update's own sender id, chat id, chat type and message id
+  (references/inspiration.md, "Capture"): only Michael's private chat with
+  the bot is accepted. Each arrival (a screenshot, then the full file; the
+  same picture from another platform; an edited message) is its own capture,
+  so no context is lost to dedupe.
 - Save with assetRole inspiration_capture, the inspiration piece type, the
   real medium (live-action for photos, animation for drawn or rendered work),
   sourceUrl when a permalink is known, an agentDescription of what it shows
