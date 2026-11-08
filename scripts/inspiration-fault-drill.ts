@@ -155,7 +155,8 @@ const main = async () => {
     `${jobs.length} job, held $${final.heldUsd}, settled $${final.settledUsd}`);
 
   await agent.mutation(api.inspirationDispatch.releaseInspirationDispatcher, { ownerUserId: owner, nonce: leaseB.nonce, fence: leaseB.fence });
-  await session.mutation(api.inspirationDispatch.setInspirationDispatch, { ownerUserId: owner, expectedRevision: final.revision, paused: true });
+  const released = await agent.query(api.inspirationDispatch.getInspirationDispatch, { ownerUserId: owner });
+  await session.mutation(api.inspirationDispatch.setInspirationDispatch, { ownerUserId: owner, expectedRevision: released.revision, paused: true });
   const failed = steps.filter((step) => !step.ok);
   console.log(JSON.stringify({ owner, adaptationId, jobId, passed: steps.length - failed.length, failed: failed.length }));
   if (failed.length) process.exit(1);
