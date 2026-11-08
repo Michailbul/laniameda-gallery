@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.26.0 (8 Nov 2026)
+
+- The dock reads in labelled lines: a world with many boards shows them by
+  family (FILM, HALLOWEEN, then MORE), each board with its cover picture; a
+  small world is one MOODBOARDS line. PROFILES has its own line under them.
+- A world's main profiles come first, the rest follow quieter after a
+  hairline. Dear Annete: DA4, DA 5, DA V3, DA v8.2, DEAR ANNETTE 2, CINEMATIC,
+  LOCATIONS. Shift-click a profile to move it into or out of the main group
+  (saved per world, synced).
+- An update now reaches open Midjourney tabs without a page reload: the new
+  copy brings the dock, queue, quick edit and packs, and an older copy's dock
+  and quick edit box hide. A copy whose extension was reloaded takes its
+  dock away instead of fighting the new one.
+- A world without moodboard codes says so on the moodboards line and still
+  shows its profiles.
+
 ## 0.25.1 (8 Nov 2026)
 
 - A preset carried into the next prompt only fills in settings the prompt

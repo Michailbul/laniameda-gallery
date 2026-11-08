@@ -2298,11 +2298,12 @@ html.stg-x-capturing .stg-badge {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  padding: 4px;
+  gap: 5px;
+  padding: 7px 8px 6px;
   color: #fff4ea;
   background: #0a0805;
   border: 1px solid rgba(255, 244, 234, 0.12);
-  border-radius: 11px;
+  border-radius: 12px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
   font: 500 11.5px/1.2 Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
   font-style: normal;
@@ -2336,9 +2337,93 @@ html.stg-x-capturing .stg-badge {
   min-height: 24px;
 }
 
-.stg-mb-strip,
+.stg-mb-row--boards,
+.stg-mb-row--profiles,
+.stg-mb-group {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.stg-mb-row--boards > .stg-mb-label,
+.stg-mb-row--profiles > .stg-mb-label,
+.stg-mb-group > .stg-mb-label {
+  flex: 0 0 78px;
+}
+
+.stg-mb-row--boards > .stg-mb-status,
+.stg-mb-chips,
 .stg-mb-pstrip {
-  display: contents;
+  flex: 1 1 0;
+}
+
+/* Small mono label at the start of each line: a board family (FILM,
+   HALLOWEEN), MOODBOARDS when the world has no families, PROFILES. */
+.stg-mb-label {
+  overflow: hidden;
+  padding-left: 3px;
+  color: rgba(255, 244, 234, 0.36);
+  font: 600 9px/26px "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.12em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.stg-mb-label--family {
+  color: rgba(242, 97, 87, 0.8);
+  font-weight: 700;
+}
+
+.stg-mb-row--profiles .stg-mb-label {
+  line-height: 24px;
+}
+
+.stg-mb-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stg-mb-strip:empty {
+  display: none;
+}
+
+.stg-mb-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stg-mb-row--profiles {
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 244, 234, 0.07);
+}
+
+.stg-mb-pstrip,
+.stg-mb-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* The world's other profiles: after a hairline, quieter. */
+.stg-mb-more {
+  margin-left: 4px;
+  padding-left: 8px;
+  border-left: 1px solid rgba(255, 244, 234, 0.1);
+}
+
+.stg-mb-pstrip > .stg-mb-more:first-child {
+  margin-left: 0;
+  padding-left: 0;
+  border-left: 0;
 }
 
 .stg-mb-worldbox {
@@ -2364,7 +2449,7 @@ html.stg-x-capturing .stg-badge {
     no-repeat right 7px center;
   border: 0;
   outline: none;
-  font: 700 10px/22px "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  font: 700 10px/22px "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.04em;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -2404,22 +2489,46 @@ html.stg-x-capturing .stg-badge {
 }
 
 .stg-mb-chip {
+  display: inline-flex;
   flex: none;
-  height: 24px;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
   margin: 0;
-  padding: 0 8px;
-  color: #fff4ea;
-  background: rgba(255, 244, 234, 0.07);
+  padding: 0 10px 0 3px;
+  color: rgba(255, 244, 234, 0.9);
+  background: rgba(255, 244, 234, 0.06);
   border: 1px solid transparent;
   border-radius: 999px;
-  font: 500 11.5px/22px Inter, ui-sans-serif, system-ui, sans-serif;
+  font: 500 12px/24px Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
   white-space: nowrap;
   cursor: pointer;
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 
+.stg-mb-chip > .stg-mb-chip-name:first-child {
+  padding-left: 7px;
+}
+
+/* The board's cover, so it reads by picture before by name. */
+.stg-mb-thumb {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  object-fit: cover;
+  background: #191919;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px rgba(255, 244, 234, 0.12);
+}
+
+.stg-mb-chip--on .stg-mb-thumb {
+  box-shadow: 0 0 0 1.5px #f26157;
+}
+
 .stg-mb-chip:hover {
-  background: rgba(255, 244, 234, 0.14);
+  color: #fff4ea;
+  background: rgba(255, 244, 234, 0.13);
 }
 
 .stg-mb-chip--on,
@@ -2456,7 +2565,7 @@ html.stg-x-capturing .stg-badge {
   background: transparent;
   border: 1px solid rgba(121, 183, 145, 0.45);
   border-radius: 6px;
-  font: 600 10px/22px "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  font: 600 10px/22px "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
@@ -2466,6 +2575,16 @@ html.stg-x-capturing .stg-badge {
 
 .stg-mb-pchip:hover {
   background: rgba(121, 183, 145, 0.14);
+}
+
+.stg-mb-pchip--more {
+  color: rgba(255, 244, 234, 0.55);
+  border-color: rgba(255, 244, 234, 0.12);
+}
+
+.stg-mb-pchip--more:hover {
+  color: #fff4ea;
+  border-color: rgba(121, 183, 145, 0.45);
 }
 
 .stg-mb-pchip--on,
@@ -2483,7 +2602,7 @@ html.stg-x-capturing .stg-badge {
   text-align: right;
   overflow: hidden;
   color: #f26157;
-  font: 500 10px/24px "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  font: 500 10px/24px "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2501,9 +2620,10 @@ html.stg-x-capturing .stg-badge {
 }
 
 .stg-mb-status {
-  padding: 0 4px;
+  padding: 0 2px;
   color: rgba(255, 244, 234, 0.5);
-  font-size: 11px;
+  font-size: 11.5px;
+  line-height: 26px;
 }
 
 .stg-mb-status--error {
@@ -2513,8 +2633,8 @@ html.stg-x-capturing .stg-badge {
 /* Second line: world, presets, Save, flag, Packs. Smaller than the first. */
 .stg-mb-row--meta {
   min-height: 22px;
-  margin-top: 4px;
-  padding-top: 4px;
+  margin-top: 1px;
+  padding-top: 6px;
   border-top: 1px solid rgba(255, 244, 234, 0.07);
 }
 
@@ -2608,7 +2728,7 @@ html.stg-x-capturing .stg-badge {
   background: transparent;
   border: 1px dashed rgba(255, 244, 234, 0.22);
   border-radius: 7px;
-  font: 600 10px/20px "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  font: 600 10px/20px "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;

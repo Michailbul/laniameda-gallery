@@ -4,6 +4,7 @@
   const WORLD_STORAGE_KEY = "stgMoodboardWorld";
   const STICKY_STORAGE_KEY = "stgMoodboardSticky";
   const PRESETS_STORAGE_PREFIX = "stgMjPresets:";
+  const PINS_STORAGE_PREFIX = "stgMjProfilePins:";
   const DEFAULT_WORLD_KEY = "dear-annete";
   const REFRESH_INTERVAL_MS = 45000;
   const DOCK_GAP_PX = 6;
@@ -337,7 +338,78 @@
     );
   }
 
+  // A world with many boards shows them by family, one line each.
+  const GROUP_FROM = 9;
+
+  // Boards fall into families by the part of their name before "·":
+  // "DA FILM · Couture" is in FILM, "DA HALLOWEEN · Candle" in HALLOWEEN.
+  // A short world prefix (DA, AN) is dropped. A family of one board, and a
+  // board without a family, go last under "More". A world with fewer than
+  // GROUP_FROM boards, or with one family, is one line without a label.
+  function groupBoards(boards) {
+    const all = Array.isArray(boards) ? boards : [];
+    if (all.length < GROUP_FROM) return all.length ? [{ label: "", boards: all.slice() }] : [];
+    const groups = [];
+    const byLabel = new Map();
+    const loose = [];
+    for (const board of all) {
+      const name = String((board && board.name) || "");
+      const cut = name.indexOf("·");
+      let label = cut < 0 ? "" : name.slice(0, cut).trim();
+      const words = label.split(/\s+/).filter(Boolean);
+      if (words.length > 1 && words[0].length <= 3) words.shift();
+      else if (words.length === 1 && words[0].length <= 3) words.length = 0;
+      label = words.join(" ").toUpperCase();
+      if (!label) {
+        loose.push(board);
+        continue;
+      }
+      if (!byLabel.has(label)) {
+        const group = { label, boards: [] };
+        byLabel.set(label, group);
+        groups.push(group);
+      }
+      byLabel.get(label).boards.push(board);
+    }
+    const families = groups.filter((group) => group.boards.length > 1);
+    for (const group of groups) if (group.boards.length === 1) loose.push(group.boards[0]);
+    if (families.length < 2 && !(families.length === 1 && loose.length)) {
+      return [{ label: "", boards: all.slice() }];
+    }
+    const order = new Map(all.map((board, index) => [board, index]));
+    loose.sort((a, b) => order.get(a) - order.get(b));
+    if (loose.length) families.push({ label: "MORE", boards: loose });
+    return families;
+  }
+
+  // "DA v8.2" and "da-v8.2" are the same profile name for pinning.
+  const profileKey = (name) => String(name || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  // The profiles Michael reaches for first in a world, in his order. The rest
+  // of the world's profiles follow, quieter. Shift-click changes the list.
+  const DEFAULT_PROFILE_PINS = {
+    "dear-annete": ["da4", "da5", "dav3", "dav82", "dearannette2", "cinematic", "locations"],
+  };
+
+  // Splits profiles into the pinned (in pin order) and the rest (in their
+  // own order). With no pin matching, every profile is main.
+  function orderProfiles(profiles, pins) {
+    const list = Array.isArray(profiles) ? profiles : [];
+    const keys = (pins || []).map(profileKey).filter(Boolean);
+    const main = [];
+    for (const key of keys) {
+      const found = list.find((profile) => profileKey(profile.name) === key);
+      if (found && !main.includes(found)) main.push(found);
+    }
+    if (!main.length) return { main: list.slice(), more: [] };
+    return { main, more: list.filter((profile) => !main.includes(profile)) };
+  }
+
   globalScope.SaveToGalleryMoodboardDock = {
+    groupBoards,
+    orderProfiles,
+    profileKey,
+    DEFAULT_PROFILE_PINS,
     setProfileFlag,
     readParams,
     setParams,
@@ -375,13 +447,19 @@
     fetchedAt: 0,
     // Saved presets of the current world (chrome.storage.sync, per world).
     presets: [],
+    // The world's main profiles as Michael set them (shift-click); null
+    // means the built-in list for the world.
+    pins: null,
   };
+  const INSTANCE = Math.random().toString(36).slice(2, 10);
+  let observer = null;
   let dock = null;
   let worldSelect = null;
   let activeLabel = null;
   let strip = null;
-  let profileSep = null;
   let profileStrip = null;
+  let boardRow = null;
+  let profileRow = null;
   let statusLine = null;
   let packs = null;
   let presetBox = null;
@@ -575,13 +653,44 @@
     }
   }
 
+  // This copy's own dock only. A copy left behind by an extension update in
+  // an open tab keeps its dock, hidden by the rule below, so the two never
+  // remove each other's dock in a loop.
   function dropDock() {
-    document
-      .querySelectorAll(".stg-mb-dock, .stg-mb-snap, .stg-pp-bar")
-      .forEach((node) => node.remove());
+    dock?.remove();
+    snapshot?.remove();
     dock = null;
     snapshot = null;
     packs = null;
+  }
+
+  // An update injects a fresh copy into open Midjourney tabs. Docks and quick
+  // edit boxes of older copies hide; the old packs bar (before 0.24) too.
+  function hideOlderCopies() {
+    const rule = `.stg-mb-dock:not([data-stg-instance="${INSTANCE}"]),.stg-mb-snap:not([data-stg-instance="${INSTANCE}"]),.stg-pp-bar{display:none!important}`;
+    let style = document.getElementById("stg-mb-retire");
+    if (!style) {
+      style = document.createElement("style");
+      style.id = "stg-mb-retire";
+      (document.head || document.documentElement).appendChild(style);
+    }
+    style.textContent = rule;
+    globalScope.SaveToGalleryMoodboardDock.instance = INSTANCE;
+  }
+
+  // The extension was reloaded or updated under this tab: this copy is dead.
+  // Take its dock away and stop watching the page.
+  let retired = false;
+  function retire() {
+    if (retired) return;
+    retired = true;
+    observer?.disconnect();
+    if (textarea) {
+      textarea.removeEventListener("input", onPromptInput);
+      textarea.removeEventListener("pointerdown", engage);
+      textarea.removeEventListener("keydown", engage);
+    }
+    dropDock();
   }
 
   function askBackground(world) {
@@ -838,13 +947,13 @@
     const codes = flagCodes(value);
     const sticky = stickyCodes(stickyFor(), boardCodes(), profileCodes());
     const waiting = !wordsOf(value);
-    for (const chip of strip.children) {
+    for (const chip of strip.querySelectorAll(".stg-mb-chip")) {
       const on = active.includes(chip.dataset.code);
       chip.classList.toggle("stg-mb-chip--on", on);
       chip.classList.toggle("stg-mb-chip--armed", !on && sticky.includes(chip.dataset.code));
       chip.setAttribute("aria-pressed", on ? "true" : "false");
     }
-    for (const chip of profileStrip.children) {
+    for (const chip of profileStrip.querySelectorAll(".stg-mb-pchip")) {
       const on = codes.includes(chip.dataset.code);
       chip.classList.toggle("stg-mb-pchip--on", on);
       chip.classList.toggle("stg-mb-pchip--armed", !on && sticky.includes(chip.dataset.code));
@@ -877,6 +986,24 @@
 
   const PRESET_LIMIT = 16;
   const presetKey = (world = state.worldKey) => `${PRESETS_STORAGE_PREFIX}${world}`;
+  const pinKey = (world = state.worldKey) => `${PINS_STORAGE_PREFIX}${world}`;
+  const pinsFor = () => state.pins || DEFAULT_PROFILE_PINS[state.worldKey] || [];
+
+  // Shift-click moves a profile into the main group or back out of it.
+  function togglePin(profile) {
+    const { main, more } = orderProfiles(state.profiles, pinsFor());
+    const key = profileKey(profile.name);
+    const pinned = more.length > 0 && main.includes(profile);
+    const current = more.length ? main.map((entry) => profileKey(entry.name)) : [];
+    state.pins = pinned ? current.filter((entry) => entry !== key) : [...current, key];
+    try {
+      chrome.storage.sync.set({ [pinKey()]: state.pins });
+    } catch {
+      // storage unavailable after an extension reload
+    }
+    render();
+    showNote(pinned ? `${profile.name} moved to more` : `${profile.name} moved to main`);
+  }
   const packsApi = () => globalScope.SaveToGalleryPromptPacks;
   function packPhrase(id) {
     for (const group of globalScope.SaveToGalleryPromptPackData || []) {
@@ -1027,12 +1154,14 @@
   function loadPresets() {
     const world = state.worldKey;
     try {
-      chrome.storage.sync.get([presetKey(world)], (stored) => {
+      chrome.storage.sync.get([presetKey(world), pinKey(world)], (stored) => {
         if (world !== state.worldKey) return;
         const list = stored?.[presetKey(world)];
         state.presets = Array.isArray(list) ? list : [];
+        const pins = stored?.[pinKey(world)];
+        state.pins = Array.isArray(pins) ? pins : null;
         renderPresets();
-        syncActive();
+        render();
       });
     } catch {
       // storage unavailable after an extension reload
@@ -1203,49 +1332,79 @@
     let message = "";
     if (state.loading && !state.moodboards.length) message = "Loading moodboards…";
     else if (state.error) message = state.error;
-    else if (!state.moodboards.length && !state.profiles.length) message = "No moodboard codes in this world.";
+    else if (!state.moodboards.length) message = "None with a Midjourney code in this world yet.";
     statusLine.textContent = message;
     statusLine.hidden = !message;
     statusLine.classList.toggle("stg-mb-status--error", Boolean(state.error));
     packs?.setEnabled(worldHasPacks(state.worldKey));
 
-    const existing = strip.dataset.signature;
-    if (existing !== state.signature) {
-      strip.dataset.signature = state.signature;
+    const pins = pinsFor();
+    const signature = `${state.signature}|${pins.join(",")}`;
+    if (strip.dataset.signature !== signature) {
+      strip.dataset.signature = signature;
       strip.textContent = "";
       hideSnapshot();
-      for (const board of state.moodboards) {
-        const chip = el("button", "stg-mb-chip", chipLabel(board, state.moodboards));
-        chip.type = "button";
-        chip.dataset.code = board.mjCode;
-        chip.title = [board.name, board.collection, board.flag]
-          .filter(Boolean)
-          .join("\n");
-        chip.addEventListener("mousedown", (event) => event.preventDefault());
-        chip.addEventListener("click", () => onChipClick(board));
-        chip.addEventListener("mouseenter", () => showSnapshot(board, chip));
-        chip.addEventListener("focus", () => showSnapshot(board, chip));
-        chip.addEventListener("mouseleave", hideSnapshot);
-        chip.addEventListener("blur", hideSnapshot);
-        strip.appendChild(chip);
+      // One line per family (FILM, HALLOWEEN …), its name as the line's label.
+      for (const group of groupBoards(state.moodboards)) {
+        const line = el("div", "stg-mb-row stg-mb-group");
+        const chips = el("div", "stg-mb-chips");
+        for (const board of group.boards) chips.appendChild(boardChip(board, group.boards));
+        line.append(el("span", group.label ? "stg-mb-label stg-mb-label--family" : "stg-mb-label", group.label || "Moodboards"), chips);
+        strip.appendChild(line);
       }
       profileStrip.textContent = "";
-      for (const profile of state.profiles) {
-        const chip = el("button", "stg-mb-pchip", profile.name);
-        chip.type = "button";
-        chip.dataset.code = profile.code;
-        chip.title = [profile.name, profile.role, profile.flag].filter(Boolean).join("\n");
-        chip.addEventListener("mousedown", (event) => event.preventDefault());
-        chip.addEventListener("click", () => onProfileClick(profile));
-        chip.addEventListener("mouseenter", () => showProfileCard(profile, chip));
-        chip.addEventListener("focus", () => showProfileCard(profile, chip));
-        chip.addEventListener("mouseleave", hideSnapshot);
-        chip.addEventListener("blur", hideSnapshot);
-        profileStrip.appendChild(chip);
+      const { main, more } = orderProfiles(state.profiles, pins);
+      for (const profile of main) profileStrip.appendChild(profileChip(profile, more.length > 0));
+      if (more.length) {
+        const rest = el("div", "stg-mb-more");
+        for (const profile of more) rest.appendChild(profileChip(profile, false, true));
+        profileStrip.appendChild(rest);
       }
-      profileSep.hidden = state.profiles.length === 0 || state.moodboards.length === 0;
     }
+    boardRow.hidden = !message;
+    profileRow.hidden = !state.profiles.length;
     syncActive();
+  }
+
+  function boardChip(board, siblings) {
+    const chip = el("button", "stg-mb-chip");
+    const thumb = board.thumbUrl || (board.previews && board.previews[0] && board.previews[0].thumbUrl);
+    if (thumb) {
+      const img = el("img", "stg-mb-thumb");
+      img.alt = "";
+      img.loading = "lazy";
+      img.decoding = "async";
+      img.referrerPolicy = "no-referrer";
+      img.addEventListener("error", () => img.remove(), { once: true });
+      img.src = thumb;
+      chip.appendChild(img);
+    }
+    chip.appendChild(el("span", "stg-mb-chip-name", chipLabel(board, siblings)));
+    chip.type = "button";
+    chip.dataset.code = board.mjCode;
+    chip.title = [board.name, board.collection, board.flag].filter(Boolean).join("\n");
+    chip.addEventListener("mousedown", (event) => event.preventDefault());
+    chip.addEventListener("click", () => onChipClick(board));
+    chip.addEventListener("mouseenter", () => showSnapshot(board, chip));
+    chip.addEventListener("focus", () => showSnapshot(board, chip));
+    chip.addEventListener("mouseleave", hideSnapshot);
+    chip.addEventListener("blur", hideSnapshot);
+    return chip;
+  }
+
+  function profileChip(profile, pinned, quiet) {
+    const chip = el("button", quiet ? "stg-mb-pchip stg-mb-pchip--more" : "stg-mb-pchip", profile.name);
+    chip.type = "button";
+    chip.dataset.code = profile.code;
+    const hint = pinned ? "Shift-click: move to more" : quiet ? "Shift-click: move to main" : "Shift-click: pin first";
+    chip.title = [profile.name, profile.role, profile.flag, hint].filter(Boolean).join("\n");
+    chip.addEventListener("mousedown", (event) => event.preventDefault());
+    chip.addEventListener("click", (event) => (event.shiftKey ? togglePin(profile) : onProfileClick(profile)));
+    chip.addEventListener("mouseenter", () => showProfileCard(profile, chip));
+    chip.addEventListener("focus", () => showProfileCard(profile, chip));
+    chip.addEventListener("mouseleave", hideSnapshot);
+    chip.addEventListener("blur", hideSnapshot);
+    return chip;
   }
 
   // The quick edit (mj-quick-edit.js) follows the dock's world, so one switch
@@ -1260,10 +1419,10 @@
   // presets · Save · flag · Packs. The packs panel opens past them on demand.
   function buildDock() {
     dock = el("div", "stg-mb-dock");
+    dock.dataset.stgInstance = INSTANCE;
     dock.hidden = true;
     dock.setAttribute("role", "toolbar");
     dock.setAttribute("aria-label", "Gallery moodboards");
-    const row = el("div", "stg-mb-row");
     const world = el("div", "stg-mb-worldbox");
     worldSelect = el("select", "stg-mb-world");
     worldSelect.setAttribute("aria-label", "Gallery world");
@@ -1283,6 +1442,7 @@
       state.profiles = [];
       state.signature = "";
       state.presets = [];
+      state.pins = null;
       render();
       renderPresets();
       loadPresets();
@@ -1298,8 +1458,6 @@
 
     statusLine = el("span", "stg-mb-status");
     strip = el("div", "stg-mb-strip");
-    profileSep = el("span", "stg-mb-sep");
-    profileSep.hidden = true;
     profileStrip = el("div", "stg-mb-pstrip");
     activeLabel = el("span", "stg-mb-active");
     const createSection = globalScope.SaveToGalleryPromptPacks?.createSection;
@@ -1307,8 +1465,13 @@
       typeof createSection === "function"
         ? createSection({ getTextarea: () => textarea, onResize: queueLayout })
         : null;
-    // First line, next to the prompt: moodboards and profiles, the main thing.
-    row.append(statusLine, strip, profileSep, profileStrip);
+    // Next to the prompt, the main thing: moodboards by family, with a small
+    // cover each, then profiles (the world's main ones first).
+    boardRow = el("div", "stg-mb-row stg-mb-row--boards");
+    boardRow.append(el("span", "stg-mb-label", "Moodboards"), statusLine);
+    profileRow = el("div", "stg-mb-row stg-mb-row--profiles");
+    profileRow.hidden = true;
+    profileRow.append(el("span", "stg-mb-label", "Profiles"), profileStrip);
 
     // Second line, smaller: world, presets, Save, the flag, Packs (closed).
     const meta = el("div", "stg-mb-row stg-mb-row--meta");
@@ -1344,9 +1507,10 @@
     if (packs) meta.appendChild(packs.toggle);
 
     snapshot = el("div", "stg-mb-snap");
+    snapshot.dataset.stgInstance = INSTANCE;
     snapshot.hidden = true;
     snapshot.setAttribute("role", "tooltip");
-    dock.append(row, meta);
+    dock.append(boardRow, strip, profileRow, meta);
     if (packs) dock.appendChild(packs.section);
     dock.appendChild(snapshot);
     dock.addEventListener("mouseenter", () => setHover("dock", true));
@@ -1360,6 +1524,11 @@
 
   function layout() {
     layoutQueued = false;
+    if (retired) return;
+    if (!extensionAlive()) {
+      retire();
+      return;
+    }
     const area = findTextarea();
     if (area !== textarea) {
       if (textarea) {
@@ -1449,7 +1618,7 @@
   }
 
   function start() {
-    dropDock();
+    hideOlderCopies();
     try {
       chrome.storage.local.get([WORLD_STORAGE_KEY, STICKY_STORAGE_KEY], (stored) => {
         state.worldKey = String(stored?.[WORLD_STORAGE_KEY] || "");
@@ -1463,17 +1632,24 @@
     // Midjourney changes the page all the time (the grid loads, jobs
     // progress). While no prompt is being written and the prompt box is still
     // there, those changes need no work at all.
-    new MutationObserver((records) => {
+    observer = new MutationObserver((records) => {
       if (dock && records.every((record) => dock.contains(record.target))) return;
       if (textarea && textarea.isConnected && dock && dock.hidden && !isComposing()) {
         if (!freshPrompt && !wordsOf(textarea.value)) freshPrompt = true;
         return;
       }
       queueLayout();
-    }).observe(document.body, { childList: true, subtree: true });
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
     try {
       chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== "sync" || !changes[presetKey()]) return;
+        if (area !== "sync") return;
+        if (changes[pinKey()]) {
+          const pins = changes[pinKey()].newValue;
+          state.pins = Array.isArray(pins) ? pins : null;
+          render();
+        }
+        if (!changes[presetKey()]) return;
         const list = changes[presetKey()].newValue;
         state.presets = Array.isArray(list) ? list : [];
         renderPresets();
