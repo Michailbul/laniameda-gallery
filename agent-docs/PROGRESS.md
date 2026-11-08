@@ -27,6 +27,17 @@ Last updated: 2026-11-06
 - Spec, verification and limits (frame codes can collide at a few hundred
   frames): agent-docs/features/director-review/PRD.md.
 
+### 2026-11-08 — Midjourney dock presets, moodboards first (extension 0.25.0)
+- Dock row 1: moodboards | profiles. Row 2 (`.stg-mb-row--meta`): world,
+  presets, Save, flag, Packs (quiet, closed by default).
+- Presets live in chrome.storage.sync under `stgMjPresets:<worldKey>`:
+  `{ id, name, codes[], params, packs[] }` (max 16 per world). Apply =
+  setProfileFlag + setParams + insertPack(mode "after"); a second click
+  removes them (removeParams, removePack). Sticky now carries `params` and
+  `packs`, so an active preset rides along into the next prompt.
+- New pure helpers in moodboard-dock.js with tests: setProfileFlag,
+  readParams, setParams, removeParams, hasParams.
+
 ### 2026-11-08 — Midjourney dock: one slim line, faster (extension 0.24.0)
 - moodboard-dock.js builds one bar: world select, ↻, moodboard chips,
   profile chips, the flag (only leftover room; hidden when clipped) and the

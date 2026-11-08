@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.25.0 (8 Nov 2026)
+
+- Moodboards and profiles have the dock's first line to themselves, next to
+  the prompt. A smaller second line holds the world, presets, Save, the flag
+  and a quiet Packs button (closed by default).
+- Presets: "+ Save preset" keeps the moodboard, profiles, settings (--ar,
+  --s, --c, --w, --v, --raw, --style …) and packs in the prompt under a name,
+  per world, synced across your Chromes (chrome.storage.sync). One click sets
+  them all; a second click on the lit preset takes them out. An active preset
+  sticks: every next prompt gets it after a submit. Hover shows the board's
+  pictures and what the preset holds; × deletes, with Undo.
+
 ## 0.24.1 (8 Nov 2026)
 
 - Packs sits next to the world, so the line never breaks around it; world

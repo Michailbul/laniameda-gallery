@@ -14,6 +14,11 @@ type DockApi = {
   flagCodes: (promptText: string) => string[];
   stickyCodes: (sticky: { board?: string | null; profiles?: string[] } | null, moodboardCodes: string[], profileCodes: string[]) => string[];
   withStickyFlag: (promptText: string, codes: string[]) => string | null;
+  setProfileFlag: (promptText: string, codes: string[]) => string;
+  readParams: (promptText: string) => string;
+  setParams: (promptText: string, paramsText: string) => string;
+  removeParams: (promptText: string, paramsText: string) => string;
+  hasParams: (promptText: string, paramsText: string) => boolean;
   snapshotImages: (board: {
     previews?: { thumbUrl?: string; url?: string }[];
     thumbUrl?: string | null;
@@ -178,5 +183,51 @@ describe("sticky selection", () => {
     expect(api().withStickyFlag("a tram -p 5no6b1c", ["88ji6bg"])).toBeNull();
     expect(api().withStickyFlag("   ", ["88ji6bg"])).toBeNull();
     expect(api().withStickyFlag("a tram", [])).toBeNull();
+  });
+});
+
+describe("presets", () => {
+  const prompt = "A tram at dawn --sref https://cdn.example/a.png --ar 3:2 --stylize 100 -p m7a1 p2 --raw";
+
+  test("setProfileFlag puts exactly the preset's codes in one flag", () => {
+    expect(getApi().setProfileFlag(prompt, ["m7a3", "p3"])).toBe(
+      "A tram at dawn --sref https://cdn.example/a.png --ar 3:2 --stylize 100 -p m7a3 p3 --raw",
+    );
+    expect(getApi().setProfileFlag("A tram -p a -p b", ["c"])).toBe("A tram -p c");
+    expect(getApi().setProfileFlag("A tram", ["c", "d"])).toBe("A tram -p c d");
+  });
+
+  test("setProfileFlag with no codes drops the flag", () => {
+    expect(getApi().setProfileFlag(prompt, [])).toBe(
+      "A tram at dawn --sref https://cdn.example/a.png --ar 3:2 --stylize 100 --raw",
+    );
+  });
+
+  test("readParams keeps settings and skips image references and the profile flag", () => {
+    expect(getApi().readParams(prompt)).toBe("--ar 3:2 --stylize 100 --raw");
+    expect(getApi().readParams("A tram --seed 42 --v 8.2 --chaos 10")).toBe("--v 8.2 --chaos 10");
+  });
+
+  test("setParams replaces the same setting under its short or long name", () => {
+    expect(getApi().setParams(prompt, "--ar 16:9 --s 250")).toBe(
+      "A tram at dawn --sref https://cdn.example/a.png -p m7a1 p2 --raw --ar 16:9 --s 250",
+    );
+    expect(getApi().setParams("", "--ar 16:9")).toBe("--ar 16:9");
+    expect(getApi().setParams("A tram --sref https://x/a.png", "--s 50")).toBe("A tram --sref https://x/a.png --s 50");
+  });
+
+  test("hasParams compares values across short and long names", () => {
+    const withPreset = getApi().setParams(prompt, "--ar 16:9 --s 250");
+    expect(getApi().hasParams(withPreset, "--ar 16:9 --stylize 250")).toBe(true);
+    expect(getApi().hasParams(prompt, "--ar 16:9")).toBe(false);
+    expect(getApi().hasParams(prompt, "--raw")).toBe(true);
+  });
+
+  test("removeParams takes out only the preset's own values", () => {
+    const withPreset = getApi().setParams(prompt, "--ar 16:9 --s 250");
+    expect(getApi().removeParams(withPreset, "--ar 16:9 --s 250")).toBe(
+      "A tram at dawn --sref https://cdn.example/a.png -p m7a1 p2 --raw",
+    );
+    expect(getApi().removeParams("A tram --ar 2:3", "--ar 16:9")).toBe("A tram --ar 2:3");
   });
 });

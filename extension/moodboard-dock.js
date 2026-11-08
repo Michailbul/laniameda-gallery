@@ -3,6 +3,7 @@
 
   const WORLD_STORAGE_KEY = "stgMoodboardWorld";
   const STICKY_STORAGE_KEY = "stgMoodboardSticky";
+  const PRESETS_STORAGE_PREFIX = "stgMjPresets:";
   const DEFAULT_WORLD_KEY = "dear-annete";
   const REFRESH_INTERVAL_MS = 45000;
   const DOCK_GAP_PX = 6;
@@ -216,7 +217,132 @@
     return null;
   }
 
+  // Replaces every profile flag with one flag of exactly these codes; with
+  // no codes the flag goes. Everything else in the prompt is untouched.
+  function setProfileFlag(promptText, codes) {
+    const prompt = String(promptText || "");
+    const list = (codes || []).filter(Boolean);
+    const replacement = list.length ? `-p ${list.join(" ")}` : "";
+    const flags = [];
+    PROFILE_FLAG_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = PROFILE_FLAG_PATTERN.exec(prompt))) {
+      flags.push({ start: match.index + match[1].length, end: match.index + match[0].length, leadStart: match.index });
+    }
+    if (!flags.length) {
+      if (!replacement) return prompt;
+      return !prompt || /\s$/.test(prompt) ? prompt + replacement : `${prompt} ${replacement}`;
+    }
+    let result = prompt;
+    for (let index = flags.length - 1; index >= 0; index -= 1) {
+      const flag = flags[index];
+      if (index === 0 && replacement) {
+        result = result.slice(0, flag.start) + replacement + result.slice(flag.end);
+      } else if (flag.leadStart < flag.start) {
+        result = result.slice(0, flag.leadStart) + result.slice(flag.end);
+      } else {
+        const tail = result.slice(flag.end).replace(/^\s+/, "");
+        result = result.slice(0, flag.start) + tail;
+      }
+    }
+    return result;
+  }
+
+  // The Midjourney settings a preset keeps: aspect, stylize, chaos, weird,
+  // version, raw, style, quality ... Image references, seeds and the profile
+  // flag are never part of a preset. Short and long names are one setting.
+  const PARAM_NAMES = {
+    ar: ["ar", "aspect"],
+    s: ["s", "stylize"],
+    c: ["c", "chaos"],
+    w: ["w", "weird"],
+    v: ["v", "version"],
+    q: ["q", "quality"],
+    niji: ["niji"],
+    style: ["style"],
+    exp: ["exp"],
+    sw: ["sw"],
+    sv: ["sv"],
+    raw: ["raw"],
+    tile: ["tile"],
+    hd: ["hd"],
+    draft: ["draft"],
+  };
+  const VALUELESS_PARAMS = new Set(["raw", "tile", "hd", "draft"]);
+  const paramKeyOf = (name) =>
+    Object.keys(PARAM_NAMES).find((key) => PARAM_NAMES[key].includes(String(name).toLowerCase())) || null;
+
+  // Every kept setting in the prompt, as written ("--ar 16:9 --s 250 --raw").
+  function readParams(promptText) {
+    const tokens = String(promptText || "").split(/\s+/).filter(Boolean);
+    const out = [];
+    for (let index = 0; index < tokens.length; index += 1) {
+      const match = /^--([a-z]+)$/i.exec(tokens[index]);
+      const key = match && paramKeyOf(match[1]);
+      if (!key) continue;
+      if (VALUELESS_PARAMS.has(key)) {
+        out.push(`--${match[1].toLowerCase()}`);
+        continue;
+      }
+      const value = tokens[index + 1];
+      if (!value || value.startsWith("-")) continue;
+      out.push(`--${match[1].toLowerCase()} ${value}`);
+      index += 1;
+    }
+    return out.join(" ");
+  }
+
+  // [{ key, text }] for a settings string, one entry per setting.
+  function parseParams(paramsText) {
+    const parts = readParams(paramsText).match(/--[a-z]+(?:\s+(?!--)\S+)?/gi) || [];
+    return parts.map((text) => ({ key: paramKeyOf(text.slice(2).split(/\s+/)[0]), text }));
+  }
+
+  // Puts each setting in the prompt, replacing the same setting where it is
+  // already written (under its short or long name), else at the end.
+  function setParams(promptText, paramsText) {
+    let prompt = String(promptText || "");
+    const wanted = parseParams(paramsText);
+    if (!wanted.length) return prompt;
+    for (const param of wanted) {
+      const names = PARAM_NAMES[param.key].join("|");
+      const value = VALUELESS_PARAMS.has(param.key) ? "" : "(?:\\s+(?!-)\\S+)?";
+      const pattern = new RegExp(`(^|\\s)--(?:${names})(?=\\s|$)${value}`, "gi");
+      prompt = prompt.replace(pattern, "");
+    }
+    const body = prompt.replace(/\s+$/, "");
+    const tail = wanted.map((param) => param.text).join(" ");
+    return body ? `${body} ${tail}` : tail;
+  }
+
+  // Takes the preset's settings out of the prompt (only where they still
+  // carry the preset's value).
+  function removeParams(promptText, paramsText) {
+    let prompt = String(promptText || "");
+    for (const param of parseParams(paramsText)) {
+      const [name, ...rest] = param.text.slice(2).split(/\s+/);
+      const escaped = rest.join(" ").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const value = rest.length ? `\\s+${escaped}` : "";
+      const names = PARAM_NAMES[param.key].includes(name) ? PARAM_NAMES[param.key].join("|") : name;
+      prompt = prompt.replace(new RegExp(`(^|\\s)--(?:${names})${value}(?=\\s|$)`, "gi"), "");
+    }
+    return prompt.replace(/\s+$/, "");
+  }
+
+  // True when every setting of the preset is in the prompt with its value.
+  function hasParams(promptText, paramsText) {
+    const present = new Map(parseParams(promptText).map((param) => [param.key, param.text.split(/\s+/).slice(1).join(" ")]));
+    return parseParams(paramsText).every(
+      (param) => present.has(param.key) && present.get(param.key) === param.text.split(/\s+/).slice(1).join(" "),
+    );
+  }
+
   globalScope.SaveToGalleryMoodboardDock = {
+    setProfileFlag,
+    readParams,
+    setParams,
+    removeParams,
+    hasParams,
     applyMoodboardToPrompt,
     toggleProfileInPrompt,
     flagCodes,
@@ -247,6 +373,8 @@
     error: "",
     requestId: 0,
     fetchedAt: 0,
+    // Saved presets of the current world (chrome.storage.sync, per world).
+    presets: [],
   };
   let dock = null;
   let worldSelect = null;
@@ -256,6 +384,11 @@
   let profileStrip = null;
   let statusLine = null;
   let packs = null;
+  let presetBox = null;
+  let saveButton = null;
+  let saveInput = null;
+  let note = null;
+  let noteTimer = null;
   let textarea = null;
   let layoutQueued = false;
   let snapshot = null;
@@ -600,8 +733,18 @@
     return state.profiles.map((profile) => profile.code);
   }
 
+  // What every next prompt starts with: the board and profiles picked last,
+  // plus the settings and packs of the preset picked last.
   function stickyFor(key = state.worldKey) {
-    return state.sticky[key] || { board: null, profiles: [] };
+    return state.sticky[key] || { board: null, profiles: [], params: "", packs: [] };
+  }
+
+  function saveSticky() {
+    try {
+      chrome.storage.local.set({ [STICKY_STORAGE_KEY]: state.sticky });
+    } catch {
+      // storage unavailable after an extension reload
+    }
   }
 
   const wordsOf = (value) => String(value || "").replace(PROFILE_FLAG_PATTERN, "").trim();
@@ -611,15 +754,14 @@
     const codes = flagCodes(value);
     const boards = new Set(boardCodes());
     const profiles = new Set(profileCodes());
+    const previous = stickyFor();
     state.sticky[state.worldKey] = {
       board: codes.find((code) => boards.has(code)) || null,
       profiles: codes.filter((code) => profiles.has(code)),
+      params: previous.params || "",
+      packs: previous.packs || [],
     };
-    try {
-      chrome.storage.local.set({ [STICKY_STORAGE_KEY]: state.sticky });
-    } catch {
-      // storage unavailable after an extension reload
-    }
+    saveSticky();
   }
 
   // The current selection as a flag: the prompt's own when it has words,
@@ -657,14 +799,17 @@
     }
     if (freshPrompt) {
       freshPrompt = false;
-      const codes = stickyCodes(stickyFor(), boardCodes(), profileCodes());
-      if (withStickyFlag(value, codes)) {
+      const sticky = stickyFor();
+      const codes = stickyCodes(sticky, boardCodes(), profileCodes());
+      const extras = Boolean(sticky.params) || (sticky.packs || []).length > 0;
+      if (withStickyFlag(value, codes) || extras) {
         // Runs after Midjourney has handled the keystroke. Uses the text as it
         // is by then, so fast typing never loses the flag.
         setTimeout(() => {
           if (!textarea || !textarea.isConnected) return;
-          const next = withStickyFlag(textarea.value, codes);
-          if (!next) return;
+          const base = textarea.value;
+          const next = withPresetExtras(withStickyFlag(base, codes) ?? base, sticky);
+          if (next === base) return;
           const start = textarea.selectionStart;
           const end = textarea.selectionEnd;
           writeTextareaValue(textarea, next);
@@ -701,13 +846,292 @@
       chip.classList.toggle("stg-mb-pchip--armed", !on && sticky.includes(chip.dataset.code));
       chip.setAttribute("aria-pressed", on ? "true" : "false");
     }
+    const armed = stickyFor();
     let label = "";
-    if (codes.length) label = `-p ${codes.join(" ")}`;
-    else if (sticky.length && waiting) label = `next · -p ${sticky.join(" ")}`;
+    if (!waiting && codes.length) label = `-p ${codes.join(" ")}`;
+    else if (waiting && (sticky.length || armed.params)) {
+      label = ["next ·", sticky.length ? `-p ${sticky.join(" ")}` : "", armed.params || ""].filter(Boolean).join(" ");
+    }
     activeLabel.textContent = label;
     activeLabel.title = label;
-    activeLabel.classList.toggle("stg-mb-active--next", !codes.length && sticky.length > 0);
+    activeLabel.classList.toggle("stg-mb-active--next", waiting);
+    for (const chip of presetBox.querySelectorAll(".stg-mb-preset")) {
+      const preset = state.presets.find((entry) => entry.id === chip.dataset.id);
+      const on = Boolean(preset) && !waiting && presetInPrompt(value, preset);
+      const isArmed = Boolean(preset) && waiting && presetArmed(preset);
+      chip.classList.toggle("stg-mb-preset--on", on);
+      chip.classList.toggle("stg-mb-preset--armed", isArmed);
+      chip.setAttribute("aria-pressed", on || isArmed ? "true" : "false");
+    }
+    const selection = currentSelection();
+    const hasSelection = Boolean(selection.codes.length || selection.params || selection.packs.length);
+    saveButton.classList.toggle("stg-mb-save--idle", !hasSelection);
     packs?.sync();
+  }
+
+  /* ── Presets: a board, profiles, settings and packs under one name ── */
+
+  const PRESET_LIMIT = 16;
+  const presetKey = (world = state.worldKey) => `${PRESETS_STORAGE_PREFIX}${world}`;
+  const packsApi = () => globalScope.SaveToGalleryPromptPacks;
+  function packPhrase(id) {
+    for (const group of globalScope.SaveToGalleryPromptPackData || []) {
+      const pack = group.packs.find((entry) => entry.id === id);
+      if (pack) return pack;
+    }
+    return null;
+  }
+
+  // The settings and packs of a preset go into a prompt that has words: the
+  // settings at the end, the packs after the words.
+  function withPresetExtras(text, preset) {
+    let next = text;
+    if (preset.params && !hasParams(next, preset.params)) next = setParams(next, preset.params);
+    const api = packsApi();
+    for (const id of preset.packs || []) {
+      const pack = packPhrase(id);
+      if (pack && api && !api.hasPack(next, pack.phrase)) next = api.insertPack(next, pack.phrase, { mode: "after" }).text;
+    }
+    return next;
+  }
+
+  function sameCodes(a, b) {
+    return a.length === b.length && a.every((code) => b.includes(code));
+  }
+
+  function presetInPrompt(value, preset) {
+    const api = packsApi();
+    return (
+      sameCodes(flagCodes(value), preset.codes || []) &&
+      hasParams(value, preset.params || "") &&
+      (preset.packs || []).every((id) => {
+        const pack = packPhrase(id);
+        return !pack || !api || api.hasPack(value, pack.phrase);
+      })
+    );
+  }
+
+  function presetArmed(preset) {
+    const sticky = stickyFor();
+    const codes = stickyCodes(sticky, boardCodes(), profileCodes());
+    return (
+      sameCodes(codes, (preset.codes || []).filter((code) => boardCodes().includes(code) || profileCodes().includes(code))) &&
+      (sticky.params || "") === (preset.params || "") &&
+      sameCodes(sticky.packs || [], preset.packs || [])
+    );
+  }
+
+  // What Save would keep: the prompt's own selection when it has words, else
+  // what the next prompt is armed with.
+  function currentSelection() {
+    const value = textarea ? textarea.value : "";
+    if (wordsOf(value)) {
+      const api = packsApi();
+      const packIds = [];
+      for (const group of globalScope.SaveToGalleryPromptPackData || []) {
+        for (const pack of group.packs) if (api && api.hasPack(value, pack.phrase)) packIds.push(pack.id);
+      }
+      return { codes: flagCodes(value), params: readParams(value), packs: packIds };
+    }
+    const sticky = stickyFor();
+    return { codes: stickyCodes(sticky, boardCodes(), profileCodes()), params: sticky.params || "", packs: sticky.packs || [] };
+  }
+
+  function armSticky(preset) {
+    const boards = new Set(boardCodes());
+    const profiles = new Set(profileCodes());
+    const codes = preset ? preset.codes || [] : [];
+    state.sticky[state.worldKey] = {
+      board: codes.find((code) => boards.has(code)) || null,
+      profiles: codes.filter((code) => profiles.has(code)),
+      params: preset ? preset.params || "" : "",
+      packs: preset ? preset.packs || [] : [],
+    };
+    saveSticky();
+  }
+
+  // One click sets the whole look; a second click on the lit preset takes it
+  // out again. An empty prompt is only armed: the first words bring it in.
+  function onPresetClick(preset) {
+    if (!textarea || !textarea.isConnected) return;
+    const value = textarea.value;
+    const live = Boolean(wordsOf(value));
+    const turningOff = live ? presetInPrompt(value, preset) : presetArmed(preset);
+    if (turningOff) {
+      armSticky(null);
+      if (live) {
+        let next = setProfileFlag(value, flagCodes(value).filter((code) => !(preset.codes || []).includes(code)));
+        next = removeParams(next, preset.params || "");
+        const api = packsApi();
+        for (const id of preset.packs || []) {
+          const pack = packPhrase(id);
+          if (pack && api) next = api.removePack(next, pack.phrase).text;
+        }
+        writeTextareaValue(textarea, next);
+      }
+    } else {
+      armSticky(preset);
+      if (live) {
+        writeTextareaValue(textarea, withPresetExtras(setProfileFlag(value, preset.codes || []), preset));
+      } else {
+        freshPrompt = true;
+      }
+    }
+    textarea.focus();
+    syncActive();
+  }
+
+  function showNote(text, action) {
+    if (!note) return;
+    clearTimeout(noteTimer);
+    note.textContent = text;
+    if (action) {
+      const button = el("button", "stg-mb-note-act", action.label);
+      button.type = "button";
+      button.addEventListener("mousedown", (event) => event.preventDefault());
+      button.addEventListener("click", () => {
+        action.run();
+        note.hidden = true;
+      });
+      note.append(" ", button);
+    }
+    note.hidden = false;
+    noteTimer = setTimeout(() => {
+      note.hidden = true;
+    }, 6000);
+  }
+
+  function storePresets(list) {
+    state.presets = list;
+    try {
+      chrome.storage.sync.set({ [presetKey()]: list });
+    } catch {
+      // storage unavailable after an extension reload
+    }
+    renderPresets();
+    syncActive();
+  }
+
+  function loadPresets() {
+    const world = state.worldKey;
+    try {
+      chrome.storage.sync.get([presetKey(world)], (stored) => {
+        if (world !== state.worldKey) return;
+        const list = stored?.[presetKey(world)];
+        state.presets = Array.isArray(list) ? list : [];
+        renderPresets();
+        syncActive();
+      });
+    } catch {
+      // storage unavailable after an extension reload
+    }
+  }
+
+  function suggestName(selection) {
+    const names = [];
+    for (const code of selection.codes) {
+      const board = state.moodboards.find((entry) => entry.mjCode === code);
+      const profile = state.profiles.find((entry) => entry.code === code);
+      if (board) names.push(chipLabel(board, state.moodboards));
+      else if (profile) names.push(profile.name);
+    }
+    const ar = /--(?:ar|aspect)\s+(\S+)/i.exec(selection.params || "");
+    if (ar) names.push(ar[1]);
+    const text = names.join(" + ");
+    return text.length > 32 ? `${text.slice(0, 31)}…` : text || `Preset ${state.presets.length + 1}`;
+  }
+
+  function openSave() {
+    const selection = currentSelection();
+    if (!selection.codes.length && !selection.params && !selection.packs.length) {
+      showNote("Pick a moodboard or profile first, then save it as a preset.");
+      return;
+    }
+    saveButton.hidden = true;
+    saveInput.hidden = false;
+    saveInput.value = suggestName(selection);
+    saveInput.focus();
+    saveInput.select();
+  }
+
+  function closeSave(commit) {
+    if (saveInput.hidden) return;
+    const name = saveInput.value.trim().slice(0, 40);
+    saveInput.hidden = true;
+    saveButton.hidden = false;
+    if (commit && name) {
+      const selection = currentSelection();
+      const preset = {
+        id: `ps${Date.now().toString(36)}`,
+        name,
+        codes: selection.codes.slice(0, 12),
+        params: selection.params.slice(0, 240),
+        packs: selection.packs.slice(0, 24),
+      };
+      const others = state.presets.filter((entry) => entry.name.toLowerCase() !== name.toLowerCase());
+      storePresets([...others, preset].slice(-PRESET_LIMIT));
+      armSticky(preset);
+      showNote(`Saved “${name}”`);
+    }
+    textarea?.focus();
+  }
+
+  function deletePreset(preset) {
+    const before = state.presets;
+    storePresets(before.filter((entry) => entry.id !== preset.id));
+    hideSnapshot();
+    showNote(`Removed “${preset.name}”`, { label: "Undo", run: () => storePresets(before) });
+  }
+
+  function presetSpec(preset) {
+    const packNames = (preset.packs || []).map((id) => packPhrase(id)?.label).filter(Boolean);
+    return [
+      (preset.codes || []).length ? `-p ${preset.codes.join(" ")}` : "",
+      preset.params || "",
+      packNames.length ? `+ ${packNames.join(", ")}` : "",
+    ].filter(Boolean).join("  ");
+  }
+
+  // The preset's board pictures (when it has a board), its name and contents.
+  function showPresetCard(preset, chip) {
+    const board = state.moodboards.find((entry) => (preset.codes || []).includes(entry.mjCode));
+    if (board) {
+      showSnapshot({ ...board, name: preset.name, flag: presetSpec(preset) }, chip);
+      return;
+    }
+    if (!dock || !snapshot) return;
+    snapshot.textContent = "";
+    const card = el("div", "stg-mb-pcard");
+    card.append(el("span", "stg-mb-snap-name", preset.name), el("span", "stg-mb-pcard-role", presetSpec(preset) || "Empty preset"));
+    snapshot.append(card);
+    snapshot.hidden = false;
+    placeSnapshot(chip);
+  }
+
+  function renderPresets() {
+    if (!presetBox) return;
+    const signature = JSON.stringify([state.worldKey, state.presets]);
+    if (presetBox.dataset.signature === signature) return;
+    presetBox.dataset.signature = signature;
+    presetBox.textContent = "";
+    for (const preset of state.presets) {
+      const chip = el("button", "stg-mb-preset");
+      chip.type = "button";
+      chip.dataset.id = preset.id;
+      chip.title = `${preset.name}\n${presetSpec(preset)}`;
+      const remove = el("span", "stg-mb-preset-x", "×");
+      remove.title = "Delete preset";
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        deletePreset(preset);
+      });
+      chip.append(el("span", "stg-mb-preset-name", preset.name), remove);
+      chip.addEventListener("mousedown", (event) => event.preventDefault());
+      chip.addEventListener("click", () => onPresetClick(preset));
+      chip.addEventListener("mouseenter", () => showPresetCard(preset, chip));
+      chip.addEventListener("mouseleave", hideSnapshot);
+      presetBox.appendChild(chip);
+    }
   }
 
   // A profile has no pictures: its hover card is the name, the world's role
@@ -820,8 +1244,8 @@
     return null;
   }
 
-  // One line: world · Packs · moodboards | profiles · flag. The packs panel
-  // opens under it when asked for.
+  // Two lines: moodboards | profiles next to the prompt; under them world ·
+  // presets · Save · flag · Packs. The packs panel opens past them on demand.
   function buildDock() {
     dock = el("div", "stg-mb-dock");
     dock.hidden = true;
@@ -846,7 +1270,10 @@
       state.moodboards = [];
       state.profiles = [];
       state.signature = "";
+      state.presets = [];
       render();
+      renderPresets();
+      loadPresets();
       refresh();
     });
     const refreshButton = el("button", "stg-mb-refresh", "↻");
@@ -868,15 +1295,46 @@
       typeof createSection === "function"
         ? createSection({ getTextarea: () => textarea, onResize: queueLayout })
         : null;
-    // Packs sits by the world, so a full line never pushes it onto its own row.
-    row.append(world);
-    if (packs) row.appendChild(packs.toggle);
-    row.append(statusLine, strip, profileSep, profileStrip, activeLabel);
+    // First line, next to the prompt: moodboards and profiles, the main thing.
+    row.append(statusLine, strip, profileSep, profileStrip);
+
+    // Second line, smaller: world, presets, Save, the flag, Packs (closed).
+    const meta = el("div", "stg-mb-row stg-mb-row--meta");
+    presetBox = el("div", "stg-mb-presets");
+    saveButton = el("button", "stg-mb-save", "+ Save preset");
+    saveButton.type = "button";
+    saveButton.title = "Save the moodboard, profiles, settings (--ar, --s …) and packs in this prompt as a preset";
+    saveButton.addEventListener("mousedown", (event) => event.preventDefault());
+    saveButton.addEventListener("click", openSave);
+    saveInput = el("input", "stg-mb-save-input");
+    saveInput.type = "text";
+    saveInput.maxLength = 40;
+    saveInput.placeholder = "Preset name";
+    saveInput.spellcheck = false;
+    saveInput.hidden = true;
+    for (const type of ["keydown", "keyup", "keypress"]) {
+      saveInput.addEventListener(type, (event) => {
+        event.stopPropagation();
+        if (type !== "keydown") return;
+        if (event.key === "Enter") {
+          event.preventDefault();
+          closeSave(true);
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          closeSave(false);
+        }
+      });
+    }
+    saveInput.addEventListener("blur", () => closeSave(false));
+    note = el("span", "stg-mb-note");
+    note.hidden = true;
+    meta.append(world, presetBox, saveButton, saveInput, note, activeLabel);
+    if (packs) meta.appendChild(packs.toggle);
 
     snapshot = el("div", "stg-mb-snap");
     snapshot.hidden = true;
     snapshot.setAttribute("role", "tooltip");
-    dock.append(row);
+    dock.append(row, meta);
     if (packs) dock.appendChild(packs.section);
     dock.appendChild(snapshot);
     dock.addEventListener("mouseenter", () => setHover("dock", true));
@@ -923,6 +1381,7 @@
       dropDock();
       buildDock();
       render();
+      renderPresets();
     }
     if (!isComposing()) {
       dock.hidden = true;
@@ -984,7 +1443,7 @@
         state.worldKey = String(stored?.[WORLD_STORAGE_KEY] || "");
         const sticky = stored?.[STICKY_STORAGE_KEY];
         state.sticky = sticky && typeof sticky === "object" ? sticky : {};
-        refresh();
+        refresh().then(loadPresets);
       });
     } catch {
       refresh();
@@ -1000,6 +1459,17 @@
       }
       queueLayout();
     }).observe(document.body, { childList: true, subtree: true });
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area !== "sync" || !changes[presetKey()]) return;
+        const list = changes[presetKey()].newValue;
+        state.presets = Array.isArray(list) ? list : [];
+        renderPresets();
+        syncActive();
+      });
+    } catch {
+      // extension reloaded
+    }
     window.addEventListener("resize", () => {
       forgetPanel();
       queueLayout();
