@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.26.1 (8 Nov 2026)
+
+- With the extension loaded twice in one browser, the quick edit box shows
+  once instead of not at all: both copies share one hiding rule and the
+  newest copy's box wins, as the dock already did.
+
 ## 0.26.0 (8 Nov 2026)
 
 - The dock reads in labelled lines: a world with many boards shows them by

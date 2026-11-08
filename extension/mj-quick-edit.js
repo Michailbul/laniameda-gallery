@@ -88,9 +88,15 @@
   // An extension update injects a fresh copy into open tabs: the old copy's
   // box hides (it keeps no id match), and a dead copy never mounts again.
   const instance = Math.random().toString(36).slice(2, 10);
-  const retireStyle = document.createElement("style");
+  // One shared rule, rewritten by the newest copy: two copies (an update, or
+  // the extension loaded twice) never hide each other's box both at once.
+  let retireStyle = document.getElementById("stg-quick-edit-retire");
+  if (!retireStyle) {
+    retireStyle = document.createElement("style");
+    retireStyle.id = "stg-quick-edit-retire";
+    (document.head || document.documentElement).appendChild(retireStyle);
+  }
   retireStyle.textContent = `#stg-quick-edit:not([data-stg-instance="${instance}"]){display:none!important}`;
-  (document.head || document.documentElement).appendChild(retireStyle);
   document.querySelectorAll("#stg-quick-edit").forEach((node) => node.remove());
   const alive = () => {
     try {
