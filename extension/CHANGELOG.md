@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.24.0 (8 Nov 2026)
+
+- The Midjourney dock is one slim line (34 px, was about 230 px with the
+  packs): world, moodboards, profiles, the flag and a Packs button. The packs
+  open under the line on demand (over it when the prompt sits at the bottom),
+  with a count of the packs in the prompt. Same obsidian, linen, coral and
+  mono look as the quick edit.
+- Packs show only in Dear Annete worlds (they are its lexicon).
+- Switching the dock's world also switches the quick edit's system prompt
+  (Dear Annete worlds → Dear Annete, Andromeda → Andromeda).
+- Faster: one page watcher instead of two, no work on page changes while no
+  prompt is being written, the settings-panel check cached, styles written
+  only when they change, no 45-second polling (codes refresh when a prompt
+  starts and they are older than 45 s, on a world switch and on ↻), and the
+  world menu is no longer rebuilt (and closed) by a refresh. About 45% less
+  script time while typing on a busy page.
+- Hover sheet shows the thumb at once and swaps in the full picture; a failed
+  thumb falls back to the full picture.
+- The remembered flag is no longer lost when typing very fast after a submit.
+
 ## 0.23.0 (7 Nov 2026)
 
 - Quick edit on midjourney.com: select words in the Imagine bar (or prompt

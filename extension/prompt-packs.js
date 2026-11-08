@@ -2,7 +2,6 @@
   "use strict";
 
   const SETTINGS_KEY = "stgPromptPackSettings";
-  const BAR_GAP_PX = 6;
   const MODES = ["cursor", "before", "after"];
   const MODE_LABELS = { cursor: "Cursor", before: "Before", after: "After" };
   const MODE_TITLES = {
@@ -113,34 +112,12 @@
     String(location.hostname || "").includes("midjourney.com");
   if (!onMidjourney || typeof chrome === "undefined" || !chrome.runtime) return;
 
-  const settings = { mode: "cursor", collapsed: false };
-  let bar = null;
-  let strip = null;
-  let modeButtons = [];
-  let collapseButton = null;
-  let textarea = null;
-  let layoutQueued = false;
-
   const el = (tag, className, text) => {
     const node = document.createElement(tag);
     if (className) node.className = className;
     if (text != null) node.textContent = text;
     return node;
   };
-
-  function findTextarea() {
-    // Midjourney shortens the placeholder to "Imagine" when the bar is narrow.
-    return (
-      [...document.querySelectorAll("textarea")].find((area) =>
-        /imagine/i.test(area.getAttribute("placeholder") || ""),
-      ) || null
-    );
-  }
-
-  function findBar(area) {
-    if (!area) return null;
-    return area.closest("div.fixed") || area.parentElement?.parentElement || area.parentElement;
-  }
 
   function writeTextareaValue(element, next) {
     const previous = element.value;
@@ -159,56 +136,32 @@
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }
 
-  function saveSettings() {
-    try {
-      chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings } });
-    } catch {
-      // storage unavailable after an extension reload
-    }
-  }
+  // The packs live inside the Midjourney dock (moodboard-dock.js): a Packs
+  // button in the dock's row, and the panel it opens under the row. Closed by
+  // default, so the dock stays one line. The dock calls sync() when the
+  // prompt changes and setEnabled() when the world has no packs.
+  function createSection({ getTextarea, onResize }) {
+    const settings = { mode: "cursor", collapsed: true };
+    let enabled = true;
 
-  function onPackClick(pack) {
-    if (!textarea || !textarea.isConnected) return;
-    const focused = document.activeElement === textarea;
-    const result = togglePack(textarea.value, pack.phrase, {
-      mode: settings.mode,
-      caret: focused ? textarea.selectionStart : null,
+    const toggle = el("button", "stg-pp-toggle");
+    toggle.type = "button";
+    const toggleLabel = el("span", "", "Packs");
+    const toggleCount = el("span", "stg-pp-count");
+    toggle.append(toggleLabel, toggleCount);
+    toggle.addEventListener("mousedown", (event) => event.preventDefault());
+    toggle.addEventListener("click", () => {
+      settings.collapsed = !settings.collapsed;
+      save();
+      syncSettings();
+      onResize?.();
     });
-    writeTextareaValue(textarea, result.text);
-    textarea.focus();
-    textarea.setSelectionRange(result.caret, result.caret);
-    syncActive();
-  }
 
-  function syncActive() {
-    if (!bar) return;
-    const value = textarea ? textarea.value : "";
-    for (const chip of strip.querySelectorAll(".stg-pp-chip")) {
-      const on = hasPack(value, chip.dataset.phrase);
-      chip.classList.toggle("stg-pp-chip--on", on);
-      chip.setAttribute("aria-pressed", on ? "true" : "false");
-    }
-  }
-
-  function syncSettings() {
-    if (!bar) return;
-    for (const button of modeButtons) {
-      const on = button.dataset.mode === settings.mode;
-      button.classList.toggle("stg-pp-mode--on", on);
-      button.setAttribute("aria-pressed", on ? "true" : "false");
-    }
-    strip.hidden = settings.collapsed;
-    collapseButton.textContent = settings.collapsed ? "+" : "–";
-    collapseButton.title = settings.collapsed ? "Show prompt packs" : "Hide prompt packs";
-  }
-
-  function buildBar() {
-    bar = el("div", "stg-pp-bar");
-    bar.hidden = true;
-    const top = el("div", "stg-pp-top");
-    const title = el("span", "stg-pp-title", "Packs");
+    const section = el("div", "stg-pp-section");
+    section.hidden = true;
+    const grid = el("div", "stg-pp-strip");
     const modes = el("div", "stg-pp-modes");
-    modeButtons = MODES.map((mode) => {
+    const modeButtons = MODES.map((mode) => {
       const button = el("button", "stg-pp-mode", MODE_LABELS[mode]);
       button.type = "button";
       button.dataset.mode = mode;
@@ -216,31 +169,21 @@
       button.addEventListener("mousedown", (event) => event.preventDefault());
       button.addEventListener("click", () => {
         settings.mode = mode;
-        saveSettings();
+        save();
         syncSettings();
       });
       modes.appendChild(button);
       return button;
     });
-    collapseButton = el("button", "stg-pp-collapse");
-    collapseButton.type = "button";
-    collapseButton.addEventListener("mousedown", (event) => event.preventDefault());
-    collapseButton.addEventListener("click", () => {
-      settings.collapsed = !settings.collapsed;
-      saveSettings();
-      syncSettings();
-      queueLayout();
-    });
-    top.append(title, modes, collapseButton);
+    grid.append(el("span", "stg-pp-heading", "Insert"), modes);
 
     // Every group is one row: its heading, then its chips wrapping onto as
     // many lines as they need. Nothing scrolls sideways.
-    strip = el("div", "stg-pp-strip");
+    const chips = [];
     for (const group of globalScope.SaveToGalleryPromptPackData || []) {
       const heading = el("span", "stg-pp-heading", group.heading);
       if (group.note) heading.title = group.note;
-      const section = el("div", "stg-pp-group");
-      strip.appendChild(heading);
+      const row = el("div", "stg-pp-group");
       for (const pack of group.packs) {
         const chip = el("button", "stg-pp-chip", pack.label);
         chip.type = "button";
@@ -249,101 +192,87 @@
         chip.dataset.phrase = pack.phrase;
         chip.addEventListener("mousedown", (event) => event.preventDefault());
         chip.addEventListener("click", () => onPackClick(pack));
-        section.appendChild(chip);
+        row.appendChild(chip);
+        chips.push(chip);
       }
-      strip.appendChild(section);
+      grid.append(heading, row);
     }
-    bar.append(top, strip);
-    const hover = (on) => globalScope.SaveToGalleryMoodboardDock?.setHover?.("packs", on);
-    bar.addEventListener("mouseenter", () => hover(true));
-    bar.addEventListener("mouseleave", () => hover(false));
-    document.body.appendChild(bar);
-    syncSettings();
-  }
+    section.appendChild(grid);
 
-  function layout() {
-    layoutQueued = false;
-    const area = findTextarea();
-    if (area !== textarea) {
-      if (textarea) textarea.removeEventListener("input", syncActive);
-      textarea = area;
-      if (textarea) textarea.addEventListener("input", syncActive);
-      syncActive();
+    function onPackClick(pack) {
+      const textarea = getTextarea();
+      if (!textarea || !textarea.isConnected) return;
+      const focused = document.activeElement === textarea;
+      const result = togglePack(textarea.value, pack.phrase, {
+        mode: settings.mode,
+        caret: focused ? textarea.selectionStart : null,
+      });
+      writeTextareaValue(textarea, result.text);
+      textarea.focus();
+      textarea.setSelectionRange(result.caret, result.caret);
+      sync();
     }
-    const promptBar = findBar(textarea);
-    if (!promptBar) {
-      if (bar) bar.hidden = true;
-      return;
+
+    function sync() {
+      const textarea = getTextarea();
+      const value = textarea ? textarea.value : "";
+      let on = 0;
+      for (const chip of chips) {
+        const active = hasPack(value, chip.dataset.phrase);
+        if (active) on += 1;
+        chip.classList.toggle("stg-pp-chip--on", active);
+        chip.setAttribute("aria-pressed", active ? "true" : "false");
+      }
+      toggleCount.textContent = on ? String(on) : "";
+      toggleCount.hidden = !on;
     }
-    if (!bar || !bar.isConnected) {
-      document.querySelectorAll(".stg-pp-bar").forEach((node) => node.remove());
-      buildBar();
-      syncActive();
+
+    function syncSettings() {
+      for (const button of modeButtons) {
+        const on = button.dataset.mode === settings.mode;
+        button.classList.toggle("stg-pp-mode--on", on);
+        button.setAttribute("aria-pressed", on ? "true" : "false");
+      }
+      toggle.hidden = !enabled;
+      section.hidden = !enabled || settings.collapsed;
+      toggle.classList.toggle("stg-pp-toggle--open", !settings.collapsed);
+      toggle.setAttribute("aria-expanded", settings.collapsed ? "false" : "true");
+      toggle.title = settings.collapsed ? "Show prompt packs" : "Hide prompt packs";
     }
-    // Only while a prompt is being written (the dock decides; see isComposing).
-    const composing = globalScope.SaveToGalleryMoodboardDock?.isComposing;
-    if (typeof composing === "function" && !composing()) {
-      bar.hidden = true;
-      return;
-    }
-    bar.hidden = false;
-    // The moodboard dock stays last in the document, so sit right in front of it.
-    const dock = document.querySelector(".stg-mb-dock");
-    if (dock && dock.parentElement === document.body) {
-      if (bar.nextElementSibling !== dock) document.body.insertBefore(bar, dock);
-    } else if (bar.parentElement === document.body) {
-      const queueRoot = document.querySelector("body > .stg-q-root");
-      if (queueRoot ? bar.nextElementSibling !== queueRoot : bar !== document.body.lastElementChild) {
-        document.body.insertBefore(bar, queueRoot);
+
+    function save() {
+      try {
+        chrome.storage.local.set({ [SETTINGS_KEY]: { ...settings } });
+      } catch {
+        // storage unavailable after an extension reload
       }
     }
-    // Stack next to the moodboard dock when it is showing, else next to the
-    // prompt, and never over Midjourney's settings panel.
-    const findPanel = globalScope.SaveToGalleryMoodboardDock?.findPromptPanel;
-    const panel = typeof findPanel === "function" ? findPanel(textarea) : null;
-    const prompt = promptBar.getBoundingClientRect();
-    const dockShown = dock && !dock.hidden;
-    const anchor = dockShown ? dock.getBoundingClientRect() : panel || prompt;
-    const above = panel ? !panel.below : prompt.top > window.innerHeight * 0.5;
-    bar.style.left = `${Math.round(prompt.left)}px`;
-    bar.style.width = `${Math.round(prompt.width)}px`;
-    if (above) {
-      bar.style.top = "auto";
-      bar.style.bottom = `${Math.round(window.innerHeight - anchor.top + BAR_GAP_PX)}px`;
-    } else {
-      bar.style.bottom = "auto";
-      bar.style.top = `${Math.round(anchor.bottom + BAR_GAP_PX)}px`;
-    }
-    const placed = bar.getBoundingClientRect();
-    bar.hidden = Boolean(panel) && (placed.top < 0 || placed.bottom > window.innerHeight);
-  }
 
-  function queueLayout() {
-    if (layoutQueued) return;
-    layoutQueued = true;
-    requestAnimationFrame(layout);
-  }
-
-  function start() {
     try {
       chrome.storage.local.get([SETTINGS_KEY], (stored) => {
         const saved = stored?.[SETTINGS_KEY];
         if (saved && MODES.includes(saved.mode)) settings.mode = saved.mode;
-        if (saved) settings.collapsed = Boolean(saved.collapsed);
+        if (saved && typeof saved.collapsed === "boolean") settings.collapsed = saved.collapsed;
         syncSettings();
-        queueLayout();
+        onResize?.();
       });
     } catch {
       // storage unavailable after an extension reload
     }
-    new MutationObserver((records) => {
-      if (bar && records.every((record) => bar.contains(record.target))) return;
-      queueLayout();
-    }).observe(document.body, { childList: true, subtree: true });
-    window.addEventListener("resize", queueLayout);
-    document.addEventListener("stg-compose-change", queueLayout);
-    queueLayout();
+    syncSettings();
+    sync();
+
+    return {
+      toggle,
+      section,
+      sync,
+      setEnabled(on) {
+        if (enabled === Boolean(on)) return;
+        enabled = Boolean(on);
+        syncSettings();
+      },
+    };
   }
 
-  start();
+  globalScope.SaveToGalleryPromptPacks.createSection = createSection;
 })(typeof globalThis !== "undefined" ? globalThis : self);

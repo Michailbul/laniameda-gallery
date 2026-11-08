@@ -27,6 +27,22 @@ Last updated: 2026-11-06
 - Spec, verification and limits (frame codes can collide at a few hundred
   frames): agent-docs/features/director-review/PRD.md.
 
+### 2026-11-08 — Midjourney dock: one slim line, faster (extension 0.24.0)
+- moodboard-dock.js builds one bar: world select, ↻, moodboard chips,
+  profile chips, the flag (only leftover room; hidden when clipped) and the
+  Packs button from prompt-packs.js `createSection()`. The old separate
+  `.stg-pp-bar` is gone; packs open inside the dock, Dear Annete worlds only.
+  `.stg-mb-dock--above` (bottom prompt) reverses the column.
+- Perf: one MutationObserver (returns at once while not composing),
+  findPromptPanel cached 250 ms (reset on resize, pointerup, focusin), style
+  writes only on change, no setInterval refresh (refresh when composing starts
+  and data is >45 s old), world <select> rebuilt only when its list changes.
+  Measured on a stand-in page mutating every 30 ms: script time while typing
+  136 → 75 ms per 6 s, idle 55 → 42 ms.
+- Dock world change also writes quickEditWorld (dear-annete* → dear-annete,
+  andromeda* → andromeda-anya). Sticky flag uses the live value after a
+  keystroke, so fast typing keeps it.
+
 ### 2026-11-07 — Midjourney quick edit in the extension (0.23.0)
 - extension/mj-quick-edit.js (midjourney.com only): ✎ pill on a selection in
   the Imagine bar or page text, ⌥E, a one-line box (world chip, model chip,
