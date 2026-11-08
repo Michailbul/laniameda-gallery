@@ -9,31 +9,55 @@
 // touched, no provider is called, nothing costs money. The "provider" is a
 // fixed record ("drill", $0.01) whose request id the drill holds.
 //
-//   CONVEX_URL=https://<deployment>.convex.cloud \
-//   CONVEX_AUTH_PRIVATE_KEY_FILE=/path/to/key.pem \
-//   bun scripts/inspiration-fault-drill.ts
-//
-// The private key signs the drill owner's tokens exactly as the gallery's
-// server does; it is read from a file and never printed.
+// Two ways to sign as the drill owner:
+//   CONVEX_URL=https://<deployment>.convex.cloud CONVEX_AUTH_PRIVATE_KEY_FILE=key.pem \
+//     bun scripts/inspiration-fault-drill.ts
+//     (mints tokens exactly as the gallery's server does; the key is never printed)
+//   CONVEX_DEPLOYMENT=dev:<name> bun scripts/inspiration-fault-drill.ts --cli
+//     (the Convex CLI's `convex run --identity`, with the CLI's own admin login)
 
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { ConvexHttpClient } from "convex/browser";
+import { getFunctionName, type FunctionReference } from "convex/server";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
 import { mintConvexActorToken } from "../lib/convex-auth";
 
-const url = process.env.CONVEX_URL;
-const keyFile = process.env.CONVEX_AUTH_PRIVATE_KEY_FILE;
-if (!url || !keyFile) throw new Error("Set CONVEX_URL and CONVEX_AUTH_PRIVATE_KEY_FILE.");
-const privateKeyPem = readFileSync(keyFile, "utf8").replace(/\\n/g, "\n");
-
+const cli = process.argv.includes("--cli");
 const stamp = Date.now();
 const owner = `drill:${stamp}`;
-const client = (via?: "session") => {
-  const convex = new ConvexHttpClient(url);
-  convex.setAuth(mintConvexActorToken(owner, { privateKeyPem, via, ttlSeconds: 600 }));
-  return convex;
+const target = cli ? process.env.CONVEX_DEPLOYMENT : process.env.CONVEX_URL;
+if (!target) throw new Error(cli ? "Set CONVEX_DEPLOYMENT (pinned)." : "Set CONVEX_URL and CONVEX_AUTH_PRIVATE_KEY_FILE.");
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Ref = FunctionReference<any, "public">;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Caller = { query: (ref: Ref, args: any) => Promise<any>; mutation: (ref: Ref, args: any) => Promise<any> };
+
+const viaCli = (via?: "session"): Caller => {
+  const run = async (ref: Ref, args: unknown) => {
+    const identity = JSON.stringify({ subject: owner, issuer: "fault-drill", ...(via ? { via } : {}) });
+    const result = spawnSync("bunx", ["convex", "run", getFunctionName(ref), JSON.stringify(args), "--identity", identity], {
+      encoding: "utf8", env: process.env,
+    });
+    if (result.status !== 0) throw new Error((result.stderr || result.stdout || "convex run failed").trim());
+    const out = result.stdout.trim();
+    return out ? JSON.parse(out) : null;
+  };
+  return { query: run, mutation: run };
 };
+
+const viaKey = (via?: "session"): Caller => {
+  const keyFile = process.env.CONVEX_AUTH_PRIVATE_KEY_FILE;
+  if (!keyFile) throw new Error("Set CONVEX_AUTH_PRIVATE_KEY_FILE (or use --cli).");
+  const privateKeyPem = readFileSync(keyFile, "utf8").replace(/\\n/g, "\n");
+  const convex = new ConvexHttpClient(target);
+  convex.setAuth(mintConvexActorToken(owner, { privateKeyPem, via, ttlSeconds: 600 }));
+  return { query: (ref, args) => convex.query(ref, args), mutation: (ref, args) => convex.mutation(ref, args) };
+};
+
+const client = (via?: "session") => (cli ? viaCli(via) : viaKey(via));
 const agent = client();
 const session = client("session");
 
@@ -54,7 +78,7 @@ const refused = async (step: string, run: () => Promise<unknown>, pattern: RegEx
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const main = async () => {
-  console.log(`Fault drill on ${url} as ${owner}`);
+  console.log(`Fault drill on ${target} as ${owner}${cli ? " (CLI identity)" : ""}`);
   const source = await agent.mutation(api.inspiration.registerInspirationSource, {
     ownerUserId: owner, ingestKey: `drill:${stamp}:source`, kind: "text", title: "Fault drill source", platform: "other",
     text: "Drill only. Not Michael's material.", preservation: "text", createdBy: "agent:fault-drill",
@@ -65,6 +89,7 @@ const main = async () => {
   });
   if (proposal.suppressed) throw new Error("Drill proposal was suppressed.");
   const adaptationId = proposal.adaptationId as Id<"inspirationAdaptations">;
+  const typed = (rows: Array<{ jobId: string; status: string; providerHandle?: string }>) => rows;
 
   await refused("agent cannot turn generation on", () => agent.mutation(api.inspirationDispatch.setInspirationDispatch, {
     ownerUserId: owner, expectedRevision: 0, paused: false, cycleCapUsd: 1,
@@ -100,7 +125,7 @@ const main = async () => {
   record("dispatcher B takes over and quarantines A's in-flight job", leaseB.fence === leaseA.fence + 1 && leaseB.quarantined === 1,
     `fence ${leaseB.fence}, quarantined ${leaseB.quarantined}`);
   const afterTakeover = await agent.query(api.inspirationDispatch.listInspirationJobs, { ownerUserId: owner, adaptationId });
-  const quarantined = afterTakeover.find((job) => job.jobId === jobId);
+  const quarantined = typed(afterTakeover).find((job) => job.jobId === jobId);
   record("the job is unknown_outcome with the provider handle kept", quarantined?.status === "unknown_outcome" && quarantined.providerHandle === handle,
     `${quarantined?.status} · ${quarantined?.providerHandle}`);
   const held = await agent.query(api.inspirationDispatch.getInspirationDispatch, { ownerUserId: owner });
