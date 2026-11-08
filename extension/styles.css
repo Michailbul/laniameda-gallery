@@ -2346,7 +2346,6 @@ html.stg-x-capturing .stg-badge {
   flex: none;
   align-items: center;
   height: 24px;
-  margin-right: 2px;
   overflow: hidden;
   background: #191919;
   border: 1px solid rgba(255, 244, 234, 0.14);
@@ -2408,7 +2407,7 @@ html.stg-x-capturing .stg-badge {
   flex: none;
   height: 24px;
   margin: 0;
-  padding: 0 9px;
+  padding: 0 8px;
   color: #fff4ea;
   background: rgba(255, 244, 234, 0.07);
   border: 1px solid transparent;
@@ -2452,7 +2451,7 @@ html.stg-x-capturing .stg-badge {
   flex: none;
   height: 24px;
   margin: 0;
-  padding: 0 7px;
+  padding: 0 6px;
   color: rgba(255, 244, 234, 0.85);
   background: transparent;
   border: 1px solid rgba(121, 183, 145, 0.45);

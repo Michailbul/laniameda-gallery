@@ -727,6 +727,18 @@
     placeSnapshot(chip);
   }
 
+  // "DEAR ANNETE — ART DECO" reads "DA — ART DECO" in the dock: a parent
+  // name of two or more words shortens to its initials. The full name is the
+  // tooltip.
+  function worldLabel(name) {
+    const text = String(name || "");
+    const cut = text.indexOf(" — ");
+    if (cut < 0) return text;
+    const head = text.slice(0, cut).trim().split(/\s+/);
+    if (head.length < 2) return text;
+    return `${head.map((word) => word[0]).join("").toUpperCase()}${text.slice(cut)}`;
+  }
+
   // Rebuilt only when the list changes, so a refresh never closes the menu
   // while it is open.
   function renderWorlds() {
@@ -736,7 +748,8 @@
     worldSelect.textContent = "";
     const worlds = state.worlds.length ? state.worlds : state.worldKey ? [{ key: state.worldKey, name: state.worldKey }] : [];
     for (const world of worlds) {
-      const option = el("option", "", world.name);
+      const option = el("option", "", worldLabel(world.name));
+      option.title = world.name;
       option.value = world.key;
       worldSelect.appendChild(option);
     }
@@ -807,7 +820,7 @@
     return null;
   }
 
-  // One line: world · moodboards | profiles · flag · Packs. The packs panel
+  // One line: world · Packs · moodboards | profiles · flag. The packs panel
   // opens under it when asked for.
   function buildDock() {
     dock = el("div", "stg-mb-dock");
@@ -850,14 +863,15 @@
     profileSep.hidden = true;
     profileStrip = el("div", "stg-mb-pstrip");
     activeLabel = el("span", "stg-mb-active");
-    row.append(world, statusLine, strip, profileSep, profileStrip, activeLabel);
-
     const createSection = globalScope.SaveToGalleryPromptPacks?.createSection;
     packs =
       typeof createSection === "function"
         ? createSection({ getTextarea: () => textarea, onResize: queueLayout })
         : null;
+    // Packs sits by the world, so a full line never pushes it onto its own row.
+    row.append(world);
     if (packs) row.appendChild(packs.toggle);
+    row.append(statusLine, strip, profileSep, profileStrip, activeLabel);
 
     snapshot = el("div", "stg-mb-snap");
     snapshot.hidden = true;
