@@ -23,6 +23,8 @@ const SCOPE_COPY: Record<AgentTokenScope, { badge: string; text: string }> = {
   "gallery:read": { badge: "READ", text: "Search, browse and preview every piece, prompt and collection." },
   "gallery:write": { badge: "WRITE", text: "Save new pieces and prompts, edit tags, descriptions and collections." },
   "gallery:delete": { badge: "DELETE", text: "Remove pieces, prompts and collections." },
+  "inspiration:capture": { badge: "CAPTURE", text: "Save references and private photos into Inspiration, and check they arrived." },
+  "inspiration:adapt": { badge: "TAKES", text: "Read Inspiration and make takes for chosen projects." },
 };
 
 const hostOf = (uri: string) => {

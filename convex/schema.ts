@@ -11,6 +11,7 @@ import { newspaperFields } from "./newspaperValidators";
 import {
   inspirationAdaptationFields, inspirationDispatchFields, inspirationEventFields, inspirationJobFields,
   inspirationPrivateMediaFields, inspirationSourceFields, inspirationVersionFields,
+  inspirationCaptureFields, inspirationPrivateDeletionFields, assetCaptureFields,
 } from "./inspirationValidators";
 import { mjQueueItemFields } from "./mjQueueValidators";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
@@ -543,6 +544,16 @@ export default defineSchema({
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
     .index("by_storageId", ["storageId"])
     .index("by_source_createdAt", ["sourceId", "createdAt"]),
+  inspirationPrivateDeletions: defineTable(inspirationPrivateDeletionFields)
+    .index("by_owner_deletedAt", ["ownerUserId", "deletedAt"]),
+  // One row per intake event and representation (P0.4): shared bytes,
+  // separate contexts. See inspirationValidators.ts.
+  inspirationCaptures: defineTable(inspirationCaptureFields)
+    .index("by_owner_captureKey", ["ownerUserId", "captureKey"])
+    .index("by_source_createdAt", ["sourceId", "createdAt"]),
+  // Every other source a deduplicated asset was saved from (assets.ts).
+  assetCaptures: defineTable(assetCaptureFields)
+    .index("by_asset_createdAt", ["assetId", "createdAt"]),
   // The morning newspaper: one edition per owner per Prague date, compiled by
   // the daily cron (or on demand) from the tables above; facts as JSON, the
   // agent's prose beside them. See convex/newspaper.ts.
@@ -576,6 +587,8 @@ export default defineSchema({
     tokenPrefix: v.string(),
     label: v.string(),
     scopes: v.array(agentTokenScopeValidator),
+    // inspiration:adapt only: the world roots this token may work on.
+    worldIds: v.optional(v.array(v.id("folders"))),
     expiresAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
     lastUsedAt: v.optional(v.number()),

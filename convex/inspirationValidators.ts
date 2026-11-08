@@ -281,8 +281,101 @@ export const inspirationPrivateMediaFields = {
   height: v.optional(v.number()),
   label: v.optional(v.string()),
   // Which outside processors may see these bytes. "none" until Michael
-  // clears a processor: preserve and private analysis only.
-  externalProcessing: v.literal("none"),
+  // clears a processor on the source page: preserve and private analysis
+  // only. "cleared" = clearedProcessors names the ones he allowed.
+  externalProcessing: v.union(v.literal("none"), v.literal("cleared")),
+  clearedProcessors: v.optional(v.array(v.object({ name: v.string(), clearedAt: v.number() }))),
+  // The intake event (inspirationCaptures) these bytes arrived with.
+  captureId: v.optional(v.id("inspirationCaptures")),
+  // What the file's first bytes say it is (lib/file-signature.ts), checked
+  // against the declared type before the row is written.
+  signature: v.optional(v.string()),
+  // Display copy and thumbnail: re-encoded WebP with no EXIF, GPS, maker
+  // notes or ICC, served through the same gated route (?variant=display|thumb).
+  // derivatives: pending = being cut; ready; original_only = this format has
+  // no clean copy (video, voice, HEIC the encoder cannot read); failed.
+  derivatives: v.optional(v.union(v.literal("pending"), v.literal("ready"), v.literal("original_only"), v.literal("failed"))),
+  derivativesNote: v.optional(v.string()),
+  displayStorageId: v.optional(v.id("_storage")),
+  displayWidth: v.optional(v.number()),
+  displayHeight: v.optional(v.number()),
+  thumbStorageId: v.optional(v.id("_storage")),
+  thumbWidth: v.optional(v.number()),
+  thumbHeight: v.optional(v.number()),
   createdBy: v.string(),
+  createdAt: v.number(),
+};
+
+/** Proof a private original was deleted by Michael: what it was, never the bytes. */
+export const inspirationPrivateDeletionFields = {
+  ownerUserId: v.string(),
+  mediaId: v.string(),
+  sourceId: v.optional(v.id("inspirationSources")),
+  sha256: v.string(),
+  size: v.number(),
+  contentType: v.string(),
+  by: v.string(),
+  deletedAt: v.number(),
+};
+
+/* ── Captures (P0.4 provenance) ──────────────────────────────────────────
+ * One row per intake event and representation. Bytes may be shared (the
+ * same picture saved from two platforms dedupes to one asset), but every
+ * capture keeps its own context: where it came from, who made it, which
+ * chat delivered it, and what we actually hold. A screenshot and the full
+ * file fetched later are two rows; a Telegram message edit is a new
+ * revision under the same key, never a new source. */
+
+export const inspirationCaptureViaValidator = v.object({
+  // How it reached the gallery.
+  channel: v.union(v.literal("telegram"), v.literal("share_sheet"), v.literal("browser"), v.literal("agent"), v.literal("import")),
+  // Telegram: the verified numeric sender, the chat it arrived in and its
+  // type, the message id and the bot that received it. Only Michael's own
+  // private chat with the bot is accepted (convex/inspiration.ts).
+  chatType: v.optional(v.union(v.literal("private"), v.literal("group"), v.literal("supergroup"), v.literal("channel"))),
+  chatId: v.optional(v.string()),
+  senderId: v.optional(v.string()),
+  messageId: v.optional(v.string()),
+  bot: v.optional(v.string()),
+  // A forwarded post: whose it was originally (data, never identity).
+  forwardedFrom: v.optional(v.string()),
+});
+
+export const inspirationCaptureFields = {
+  ownerUserId: v.string(),
+  sourceId: v.id("inspirationSources"),
+  // The intake identity: "telegram:dm:<messageId>", "instagram:<shortcode>", ...
+  captureKey: v.string(),
+  // Message edits are revisions of one capture (1, 2, ...).
+  captureRevision: v.number(),
+  // What this capture holds (a screenshot is not the post).
+  representation: inspirationPreservationValidator,
+  platform: inspirationPlatformValidator,
+  via: v.optional(inspirationCaptureViaValidator),
+  sourceUrl: v.optional(v.string()),
+  creator: v.optional(v.string()),
+  creatorUrl: v.optional(v.string()),
+  caption: v.optional(v.string()),
+  text: v.optional(v.string()),
+  sourceCollections: v.array(v.string()),
+  assetIds: v.array(v.id("assets")),
+  // The bytes' hashes at capture time (shared blobs stay traceable).
+  contentHashes: v.array(v.string()),
+  privateMediaIds: v.array(v.id("inspirationPrivateMedia")),
+  capturedAt: v.optional(v.number()),
+  createdBy: v.string(),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};
+
+/** Asset-level provenance: every other place the same bytes were saved from. */
+export const assetCaptureFields = {
+  ownerUserId: v.string(),
+  assetId: v.id("assets"),
+  sourceUrl: v.optional(v.string()),
+  ingestKey: v.optional(v.string()),
+  ingestSource: v.optional(v.string()),
+  // Which dedupe sent this save to the existing asset.
+  matchedBy: v.union(v.literal("contentHash"), v.literal("ingestKey")),
   createdAt: v.number(),
 };

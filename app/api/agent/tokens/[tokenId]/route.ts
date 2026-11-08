@@ -5,6 +5,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { requireAuth } from "@/lib/server-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { requireAgentTokenIssuerSecret } from "@/lib/server/agent-auth";
+import { AGENT_TOKEN_SCOPES } from "@/lib/agent-scopes";
 
 const revokeAgentTokenMutation = makeFunctionReference<"mutation">(
   "agentTokens:revokeAgentToken",
@@ -13,7 +14,9 @@ const updateAgentTokenScopesMutation = makeFunctionReference<"mutation">(
   "agentTokens:updateAgentTokenScopes",
 );
 const scopeUpdateSchema = z.object({
-  scopes: z.array(z.enum(["gallery:read", "gallery:write", "gallery:delete"])).min(1).max(3),
+  scopes: z.array(z.enum(AGENT_TOKEN_SCOPES)).min(1).max(AGENT_TOKEN_SCOPES.length),
+  // inspiration:adapt: the projects (world roots) the token may work on.
+  worldIds: z.array(z.string().min(1).max(64)).max(20).optional(),
 }).strict();
 
 export async function PATCH(
@@ -38,6 +41,7 @@ export async function PATCH(
       ownerUserId: user.ownerUserId,
       tokenId: tokenId as Id<"agentTokens">,
       scopes: Array.from(new Set(body.scopes)),
+      ...(body.worldIds ? { worldIds: body.worldIds.map((id) => id.replace(/^collection:/, "")) as Id<"folders">[] } : {}),
     });
     return NextResponse.json({ token });
   } catch (error) {

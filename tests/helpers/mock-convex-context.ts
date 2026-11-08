@@ -203,6 +203,7 @@ class InMemoryQuery {
 class InMemoryDB {
   private readonly tables = new Map<string, Map<string, AnyDoc>>();
   private readonly counters = new Map<string, number>();
+  private lastCreation = 0;
 
   constructor(public readonly indexOrder: Record<string, string[]> = {}) {}
 
@@ -230,9 +231,12 @@ class InMemoryDB {
     const next = (this.counters.get(table) ?? 0) + 1;
     this.counters.set(table, next);
     const id = `${table}:${next}`;
+    // Like Convex, creation times are unique and increasing even within one
+    // millisecond (a frozen test clock included).
+    this.lastCreation = Math.max(Date.now(), this.lastCreation + 0.001);
     const doc: AnyDoc = {
       _id: id,
-      _creationTime: Date.now(),
+      _creationTime: this.lastCreation,
       ...value,
     };
     this.ensureTable(table).set(id, doc);

@@ -633,6 +633,40 @@ const mergeRepeatedSaveMetadata = async (
   await bumpTagUsage(ctx, extraTagIds, 1);
 };
 
+// A save that lands on an existing asset (same ingestKey or same bytes) from
+// another source keeps that source as its own provenance row, instead of
+// "first sourceUrl wins" (critic P0.4). Idempotent per asset + sourceUrl.
+const recordAssetCapture = async (
+  ctx: MutationCtx,
+  asset: Doc<"assets">,
+  input: { sourceUrl?: string; ingestKey?: string; ingestSource?: string },
+  matchedBy: "contentHash" | "ingestKey",
+) => {
+  const sourceUrl = input.sourceUrl?.trim().slice(0, 2000) || undefined;
+  const ingestKey = input.ingestKey?.trim().slice(0, 300) || undefined;
+  if (!sourceUrl && !ingestKey) return;
+  // An asset with no source yet just took this one (mergeRepeatedSaveMetadata).
+  if (sourceUrl && !asset.sourceUrl) return;
+  if (sourceUrl ? sourceUrl === asset.sourceUrl : ingestKey === asset.ingestKey) return;
+  const prior = await ctx.db.query("assetCaptures")
+    .withIndex("by_asset_createdAt", (q) => q.eq("assetId", asset._id)).take(100);
+  if (prior.some((row) => (sourceUrl ? row.sourceUrl === sourceUrl : row.ingestKey === ingestKey))) return;
+  if (prior.length >= 100) return;
+  await ctx.db.insert("assetCaptures", {
+    ownerUserId: asset.ownerUserId ?? "",
+    assetId: asset._id,
+    sourceUrl,
+    ingestKey,
+    ingestSource: input.ingestSource,
+    matchedBy,
+    createdAt: Date.now(),
+  });
+};
+
+/** Every other source an asset was saved from (oldest first). */
+export const assetCapturesOf = async (ctx: QueryCtx | MutationCtx, assetId: Id<"assets">, limit = 20) =>
+  ctx.db.query("assetCaptures").withIndex("by_asset_createdAt", (q) => q.eq("assetId", assetId)).order("asc").take(limit);
+
 const createAssetArgs = {
     ownerUserId: v.string(),
     kind: v.union(v.literal("image"), v.literal("video")),
@@ -695,6 +729,7 @@ const createAssetDefinition = {
         .unique();
       if (existing) {
         await mergeRepeatedSaveMetadata(ctx, ownerUserId, existing, args);
+        await recordAssetCapture(ctx, existing, args, "ingestKey");
         // When the retry includes the same digest, expose it as a media
         // duplicate to upload UIs as well. A reused ingest key with different
         // bytes remains an idempotency hit, not a content-duplicate claim.
@@ -719,6 +754,7 @@ const createAssetDefinition = {
         .first();
       if (twin) {
         await mergeRepeatedSaveMetadata(ctx, ownerUserId, twin, args);
+        await recordAssetCapture(ctx, twin, args, "contentHash");
         return { assetId: twin._id, created: false, duplicate: true };
       }
     }
@@ -1647,6 +1683,22 @@ export const getAsset = ownerQuery({
       return null;
     }
     return asset;
+  },
+});
+
+/** Other sources the same piece was saved from (dedupe keeps each one). Owner only. */
+export const listAssetCaptures = ownerQuery({
+  args: { ownerUserId: v.string(), assetId: v.id("assets") },
+  returns: v.array(v.object({
+    sourceUrl: v.optional(v.string()), ingestKey: v.optional(v.string()), ingestSource: v.optional(v.string()),
+    matchedBy: v.union(v.literal("contentHash"), v.literal("ingestKey")), createdAt: v.number(),
+  })),
+  handler: async (ctx, args) => {
+    const asset = await ctx.db.get(args.assetId);
+    if (!asset || !canActorAccessOwnerUserId(args.ownerUserId, asset.ownerUserId)) return [];
+    return (await assetCapturesOf(ctx, args.assetId)).map((row) => ({
+      sourceUrl: row.sourceUrl, ingestKey: row.ingestKey, ingestSource: row.ingestSource, matchedBy: row.matchedBy, createdAt: row.createdAt,
+    }));
   },
 });
 

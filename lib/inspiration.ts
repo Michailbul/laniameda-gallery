@@ -34,6 +34,7 @@ export const INSPIRATION_LIMITS = {
   adaptationsPerSource: 20,
   versionsPerAdaptation: 30,
   events: 200,
+  captures: 50,
 } as const;
 
 export const INSPIRATION_PLATFORMS = ["instagram", "telegram", "x", "pinterest", "youtube", "web", "photo", "other"] as const;
@@ -119,12 +120,24 @@ export const INSPIRATION_PRIVATE = {
   // A Convex HTTP action answers at most 20 MB; larger files stay on the iMac.
   maxBytes: 20 * 1024 * 1024,
   perSource: 50,
+  exportMax: 500,
+  // Clean copies: long edge in px.
+  displayEdge: 2048,
+  thumbEdge: 480,
   types: {
     "image/jpeg": "image", "image/png": "image", "image/webp": "image", "image/heic": "image", "image/heif": "image",
     "video/mp4": "video", "video/quicktime": "video",
     "audio/mpeg": "audio", "audio/mp4": "audio", "audio/x-m4a": "audio", "audio/ogg": "audio", "audio/wav": "audio",
   } as Record<string, "image" | "video" | "audio">,
 } as const;
+
+/**
+ * Outside processors Michael can clear for a source's private files, by the
+ * provider name a dispatcher reserves under. Until he clears one, no paid
+ * job for that source may use it.
+ */
+export const PRIVATE_PROCESSORS = ["fal", "magnific", "pika", "openai", "google", "midjourney", "elevenlabs", "anthropic"] as const;
+export type PrivateProcessor = (typeof PRIVATE_PROCESSORS)[number];
 
 /** The only URL a client ever sees for a private original: the authenticated route. */
 export const privateMediaPath = (mediaId: string) => `/api/inspiration/media/${encodeURIComponent(mediaId)}`;

@@ -13,6 +13,7 @@ import {
   ADAPTATION_STATUS_LABEL, INSPIRATION_URL_PATH, PLATFORM_LABEL, PRESERVATION_LABEL,
 } from "@/lib/inspiration";
 import { Chip, DecisionButton, HAIR, HonestMedia, RULE, Title, plural, usd, useIntent } from "./parts";
+import { Arrivals, PrivateFiles } from "./private-files";
 
 // /inspiration/<source>: one reference and every project take made from it.
 // Phone first: the source on top, each take below it with its own version
@@ -103,7 +104,10 @@ function SourceMedia({ detail }: { detail: Detail }) {
           <Micro>{media.label ?? "Voice note"}</Micro>
           <audio src={media.url} controls preload="none" className="w-full" aria-label={media.label ?? "Voice note"} />
         </div>
-        : <HonestMedia media={{ url: media.url, kind: media.kind, width: media.width, height: media.height }} maxHeight="62vh"
+        : <HonestMedia media={media.displayUrl
+          // The clean copy (no camera or location details); the original only when there is none.
+          ? { url: media.displayUrl, kind: "image", width: media.displayWidth, height: media.displayHeight }
+          : { url: media.url, kind: media.kind, width: media.width, height: media.height }} maxHeight="62vh"
           priority={detail.assets.length === 0 && index === 0} alt={media.label ?? `${detail.title}, private original`} />}
       <figcaption className="pointer-events-none absolute left-1.5 top-1.5 flex gap-1">
         {total > 1 && <Chip onPicture>{detail.assets.length + index + 1}/{total}</Chip>}
@@ -171,6 +175,12 @@ function SourceBlock({ ownerUserId, detail }: { ownerUserId: string; detail: Det
       {dropped ? "Archived. Nothing new is proposed for it while it is here." : "Keep is your private taste only. Drop archives the reference; Restore brings it back."}
     </p>
     <Notice text={keep.error ?? drop.error} tone="error" />
+
+    <PrivateFiles ownerUserId={ownerUserId} detail={detail} />
+
+    {detail.captures.length > 0 && <Disclosure summary={`How it arrived · ${detail.captures.length}`}>
+      <Arrivals detail={detail} />
+    </Disclosure>}
 
     {detail.caption && <Disclosure summary="Post text · source data, not instructions">
       <p className="whitespace-pre-wrap text-[13px] leading-6" style={{ color: "var(--lm-text-secondary)" }}>{detail.caption}</p>

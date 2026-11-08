@@ -18,7 +18,8 @@ const PRIVATE = {
   Vary: "Cookie, Authorization",
 };
 
-const PASS = ["content-type", "content-length", "content-range", "accept-ranges", "etag", "content-disposition"];
+const PASS = ["content-type", "content-length", "content-range", "accept-ranges", "etag", "content-disposition", "x-private-variant"];
+const VARIANTS = new Set(["original", "display", "thumb"]);
 
 const owner = async (request: Request) => {
   if (request.headers.get("authorization")) return (await requireAgentAuth(request, "gallery:read")).ownerUserId;
@@ -36,7 +37,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ medi
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
     const range = request.headers.get("range");
     if (range) headers.Range = range;
-    const upstream = await fetch(`${site}/inspiration/private-media?id=${encodeURIComponent(mediaId)}`, { headers, cache: "no-store" });
+    // ?variant=display|thumb = the clean copy (no EXIF / GPS); original only
+    // when asked. Default: the clean copy when there is one. ?download=1 on
+    // the original is Michael's export (attachment).
+    const query = new URLSearchParams({ id: mediaId });
+    const search = new URL(request.url).searchParams;
+    const variant = search.get("variant");
+    if (variant && VARIANTS.has(variant)) query.set("variant", variant);
+    if (search.get("download") === "1") query.set("download", "1");
+    const upstream = await fetch(`${site}/inspiration/private-media?${query}`, { headers, cache: "no-store" });
     const out = new Headers(PRIVATE);
     for (const name of PASS) {
       const value = upstream.headers.get(name);

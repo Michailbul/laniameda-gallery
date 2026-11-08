@@ -400,6 +400,12 @@ export const agentTokenScopeValidator = v.union(
   v.literal("gallery:read"),
   v.literal("gallery:write"),
   v.literal("gallery:delete"),
+  // Narrow inspiration tokens (lib/agent-scopes.ts). capture: register a
+  // reference, attach private originals and read that source back; nothing
+  // else in the gallery. adapt: read the inspiration library and propose,
+  // post versions and dispatch only for the token's own worlds.
+  v.literal("inspiration:capture"),
+  v.literal("inspiration:adapt"),
 );
 
 /** A stored grid rendition of an image (lib/card-thumbnail.ts ThumbVariant). */
