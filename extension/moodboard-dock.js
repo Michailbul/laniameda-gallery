@@ -450,11 +450,17 @@
     // The world's main profiles as Michael set them (shift-click); null
     // means the built-in list for the world.
     pins: null,
+    // The keys as set in the side panel (mj-hotkeys.js resolve()).
+    hotkeys: null,
   };
   const INSTANCE = Math.random().toString(36).slice(2, 10);
   let observer = null;
   let dock = null;
-  let worldSelect = null;
+  let worldButton = null;
+  let worldMenu = null;
+  let worldMenuIndex = -1;
+  let hotkeyMap = new Map();
+  let hintTimer = null;
   let activeLabel = null;
   let strip = null;
   let profileStrip = null;
@@ -685,6 +691,9 @@
     if (retired) return;
     retired = true;
     observer?.disconnect();
+    window.removeEventListener("keydown", onHotkeyDown, true);
+    window.removeEventListener("keyup", onHotkeyUp, true);
+    window.removeEventListener("blur", onWindowBlur);
     if (textarea) {
       textarea.removeEventListener("input", onPromptInput);
       textarea.removeEventListener("pointerdown", engage);
@@ -1273,6 +1282,7 @@
       chip.addEventListener("mouseleave", hideSnapshot);
       presetBox.appendChild(chip);
     }
+    syncKeyBadges();
   }
 
   // A profile has no pictures: its hover card is the name, the world's role
@@ -1304,22 +1314,276 @@
     return `${head.map((word) => word[0]).join("").toUpperCase()}${text.slice(cut)}`;
   }
 
-  // Rebuilt only when the list changes, so a refresh never closes the menu
-  // while it is open.
+  // The world picker is the dock's own list, not a native <select>: the
+  // dock moves itself to stay above the page, and a move closed the native
+  // list the moment it opened. Its buttons never take focus from the prompt.
+  function dockWorlds() {
+    return state.worlds.length ? state.worlds : state.worldKey ? [{ key: state.worldKey, name: state.worldKey }] : [];
+  }
+
   function renderWorlds() {
     const signature = JSON.stringify([state.worlds.map((world) => [world.key, world.name]), state.worldKey]);
-    if (worldSelect.dataset.signature === signature) return;
-    worldSelect.dataset.signature = signature;
-    worldSelect.textContent = "";
-    const worlds = state.worlds.length ? state.worlds : state.worldKey ? [{ key: state.worldKey, name: state.worldKey }] : [];
+    if (worldButton.dataset.signature === signature) return;
+    worldButton.dataset.signature = signature;
+    const worlds = dockWorlds();
+    const current = worlds.find((world) => world.key === state.worldKey);
+    worldButton.textContent = worldLabel(current ? current.name : state.worldKey || "World");
+    worldButton.title = `${current?.name || "Gallery world"}${hotkeyHint("world:pick")}`;
+    worldMenu.textContent = "";
     for (const world of worlds) {
-      const option = el("option", "", worldLabel(world.name));
-      option.title = world.name;
-      option.value = world.key;
-      worldSelect.appendChild(option);
+      const item = el("button", "stg-mb-witem", world.name);
+      item.type = "button";
+      item.dataset.key = world.key;
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", world.key === state.worldKey ? "true" : "false");
+      item.addEventListener("mousedown", (event) => event.preventDefault());
+      item.addEventListener("click", () => {
+        closeWorldMenu();
+        setWorld(world.key);
+      });
+      worldMenu.appendChild(item);
     }
-    worldSelect.value = state.worldKey;
-    worldSelect.title = worlds.find((world) => world.key === state.worldKey)?.name || "Gallery world";
+  }
+
+  function worldMenuOpen() {
+    return Boolean(worldMenu && !worldMenu.hidden);
+  }
+
+  function openWorldMenu() {
+    if (!worldMenu || !worldButton) return;
+    hideSnapshot();
+    worldMenu.hidden = false;
+    worldButton.setAttribute("aria-expanded", "true");
+    const items = [...worldMenu.children];
+    worldMenuIndex = Math.max(0, items.findIndex((item) => item.dataset.key === state.worldKey));
+    highlightWorldItem();
+    placeWorldMenu();
+  }
+
+  function closeWorldMenu() {
+    if (!worldMenu || worldMenu.hidden) return;
+    worldMenu.hidden = true;
+    worldButton?.setAttribute("aria-expanded", "false");
+    worldMenuIndex = -1;
+  }
+
+  function highlightWorldItem() {
+    const items = [...worldMenu.children];
+    items.forEach((item, index) => item.classList.toggle("stg-mb-witem--hot", index === worldMenuIndex));
+    items[worldMenuIndex]?.scrollIntoView({ block: "nearest" });
+  }
+
+  // Opens away from the prompt, and flips when that side has no room.
+  function placeWorldMenu() {
+    if (!worldMenuOpen() || !worldButton.isConnected) return;
+    const rect = worldButton.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom - 8;
+    const spaceAbove = rect.top - 8;
+    const wantUp = dock.classList.contains("stg-mb-dock--above");
+    const up = wantUp ? spaceAbove >= 160 || spaceAbove > spaceBelow : spaceBelow < 160 && spaceAbove > spaceBelow;
+    worldMenu.style.maxHeight = `${Math.max(120, Math.min(360, up ? spaceAbove : spaceBelow))}px`;
+    const width = worldMenu.offsetWidth;
+    worldMenu.style.left = `${Math.round(Math.max(4, Math.min(rect.left, window.innerWidth - width - 4)))}px`;
+    if (up) {
+      worldMenu.style.top = "auto";
+      worldMenu.style.bottom = `${Math.round(window.innerHeight - rect.top + 4)}px`;
+    } else {
+      worldMenu.style.bottom = "auto";
+      worldMenu.style.top = `${Math.round(rect.bottom + 4)}px`;
+    }
+  }
+
+  function setWorld(key) {
+    if (!key || key === state.worldKey) return;
+    state.worldKey = key;
+    try {
+      const qe = quickEditWorldFor(state.worldKey);
+      chrome.storage.local.set({
+        [WORLD_STORAGE_KEY]: state.worldKey,
+        ...(qe ? { quickEditWorld: qe } : {}),
+      });
+    } catch {
+      // storage unavailable after an extension reload
+    }
+    state.loading = true;
+    state.moodboards = [];
+    state.profiles = [];
+    state.signature = "";
+    state.presets = [];
+    state.pins = null;
+    render();
+    renderPresets();
+    loadPresets();
+    refresh();
+  }
+
+  function stepWorld(delta) {
+    const worlds = dockWorlds();
+    if (worlds.length < 2) return;
+    const index = worlds.findIndex((world) => world.key === state.worldKey);
+    const next = worlds[(index + delta + worlds.length) % worlds.length];
+    setWorld(next.key);
+    showNote(next.name);
+  }
+
+  // Keys (mj-hotkeys.js, set in the side panel's MJ settings tab): the Nth
+  // moodboard, profile or preset as the dock shows them, worlds, Save.
+  // They work while the dock is on screen; only the copy whose dock shows
+  // answers, so two loaded copies never toggle a code twice.
+  const hotkeysApi = () => globalScope.SaveToGalleryHotkeys;
+
+  function applyHotkeys(raw) {
+    const api = hotkeysApi();
+    if (!api) return;
+    state.hotkeys = api.resolve(raw);
+    hotkeyMap = api.comboMap(state.hotkeys);
+    if (worldButton) worldButton.dataset.signature = "";
+    if (dock) render();
+  }
+
+  function loadHotkeys() {
+    const api = hotkeysApi();
+    if (!api) return;
+    try {
+      chrome.storage.sync.get(api.STORAGE_KEY, (stored) => applyHotkeys(stored?.[api.STORAGE_KEY]));
+    } catch {
+      applyHotkeys(null);
+    }
+  }
+
+  function hotkeyLabel(id) {
+    const api = hotkeysApi();
+    const combo = api && state.hotkeys?.enabled ? state.hotkeys.bindings[id] : "";
+    return combo ? api.formatCombo(combo) : "";
+  }
+
+  function hotkeyHint(id) {
+    const label = hotkeyLabel(id);
+    return label ? `\nKey: ${label}` : "";
+  }
+
+  function setKeyBadge(node, id) {
+    const label = hotkeyLabel(id);
+    if (label) {
+      if (node.dataset.key !== label) node.dataset.key = label;
+    } else if (node.dataset.key) {
+      delete node.dataset.key;
+    }
+  }
+
+  function syncKeyBadges() {
+    if (!dock) return;
+    strip.querySelectorAll(".stg-mb-chip").forEach((chip, index) => setKeyBadge(chip, `board:${index + 1}`));
+    profileStrip.querySelectorAll(".stg-mb-pchip").forEach((chip, index) => setKeyBadge(chip, `profile:${index + 1}`));
+    presetBox.querySelectorAll(".stg-mb-preset").forEach((chip, index) => setKeyBadge(chip, `preset:${index + 1}`));
+    setKeyBadge(saveButton, "preset:save");
+  }
+
+  function dockOnScreen() {
+    return Boolean(dock && !dock.hidden && dock.isConnected && dock.getClientRects().length);
+  }
+
+  function flashChip(chip) {
+    if (!chip) return;
+    chip.classList.remove("stg-mb-flash");
+    void chip.offsetWidth;
+    chip.classList.add("stg-mb-flash");
+    setTimeout(() => chip.classList.remove("stg-mb-flash"), 500);
+  }
+
+  function runHotkey(action) {
+    if (action === "world:prev") return stepWorld(-1);
+    if (action === "world:next") return stepWorld(1);
+    if (action === "world:pick") return worldMenuOpen() ? closeWorldMenu() : openWorldMenu();
+    if (action === "preset:save") return openSave();
+    const [kind, arg] = action.split(":");
+    const slot = Number(arg);
+    if (kind === "board") {
+      const chip = strip.querySelectorAll(".stg-mb-chip")[slot - 1];
+      const board = chip && state.moodboards.find((entry) => entry.mjCode === chip.dataset.code);
+      if (!board) return showNote(`No moodboard ${slot} in this world`);
+      onChipClick(board);
+      flashChip(chip);
+    } else if (kind === "profile") {
+      const chip = profileStrip.querySelectorAll(".stg-mb-pchip")[slot - 1];
+      const profile = chip && state.profiles.find((entry) => entry.code === chip.dataset.code);
+      if (!profile) return showNote(`No profile ${slot} in this world`);
+      onProfileClick(profile);
+      flashChip(chip);
+    } else if (kind === "preset") {
+      const preset = state.presets[slot - 1];
+      if (!preset) return showNote(`No preset ${slot} yet`);
+      onPresetClick(preset);
+      flashChip(presetBox.querySelector(`.stg-mb-preset[data-id="${CSS.escape(preset.id)}"]`));
+    }
+  }
+
+  function handleWorldMenuKey(event) {
+    const items = [...worldMenu.children];
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (items.length) {
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        worldMenuIndex = (worldMenuIndex + step + items.length) % items.length;
+        highlightWorldItem();
+      }
+    } else if (event.key === "Enter") {
+      const key = items[worldMenuIndex]?.dataset.key;
+      closeWorldMenu();
+      if (key) setWorld(key);
+    } else if (event.key === "Escape" || event.key === "Tab") {
+      closeWorldMenu();
+    } else {
+      return false;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return true;
+  }
+
+  const TYPING_TARGET = "input, textarea, select, [contenteditable=''], [contenteditable='true']";
+  const HINT_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
+
+  function showKeyHints(on) {
+    clearTimeout(hintTimer);
+    if (!dock) return;
+    if (!on) {
+      dock.classList.remove("stg-mb-dock--keys");
+      return;
+    }
+    hintTimer = setTimeout(() => {
+      if (dockOnScreen() && hotkeyMap.size) dock.classList.add("stg-mb-dock--keys");
+    }, 220);
+  }
+
+  function onHotkeyDown(event) {
+    if (retired || !dock) return;
+    if (worldMenuOpen() && dockOnScreen() && handleWorldMenuKey(event)) return;
+    if (HINT_KEYS.has(event.key)) {
+      if (event.key !== "Shift" || event.altKey || event.ctrlKey || event.metaKey) showKeyHints(true);
+      return;
+    }
+    showKeyHints(false);
+    if (!hotkeyMap.size || event.isComposing) return;
+    const combo = hotkeysApi()?.comboFromEvent(event);
+    const action = combo && hotkeyMap.get(combo);
+    if (!action || !dockOnScreen() || !textarea || !textarea.isConnected) return;
+    const active = document.activeElement;
+    if (active && active !== textarea && active.matches && active.matches(TYPING_TARGET)) return;
+    if (!extensionAlive()) {
+      retire();
+      return;
+    }
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (!event.repeat) runHotkey(action);
+  }
+
+  function onWindowBlur() {
+    showKeyHints(false);
+  }
+
+  function onHotkeyUp(event) {
+    if (HINT_KEYS.has(event.key) && !(event.altKey || event.ctrlKey || event.metaKey)) showKeyHints(false);
   }
 
   // The prompt packs are Dear Annete's lexicon: the Packs button shows only
@@ -1364,6 +1628,7 @@
     boardRow.hidden = !message;
     profileRow.hidden = !state.profiles.length;
     syncActive();
+    syncKeyBadges();
   }
 
   function boardChip(board, siblings) {
@@ -1424,37 +1689,25 @@
     dock.setAttribute("role", "toolbar");
     dock.setAttribute("aria-label", "Gallery moodboards");
     const world = el("div", "stg-mb-worldbox");
-    worldSelect = el("select", "stg-mb-world");
-    worldSelect.setAttribute("aria-label", "Gallery world");
-    worldSelect.addEventListener("change", () => {
-      state.worldKey = worldSelect.value;
-      try {
-        const qe = quickEditWorldFor(state.worldKey);
-        chrome.storage.local.set({
-          [WORLD_STORAGE_KEY]: state.worldKey,
-          ...(qe ? { quickEditWorld: qe } : {}),
-        });
-      } catch {
-        // storage unavailable after an extension reload
-      }
-      state.loading = true;
-      state.moodboards = [];
-      state.profiles = [];
-      state.signature = "";
-      state.presets = [];
-      state.pins = null;
-      render();
-      renderPresets();
-      loadPresets();
-      refresh();
-    });
+    worldButton = el("button", "stg-mb-world", "World");
+    worldButton.type = "button";
+    worldButton.setAttribute("aria-label", "Gallery world");
+    worldButton.setAttribute("aria-haspopup", "listbox");
+    worldButton.setAttribute("aria-expanded", "false");
+    worldButton.addEventListener("mousedown", (event) => event.preventDefault());
+    worldButton.addEventListener("click", () => (worldMenuOpen() ? closeWorldMenu() : openWorldMenu()));
+    worldMenu = el("div", "stg-mb-wmenu");
+    worldMenu.dataset.stgInstance = INSTANCE;
+    worldMenu.setAttribute("role", "listbox");
+    worldMenu.setAttribute("aria-label", "Gallery worlds");
+    worldMenu.hidden = true;
     const refreshButton = el("button", "stg-mb-refresh", "↻");
     refreshButton.type = "button";
     refreshButton.title = "Refresh moodboards";
     refreshButton.setAttribute("aria-label", "Refresh moodboards");
     refreshButton.addEventListener("mousedown", (event) => event.preventDefault());
     refreshButton.addEventListener("click", () => refresh({ manual: true }));
-    world.append(worldSelect, refreshButton);
+    world.append(worldButton, refreshButton);
 
     statusLine = el("span", "stg-mb-status");
     strip = el("div", "stg-mb-strip");
@@ -1513,6 +1766,7 @@
     dock.append(boardRow, strip, profileRow, meta);
     if (packs) dock.appendChild(packs.section);
     dock.appendChild(snapshot);
+    dock.appendChild(worldMenu);
     dock.addEventListener("mouseenter", () => setHover("dock", true));
     dock.addEventListener("mouseleave", () => setHover("dock", false));
     document.body.appendChild(dock);
@@ -1566,6 +1820,8 @@
     }
     if (!isComposing()) {
       dock.hidden = true;
+      closeWorldMenu();
+      showKeyHints(false);
       hideSnapshot();
       wasShown = false;
       return;
@@ -1606,6 +1862,7 @@
       dock.hidden = placed.top < 0 || placed.bottom > window.innerHeight;
     }
     dock.dataset.panel = panel ? "open" : "";
+    placeWorldMenu();
     // A flag cut down to a few letters says nothing: hide it until there is room.
     const clipped = activeLabel.scrollWidth > activeLabel.clientWidth + 1 && activeLabel.clientWidth < 90;
     activeLabel.classList.toggle("stg-mb-active--clipped", clipped);
@@ -1641,9 +1898,24 @@
       queueLayout();
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    loadHotkeys();
+    window.addEventListener("keydown", onHotkeyDown, true);
+    window.addEventListener("keyup", onHotkeyUp, true);
+    window.addEventListener("blur", onWindowBlur);
+    document.addEventListener(
+      "pointerdown",
+      (event) => {
+        if (!worldMenuOpen()) return;
+        if (worldMenu.contains(event.target) || worldButton.contains(event.target)) return;
+        closeWorldMenu();
+      },
+      true,
+    );
     try {
       chrome.storage.onChanged.addListener((changes, area) => {
         if (area !== "sync") return;
+        const hotkeysKey = hotkeysApi()?.STORAGE_KEY;
+        if (hotkeysKey && changes[hotkeysKey]) applyHotkeys(changes[hotkeysKey].newValue);
         if (changes[pinKey()]) {
           const pins = changes[pinKey()].newValue;
           state.pins = Array.isArray(pins) ? pins : null;
