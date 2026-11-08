@@ -1,6 +1,12 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 
+type Board = { name?: string; shortName?: string; mjCode?: string };
+type Profile = { name: string; code: string };
+
 type DockApi = {
+  groupBoards: (boards: Board[]) => { label: string; boards: Board[] }[];
+  orderProfiles: (profiles: Profile[], pins: string[]) => { main: Profile[]; more: Profile[] };
+  DEFAULT_PROFILE_PINS: Record<string, string[]>;
   applyMoodboardToPrompt: (
     promptText: string,
     code: string,
@@ -229,5 +235,43 @@ describe("presets", () => {
       "A tram at dawn --sref https://cdn.example/a.png -p m7a1 p2 --raw",
     );
     expect(getApi().removeParams("A tram --ar 2:3", "--ar 16:9")).toBe("A tram --ar 2:3");
+  });
+});
+
+describe("board families and main profiles", () => {
+  const board = (name: string) => ({ name, mjCode: name });
+  const names = (list: Board[]) => list.map((entry) => entry.name);
+
+  test("a world with many boards shows them by family, singles under More", () => {
+    const boards = [
+      ...["Couture", "Crimson Valley", "Faces", "Golden", "World"].map((n) => board(`DA FILM \u00b7 ${n}`)),
+      ...["Candle", "Night Dread", "Red Dread"].map((n) => board(`DA HALLOWEEN \u00b7 ${n}`)),
+      board("Light-Beauty"),
+      board("STYLE \u00b7 Lone"),
+    ];
+    const groups = getApi().groupBoards(boards);
+    expect(groups.map((group) => group.label)).toEqual(["FILM", "HALLOWEEN", "MORE"]);
+    expect(names(groups[2].boards)).toEqual(["Light-Beauty", "STYLE \u00b7 Lone"]);
+  });
+
+  test("a small world is one line without a label", () => {
+    const boards = ["ART DECOcity", "DA DECO \u00b7 Daylight", "DA DECO \u00b7 World", "STYLE \u00b7 Anim"].map(board);
+    expect(getApi().groupBoards(boards)).toEqual([{ label: "", boards }]);
+    expect(getApi().groupBoards([])).toEqual([]);
+  });
+
+  test("Dear Annete's main profiles come first in Michael's order, the rest after", () => {
+    const profiles = ["ANIM", "CINEMATIC", "DA 5", "DA V3", "DA v8", "DA v8.2", "DA4", "DEAR ANNETTE 2", "LOCATIONS", "LOVE"].map(
+      (name) => ({ name, code: name.toLowerCase() }),
+    );
+    const { main, more } = getApi().orderProfiles(profiles, getApi().DEFAULT_PROFILE_PINS["dear-annete"]);
+    expect(main.map((p) => p.name)).toEqual(["DA4", "DA 5", "DA V3", "DA v8.2", "DEAR ANNETTE 2", "CINEMATIC", "LOCATIONS"]);
+    expect(more.map((p) => p.name)).toEqual(["ANIM", "DA v8", "LOVE"]);
+  });
+
+  test("without a matching pin every profile is main", () => {
+    const profiles = [{ name: "ANIM", code: "a" }, { name: "DARI", code: "d" }];
+    expect(getApi().orderProfiles(profiles, [])).toEqual({ main: profiles, more: [] });
+    expect(getApi().orderProfiles(profiles, ["nothing"])).toEqual({ main: profiles, more: [] });
   });
 });

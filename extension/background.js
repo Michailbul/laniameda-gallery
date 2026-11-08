@@ -794,13 +794,17 @@ async function reinjectContentScripts() {
       if (typeof tab.id !== "number") return;
       // Restricted pages (web store, error pages) reject injection — skip them
       // silently; those tabs fall back to the content script's reload banner.
+      // Midjourney tabs get every script (dock, queue, quick edit, packs):
+      // each new copy hides the old copy's dock and box, so an update shows
+      // without a page reload.
+      const onMidjourney = /^https:\/\/([a-z0-9-]+\.)*midjourney\.com\//i.test(tab.url || "");
       await chrome.scripting.insertCSS({
         target: { tabId: tab.id },
-        files: CONTENT_SCRIPT_CSS_FILES,
+        files: onMidjourney ? CONTENT_STYLE_FILES : CONTENT_SCRIPT_CSS_FILES,
       });
       await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        files: CONTENT_SCRIPT_JS_FILES,
+        files: onMidjourney ? CONTENT_SCRIPT_FILES : CONTENT_SCRIPT_JS_FILES,
       });
     }),
   );

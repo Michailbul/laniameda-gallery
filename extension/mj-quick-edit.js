@@ -85,8 +85,23 @@
 
   // ── UI (shadow DOM, so Midjourney's styles never reach it) ──
 
+  // An extension update injects a fresh copy into open tabs: the old copy's
+  // box hides (it keeps no id match), and a dead copy never mounts again.
+  const instance = Math.random().toString(36).slice(2, 10);
+  const retireStyle = document.createElement("style");
+  retireStyle.textContent = `#stg-quick-edit:not([data-stg-instance="${instance}"]){display:none!important}`;
+  (document.head || document.documentElement).appendChild(retireStyle);
+  document.querySelectorAll("#stg-quick-edit").forEach((node) => node.remove());
+  const alive = () => {
+    try {
+      return Boolean(chrome.runtime && chrome.runtime.id);
+    } catch {
+      return false;
+    }
+  };
   const host = document.createElement("div");
   host.id = "stg-quick-edit";
+  host.dataset.stgInstance = instance;
   Object.assign(host.style, { position: "fixed", inset: "0 auto auto 0", zIndex: "2147483646", width: "0", height: "0" });
   const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `<style>
@@ -136,7 +151,13 @@
   const input = shadow.querySelector("input");
   const go = shadow.querySelector(".go");
   const line = shadow.querySelector(".line");
-  const mount = () => { if (!host.isConnected) document.documentElement.appendChild(host); };
+  const mount = () => {
+    if (!alive()) {
+      host.remove();
+      return;
+    }
+    if (!host.isConnected) document.documentElement.appendChild(host);
+  };
 
   function paintChips() {
     const world = defaults()?.byKey(settings.world);

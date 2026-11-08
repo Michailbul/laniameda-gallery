@@ -27,6 +27,25 @@ Last updated: 2026-11-06
 - Spec, verification and limits (frame codes can collide at a few hundred
   frames): agent-docs/features/director-review/PRD.md.
 
+### 2026-11-08 — Midjourney dock second pass: families, main profiles, live updates (extension 0.26.0)
+- Moodboards render one line per family from `groupBoards()` (prefix before
+  "·", short world prefix dropped; families of one and loose boards → MORE;
+  under 9 boards or one family → a single MOODBOARDS line). Chips carry the
+  board's `thumbUrl` (20 px, lazy). PROFILES is its own line.
+- `orderProfiles(profiles, pins)` puts pinned profiles first in pin order;
+  pins live in chrome.storage.sync `stgMjProfilePins:<world>`, default from
+  `DEFAULT_PROFILE_PINS` (dear-annete: da4, da5, dav3, dav82, dearannette2,
+  cinematic, locations). Shift-click toggles.
+- Rows use flex, not grid: grid plus the thumbs tripled typing layout time
+  on the busy test page (63 → 130–350 ms per 6 s); flex is back to 66–71.
+- Update in place: background `reinjectContentScripts()` gives Midjourney
+  tabs the full manifest list. Each dock and quick edit copy stamps
+  `data-stg-instance`; a style hides the others; `dropDock()` removes only its
+  own dock (the old class-wide remove made two copies rebuild each other);
+  a copy with a dead runtime retires (observer off, dock removed).
+- Data: DA V3 (9u99tie) set active again for dear-annete; it was retired, so
+  the dock never got it.
+
 ### 2026-11-08 — Midjourney dock presets, moodboards first (extension 0.25.0)
 - Dock row 1: moodboards | profiles. Row 2 (`.stg-mb-row--meta`): world,
   presets, Save, flag, Packs (quiet, closed by default).
