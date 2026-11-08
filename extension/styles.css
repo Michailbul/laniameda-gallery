@@ -2510,6 +2510,161 @@ html.stg-x-capturing .stg-badge {
   color: #f26157;
 }
 
+/* Second line: world, presets, Save, flag, Packs. Smaller than the first. */
+.stg-mb-row--meta {
+  min-height: 22px;
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 244, 234, 0.07);
+}
+
+.stg-mb-dock--above .stg-mb-row--meta {
+  margin: 0 0 4px;
+  padding: 0 0 4px;
+  border-top: 0;
+  border-bottom: 1px solid rgba(255, 244, 234, 0.07);
+}
+
+.stg-mb-row--meta .stg-mb-worldbox {
+  height: 22px;
+  margin-right: 4px;
+}
+
+.stg-mb-row--meta .stg-mb-world,
+.stg-mb-row--meta .stg-mb-refresh {
+  height: 20px;
+  line-height: 20px;
+}
+
+.stg-mb-row--meta .stg-mb-refresh {
+  width: 20px;
+}
+
+.stg-mb-presets {
+  display: contents;
+}
+
+/* A preset: board + profiles + settings + packs under one name. Coral edge,
+   so it never reads as a single moodboard or profile. */
+.stg-mb-preset {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  margin: 0;
+  padding: 0 4px 0 8px;
+  color: #fff4ea;
+  background: rgba(242, 97, 87, 0.08);
+  border: 1px solid rgba(242, 97, 87, 0.42);
+  border-radius: 7px;
+  font: 600 11px/20px Inter, ui-sans-serif, system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.stg-mb-preset:hover {
+  background: rgba(242, 97, 87, 0.16);
+}
+
+.stg-mb-preset--on,
+.stg-mb-preset--on:hover {
+  color: #0a0805;
+  background: #f26157;
+  border-color: #f26157;
+}
+
+.stg-mb-preset--armed {
+  border-style: dashed;
+  border-color: #f26157;
+}
+
+.stg-mb-preset-x {
+  display: inline-block;
+  width: 14px;
+  color: currentColor;
+  font: 500 12px/14px system-ui, sans-serif;
+  text-align: center;
+  border-radius: 4px;
+  opacity: 0;
+}
+
+.stg-mb-preset:hover .stg-mb-preset-x {
+  opacity: 0.55;
+}
+
+.stg-mb-preset-x:hover {
+  background: rgba(10, 8, 5, 0.25);
+  opacity: 1 !important;
+}
+
+.stg-mb-save {
+  flex: none;
+  height: 22px;
+  margin: 0;
+  padding: 0 8px;
+  color: rgba(255, 244, 234, 0.6);
+  background: transparent;
+  border: 1px dashed rgba(255, 244, 234, 0.22);
+  border-radius: 7px;
+  font: 600 10px/20px "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stg-mb-save:hover {
+  color: #fff4ea;
+  border-color: rgba(242, 97, 87, 0.7);
+}
+
+.stg-mb-save--idle {
+  opacity: 0.45;
+}
+
+.stg-mb-save-input {
+  flex: none;
+  width: 170px;
+  height: 22px;
+  margin: 0;
+  padding: 0 8px;
+  color: #fff4ea;
+  background: #191919;
+  border: 1px solid #f26157;
+  border-radius: 7px;
+  outline: none;
+  font: 500 11.5px/20px Inter, ui-sans-serif, system-ui, sans-serif;
+}
+
+.stg-mb-save-input::placeholder {
+  color: rgba(255, 244, 234, 0.38);
+}
+
+.stg-mb-note {
+  padding: 0 4px;
+  color: rgba(255, 244, 234, 0.62);
+  font: 500 10.5px/22px Inter, ui-sans-serif, system-ui, sans-serif;
+  white-space: nowrap;
+}
+
+.stg-mb-note-act {
+  margin: 0;
+  padding: 0;
+  color: #f26157;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.stg-mb-row--meta .stg-mb-active {
+  line-height: 22px;
+}
+
 /* Hover sheet: a board's pictures, large; or a profile's role. */
 .stg-mb-snap {
   position: fixed;
