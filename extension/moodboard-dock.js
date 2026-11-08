@@ -789,7 +789,7 @@
 
   // Midjourney empties the prompt after a submit. The first words of the next
   // prompt bring the remembered board and profiles back.
-  function onPromptInput() {
+  function onPromptInput(event) {
     if (!textarea) return;
     const value = textarea.value;
     if (!wordsOf(value)) {
@@ -801,14 +801,18 @@
       freshPrompt = false;
       const sticky = stickyFor();
       const codes = stickyCodes(sticky, boardCodes(), profileCodes());
-      const extras = Boolean(sticky.params) || (sticky.packs || []).length > 0;
+      // Pasted or dropped text is a finished prompt: it keeps its own
+      // settings and gets no packs; only missing settings are filled in.
+      const typed = !/paste|drop|replacement/i.test((event && event.inputType) || "");
+      const options = { onlyMissing: true, packs: typed };
+      const extras = Boolean(sticky.params) || (typed && (sticky.packs || []).length > 0);
       if (withStickyFlag(value, codes) || extras) {
         // Runs after Midjourney has handled the keystroke. Uses the text as it
         // is by then, so fast typing never loses the flag.
         setTimeout(() => {
           if (!textarea || !textarea.isConnected) return;
           const base = textarea.value;
-          const next = withPresetExtras(withStickyFlag(base, codes) ?? base, sticky);
+          const next = withPresetExtras(withStickyFlag(base, codes) ?? base, sticky, options);
           if (next === base) return;
           const start = textarea.selectionStart;
           const end = textarea.selectionEnd;
@@ -883,10 +887,18 @@
   }
 
   // The settings and packs of a preset go into a prompt that has words: the
-  // settings at the end, the packs after the words.
-  function withPresetExtras(text, preset) {
+  // settings at the end, the packs after the words. A click on a preset sets
+  // its values; carried into the next prompt (onlyMissing) it only fills in
+  // settings the prompt does not have yet.
+  function withPresetExtras(text, preset, options = {}) {
     let next = text;
-    if (preset.params && !hasParams(next, preset.params)) next = setParams(next, preset.params);
+    let params = preset.params || "";
+    if (options.onlyMissing && params) {
+      const have = new Set(parseParams(next).map((param) => param.key));
+      params = parseParams(params).filter((param) => !have.has(param.key)).map((param) => param.text).join(" ");
+    }
+    if (params && !hasParams(next, params)) next = setParams(next, params);
+    if (options.packs === false) return next;
     const api = packsApi();
     for (const id of preset.packs || []) {
       const pack = packPhrase(id);
