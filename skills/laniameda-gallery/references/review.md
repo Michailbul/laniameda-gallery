@@ -55,6 +55,13 @@ rolling back and choosing who may look stay Michael's calls.
 - **Item**: a frame in a round: the asset, its folder, its style, an optional
   caption the director reads, and earlier takes it replaced. One frame may sit
   in two folders (a place and a person).
+- **Archived (D)**: on the review page Michael's D (and 2) archives a frame
+  instead of disliking it: the gallery's soft archive (`assetArchive`, the
+  same as D on a board). It grays out in place for him, leaves the
+  director's and guests' view, teaser and downloads, and sits in the
+  gallery's Archive tray; D again or Restore there brings it back. The
+  Archived filter lists them. Never archive for him; it is his call.
+  (Michael, 9 Nov 2026: "for me as art director the dislike doesn't matter.")
 - **Verdict**: one like or dislike per frame per person. It belongs to the
   frame (the asset), not the round, so a like carries into the next round.
 - **Style verdict**: one like or dislike per style per person, on the look as
