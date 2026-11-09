@@ -1246,6 +1246,51 @@ export const listBackfillSourceBatch = internalQuery({
   },
 });
 
+/**
+ * Embedding coverage, one page of assets at a time: how many have a search
+ * document, a picture (multimodal) vector and a text vector. `bunx convex run semanticIndex:semanticCoverageBatch` with the
+ * cursor until done, or scripts/semantic-coverage.ts.
+ */
+export const semanticCoverageBatch = internalQuery({
+  args: { cursor: v.optional(v.string()), batchSize: v.optional(v.number()) },
+  returns: v.object({
+    assets: v.number(),
+    images: v.number(),
+    videos: v.number(),
+    withDocument: v.number(),
+    withVisual: v.number(),
+    withText: v.number(),
+    missingSample: v.array(v.id("assets")),
+    // Images with a search document but no picture vector (reindex these).
+    imagesWithoutVisual: v.array(v.id("assets")),
+    nextCursor: v.optional(v.string()),
+    done: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("assets").paginate({
+      cursor: args.cursor ?? null,
+      numItems: Math.min(Math.max(args.batchSize ?? 60, 1), 150),
+      maximumBytesRead: MAX_BACKFILL_BYTES,
+    });
+    const out = { assets: 0, images: 0, videos: 0, withDocument: 0, withVisual: 0, withText: 0, missingSample: [] as Id<"assets">[], imagesWithoutVisual: [] as Id<"assets">[] };
+    for (const asset of page.page) {
+      out.assets += 1;
+      if (asset.kind === "video") out.videos += 1;
+      else out.images += 1;
+      const doc = await ctx.db.query("semanticDocuments").withIndex("by_asset", (q) => q.eq("assetId", asset._id)).first();
+      if (!doc) {
+        if (out.missingSample.length < 10) out.missingSample.push(asset._id);
+        continue;
+      }
+      out.withDocument += 1;
+      if (doc.modality === "multimodal_image" && doc.embedding?.length) out.withVisual += 1;
+      else if (asset.kind !== "video") out.imagesWithoutVisual.push(asset._id);
+      if (doc.textEmbedding?.length || (doc.modality === "text_only" && doc.embedding?.length)) out.withText += 1;
+    }
+    return { ...out, nextCursor: page.isDone ? undefined : page.continueCursor, done: page.isDone };
+  },
+});
+
 export const upsertSemanticDocument = internalMutation({
   args: {
     ownerUserId: v.string(),

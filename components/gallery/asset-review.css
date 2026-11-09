@@ -180,6 +180,20 @@
   opacity: 0.65;
   margin: 10px 0 20px;
 }
+.asset-review-show-archived {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -8px 0 18px;
+  font: 600 10px/1.2 var(--font-geist-mono, ui-monospace, monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 244, 234, 0.72);
+  cursor: pointer;
+}
+.asset-review-show-archived input {
+  accent-color: var(--lm-coral, #f26157);
+}
 .asset-review-archive-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

@@ -30,6 +30,7 @@ import {
   workflowTypeValidator,
 } from "./validators";
 import { ownerAction } from "./actor";
+import { isModelTag } from "../lib/tag-hygiene";
 
 type Pillar = string;
 type PromptType = Infer<typeof promptTypeValidator>;
@@ -183,26 +184,6 @@ const normalizeTags = (names: string[]) => {
   return Array.from(new Set(cleaned));
 };
 
-const guessTags = (promptText?: string, fileName?: string, url?: string) => {
-  const haystack = [promptText, fileName, url].filter(Boolean).join(" ");
-  if (!haystack) return [];
-
-  const keywords = [
-    "portrait",
-    "neon",
-    "cyberpunk",
-    "studio",
-    "cinematic",
-    "film",
-    "illustration",
-    "anime",
-    "fashion",
-    "product",
-  ];
-  const lower = haystack.toLowerCase();
-  return keywords.filter((word) => lower.includes(word));
-};
-
 const blobFromBase64 = (base64: string, contentType?: string) => {
   const binary = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
   return new Blob([binary], { type: contentType || "application/octet-stream" });
@@ -220,7 +201,8 @@ const normalizeTypedTags = (
   const normalized = [];
   for (const tag of tags) {
     const name = tag.name.trim();
-    if (!name) continue;
+    // The model is the asset's modelName, never a tag (lib/tag-hygiene.ts).
+    if (!name || isModelTag(name)) continue;
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
@@ -666,10 +648,9 @@ export const ingestFromApi: ReturnType<typeof action> = ownerAction({
       if (!source) throw new ConvexError(`Upstream ${input.type} not found. Resolve source records before saving.`);
     }
 
-    const inferredTagNames = normalizeTags([
-      ...(args.tagNames ?? []),
-      ...guessTags(resolvedPromptText, args.file?.fileName, args.url),
-    ]);
+    // Tags come from the caller and the image tagger (tagClassify); the old
+    // keyword guess from the prompt, file name and URL is gone (9 Nov 2026).
+    const inferredTagNames = normalizeTags(args.tagNames ?? []);
     const tagInputs = normalizeTypedTags([
       ...(args.typedTags ?? []),
       ...inferredTagNames.map((name) => ({

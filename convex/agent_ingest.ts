@@ -17,6 +17,7 @@ import {
   workflowTypeValidator,
 } from "./validators";
 import { ownerAction } from "./actor";
+import { isModelTag } from "../lib/tag-hygiene";
 
 type Pillar = string;
 type PromptProfile = Infer<typeof promptProfileValidator>;
@@ -167,7 +168,8 @@ const normalizeTagInputs = (
   const deduped = new Map<string, (typeof tags)[number]>();
   for (const tag of tags) {
     const name = tag.name.trim();
-    if (!name) continue;
+    // The model is the prompt's modelName, never a tag (lib/tag-hygiene.ts).
+    if (!name || isModelTag(name)) continue;
     const key = name.toLowerCase();
     if (deduped.has(key)) continue;
     deduped.set(key, {

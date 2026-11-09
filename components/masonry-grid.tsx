@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ImageCard } from "./image-card";
+import { useHiddenArchivedIds } from "@/components/gallery/asset-review-controls";
 import { StorybookCard } from "@/components/gallery/storybook-card";
 import { CollectionStackCard } from "@/components/gallery/collection-stack-card";
 import type { CollectionOption } from "@/components/collection-menu";
@@ -315,7 +316,7 @@ export function useContentWidth(): [
 }
 
 export function MasonryGrid({
-  images,
+  images: allImages,
   compactColumns,
   selectedImageId,
   canDelete,
@@ -357,6 +358,22 @@ export function MasonryGrid({
   zoom = 1,
   baseScale = 1,
 }: MasonryGridProps) {
+  // Frames archived before this page loaded leave the grid (the Archive tray
+  // keeps them); ones archived now stay grayed in place until the next load.
+  const hiddenArchived = useHiddenArchivedIds();
+  const images = useMemo(
+    () =>
+      hiddenArchived.size === 0
+        ? allImages
+        : allImages.filter(
+            (image) =>
+              !(
+                (image.galleryItemType === undefined || image.galleryItemType === "asset") &&
+                hiddenArchived.has(image.id)
+              ),
+          ),
+    [allImages, hiddenArchived],
+  );
   const columnCount = useColumnCount(Boolean(compactColumns));
   const gap = gapPx ?? DEFAULT_GAP_PX;
 
