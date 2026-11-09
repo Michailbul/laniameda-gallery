@@ -183,51 +183,34 @@ type PanelProps = {
 
 export function FeedbackPanel({ slug, people, reviewers, audience, stats, onlyTheirs, onOnlyTheirs, onMarkRead, onToast, openSignIn }: PanelProps) {
   const setOpenSignIn = useMutation(api.review.setOpenSignIn);
-  const setRole = useMutation(api.review.setReviewerRole);
-  const mergeGuest = useMutation(api.review.mergeGuest);
-  const [merging, setMerging] = useState<string | null>(null);
+  const unlinkAlias = useMutation(api.review.unlinkAlias);
   const others = people.filter((row) => row.role !== "owner" && row.role !== "agent");
   const lead = others.find((row) => row.role === "director") ?? others[0];
   // feedback.people lists the owner first, then the reviewers in the same order as feedback.reviewers.
   const reviewerOf = (person: Person) => reviewers[people.filter((row) => row.who !== "owner").indexOf(person)];
   const seenOf = (person: Person) => reviewerOf(person)?.lastSeenAt;
-  const invited = others.filter((person) => !reviewerOf(person)?.guest);
 
   const toggleOpen = async () => {
     try {
       await setOpenSignIn({ slug, open: !openSignIn });
-      onToast(openSignIn ? "Only invited people can sign in now." : "Anyone with the link can sign in as a guest now.");
+      onToast(openSignIn ? "Guests can no longer look." : "Anyone with the link can look as a guest now.");
     } catch (error) {
       onToast(message(error), true);
     }
   };
 
-  const makeDirector = async (person: Person) => {
+  const unlink = async (person: Person, alias: string) => {
     const email = reviewerOf(person)?.email;
     if (!email) return;
+    if (!window.confirm(`${alias} will no longer sign in as ${person.name}.`)) return;
     try {
-      await setRole({ slug, email, role: "director" });
-      onToast(`${person.name} can like and comment now.`);
+      await unlinkAlias({ slug, email, alias });
+      onToast(`${alias} no longer signs in as ${person.name}.`);
     } catch (error) {
       onToast(message(error), true);
     }
   };
 
-  const merge = async (guest: Person, into: Person) => {
-    const guestEmail = reviewerOf(guest)?.email;
-    const intoEmail = reviewerOf(into)?.email;
-    if (!guestEmail || !intoEmail) return;
-    if (!window.confirm(`${guest.name} (${guestEmail}) is ${into.name}? Their likes and comments move to ${into.name}, and that Google account signs in as ${into.name} from now on.`)) return;
-    setMerging(guest.who);
-    try {
-      const moved = await mergeGuest({ slug, guestEmail, intoEmail });
-      onToast(`${guest.name} is now ${into.name}: ${moved.verdicts} likes, ${moved.comments} comments moved.`);
-    } catch (error) {
-      onToast(message(error), true);
-    } finally {
-      setMerging(null);
-    }
-  };
   const lastSeen = others.map(seenOf).filter((at): at is number => typeof at === "number").sort((a, b) => b - a)[0];
   const [open, setOpen, anchorRef, popRef] = usePopover();
   const [copying, setCopying] = useState<string | null>(null);
@@ -316,8 +299,8 @@ export function FeedbackPanel({ slug, people, reviewers, audience, stats, onlyTh
             <button type="button" className="rv-open-signin" aria-pressed={openSignIn} onClick={() => void toggleOpen()}>
               <span className="sw" aria-hidden="true" />
               <span className="tx">
-                <b>{openSignIn ? "Guests can sign in" : "Invited people only"}</b>
-                <span>{openSignIn ? "Anyone with the link can sign in with any Google account as a guest, who looks only. Directors like and comment." : "Only the people below can sign in. Invite links still work."}</span>
+                <b>{openSignIn ? "Guests can look" : "Invited people only"}</b>
+                <span>{openSignIn ? "Anyone with the link can open it as a guest, without signing in, and look only." : "Only the people below can open it. Invite links still work."}</span>
               </span>
             </button>
             {others.length === 0 ? <div className="rv-person"><span className="rv-cm-empty">Nobody yet.</span></div> : null}
@@ -328,38 +311,18 @@ export function FeedbackPanel({ slug, people, reviewers, audience, stats, onlyTh
                   <Avatar person={person} large />
                   <div className="who">
                     <b>{person.name}</b>
-                    <span>{reviewerOf(person)?.guest ? `${reviewerOf(person)?.wantsDirector ? "Asks to be director" : "Guest, looks only"} · ${reviewerOf(person)?.email ?? ""}` : person.title ?? (person.role === "viewer" ? "Looks only" : "Director")}</span>
+                    <span>{person.title ?? (person.role === "viewer" ? "Looks only" : "Director")}</span>
+                    {(reviewerOf(person)?.aliases ?? []).map((alias) => (
+                      <span key={alias} className="rv-alias">
+                        Also signs in with {alias}{" "}
+                        <button type="button" className="rv-link" onClick={() => void unlink(person, alias)}>Unlink</button>
+                      </span>
+                    ))}
                     <span>{seen ? `Looked ${ago(seen)}` : "Hasn't opened it yet"}</span>
                   </div>
-                  {reviewerOf(person)?.guest ? (
-                    <span className="rv-guest-acts">
-                    <button
-                      type="button"
-                      className={reviewerOf(person)?.wantsDirector ? "rv-btn accent" : "rv-btn"}
-                      title={reviewerOf(person)?.wantsDirector ? "Asked to be a director at sign-in" : undefined}
-                      onClick={() => void makeDirector(person)}
-                    >
-                      Make director
-                    </button>
-                    <select
-                      className="rv-same"
-                      value=""
-                      disabled={merging === person.who || invited.length === 0}
-                      aria-label={`${person.name} is the same person as`}
-                      onChange={(event) => {
-                        const into = invited.find((row) => row.who === event.target.value);
-                        if (into) void merge(person, into);
-                      }}
-                    >
-                      <option value="">{merging === person.who ? "Merging…" : "Same person as…"}</option>
-                      {invited.map((row) => <option key={row.who} value={row.who}>{row.name}</option>)}
-                    </select>
-                    </span>
-                  ) : (
-                    <button type="button" className="rv-btn" disabled={copying === person.who} onClick={() => void copyInvite(person)}>
-                      {copying === person.who ? "…" : "Copy invite link"}
-                    </button>
-                  )}
+                  <button type="button" className="rv-btn" disabled={copying === person.who} onClick={() => void copyInvite(person)}>
+                    {copying === person.who ? "…" : "Copy invite link"}
+                  </button>
                 </div>
               );
             })}

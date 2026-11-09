@@ -55,12 +55,11 @@ export default async function ReviewRoute({ params, searchParams }: { params: Pr
   // the server from 48 px blurred thumbnails) streams in behind it, so the
   // browser makes no extra request and never waits for it.
   const signIn = async (denied?: { email?: string }) => {
-    const [card, data] = await Promise.all([
+    const [card] = await Promise.all([
       fetchQuery(api.review.signInCard, { slug }, options()).catch(() => null),
       getReviewTeaserData(slug),
     ]);
     if (!card) notFound();
-    const round = data?.round;
     return (
       <div className={reviewFontClass}>
         <title>{`${card.title} · Director review`}</title>
@@ -70,10 +69,8 @@ export default async function ReviewRoute({ params, searchParams }: { params: Pr
           </Suspense>
           <SignIn
             title={card.title}
-            subtitle={card.subtitle}
             openSignIn={card.openSignIn}
-            directorName={card.directorName}
-            roundLine={round ? round.title || `Round ${round.label.replace(/^v0\./, "")}` : undefined}
+            people={card.people}
             clientId={googleReviewClientId()}
             denied={denied}
             invite={one(search.invite)}
