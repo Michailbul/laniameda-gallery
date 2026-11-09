@@ -19,10 +19,12 @@ const noStore = { "Cache-Control": "no-store" };
 // with the reason.
 export async function POST(request: Request, context: { params: Promise<{ slug: string }> }) {
   const { slug } = await context.params;
-  const body = (await request.json().catch(() => null)) as { credential?: unknown; who?: unknown } | null;
+  const body = (await request.json().catch(() => null)) as { credential?: unknown; who?: unknown; invite?: unknown } | null;
   const credential = typeof body?.credential === "string" ? body.credential : "";
   // Whose door was picked on the sign-in card ("r1" = Alejandro …).
   const who = typeof body?.who === "string" ? body.who.slice(0, 20) : "";
+  // The person's short link code, when they came through it.
+  const invite = typeof body?.invite === "string" ? body.invite.slice(0, 48) : undefined;
   if (!credential) return NextResponse.json({ error: "Missing Google credential." }, { status: 400, headers: noStore });
 
   let person;
@@ -42,7 +44,7 @@ export async function POST(request: Request, context: { params: Promise<{ slug: 
   if (who) {
     // Through a person's door: their address or alias signs in; an unknown
     // account becomes the alias of a name nobody has claimed yet.
-    const claim = await client.mutation(api.review.claimReviewer, { slug, who }).catch(() => null);
+    const claim = await client.mutation(api.review.claimReviewer, { slug, who, ...(invite ? { invite } : {}) }).catch(() => null);
     if (claim?.ok) access = await client.query(api.review.access, { slug });
     else refusal = claim?.reason;
   }

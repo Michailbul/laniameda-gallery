@@ -7,6 +7,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { convexTokenFor, googleReviewClientId, resolveReviewViewer } from "@/lib/server/review-auth";
 import type { ReviewPage } from "@/lib/review-client";
 import { getReviewTeaserData } from "@/lib/server/review-teaser";
+import { redeemReviewInvite, type ReviewInvitee } from "@/lib/server/review-invite";
 import { reviewTheme } from "@/lib/review-theme";
 import { ReviewApp } from "@/components/review/ReviewApp";
 import { SignIn } from "@/components/review/SignIn";
@@ -54,7 +55,7 @@ export default async function ReviewRoute({ params, searchParams }: { params: Pr
   // current round, blurred. The card paints at once; the backdrop (built on
   // the server from 48 px blurred thumbnails) streams in behind it, so the
   // browser makes no extra request and never waits for it.
-  const signIn = async (denied?: { email?: string }) => {
+  const signIn = async (denied?: { email?: string }, invitee?: ReviewInvitee | null) => {
     const [card] = await Promise.all([
       fetchQuery(api.review.signInCard, { slug }, options()).catch(() => null),
       getReviewTeaserData(slug),
@@ -75,13 +76,20 @@ export default async function ReviewRoute({ params, searchParams }: { params: Pr
             denied={denied}
             invite={one(search.invite)}
             isDev={isDev}
+            invited={invitee ? { code: one(search.i).toLowerCase(), who: invitee.who, name: invitee.first, title: invitee.title } : undefined}
           />
         </div>
       </div>
     );
   };
 
-  if (!viewer) return signIn();
+  // A personal link (/i/<code> → ?i=<code>): the sign-in card made for that
+  // person, unless they are already signed in as them.
+  const inviteCode = one(search.i).toLowerCase();
+  const invitee = inviteCode ? await redeemReviewInvite(slug, inviteCode) : null;
+  const isInvitee = (email: string) => Boolean(invitee && (email === invitee.email || invitee.aliases.includes(email)));
+  if (!viewer) return signIn(undefined, invitee);
+  if (invitee && viewer.kind === "reviewer" && !isInvitee(viewer.email)) return signIn(undefined, invitee);
 
   const token = convexTokenFor(viewer);
   // ?view=director: Michael sees exactly what the director sees (the backend

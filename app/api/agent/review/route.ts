@@ -7,6 +7,7 @@ import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import { originFromRequest } from "@/lib/server/mcp-oauth";
 import { reviewInviteUrl } from "@/lib/server/review-auth";
+import { newInviteCode } from "@/lib/server/review-invite";
 import { GALLERY_ORIGIN } from "@/lib/gallery-routes";
 import {
   REVIEW_SECTIONS, reviewCommentSchema, reviewDeleteFolderSchema, reviewFeedbackSchema, reviewFoldersSchema, reviewInviteSchema,
@@ -528,10 +529,17 @@ export async function POST(request: Request) {
         fail(`${email} is not a reviewer of ${input.project}. Add them first with review_setup {op: "project", addReviewers}. Reviewers: ${listOf(overview.project.reviewers.map((row) => row.email))}.`);
       }
       const base = overview.project.publicUrl || `${originFromRequest(request)}/review/${overview.project.slug}`;
-      const url = await reviewInviteUrl(base, overview.project.slug, email, reviewer!.name);
+      // The short personal link (<address>/i/<code>): it opens a sign-in card
+      // made for this person. The long signed link is the fallback.
+      const code = await client
+        .mutation(api.review.setInviteCode, { slug: overview.project.slug, email, code: newInviteCode(reviewer!.name) })
+        .catch(() => null);
+      const url = code
+        ? `${base.replace(/\/+$/, "")}/i/${code}`
+        : await reviewInviteUrl(base, overview.project.slug, email, reviewer!.name);
       return NextResponse.json({
-        project: input.project, email, url, expiresInDays: 30,
-        next: "A private sign-in link for a reviewer without a Google account. Give it to Michael; he sends it himself. Never email or post it.",
+        project: input.project, email, url, ...(code ? {} : { expiresInDays: 30 }),
+        next: "A personal sign-in link: it opens a sign-in card made for this reviewer (their name and role, one Google button, and a no-Google fallback). Give it to Michael; he sends it himself. Never email or post it.",
       });
     }
 
