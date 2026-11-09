@@ -1181,3 +1181,4 @@ button.rv-note:hover { background: var(--hover); color: var(--text); }
 .rv-guest-go { align-self: flex-start; height: 40px; padding: 0 22px; }
 .rv-no-google { align-self: flex-start; margin-top: 2px; font-size: 11.5px; color: var(--faint); }
 .rv-no-google:hover { color: var(--text); }
+.rv-doors[data-n="4"] { grid-template-columns: 1fr 1fr; }
