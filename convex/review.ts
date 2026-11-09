@@ -811,6 +811,8 @@ export const claimReviewer = mutation({
       }
       return { ok: true, role: known.role };
     }
+    // The art director's door never takes a new account.
+    if (args.who === "owner") return { ok: false, reason: "This Google account is not one of Michael's. Use the account the review is set up with." };
     const whoOf = peopleIds(project);
     const target = project.reviewers.find((row) => whoOf(row.email) === args.who);
     if (!target) return { ok: false, reason: "That person is not on this review." };
@@ -2128,13 +2130,17 @@ export const signInCard = query({
       }
     }
     const whoOf = peopleIds(project);
-    const people = project.reviewers
-      .filter((row) => row.role === "director")
-      .map((row) => ({
-        who: whoOf(row.email),
-        name: row.name?.trim().split(/\s+/)[0] || "Reviewer",
-        title: row.title?.split("·")[0]?.trim() || "Director",
-      }));
+    const people = [
+      // Michael's own door: only his Google accounts (ownerEmails) open it.
+      ...(project.ownerEmails.length ? [{ who: "owner", name: "Michael", title: "Art director" }] : []),
+      ...project.reviewers
+        .filter((row) => row.role === "director")
+        .map((row) => ({
+          who: whoOf(row.email),
+          name: row.name?.trim().split(/\s+/)[0] || "Reviewer",
+          title: row.title?.split("·")[0]?.trim() || "Director",
+        })),
+    ];
     return { title: project.title, subtitle: project.subtitle, mediaBase: mediaBase(), cover, openSignIn: project.openSignIn !== false, people };
   },
 });
