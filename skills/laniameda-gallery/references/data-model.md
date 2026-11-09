@@ -1025,6 +1025,13 @@ ids bare (no prefix), so the table also says where a bare id goes.
 | `collection:<id>`, `folder:<id>` | a collection or shelf | `list_collections`, `open_world` | `folderId` (bare) | collections are addressed bare everywhere |
 | `world:<id>` | a world's root collection | `open_world` | `world` (key, name or id) | yes |
 | `profile:<id>` | a Midjourney profile | `mj_profiles` | `profile` (id, name or code) | yes |
+| `brief:<id>` | a production brief of a project | `project_get` | `ref` | no |
+| `lp:<id>` | a locked place (style-free prompt, wordings, seeds, brief images) | `project_get` | `ref` | no |
+| `set:<id>` | a shot set | `project_get` | `ref` | no |
+| `preset:<id>` | a look: one exact Midjourney recipe as codes | `project_get` | `ref` | no |
+| `run:<id>` / `thr-xxxxxxxx` | a prompt run and its grid | `project_get` | `ref` | no |
+| `style:<id>` | a world style | `get_style` (or `project_get`) | `style` | no |
+| `inspiration:<id>` | an Inspiration-library reference | `get_inspiration` | `sourceId` | no |
 | `style:<id>` | a world's named style | `get_style` | `style` (or its name with `world`) | yes |
 
 `get_gallery_item` with another prefix answers with the tool that reads it;

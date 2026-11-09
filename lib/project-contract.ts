@@ -14,6 +14,16 @@ export const BRIEF_KINDS = ["brief", "storyboard", "script", "style_guide", "ref
 
 export const projectOpenSchema = z.object({ world });
 
+export const projectFindSchema = z.object({
+  world,
+  query: z.string().trim().min(1).max(200).describe("Words (\"school patio\", \"night beach\", \"metro\") or a scene (\"scene 61\")."),
+  limit: z.number().int().min(1).max(80).optional(),
+});
+
+export const projectGetSchema = z.object({
+  ref: z.string().trim().min(1).max(200).describe("Any project handle: brief:<id>, lp:<id>, set:<id>, preset:<id>, run:<id> (or thr-xxxxxxxx), style:<id>."),
+});
+
 export const projectBriefsSchema = z.object({
   world: world.optional().describe("A project's briefs, newest received first."),
   query: z.string().trim().min(1).max(200).optional().describe("Words to find briefs by (title, sender, note, topics, file names): \"school brief\", \"storyboard\"."),

@@ -78,6 +78,7 @@ import type * as newspaper from "../newspaper.js";
 import type * as newspaperValidators from "../newspaperValidators.js";
 import type * as notifications from "../notifications.js";
 import type * as perceptualHash from "../perceptualHash.js";
+import type * as projectIndex from "../projectIndex.js";
 import type * as projectValidators from "../projectValidators.js";
 import type * as projects from "../projects.js";
 import type * as promptEditRunner from "../promptEditRunner.js";
@@ -203,6 +204,7 @@ declare const fullApi: ApiFromModules<{
   newspaperValidators: typeof newspaperValidators;
   notifications: typeof notifications;
   perceptualHash: typeof perceptualHash;
+  projectIndex: typeof projectIndex;
   projectValidators: typeof projectValidators;
   projects: typeof projects;
   promptEditRunner: typeof promptEditRunner;

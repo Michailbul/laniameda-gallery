@@ -9,7 +9,7 @@ import { fileAssetsInWorld } from "./worlds";
 import { batchRows } from "./mjQueue";
 import { presetStatusValidator, runVerdictValidator } from "./promptGridValidators";
 import { ART_DIRECTOR_SCOPE } from "./projectValidators";
-import { GRID_LIMITS, composeCell, pacingEstimate, planGrid, variantsOf } from "../lib/prompt-grid";
+import { GRID_LIMITS, composeCell, pacingEstimate, planGrid, presetFields, variantsOf } from "../lib/prompt-grid";
 import { parseFlags, templateWords } from "../lib/mj-recipe";
 import { MJ_QUEUE_LIMITS, batchKeyOf, composeMjCommand, threadIdOf } from "../lib/mj-queue";
 import { mjFilePrefix, mjIdentityOf, mjMatches, mjSourcePrefixes } from "../lib/world-styles";
@@ -770,3 +770,57 @@ export const fileRunResults = ownerMutation({
 });
 
 export type PresetOut = Infer<typeof presetOut>;
+
+/** One look whole: its recipe as codes, the copy-ready parameter line, its variations and runs it was in. */
+export const getPreset = ownerQuery({
+  args: { ownerUserId: v.string(), preset: v.string() },
+  returns: v.object({
+    preset: presetOut, world: v.string(), copy: v.object({ sentence: v.optional(v.string()), styleRefs: v.array(v.string()), profileCodes: v.array(v.string()), params: v.string() }),
+    variations: v.array(v.object({ id: v.id("stylePresets"), name: v.string(), perturbation: v.optional(v.string()) })),
+    runs: v.array(v.object({ id: v.id("promptRuns"), name: v.string(), frames: v.number() })),
+  }),
+  handler: async (ctx, args) => {
+    const preset = await presetRef(ctx, args.ownerUserId, args.preset);
+    const world = await ctx.db.get(preset.worldFolderId);
+    const siblings = await presetsOfWorld(ctx, args.ownerUserId, preset.worldFolderId);
+    const fields = presetFields(preset);
+    const runs = [];
+    for (const candidate of resolveUserIdCandidates(args.ownerUserId)) {
+      for (const run of await ctx.db.query("promptRuns").withIndex("by_owner_world_createdAt", (q) => q.eq("ownerUserId", candidate).eq("worldFolderId", preset.worldFolderId)).order("desc").take(50)) {
+        if (run.presetIds.includes(preset._id)) runs.push({ id: run._id, name: run.name, frames: run.frames.filter((f) => f.presetId === preset._id).length });
+      }
+    }
+    return {
+      preset: toPresetOut(preset), world: world?.worldKey ?? "",
+      copy: { sentence: preset.sentence, styleRefs: fields.styleRefs.map((ref) => ref.code), profileCodes: fields.profileCodes, params: fields.params },
+      variations: siblings.filter((row) => row.parentPresetId === preset._id).map((row) => ({ id: row._id, name: row.name, perturbation: row.perturbation })),
+      runs,
+    };
+  },
+});
+
+/** One shot set whole: its prompts in order with every wording and seed. */
+export const getPromptSet = ownerQuery({
+  args: { ownerUserId: v.string(), set: v.string() },
+  returns: v.object({
+    id: v.id("promptSets"), name: v.string(), kind: v.string(), note: v.optional(v.string()), world: v.string(),
+    prompts: v.array(v.object({ id: v.id("lockedPrompts"), title: v.string(), place: v.string(), aspect: v.string(), scenes: v.array(v.number()),
+      variants: v.array(v.object({ key: v.string(), label: v.string(), kind: v.string(), text: v.string(), seeds: v.array(v.number()) })),
+      imagePrompts: v.array(v.object({ assetId: v.optional(v.id("assets")), weight: v.optional(v.number()), label: v.optional(v.string()) })) })),
+  }),
+  handler: async (ctx, args) => {
+    const set = await setRef(ctx, args.ownerUserId, args.set);
+    const world = await ctx.db.get(set.worldFolderId);
+    const prompts = [];
+    for (const id of set.promptIds) {
+      const row = await ctx.db.get(id);
+      if (!row || row.archivedAt) continue;
+      prompts.push({
+        id: row._id, title: row.title, place: row.place, aspect: row.aspect, scenes: row.scenes,
+        variants: variantsOf(row).map((variant) => ({ key: variant.key, label: variant.label, kind: variant.kind, text: variant.text, seeds: variant.seeds })),
+        imagePrompts: row.imagePrompts.map((ref) => ({ assetId: ref.assetId, weight: ref.weight, label: ref.label })),
+      });
+    }
+    return { id: set._id, name: set.name, kind: set.kind, note: set.note, world: world?.worldKey ?? "", prompts };
+  },
+});
