@@ -181,8 +181,8 @@ body.mjq-mode .badge { color: var(--text-3); }
 }
 
 .mjq-caret { width: 10px; color: var(--text-3); font-size: 10px; }
-.mjq-glabel { font: 800 12px/1.2 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; }
-.mjq-gcount { color: var(--text-3); font: 500 10.5px/1 var(--mono); white-space: nowrap; }
+.mjq-glabel { flex: none; font: 800 12px/1.2 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap; }
+.mjq-gcount { min-width: 0; overflow: hidden; color: var(--text-3); font: 500 10.5px/1.2 var(--mono); white-space: nowrap; text-overflow: ellipsis; }
 .mjq-ghead--pinned .mjq-caret { color: var(--ink); }
 
 .mjq-pin {
