@@ -62,7 +62,7 @@ export const slugOf = (value: string) =>
 
 // ------------------------------------------------------------- view state
 
-export type FeedbackFilter = "all" | "liked" | "disliked" | "commented" | "todo" | "new" | "feedback";
+export type FeedbackFilter = "all" | "liked" | "disliked" | "commented" | "todo" | "new" | "feedback" | "archived";
 export type GridSize = "s" | "m" | "l";
 
 export type ViewState = {
@@ -75,7 +75,7 @@ export type ViewState = {
   open: string; // frame code when the open view shows a frame
 };
 
-const FILTERS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback"];
+const FILTERS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback", "archived"];
 const SIZES: GridSize[] = ["s", "m", "l"];
 const SECTIONS: ReviewSection[] = ["locations", "characters", "scenes"];
 

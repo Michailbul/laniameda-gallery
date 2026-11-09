@@ -17,6 +17,7 @@ import type * as agentPreview from "../agentPreview.js";
 import type * as agentPreviewData from "../agentPreviewData.js";
 import type * as agentTokens from "../agentTokens.js";
 import type * as agent_ingest from "../agent_ingest.js";
+import type * as assetArchiveCore from "../assetArchiveCore.js";
 import type * as assetClassifications from "../assetClassifications.js";
 import type * as assetComments from "../assetComments.js";
 import type * as assetHashes from "../assetHashes.js";
@@ -139,6 +140,7 @@ declare const fullApi: ApiFromModules<{
   agentPreviewData: typeof agentPreviewData;
   agentTokens: typeof agentTokens;
   agent_ingest: typeof agent_ingest;
+  assetArchiveCore: typeof assetArchiveCore;
   assetClassifications: typeof assetClassifications;
   assetComments: typeof assetComments;
   assetHashes: typeof assetHashes;
