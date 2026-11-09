@@ -170,6 +170,7 @@ import {
 import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
 import { useBreakpoint } from "@/lib/use-breakpoint";
 import { takeMoodboardPick } from "@/lib/moodboard-pick-handoff";
+import { MoodboardFrameKeys, MoodboardKeyHint } from "@/components/gallery/moodboard-frame-keys";
 
 type SelectedImage = {
   id: string;
@@ -487,6 +488,8 @@ export function GalleryDashboard({
   // The board a collection's Moodboards panel opens on, after picking.
   const [collectionBoardToOpen, setCollectionBoardToOpen] = useState<string | null>(null);
   const [moodboardNotice, setMoodboardNotice] = useState<DashboardNotice | undefined>(undefined);
+  // The board an open expanded view was opened from (valid while that asset is open).
+  const [moodboardOpenFrame, setMoodboardOpenFrame] = useState<{ id: string; name: string; mirrored: boolean; assetId: string } | null>(null);
   const [selectedModelName, setSelectedModelName] = useState<
     string | null
   >(null);
@@ -4207,9 +4210,11 @@ export function GalleryDashboard({
   );
 
   // A moodboard item opens the normal asset detail; the live read fills in
-  // its tags, filing and flags.
+  // its tags, filing and flags. Opened from a board, D there takes it off
+  // that board (components/gallery/moodboard-frame-keys.tsx).
   const openMoodboardAsset = useCallback(
     (asset: MoodboardAssetSummary) => {
+      setMoodboardOpenFrame(asset.moodboard ? { ...asset.moodboard, assetId: asset.assetId } : null);
       handleImageSelect({
         id: asset.assetId,
         galleryItemId: asset.assetId,
@@ -5508,6 +5513,18 @@ export function GalleryDashboard({
       : undefined,
   };
 
+  const openFromBoard =
+    selectedImage && moodboardOpenFrame?.assetId === selectedImage.id ? moodboardOpenFrame : null;
+  const moodboardOpenAttrs = openFromBoard
+    ? {
+        "data-mb-open": "",
+        "data-mb-board": openFromBoard.id,
+        "data-mb-name": openFromBoard.name,
+        "data-mb-mj": openFromBoard.mirrored ? "1" : undefined,
+        "data-mb-asset": openFromBoard.assetId,
+      }
+    : {};
+
   return (
     <CoralToastProvider
       contentLeft={sidebarCollapsed ? "var(--lm-sidebar-collapsed)" : "var(--lm-sidebar-width)"}
@@ -5525,6 +5542,9 @@ export function GalleryDashboard({
     <NoticeToast notice={folderPublishNotice} />
     <NoticeToast notice={bulkDeleteNotice} />
     <NoticeToast notice={moodboardNotice} />
+    {canAccessMyGallery && ownerUserId ? (
+      <MoodboardFrameKeys ownerUserId={ownerUserId} session="moodboard-keys" onOpenRemoved={closeSelectedImage} />
+    ) : null}
     {galleryScope === "mine" && canAccessMyGallery && canManageFoldersInCurrentView && (
       <EmptyFolderPrompt
         ownerUserId={ownerUserId}
@@ -6732,6 +6752,7 @@ export function GalleryDashboard({
           role="dialog"
           aria-modal="true"
           data-asset-detail
+          {...moodboardOpenAttrs}
           aria-label="Selected image details"
         >
           {/* No backdrop-filter here: at 0.992 alpha the blur is invisible,
@@ -6760,6 +6781,7 @@ export function GalleryDashboard({
               {...expandedDetailProps}
             />
           </div>
+          {openFromBoard ? <MoodboardKeyHint className="mbk-hint-float" extra={[{ key: "Esc", label: "Close" }]} /> : null}
         </div>
       )}
 
@@ -6770,6 +6792,7 @@ export function GalleryDashboard({
           role="dialog"
           aria-modal="true"
           data-asset-detail
+          {...moodboardOpenAttrs}
           aria-label="Selected image details"
         >
           <div

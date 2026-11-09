@@ -20,6 +20,7 @@ import {
   profileFlagForCode, profileFlagForMoodboardId, type MoodboardStatus,
 } from "@/lib/moodboards";
 import { downloadMoodboardImages } from "@/lib/moodboard-export";
+import { useMoodboardSurface } from "@/components/gallery/moodboard-frame-keys";
 
 type Row = FunctionReturnType<typeof api.moodboards.listMoodboards>[number];
 type Detail = FunctionReturnType<typeof api.moodboards.getMoodboard>;
@@ -44,6 +45,8 @@ export type MoodboardAssetSummary = {
   kind: "image" | "video";
   contentType?: string;
   promptText?: string;
+  /** Opened from this board: D in the expanded view takes it off the board. */
+  moodboard?: { id: string; name: string; mirrored: boolean };
 };
 
 export const mono: CSSProperties = { fontFamily: "var(--lm-font)" };
@@ -197,7 +200,7 @@ function Mosaic({ previews, total, name }: { previews: Row["previewItems"]; tota
   }
   const grid = cells.length === 1 ? "grid-cols-1" : cells.length === 2 ? "grid-cols-2" : "grid-cols-2 grid-rows-2";
   return <div className={`grid h-full w-full gap-[2px] ${grid}`} style={{ background: "var(--lm-surface-0)" }}>
-    {cells.map((cell, index) => <div key={cell.assetId}
+    {cells.map((cell, index) => <div key={cell.assetId} data-mb-asset={cell.assetId}
       className={`relative overflow-hidden ${cells.length === 3 && index === 0 ? "row-span-2" : ""}`}
       style={{ background: "var(--lm-surface-2)" }}>
       <div className="h-full w-full transition-transform duration-500 group-hover:scale-[1.03]">
@@ -366,7 +369,9 @@ function MoodboardList({ ownerUserId, collection, collections, onBack, onOpenBoa
 export type MoodboardRow = Row;
 
 export function BoardCard({ row, onOpen, place }: { row: Row; onOpen: () => void; place?: string }) {
-  return <article role="button" tabIndex={0} onClick={onOpen} aria-label={`Moodboard ${row.name}, ${plural(row.itemCount, "image")}`}
+  useMoodboardSurface();
+  return <article role="button"
+    data-mb-board={row._id} data-mb-name={row.name} data-mb-mj={row.mjCode || row.mjMoodboardId ? "1" : undefined} tabIndex={0} onClick={onOpen} aria-label={`Moodboard ${row.name}, ${plural(row.itemCount, "image")}`}
     onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpen(); } }}
     className="group cursor-pointer overflow-hidden border border-[var(--lm-border-strong)] outline-none transition-[transform,border-color] duration-200 hover:-translate-y-[2px] hover:border-[var(--lm-text-tertiary)] focus-visible:ring-2 focus-visible:ring-[var(--lm-coral)]"
     style={{ borderRadius: RADIUS, background: "var(--lm-surface-1)", opacity: row.status === "archived" ? 0.6 : 1 }}>
@@ -502,6 +507,7 @@ export function MoodboardDetail({ ownerUserId, moodboardId, collections, onClose
   const recordSync = useMutation(api.moodboards.setMoodboardMidjourney);
   const deleteBoard = useMutation(api.moodboards.deleteMoodboard);
   const toast = useCoralToastSafe()?.toast;
+  useMoodboardSurface();
   const [editing, setEditing] = useState(false);
   const [armedDelete, setArmedDelete] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -585,7 +591,9 @@ export function MoodboardDetail({ ownerUserId, moodboardId, collections, onClose
   const collectionPath = detail.parentFolderName ? `${detail.parentFolderName} / ${detail.folderName}` : detail.folderName;
   const restoreStatus: MoodboardStatus = board.mjCode || board.mjMoodboardId ? "in-midjourney" : "draft";
 
-  return <section className="px-4 pb-16 pt-4 md:px-6" style={{ color: "var(--lm-text-primary)" }}>
+  const mirrored = Boolean(board.mjCode || board.mjMoodboardId);
+  return <section className="px-4 pb-16 pt-4 md:px-6" style={{ color: "var(--lm-text-primary)" }}
+    data-mb-board={board._id} data-mb-name={board.name} data-mb-mj={mirrored ? "1" : undefined}>
     <BackLink onClick={onClose}>{backLabel ?? "All moodboards"}</BackLink>
 
     <header className="grid items-start gap-5 2xl:grid-cols-[minmax(0,1fr)_auto]">
@@ -631,7 +639,7 @@ export function MoodboardDetail({ ownerUserId, moodboardId, collections, onClose
 
     {editing && <EditMoodboard ownerUserId={ownerUserId} board={board} collections={collections} onDone={() => setEditing(false)} />}
 
-    <SectionTitle label="Board" count={board.itemCount} hint={items.length > 1 ? "Drag to reorder · hover to remove · the order is the upload order" : undefined}>
+    <SectionTitle label="Board" count={board.itemCount} hint={items.length > 0 ? `${items.length > 1 ? "Drag to reorder · " : ""}D takes the hovered image off · Z undo${items.length > 1 ? " · the order is the upload order" : ""}` : undefined}>
       {detail.missingAssetIds.length > 0 && <Badge color="var(--lm-coral)" title={detail.missingAssetIds.map((id) => `asset:${id}`).join("\n")}>{plural(detail.missingAssetIds.length, "missing asset")}</Badge>}
     </SectionTitle>
     {items.length === 0
@@ -643,7 +651,7 @@ export function MoodboardDetail({ ownerUserId, moodboardId, collections, onClose
         {onChooseFromGallery && <ActionButton tone="coral" className="mt-5" icon={<Plus size={13} aria-hidden />}
           onClick={() => onChooseFromGallery(pickTarget)}>Choose from gallery</ActionButton>}
       </div>
-      : <BoardItems items={items} coverAssetId={board.coverAssetId} onOpen={(item) => onOpenAsset(item)}
+      : <BoardItems items={items} coverAssetId={board.coverAssetId} onOpen={(item) => onOpenAsset({ ...item, moodboard: { id: board._id, name: board.name, mirrored } })}
         onMove={move} onDrop={dropOnto} onRemove={(id) => void remove(id)} onMakeCover={(id) => void makeCover(id)} />}
 
     {(board.mjCode || board.mjMoodboardId) && <Generations ownerUserId={ownerUserId} moodboardId={moodboardId} onOpenAsset={onOpenAsset} />}
@@ -803,7 +811,7 @@ function BoardItems({ items, coverAssetId, onOpen, onMove, onDrop, onRemove, onM
         if (dragged && marker) onDrop(dragged, item.assetId, marker.after);
         finish();
       }}>
-      <div draggable onDragStart={(event: DragEvent) => {
+      <div draggable data-mb-asset={item.assetId} onDragStart={(event: DragEvent) => {
         event.dataTransfer.effectAllowed = "move";
         event.dataTransfer.setData("text/plain", item.assetId);
         setDragged(item.assetId);

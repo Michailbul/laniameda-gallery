@@ -4,17 +4,20 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useMutation, usePaginatedQuery, useQuery } from "convex/react";
-import { ArrowUpRight, Check, Loader2, Plus, Send, X } from "lucide-react";
+import { ArrowUpRight, Check, ChevronLeft, ChevronRight, Loader2, Plus, Send, X } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { MOODBOARD_LIMITS } from "@/lib/moodboards";
 import { queueMoodboardPick } from "@/lib/moodboard-pick-handoff";
+import { MoodboardKeyHint, useMoodboardSurface } from "@/components/gallery/moodboard-frame-keys";
 import { syncOf, useSendToMidjourney } from "./moodboard-sync";
 
 // The moodboard studio on the project page: the project's images on the left
 // (the whole world, or one shelf or style), the open moodboard on the right.
 // Drag frames across (or + on a frame, or select several and drag them as
-// one), reorder by dragging inside the board, remove with ×. Every change is
+// one), reorder by dragging inside the board, remove with × or D on the
+// hovered or open image (Z puts it back; moodboard-frame-keys.tsx), O or a
+// double-click opens a board image large. Every change is
 // saved at once (journaled under the session "moodboard-studio"). Michael,
 // 9 Nov 2026: build moodboards without leaving the images.
 
@@ -151,6 +154,24 @@ export function MoodboardStudio({ ownerUserId, world, shelves, boardId, onBoard,
     setSelected(new Set());
   }, [board, onBoardIds, items, run, add, reorder, ownerUserId]);
 
+  // The expanded view of one board image. When that image leaves the board
+  // (D), the view stays on the image that took its place.
+  const [openAt, setOpenAt] = useState<{ id: string; index: number } | null>(null);
+  const openItem = openAt && items.length
+    ? items.find((item) => item.assetId === openAt.id) ?? items[Math.min(openAt.index, items.length - 1)]
+    : null;
+  const openIndex = openItem ? items.indexOf(openItem) : -1;
+  const openBoardItem = (id: string) => {
+    const index = items.findIndex((item) => item.assetId === id);
+    if (index >= 0) setOpenAt({ id, index });
+  };
+  const step = (offset: number) => {
+    if (!openItem || items.length < 2) return;
+    const index = (openIndex + offset + items.length) % items.length;
+    setOpenAt({ id: items[index].assetId, index });
+  };
+  useMoodboardSurface(Boolean(board));
+
   const removeAsset = (id: string) => {
     if (!board) return;
     void run(() => remove({ ownerUserId, moodboardId: board._id, assetIds: [id as Id<"assets">], session: SESSION }));
@@ -209,16 +230,37 @@ export function MoodboardStudio({ ownerUserId, world, shelves, boardId, onBoard,
   };
 
   // ------------------------------------------------------------ keys, scroll lock
-  const keys = useRef({ selectedSize: 0, clear: () => {}, close: onClose });
+  const keys = useRef<{
+    selectedSize: number; clear: () => void; close: () => void;
+    isOpen: boolean; closeOpen: () => void; open: (id: string) => void; step: (offset: number) => void;
+  }>({ selectedSize: 0, clear: () => {}, close: onClose, isOpen: false, closeOpen: () => {}, open: () => {}, step: () => {} });
   useEffect(() => {
-    keys.current = { selectedSize: selected.size, clear: () => setSelected(new Set()), close: onClose };
+    keys.current = {
+      selectedSize: selected.size, clear: () => setSelected(new Set()), close: onClose,
+      isOpen: Boolean(openItem), closeOpen: () => setOpenAt(null), open: openBoardItem, step,
+    };
   });
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || isTyping(event.target)) return;
-      event.preventDefault();
-      if (keys.current.selectedSize) keys.current.clear();
-      else keys.current.close();
+      if (event.defaultPrevented || isTyping(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
+      const current = keys.current;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (current.isOpen) current.closeOpen();
+        else if (current.selectedSize) current.clear();
+        else current.close();
+        return;
+      }
+      if (current.isOpen && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        event.preventDefault();
+        current.step(event.key === "ArrowLeft" ? -1 : 1);
+        return;
+      }
+      if (event.key.toLowerCase() === "o" && !event.repeat) {
+        if (current.isOpen) { event.preventDefault(); current.closeOpen(); return; }
+        const hovered = document.querySelector<HTMLElement>(".lms-item:hover")?.dataset.mbAsset;
+        if (hovered) { event.preventDefault(); current.open(hovered); }
+      }
     };
     window.addEventListener("keydown", onKey);
     const { overflow } = document.body.style;
@@ -242,7 +284,7 @@ export function MoodboardStudio({ ownerUserId, world, shelves, boardId, onBoard,
       <style>{CSS}</style>
       <header className="lms-bar">
         <span className="lms-kicker">Moodboards · {world.name}</span>
-        <span className="lms-hint">Drag frames onto the board · click to select several · Esc closes</span>
+        <span className="lms-hint">Drag frames onto the board · click to select several · D takes a board image off · Esc closes</span>
         <button type="button" className="lms-icon" onClick={onClose} aria-label="Close the moodboard studio"><X size={16} /></button>
       </header>
 
@@ -323,6 +365,9 @@ export function MoodboardStudio({ ownerUserId, world, shelves, boardId, onBoard,
         <aside
           className="lms-right"
           data-over={over === "board" ? "" : undefined}
+          data-mb-board={board?._id}
+          data-mb-name={board?.name}
+          data-mb-mj={board && (board.mjCode || board.mjMoodboardId) ? "1" : undefined}
           aria-label="Moodboard"
           onDragOver={(event) => { if (board && accepts(event)) { event.preventDefault(); if (over === null) setOver("board"); } }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setOver(null); }}
@@ -398,6 +443,8 @@ export function MoodboardStudio({ ownerUserId, world, shelves, boardId, onBoard,
                       key={item.itemId}
                       className="lms-item"
                       data-before={over === item.assetId ? "" : undefined}
+                      data-mb-asset={item.assetId}
+                      onDoubleClick={() => openBoardItem(item.assetId)}
                       draggable
                       onDragStart={(event) => { event.dataTransfer.setData(DRAG_ITEM, item.assetId); event.dataTransfer.effectAllowed = "move"; }}
                       onDragOver={(event) => { if (accepts(event)) { event.preventDefault(); event.stopPropagation(); if (over !== item.assetId) setOver(item.assetId); } }}
@@ -411,11 +458,37 @@ export function MoodboardStudio({ ownerUserId, world, shelves, boardId, onBoard,
                 </div>
               )}
               {error ? <p className="lms-err" role="alert">{error}</p> : null}
+              {items.length ? <MoodboardKeyHint className="lms-keys" extra={[{ key: "O", label: "Open" }, { key: "Esc", label: "Close" }]} /> : null}
             </>
           ) : null}
           {isNew && error ? <p className="lms-err" role="alert">{error}</p> : null}
         </aside>
       </div>
+
+      {board && openItem ? (
+        <div
+          className="lms-lb"
+          role="dialog"
+          aria-label={`${board.name}, image ${openIndex + 1} of ${items.length}`}
+          data-mb-open=""
+          data-mb-board={board._id}
+          data-mb-name={board.name}
+          data-mb-mj={board.mjCode || board.mjMoodboardId ? "1" : undefined}
+          data-mb-asset={openItem.assetId}
+        >
+          <button type="button" className="lms-lb-bg" onClick={() => setOpenAt(null)} aria-label="Close the large view" />
+          <img key={openItem.assetId} src={openItem.url ?? openItem.thumbUrl} alt="" width={openItem.width} height={openItem.height} />
+          <span className="lms-lb-n lms-mono">{String(openIndex + 1).padStart(2, "0")} / {String(items.length).padStart(2, "0")} · {board.name}</span>
+          <button type="button" className="lms-icon lms-lb-close" onClick={() => setOpenAt(null)} aria-label="Close the large view"><X size={16} /></button>
+          {items.length > 1 ? (
+            <>
+              <button type="button" className="lms-lb-step" data-side="left" onClick={() => step(-1)} aria-label="Previous image"><ChevronLeft size={20} /></button>
+              <button type="button" className="lms-lb-step" data-side="right" onClick={() => step(1)} aria-label="Next image"><ChevronRight size={20} /></button>
+            </>
+          ) : null}
+          <MoodboardKeyHint className="lms-lb-keys" extra={[{ key: "← →", label: "Step" }, { key: "O", label: "Close" }]} />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -480,6 +553,17 @@ const CSS = `
 .lms-n{position:absolute;left:5px;top:5px;padding:1px 5px;border-radius:4px;font-size:9.5px;background:rgba(10,8,5,.7);color:#FFF4EA}
 .lms-x{position:absolute;right:5px;top:5px;display:grid;place-items:center;width:22px;height:22px;border-radius:999px;background:rgba(10,8,5,.75);color:#FFF4EA;opacity:0;transition:opacity .15s}
 .lms-item:hover .lms-x,.lms-x:focus-visible{opacity:1}
+.lms-keys{position:sticky;bottom:0;align-self:center;margin-top:auto}
+.lms-lb{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:56px 72px 76px}
+.lms-lb-bg{position:absolute;inset:0;background:color-mix(in srgb,var(--lm-paper) 94%,transparent);cursor:zoom-out}
+.lms-lb img{position:relative;max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;border-radius:6px;box-shadow:0 30px 80px rgba(0,0,0,.45)}
+.lms-lb-n{position:absolute;left:20px;top:18px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--lm-text-secondary)}
+.lms-lb-close{position:absolute;right:14px;top:12px}
+.lms-lb-step{position:absolute;top:50%;display:grid;place-items:center;width:44px;height:44px;margin-top:-22px;border-radius:999px;color:var(--lm-text-secondary)}
+.lms-lb-step:hover{background:var(--lm-surface-1);color:var(--lm-text-primary)}
+.lms-lb-step[data-side="left"]{left:14px}
+.lms-lb-step[data-side="right"]{right:14px}
+.lms-lb-keys{position:absolute;left:50%;bottom:20px;transform:translateX(-50%)}
 .lms-new{display:grid;gap:12px}
 .lms-new label{display:grid;gap:5px}
 .lms-new .lms-mono{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--lm-text-tertiary)}
