@@ -2,14 +2,12 @@
 
 Save to Gallery is published on the Chrome Web Store as **Unlisted** (installable from its link only; useless without a gallery token). Every merge to `main` that raises `extension/manifest.json` → `version` is uploaded and submitted by `.github/workflows/extension-publish.yml`; after Google's review (usually hours, sometimes 1–3 days) Chrome updates every installed copy by itself (it checks about every 5 hours; `chrome://extensions` → Developer mode → Update forces it).
 
-## One-time setup (Michael's Google account mbuloichykai@gmail.com)
+## Where it lives (set up 9 Nov 2026)
 
-1. Register as a Chrome Web Store developer at https://chrome.google.com/webstore/devconsole (one-time $5 fee).
-2. New item → upload `output/save-to-gallery-<version>.zip` from `scripts/package-extension.sh origin/main`.
-3. Fill the listing from the text below; visibility **Unlisted**; privacy policy https://gallery.laniameda.space/extension/privacy; submit for review.
-4. The item id goes into the repo secret `CWS_EXTENSION_ID`.
-5. API access for the workflow: in Google Cloud (any project) enable "Chrome Web Store API", create an OAuth client (type Desktop), get a refresh token for scope `https://www.googleapis.com/auth/chromewebstore` with that account, and save `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`, `CWS_REFRESH_TOKEN` as repo secrets.
-6. Install from the store link in each Chrome, remove the unpacked copy, paste the token once (settings then follow through Chrome sync on the same Google account).
+- Item `nlhmjpghlanlanpapgigmacjbnjoancb`, publisher mbuloichykai@gmail.com (`7d243133-8afe-4b3f-83ca-3fffc5910bbe`), visibility Unlisted, submitted for its first review on 9 Nov 2026 (0.27.1).
+- Store link (works once approved): https://chromewebstore.google.com/detail/nlhmjpghlanlanpapgigmacjbnjoancb
+- Publishing: `.github/workflows/extension-publish.yml` with service account `cws-publisher@laniameda-review.iam.gserviceaccount.com` (Google Cloud project laniameda-review, Chrome Web Store API on). Repo secrets `CWS_SERVICE_ACCOUNT_JSON`, `CWS_PUBLISHER_ID`, `CWS_EXTENSION_ID`. The key is also at `~/.config/laniameda/cws/cws-publisher.json` on the MacBook (owner-only).
+- Raise `version` in manifest.json in every extension PR; the merge publishes it. While a version is still in review, an upload is refused; the next bump goes through.
 
 ## Listing
 

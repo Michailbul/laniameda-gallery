@@ -1,9 +1,10 @@
-# Publishes the Save to Gallery extension to the Chrome Web Store whenever a
-# merge to main changes extension/manifest.json to a version the store does
-# not have yet. Chrome then updates every installed copy by itself.
-# Needs repository secrets CWS_CLIENT_ID, CWS_CLIENT_SECRET, CWS_REFRESH_TOKEN
-# (Google OAuth, scope chromewebstore) and CWS_EXTENSION_ID; without them the
-# job says so and stops. Setup: extension/STORE.md.
+# Publishes the Save to Gallery extension to the Chrome Web Store (item
+# nlhmjpghlanlanpapgigmacjbnjoancb, Unlisted) whenever a merge to main changes
+# extension/manifest.json. Chrome then updates every installed copy by itself.
+# Auth: service account cws-publisher@laniameda-review.iam.gserviceaccount.com,
+# registered in the Web Store dashboard (Settings → Service account).
+# Secrets: CWS_SERVICE_ACCOUNT_JSON, CWS_PUBLISHER_ID, CWS_EXTENSION_ID.
+# Run it by hand with "status only" to check the store state without uploading.
 name: Publish extension
 
 on:
@@ -11,49 +12,58 @@ on:
     branches: [main]
     paths: [extension/manifest.json]
   workflow_dispatch:
+    inputs:
+      status_only:
+        description: Only read the store status, upload nothing
+        type: boolean
+        default: true
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    env:
+      PUB: ${{ secrets.CWS_PUBLISHER_ID }}
+      ITEM: ${{ secrets.CWS_EXTENSION_ID }}
+      API: https://chromewebstore.googleapis.com
     steps:
       - uses: actions/checkout@v4
-      - name: Check secrets
-        id: secrets
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+      - name: Store status
         env:
-          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
-          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
-          if [ -z "$CWS_EXTENSION_ID" ] || [ -z "$CWS_REFRESH_TOKEN" ]; then
-            echo "Chrome Web Store secrets are not set yet; nothing published. See extension/STORE.md."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          fi
+          curl -fsS -H "Authorization: Bearer $TOKEN" "$API/v2/publishers/$PUB/items/$ITEM:fetchStatus" | jq 'del(.publicKey)'
       - name: Package
-        if: steps.secrets.outputs.ready == 'true'
+        if: github.event_name == 'push' || inputs.status_only == false
         id: pkg
         run: echo "zip=$(scripts/package-extension.sh HEAD)" >> "$GITHUB_OUTPUT"
       - name: Upload and publish
-        if: steps.secrets.outputs.ready == 'true'
+        if: github.event_name == 'push' || inputs.status_only == false
         env:
-          CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
-          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
-          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
-          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          TOKEN: ${{ steps.auth.outputs.access_token }}
           ZIP: ${{ steps.pkg.outputs.zip }}
         run: |
           set -euo pipefail
-          TOKEN=$(curl -fsS https://oauth2.googleapis.com/token \
-            -d client_id="$CLIENT_ID" -d client_secret="$CLIENT_SECRET" \
-            -d refresh_token="$REFRESH_TOKEN" -d grant_type=refresh_token | jq -r .access_token)
-          UP=$(curl -sS -X PUT -H "Authorization: Bearer $TOKEN" -H "x-goog-api-version: 2" \
-            -T "$ZIP" "https://www.googleapis.com/upload/chromewebstore/v1.1/items/$EXTENSION_ID")
+          AUTH="Authorization: Bearer $TOKEN"
+          UP=$(curl -sS -X POST -H "$AUTH" -H "Content-Type: application/zip" --data-binary @"$ZIP" \
+            "$API/upload/v2/publishers/$PUB/items/$ITEM:upload")
           echo "upload: $UP"
-          if echo "$UP" | jq -e '.uploadState == "FAILURE"' >/dev/null; then
-            if echo "$UP" | grep -qi "version"; then echo "This version is already in the store; nothing to do."; exit 0; fi
-            exit 1
+          if echo "$UP" | jq -e '.error' >/dev/null; then
+            echo "::error::Upload refused (a version still in review blocks a new upload; the next version bump retries)."; exit 1
           fi
-          PUB=$(curl -sS -X POST -H "Authorization: Bearer $TOKEN" -H "x-goog-api-version: 2" -H "Content-Length: 0" \
-            "https://www.googleapis.com/chromewebstore/v1.1/items/$EXTENSION_ID/publish")
-          echo "publish: $PUB"
-          echo "$PUB" | jq -e '(.status // []) | index("OK") != null or index("ITEM_PENDING_REVIEW") != null' >/dev/null
+          STATE=$(echo "$UP" | jq -r '.uploadState // empty')
+          for i in $(seq 1 30); do
+            [ "$STATE" = "SUCCEEDED" ] && break
+            [ "$STATE" = "FAILED" ] && { echo "::error::Upload failed"; exit 1; }
+            sleep 10
+            STATE=$(curl -fsS -H "$AUTH" "$API/v2/publishers/$PUB/items/$ITEM:fetchStatus" | jq -r '.lastAsyncUploadState // "SUCCEEDED"')
+          done
+          PUBRES=$(curl -sS -X POST -H "$AUTH" -H "Content-Type: application/json" -d '{}' \
+            "$API/v2/publishers/$PUB/items/$ITEM:publish")
+          echo "publish: $PUBRES"
+          echo "$PUBRES" | jq -e '.error | not' >/dev/null
