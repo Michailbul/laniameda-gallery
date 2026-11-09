@@ -3,9 +3,8 @@
 // copyable id thr-xxxxxxxx). Here Michael picks a thread and sends it:
 // "Next · Send" puts the next queued prompt in the Imagine bar of the
 // Midjourney tab and presses Enter once, so a thread goes out by clicking one
-// button again and again. One job per click, never a timer or a loop. Between
-// two sends the button waits at least 20 s, and it stops at 30 jobs in the
-// account's last hour (the Midjourney pacing rule). "Put in bar" stays for
+// button again and again. One job per click, never a timer or a loop. It
+// stops at 30 jobs in the account's last hour (the Midjourney pacing rule). "Put in bar" stays for
 // when he wants to edit first. The Midjourney page side (mj-queue.js) does the
 // bar work and reads the account's pace.
 //
@@ -209,6 +208,8 @@
       state.rateError = "";
     } else {
       state.rateError = (res && res.error) || "Could not read the pace.";
+      // A miss (the tab still loading, an old copy of the page script) tries again soon.
+      state.rateAt = Date.now() - RATE_MS + 5000;
     }
     paintPace();
     return state.rate;
@@ -221,7 +222,7 @@
   function paintPace() {
     const now = gate();
     for (const node of root.querySelectorAll("[data-pace-count]")) {
-      node.textContent = state.rate ? `${state.rate.lastHour} / ${H().PACING.hourCap}` : "– / 30";
+      node.textContent = state.rate ? `${state.rate.lastHour} / ${H().PACING.hourCap}` : state.rateError ? "? / 30" : "… / 30";
       node.classList.toggle("mjq-pace--hot", Boolean(state.rate && state.rate.lastHour >= H().PACING.hourCap - 5));
       node.title = state.rateError || "Jobs on this Midjourney account in the last hour (finished and running), from its own history.";
     }
@@ -229,11 +230,9 @@
       const left = Math.ceil(now.waitMs / 1000);
       const open = threadItems().some((item) => item.status === "queued") || activeItem()?.status === "injected";
       node.disabled = state.sending || !open || !now.ok || !state.tab.bar;
-      node.textContent = state.sending ? "Sending…" : left > 0 ? `Wait ${left}s` : "Next · Send";
+      node.textContent = state.sending ? "Sending…" : left > 0 ? `${left}s` : "Next · Send";
       node.classList.toggle("mjq-btn--waiting", left > 0);
-      node.title = !state.tab.bar ? "Open Midjourney Create in this tab." : now.reason || (left > 0
-        ? "Midjourney pacing: at least 20 s between two jobs."
-        : "Put the next prompt in the bar and send it: one job per click (⌥⇧S).");
+      node.title = !state.tab.bar ? "Open Midjourney Create in this tab." : now.reason || "Put the next prompt in the bar and send it: one job per click (⌥⇧S).";
     }
     for (const node of root.querySelectorAll("[data-pace-reason]")) {
       node.textContent = now.reason || "";
@@ -251,6 +250,8 @@
       .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
   }
 
+  // Prompts opened to full length, kept across redraws.
+  const expanded = new Set();
   const activeItem = () => state.items.find((item) => item.id === state.activeId) || null;
 
   async function inject(item, { quietRender = false } = {}) {
@@ -734,14 +735,24 @@
     }
     const refs = refsRow(item);
     if (refs) card.appendChild(refs);
-    if (item.note) card.appendChild(el("p", "mjq-note", item.note));
     for (const warning of item.warnings || []) card.appendChild(el("p", "mjq-warn", warning));
     if (state.editingId === item.id) {
       card.appendChild(editForm(item));
       return card;
     }
     if (active) card.appendChild(readbackBox(item));
-    else card.appendChild(el("div", "mjq-cmd", item.command));
+    else {
+      // Two lines; a click opens the whole prompt (he reads it in Midjourney anyway).
+      const cmd = el("div", `mjq-cmd${expanded.has(item.id) ? "" : " mjq-cmd--clamp"}`, item.command);
+      cmd.title = expanded.has(item.id) ? "Click to fold" : "Click to show the whole prompt";
+      cmd.addEventListener("click", () => {
+        if (getSelection()?.toString()) return;
+        if (expanded.has(item.id)) expanded.delete(item.id); else expanded.add(item.id);
+        cmd.classList.toggle("mjq-cmd--clamp", !expanded.has(item.id));
+        cmd.title = expanded.has(item.id) ? "Click to fold" : "Click to show the whole prompt";
+      });
+      card.appendChild(cmd);
+    }
     if (item.status === "sent") {
       const meta = [item.sentAt ? `Sent ${new Date(item.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Sent"];
       if (item.jobId) meta.push(`job ${item.jobId.slice(0, 8)}`);
@@ -865,7 +876,7 @@
       else renderRail(box);
       root.appendChild(box);
     }
-    root.appendChild(el("p", "mjq-hint", "Next · Send puts the next prompt in the bar and sends it: one job per click, 20 s apart, 30 an hour at most · ⌥⇧S next · send · ⌥⇧N next in bar · ⌥⇧↑↓ threads"));
+    root.appendChild(el("p", "mjq-hint", "Next · Send puts the next prompt in the bar and sends it: one job per click, 30 an hour at most · ⌥⇧S next · send · ⌥⇧N next in bar · ⌥⇧↑↓ threads"));
     paintPace();
   }
 

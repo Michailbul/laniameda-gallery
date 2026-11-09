@@ -295,7 +295,7 @@ body.mjq-mode .badge { color: var(--text-3); }
 .mjq-item {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 8px;
   padding: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
@@ -339,8 +339,8 @@ body.mjq-mode .badge { color: var(--text-3); }
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 96px;
-  height: 96px;
+  width: 84px;
+  height: 84px;
   overflow: hidden;
   background: #000;
   border-radius: 8px;
@@ -384,6 +384,17 @@ body.mjq-mode .badge { color: var(--text-3); }
   white-space: pre-wrap;
   user-select: text;
 }
+
+.mjq-cmd--clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.mjq-cmd--clamp:hover { color: var(--ink); border-color: var(--border-focus); }
+.mjq-cmd:not(.mjq-cmd--clamp) { cursor: pointer; }
 
 .mjq-readback {
   display: flex;
@@ -464,7 +475,7 @@ textarea.mjq-input { font: 400 11.5px/1.55 var(--mono); }
 .mjq-main { display: flex; flex-direction: column; gap: 10px; padding-right: 4px; container-type: inline-size; }
 
 .mjq--wide .mjq-ttitle { font-size: 20px; }
-.mjq--wide .mjq-thumb { width: 132px; height: 132px; }
+.mjq--wide .mjq-thumb { width: 104px; height: 104px; }
 
 @container (min-width: 760px) {
   .mjq-main .mjq-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); align-items: start; }
