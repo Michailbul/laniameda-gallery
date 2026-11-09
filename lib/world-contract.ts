@@ -50,6 +50,7 @@ export const worldShelfSchema = z.object({
   description: z.string().max(4000).nullable().optional(),
   group: z.string().max(40).nullable().optional().describe("Display group: Styles, Places, Cast, World building, Moods, Footage, Storybooks …"),
   sortOrder: z.number().nullable().optional(),
+  scope: z.enum(["art_director", "shared"]).optional().describe("art_director: Michael's only, never on the public world page, showcase or director review by itself. shared: an ordinary shelf. A new shelf in a project world (CASSANDRA) is art_director unless shared is given."),
   session,
 });
 

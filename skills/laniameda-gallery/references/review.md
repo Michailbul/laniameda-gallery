@@ -179,6 +179,11 @@ person with two Google accounts is listed once per email.
 
 ## Rules
 
+- Art-director scope first (Michael, 9 Nov 2026): frames on a project's
+  art-director shelf (references/projects.md) go into a round only on his
+  word; `review_promote` needs `confirmed: true` for them. Briefs and recipes
+  never reach the director.
+
 - Publishing, rolling back, discarding a draft, changing reviewers, owner
   emails, the address or the labels: only on Michael's word.
 - Never like or dislike, frames or styles. Verdicts are the director's and Michael's.

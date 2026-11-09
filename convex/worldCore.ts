@@ -182,12 +182,13 @@ export const listWorldRoots = async (ctx: Ctx, owner: string) => {
 
 export type ShelfState = {
   folderId: Id<"folders">; name: string; normalizedName?: string; description?: string; group?: string;
-  sortOrder?: number; parentFolderId?: Id<"folders">; kind?: "storybook";
+  sortOrder?: number; parentFolderId?: Id<"folders">; kind?: "storybook"; scope?: "art_director";
 };
 
 export const shelfState = (folder: Folder): ShelfState => ({
   folderId: folder._id, name: folder.name, normalizedName: folder.normalizedName, description: folder.description,
   group: folder.group, sortOrder: folder.sortOrder, parentFolderId: folder.parentFolderId, kind: folder.kind,
+  scope: folder.scope,
 });
 
 export const scopedName = (name: string, parent: Id<"folders"> | undefined) =>
@@ -228,6 +229,8 @@ export type WorldChangeOp =
   | "style.save"
   | "style.merge"
   | "world.universe"
+  | "brief.save"
+  | "project.save"
   | "undo";
 
 export type JournalMeta = { actor?: string; session?: string };

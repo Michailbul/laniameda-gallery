@@ -10,6 +10,7 @@ import {
   assetLookupSchema, styleFileSchema, styleGetSchema, styleListSchema, styleMergeSchema, styleSaveSchema, styleUniverseSchema,
 } from "@/lib/style-contract";
 import { STYLE_LIMITS } from "@/lib/world-styles";
+import { composeRecipe } from "@/lib/mj-recipe";
 
 // A world's named styles: list a universe's styles, read one with its
 // recipes, create or change one, file frames into it, merge two, join a world
@@ -81,6 +82,12 @@ export async function POST(request: Request) {
         coverAssetIds: style.coverAssetIds.map((id) => `asset:${id}`),
         recipes: style.recipes.map((recipe) => ({
           ...recipe,
+          // Copy-ready Midjourney text: every code merged into one parameter line, and the template with it.
+          copy: composeRecipe({
+            parameters: recipe.parameters, template: recipe.template,
+            moodboardCodes: recipe.moodboards.map((board) => board.mjCode), profileCodes: recipe.profiles.map((profile) => profile.code),
+            unknownCodes: recipe.unknownCodes,
+          }),
           moodboards: recipe.moodboards.map((board) => ({
             id: `moodboard:${board.id}`, name: board.name, status: board.status, items: board.itemCount, code: board.mjCode,
             profileFlag: board.profileFlag, otherWorld: board.otherWorld, url: galleryPageUrl({ kind: "moodboards", id: board.id }),

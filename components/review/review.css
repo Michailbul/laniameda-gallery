@@ -1181,3 +1181,23 @@ button.rv-note:hover { background: var(--hover); color: var(--text); }
 .rv-guest-go { align-self: flex-start; height: 40px; padding: 0 22px; }
 .rv-doors[data-n="4"] { grid-template-columns: 1fr 1fr; }
 .rv-person .who .rv-lock { white-space: normal; }
+
+/* Owner only: a style's Midjourney recipe, copy-ready (components/review/Recipe.tsx). */
+.rv-recipe { display: flex; flex-direction: column; gap: 8px; margin: 0 0 18px; }
+.rv-recipe-card { border: 1px solid var(--line-2); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
+.rv-recipe-h { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.rv-recipe-only { color: var(--faint); }
+.rv-recipe-line { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+.rv-recipe-line:first-of-type { border-top: 0; }
+.rv-recipe-line .k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+.rv-recipe-line code { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; color: var(--text); word-break: break-word; user-select: all; }
+.rv-recipe-line mark { background: var(--sel); color: var(--text); border-radius: 3px; padding: 0 3px; }
+.rv-recipe-copy { white-space: nowrap; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
+.rv-recipe-codes { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.rv-recipe-codes li { display: inline-flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--faint); }
+.rv-recipe-codes code { font-family: var(--mono); color: var(--text); }
+.rv-recipe-codes span { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; }
+.rv-recipe-codes b { font-weight: 600; color: var(--muted); }
+.rv-sec-copy { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); background: none; border: 1px solid var(--line-2); border-radius: 999px; padding: 3px 9px; cursor: pointer; }
+.rv-sec-copy:hover, .rv-sec-copy[data-on] { color: var(--text); background: var(--sel); }
+@media (max-width: 640px) { .rv-recipe-line { grid-template-columns: minmax(0, 1fr) auto; } .rv-recipe-line .k { grid-column: 1 / -1; } }

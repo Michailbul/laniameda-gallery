@@ -611,6 +611,30 @@ only plain collections may be children. One level deep.
   (`convex/actor.ts` refuses it everywhere else). Agents use the owner-scoped
   functions through `/api/agent/review`.
 
+### Projects and production briefs (9 Nov 2026; references/projects.md)
+
+- `folders.project` (world roots): `line`, `client`, `role`, `people` (name,
+  role, org), `reviewSlugs`, `status` active | paused | done, `updatedAt`.
+  Written by `projects.setProjectDetails` (journal op `project.save`).
+- `folders.scope`: `"art_director"` on a shelf = Michael only. The public
+  world page's featured tree and the showcase chapters skip it; the review
+  agent route refuses its frames without `confirmed`. New shelves in a
+  project world get it unless `scope: "shared"` is asked.
+- `productionBriefs`: `ownerUserId`, `worldFolderId`, `ingestKey` (unique per
+  owner), `title`, `kind` brief | storyboard | script | style_guide |
+  references | other, `from`, `receivedAt`, `note`, `topics`, `reviewFolders`
+  (review folder slugs), `assetIds`, `groups` ({label, assetIds}), `files`
+  ({key f1…, name, contentType, size, sha256 hex, storageId, pages,
+  coverStorageId, addedAt}: Convex storage, served only by
+  `/api/briefs/<briefId>/files/<key>` to the owner session or an owner token),
+  `searchText`, `revision`. Indexes `by_owner_ingestKey`,
+  `by_owner_world_updatedAt`; search index `search_text` filtered by owner and
+  world. Every save and attach is a `brief.save` journal entry (undo restores
+  the snapshot; attached files are never dropped by undo).
+- Recipes as copy text: `lib/mj-recipe.ts` `composeRecipe` (parameters, then
+  template, then moodboard, profile and loose codes, each once).
+  `styleRecipes.reviewStyleRecipes` serves them to the review owner only.
+
 ### `videoRefs`: YouTube research (the YouTube page)
 
 One row per YouTube video per owner, apart from assets. Holds the video's and

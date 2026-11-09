@@ -133,7 +133,7 @@ export async function POST(request: Request) {
         ok: true,
         ...await client.mutation(api.worlds.saveWorldShelf, {
           ownerUserId, world: input.world, shelf: input.shelf, name: input.name, kind: input.kind,
-          description: input.description, group: input.group, sortOrder: input.sortOrder, actor, session: input.session,
+          description: input.description, group: input.group, sortOrder: input.sortOrder, scope: input.scope, actor, session: input.session,
         }),
       });
     }

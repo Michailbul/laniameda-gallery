@@ -6186,6 +6186,7 @@ export function GalleryDashboard({
                   worldFolderId={activeWorldRoot ? String(activeWorldRoot._id) : undefined}
                   stylesHref={activeWorldKey ? worldStylesPath(activeWorldKey) : undefined}
                   reviewHref={directorReviewPath(activeWorldKey)}
+                  projectHref={activeWorldKey && activeWorldRoot?.project ? `/w/${encodeURIComponent(activeWorldKey)}/project` : undefined}
                   always={browsingWorldFolder || Boolean(worldStyleScope?.atStyleBranch)}
                   active={
                     viewMode === "collections"

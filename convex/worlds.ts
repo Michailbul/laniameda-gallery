@@ -1,3 +1,5 @@
+import { ART_DIRECTOR_SCOPE } from "./projectValidators";
+import { restoreBriefSnapshot, type BriefSnapshot } from "./projects";
 import { ConvexError, v, type ObjectType } from "convex/values";
 import { makeFunctionReference } from "convex/server";
 import type { Doc, Id } from "./_generated/dataModel";
@@ -108,6 +110,8 @@ export const markWorld = ownerMutation({
 const shelfValidator = v.object({
   id: v.id("folders"), name: v.string(), kind: v.union(v.literal("shelf"), v.literal("storybook")),
   group: v.optional(v.string()), sortOrder: v.optional(v.number()), count: v.number(), description: v.optional(v.string()),
+  // Michael's only: never on the public page, showcase or review by itself.
+  artDirectorOnly: v.optional(v.boolean()),
 });
 const storyRefValidator = v.object({
   id: v.id("stories"), title: v.string(), kind: v.string(), status: v.string(), styleTag: v.optional(v.string()),
@@ -271,7 +275,7 @@ export const getWorldContext = ownerQuery({
 
     const shelves = children.filter((child) => child.kind === undefined).map((child) => ({
       id: child._id, name: child.name, kind: "shelf" as const, group: child.group, sortOrder: child.sortOrder,
-      count: child.memberCount ?? 0,
+      count: child.memberCount ?? 0, artDirectorOnly: child.scope === ART_DIRECTOR_SCOPE || undefined,
     }));
     const storybooks = children.filter((child) => child.kind === "storybook").map((child) => ({
       id: child._id, name: child.name, count: child.memberCount ?? 0, description: child.description?.slice(0, 200),
@@ -635,6 +639,10 @@ export const saveWorldShelf = ownerMutation({
     description: v.optional(v.union(v.string(), v.null())),
     group: v.optional(v.union(v.string(), v.null())),
     sortOrder: v.optional(v.union(v.number(), v.null())),
+    // "art_director": for Michael only, never on the public page, showcase or
+    // review by itself; "shared": an ordinary shelf. A new shelf in a project
+    // world is art_director unless "shared" is asked (Michael, 9 Nov 2026).
+    scope: v.optional(v.union(v.literal("art_director"), v.literal("shared"))),
     ...journalArgs,
   },
   returns: v.object({ shelfId: v.id("folders"), created: v.boolean(), changeId: v.union(v.null(), v.id("worldChanges")) }),
@@ -653,13 +661,14 @@ export const saveWorldShelf = ownerMutation({
       const normalizedName = scopedName(name, root._id);
       await assertNameFree(ctx, owner, normalizedName);
       const kind = args.kind === "storybook" ? "storybook" as const : undefined;
+      const scope = args.scope === "art_director" || (args.scope === undefined && root.project) ? ART_DIRECTOR_SCOPE : undefined;
       const shelfId = await ctx.db.insert("folders", {
-        ownerUserId: owner, name, normalizedName, description, kind, parentFolderId: root._id,
+        ownerUserId: owner, name, normalizedName, description, kind, parentFolderId: root._id, scope,
         group: group ?? (kind ? "Storybooks" : undefined), sortOrder: args.sortOrder ?? undefined, memberCount: 0, createdAt: now, updatedAt: now,
       });
       const changeId = await recordWorldChange(ctx, {
         ownerUserId: owner, worldFolderId: root._id, op: "shelf.create", targetType: kind ? "storybook" : "shelf", targetId: shelfId,
-        summary: `Created ${kind ? "storybook" : "shelf"} "${name}"${group ? ` in ${group}` : ""}`, after: { folderId: shelfId }, ...meta(args),
+        summary: `Created ${kind ? "storybook" : "shelf"} "${name}"${group ? ` in ${group}` : ""}${scope ? " (art director only)" : ""}`, after: { folderId: shelfId }, ...meta(args),
       });
       return { shelfId, created: true, changeId };
     }
@@ -691,6 +700,7 @@ export const saveWorldShelf = ownerMutation({
       description: args.description === undefined ? folder.description : description,
       group: args.group === undefined ? (folder.group ?? (folder.kind === "storybook" && !folder.parentFolderId ? "Storybooks" : undefined)) : group,
       sortOrder: args.sortOrder === undefined ? folder.sortOrder : args.sortOrder ?? undefined,
+      scope: args.scope === undefined ? folder.scope : args.scope === "art_director" ? ART_DIRECTOR_SCOPE : undefined,
       // A folder inside a world is published only through its world.
       ...(folder.parentFolderId ? {} : { showcased: undefined, showcaseFeatured: undefined }),
       updatedAt: now,
@@ -1234,13 +1244,14 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, jou
       const folder = await ctx.db.get(before.folderId);
       if (!folder) return { ok: false, reason: "the shelf is gone" };
       const now = shelfState(folder);
-      if (now.name !== after.name || now.parentFolderId !== after.parentFolderId || now.group !== after.group || now.description !== after.description || now.sortOrder !== after.sortOrder) {
+      if (now.name !== after.name || now.parentFolderId !== after.parentFolderId || now.group !== after.group || now.description !== after.description || now.sortOrder !== after.sortOrder || now.scope !== after.scope) {
         return { ok: false, reason: `"${folder.name}" changed since` };
       }
       if (before.normalizedName && before.normalizedName !== folder.normalizedName) await assertNameFree(ctx, owner, before.normalizedName, folder._id);
       await ctx.db.patch(folder._id, {
         name: before.name, normalizedName: before.normalizedName, description: before.description, group: before.group,
         sortOrder: before.sortOrder, parentFolderId: before.parentFolderId, showcased: before.showcased, showcaseFeatured: before.showcaseFeatured,
+        scope: before.scope,
         updatedAt: Date.now(),
       });
       await record(change.summary, after, before);
@@ -1339,6 +1350,22 @@ const revertChange = async (ctx: MutationCtx, owner: string, change: Change, jou
       const after = parse<{ universeRootId: Id<"folders"> | null }>(change.after)!;
       if ((root.universeRootId ?? null) !== after.universeRootId) return { ok: false, reason: "the world's universe changed since" };
       await ctx.db.patch(root._id, { universeRootId: before.universeRootId ?? undefined, updatedAt: Date.now() });
+      await record(change.summary, after, before);
+      return { ok: true, summary: change.summary };
+    }
+    case "brief.save": {
+      const before = parse<BriefSnapshot>(change.before);
+      const after = parse<BriefSnapshot>(change.after)!;
+      const outcome = await restoreBriefSnapshot(ctx, before, after);
+      if (!outcome.ok) return outcome;
+      await record(change.summary, after, outcome.restored);
+      return { ok: true, summary: change.summary };
+    }
+    case "project.save": {
+      const before = parse<Doc<"folders">["project"] | null>(change.before);
+      const after = parse<NonNullable<Doc<"folders">["project"]>>(change.after)!;
+      if (root.project?.updatedAt !== after.updatedAt) return { ok: false, reason: "the project details changed since" };
+      await ctx.db.patch(root._id, { project: before ?? undefined, updatedAt: Date.now() });
       await record(change.summary, after, before);
       return { ok: true, summary: change.summary };
     }

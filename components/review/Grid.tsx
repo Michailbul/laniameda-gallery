@@ -4,6 +4,7 @@
 import { memo, useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { LIST_COLORS, mediaUrl, srcSetOf, thumbAtLeast, type ListKey, type ReviewItem, type Verdict } from "@/lib/review-client";
 import { Check } from "./icons";
+import { CopyText } from "./Recipe";
 import { Avatar, Faces, facesTitle, type Person } from "./people";
 
 // The frames. Rows are justified in CSS (review.css, .rv-grid/.rv-t): every
@@ -57,6 +58,8 @@ type GridProps = {
   onClear: () => void;
   onSelectGroup?: (ids: string[]) => void;
   styleMarks?: Map<string, StyleMark>;
+  /** Owner only: a style's Midjourney parameter line, copied from its section header. */
+  styleCopy?: Map<string, string>;
   /** Anyone who may vote: like or dislike a whole style (again = clear). */
   onStyleVerdict?: (styleId: string, verdict: Verdict) => void;
 };
@@ -92,7 +95,7 @@ const NEAR = 12;
 const STEP = 120;
 
 export function Grid(props: GridProps) {
-  const { groups, marks, people, selected, mediaBase, canVote, isOwner, size, targetRef, onAct, onOpen, onToggle, onRange, onBox, onClear, onSelectGroup, styleMarks, onStyleVerdict } = props;
+  const { groups, marks, people, selected, mediaBase, canVote, isOwner, size, targetRef, onAct, onOpen, onToggle, onRange, onBox, onClear, onSelectGroup, styleMarks, styleCopy, onStyleVerdict } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const suppressClick = useRef(false);
@@ -288,6 +291,9 @@ export function Grid(props: GridProps) {
                   people={people}
                   onVote={onStyleVerdict}
                 />
+              ) : null}
+              {group.styleId && styleCopy?.get(group.styleId) ? (
+                <CopyText value={styleCopy.get(group.styleId)!} label="Copy MJ" className="rv-sec-copy" />
               ) : null}
               <span className="line" />
               {onSelectGroup && canVote ? (

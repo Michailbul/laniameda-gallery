@@ -1,3 +1,4 @@
+import { folderScopeValidator, projectDetailsValidator } from "./projectValidators";
 import { recordWorldChange, worldIdOfFolder } from "./worldCore";
 import {
   internalMutation,
@@ -71,6 +72,8 @@ export const folderReturnValidator = v.object({
   publicMemberCount: v.optional(v.number()),
   worldKey: v.optional(v.string()),
   universeRootId: v.optional(v.id("folders")),
+  project: v.optional(projectDetailsValidator),
+  scope: v.optional(folderScopeValidator),
   worldPage: v.optional(
     v.object({
       allMembers: v.optional(v.boolean()),

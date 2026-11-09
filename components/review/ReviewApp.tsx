@@ -14,6 +14,7 @@ import { reviewTheme } from "@/lib/review-theme";
 import { Grid, type GridGroup, type StyleMark, type TileAction, type TileMark } from "./Grid";
 import { Sidebar, TopBar, type AreaGroup, type StyleChip } from "./Chrome";
 import { Milestones } from "./Milestones";
+import { ReviewRecipe } from "./Recipe";
 import { BulkBar } from "./BulkBar";
 import { Bell } from "./Bell";
 import type { Person } from "./people";
@@ -378,6 +379,14 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   // A style with no frames left in the shown round (all removed) is not a filter any more.
   const styleRow = view.style ? index.styleBySlug.get(view.style) ?? null : null;
   const style = styleRow && index.roundStyles.has(styleRow.id) ? styleRow : null;
+  // Owner only: each style's Midjourney recipe, copy-ready (the backend answers null to anyone else).
+  const recipeRows = useQuery(api.styleRecipes.reviewStyleRecipes, isOwner ? { slug } : "skip");
+  const recipeByStyle = useMemo(() => new Map((recipeRows ?? []).map((row) => [row.styleId as string, row])), [recipeRows]);
+  const styleCopy = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of recipeRows ?? []) if (row.recipes[0]) map.set(row.styleId, row.recipes[0].params);
+    return map;
+  }, [recipeRows]);
   const listView = isOwner && viewingList && lists.items[viewingList].length ? viewingList : null;
   const listSet = useMemo(() => new Set(listView ? lists.items[listView] : []), [listView, lists]);
 
@@ -1082,6 +1091,9 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
                 <button type="button" className="x" onClick={() => onViewList(null)}>Back to folders</button>
               ) : null}
             </div>
+            {isOwner && style && recipeByStyle.get(style.id) ? (
+              <ReviewRecipe name={style.label} recipes={recipeByStyle.get(style.id)!.recipes} />
+            ) : null}
 
             {visible.length === 0 ? (
               <div className="rv-empty">
@@ -1114,6 +1126,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
                 onClear={clearSelection}
                 onSelectGroup={groups.length > 1 ? selectMany : undefined}
                 styleMarks={styleMarks}
+                styleCopy={isOwner ? styleCopy : undefined}
                 onStyleVerdict={canVote ? applyStyleVerdict : undefined}
               />
             )}

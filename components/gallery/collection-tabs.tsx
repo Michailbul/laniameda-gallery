@@ -2,7 +2,7 @@
 
 import { useConvexAuth, useQuery } from "convex/react";
 import Link from "next/link";
-import { FileText, FolderOpen, Grid3X3, LayoutGrid, ListChecks, Palette, Projector, ScrollText, Send } from "lucide-react";
+import { FileText, FolderOpen, Grid3X3, LayoutGrid, ListChecks, Palette, Projector, ScrollText, Send, Briefcase } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -30,6 +30,7 @@ export function CollectionTabs({
   always,
   stylesHref,
   reviewHref,
+  projectHref,
   onSelect,
 }: {
   ownerUserId: string;
@@ -48,6 +49,8 @@ export function CollectionTabs({
   stylesHref?: string;
   /** A world with a director review: its review page. */
   reviewHref?: string;
+  /** A world that is a project: the art director's project room. */
+  projectHref?: string;
   onSelect: (tab: CollectionTab) => void;
 }) {
   const { isAuthenticated } = useConvexAuth();
@@ -157,6 +160,21 @@ export function CollectionTabs({
         >
           <Palette className="hidden h-3.5 w-3.5 sm:block" aria-hidden />
           Styles
+        </Link>
+      ) : null}
+      {projectHref ? (
+        <Link
+          href={projectHref}
+          title="The project room: briefs from production, your art-director shelves, the director review and the inspiration. Only you see it."
+          className="inline-flex shrink-0 items-center gap-1.5 px-2.5 py-1.5 transition-all md:gap-2 md:px-3.5 md:py-[7px]"
+          style={{
+            borderRadius: "999px", background: "var(--lm-surface-2)", border: "2px solid var(--lm-border)",
+            color: "var(--lm-text-secondary)", fontSize: "10px", fontWeight: 800, letterSpacing: "0.12em",
+            textTransform: "uppercase", whiteSpace: "nowrap",
+          }}
+        >
+          <Briefcase className="hidden h-3.5 w-3.5 sm:block" aria-hidden />
+          Project
         </Link>
       ) : null}
       {reviewHref ? (

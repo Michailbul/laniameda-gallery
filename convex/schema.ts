@@ -14,6 +14,7 @@ import {
   inspirationCaptureFields, inspirationPrivateDeletionFields, assetCaptureFields,
 } from "./inspirationValidators";
 import { mjQueueItemFields } from "./mjQueueValidators";
+import { folderScopeValidator, productionBriefFields, projectDetailsValidator } from "./projectValidators";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
 import {
   reviewCommentFields, reviewFeedbackFields, reviewFolderFields, reviewItemFields,
@@ -66,6 +67,13 @@ export default defineSchema({
     .index("by_owner_batchKey_order", ["ownerUserId", "batchKey", "order"])
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
     .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"]),
+  // Production briefs of a project (convex/projects.ts): what the director or
+  // producers sent (a design brief, the storyboard, the script, photo sets),
+  // with who sent it, when and why, its private files and its pictures.
+  productionBriefs: defineTable(productionBriefFields)
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_world_updatedAt", ["ownerUserId", "worldFolderId", "updatedAt"])
+    .searchIndex("search_text", { searchField: "searchText", filterFields: ["ownerUserId", "worldFolderId"] }),
   // Director review (convex/review.ts, reviewValidators.ts).
   reviewProjects: defineTable(reviewProjectFields)
     .index("by_slug", ["slug"])
@@ -696,6 +704,13 @@ export default defineSchema({
     // 3D, — ART DECO and IRON STAGE point at DEAR ANNETE, so one styles page
     // shows every style of the story universe. Membership stays per world.
     universeRootId: v.optional(v.id("folders")),
+    // A world root that is a project (CASSANDRA): the client film, people,
+    // Michael's role. See convex/projectValidators.ts.
+    project: v.optional(projectDetailsValidator),
+    // "art_director": a shelf for Michael only. It never feeds the public world
+    // page, the public showcase or the director review by itself; its frames
+    // reach those only when Michael promotes or publishes them (9 Nov 2026).
+    scope: v.optional(folderScopeValidator),
     // The world's public page (/w/<slug>), set by the owner. allMembers shows
     // every member that is not worldPageHidden instead of only isPublic ones;
     // heroReelAssetId pins the hero video (else the newest member tagged
