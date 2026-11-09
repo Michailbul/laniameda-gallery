@@ -658,6 +658,27 @@ only plain collections may be children. One level deep.
   style shelf and the art-director shelf "Location takes", adds takes and
   `generationLineage` rows (`edit_source`, `starting_image_asset`, `other`).
 
+### Prompt runs (9 Nov 2026; references/prompt-grid.md)
+
+- `stylePresets`: one exact recipe as frozen codes: `moodboards` / `profiles`
+  ({code, id?, name?}), `srefs` ({code, sv?, weight?}), `parameters`,
+  `sentence`, `status` candidate | locked | archived, `source` gallery | dock
+  | style, `styleId`, `parentPresetId` + `perturbation`. Indexes
+  `by_owner_ingestKey`, `by_owner_world_updatedAt`. Journal `preset.save`.
+- `promptSets`: named ordered `promptIds` of `lockedPrompts`, `kind`
+  test_shots | locations | custom. Journal `promptSet.save`.
+- `lockedPrompts.variants` ({key, label, kind short|prose|neutral, text,
+  seeds}) and `attach` (Edit-model images); takes carry `presetId`,
+  `variantKey`, `seed`.
+- `promptRuns`: thread, stage screen | refine, draft, presets, prompts, jobs,
+  `rowVerdicts` / `cellVerdicts` / `frameVerdicts` (keep | drop, Michael's),
+  `frames` ({assetId, presetId, promptId, variantKey, seed, queueItemId}).
+  Indexes `by_owner_world_createdAt`, `by_owner_threadId`.
+- `mjQueueItems` gained `runId`, `presetId`, `presetLabel`, `variantKey`,
+  `variantLabel`, `seed`, `screen`.
+- Composition: `lib/prompt-grid.ts` (`presetFields`, `composeCell`,
+  `planGrid`, `pacingEstimate`).
+
 ### `videoRefs`: YouTube research (the YouTube page)
 
 One row per YouTube video per owner, apart from assets. Holds the video's and

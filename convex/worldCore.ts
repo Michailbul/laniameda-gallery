@@ -232,6 +232,9 @@ export type WorldChangeOp =
   | "brief.save"
   | "project.save"
   | "lockedPrompt.save"
+  | "preset.save"
+  | "promptSet.save"
+  | "promptRun.create"
   | "undo";
 
 export type JournalMeta = { actor?: string; session?: string };

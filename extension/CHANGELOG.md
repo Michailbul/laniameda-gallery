@@ -1,9 +1,14 @@
 # Changelog
 
-## 0.29.1 (9 Nov 2026)
+## 0.30.0 (9 Nov 2026)
 
-- The describer's style list loads (its world was cut from the request, so
-  "Our style" showed HTTP 404).
+- Dock presets are copied to the gallery as style presets of the world, so
+  the gallery's prompt runs (prompts × presets × locked seeds) can use them.
+- The gallery's own style presets that a chip can set (moodboard, profiles,
+  settings) show in the dock with a dashed edge; they cannot be deleted
+  there.
+- The MJ Queue shows a run's labels (place, preset, wording, seed) like any
+  restyle item.
 
 ## 0.29.0 (9 Nov 2026)
 

@@ -12,6 +12,7 @@ import { galleryRoutePath, worldStylesPath } from "@/lib/gallery-routes";
 import type { RestylePreset } from "@/components/locked/restyle-dialog";
 import { ProjectMoodboards } from "./project-moodboards";
 
+const ProjectRuns = dynamic(() => import("./project-runs").then((m) => m.ProjectRuns), { ssr: false });
 const RestyleDialog = dynamic(() => import("@/components/locked/restyle-dialog").then((m) => m.RestyleDialog), { ssr: false });
 
 // The art director's project room (/w/<world>/project). One page with the
@@ -122,6 +123,10 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
         {locked === undefined ? <Loader2 className="animate-spin" size={14} style={{ color: "var(--lm-text-ghost)" }} /> : locked.prompts.length ? (
           <LockedPlaces prompts={locked.prompts} onRestyle={setRestyle} />
         ) : <p className="lmp-empty">No locked location prompts yet.</p>}
+      </Section>
+
+      <Section title="Runs" note="Prompt sets × style presets × locked seeds. Screen every preset first, then refine the ones you keep.">
+        <ProjectRuns ownerUserId={ownerUserId} world={key} />
       </Section>
 
       <Section title="Art director shelves" count={adShelves.length} note="Your working shelves. Not in the director review, not on the public page.">

@@ -1185,6 +1185,25 @@ async function listMoodboards(world) {
   return data;
 }
 
+// The dock's own presets (board, profiles, settings) are kept as gallery style
+// presets of the world, so the gallery's prompt runs can use them.
+async function syncDockPresets(world, presets) {
+  if (!world || !Array.isArray(presets)) return { ok: false, error: "Nothing to sync." };
+  const config = await getConfig();
+  const url = normalizeRouteUrl(config.apiUrl, MOODBOARDS_ROUTE_PATH);
+  const body = {
+    action: "syncPresets",
+    world,
+    presets: presets.slice(0, 32).map((preset) => ({ id: String(preset.id || ""), name: String(preset.name || ""), codes: Array.isArray(preset.codes) ? preset.codes : [], params: preset.params || "" })),
+  };
+  try {
+    const response = await fetch(url, { method: "POST", headers: { ...apiHeaders(config), "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    return await response.json().catch(() => ({ ok: response.ok }));
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}` };
+  }
+}
+
 // The Midjourney Queue panel reads the queue (GET) and saves edits, skips and
 // the record of a send Michael made himself (POST). It never submits a job.
 async function mjQueueRequest(message) {
@@ -1254,13 +1273,11 @@ async function quickEditRequest(message) {
 
 const DESCRIBE_EDGE = 1024;
 
-async function describeFetchJson(path, init, query) {
+async function describeFetchJson(path, init) {
   const config = await getConfig();
-  // normalizeRouteUrl sets the path only: the query goes on after it.
-  const url = normalizeRouteUrl(config.apiUrl, path) + (query ? `?${new URLSearchParams(query)}` : "");
   let response;
   try {
-    response = await fetch(url, { ...init, headers: apiHeaders(config) });
+    response = await fetch(normalizeRouteUrl(config.apiUrl, path), { ...init, headers: apiHeaders(config) });
   } catch (err) {
     return { ok: false, error: `Network error: ${err.message}` };
   }
@@ -1345,7 +1362,7 @@ async function describeRequest(message) {
       return res?.ok ? { ok: true, worlds: (res.worlds || []).map((w) => ({ key: w.key, name: w.name, worldId: w.worldId })) } : res;
     }
     case "styles":
-      return describeFetchJson(STYLES_ROUTE_PATH, { method: "GET" }, { world: String(message.world || "") });
+      return describeFetchJson(`${STYLES_ROUTE_PATH}?world=${encodeURIComponent(String(message.world || ""))}`, { method: "GET" });
     case "prepare":
       return prepareDescribeImage(message);
     case "run":
@@ -1765,6 +1782,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "mjQueue") {
     mjQueueRequest(message)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "syncDockPresets") {
+    syncDockPresets(message.world, message.presets)
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

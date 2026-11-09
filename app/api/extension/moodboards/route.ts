@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { makeFunctionReference } from "convex/server";
 
 import { getServerConvexClient } from "@/lib/server/convex";
+import { api } from "@/convex/_generated/api";
 import {
   resolveExtensionOwnerUserId,
   validateExtensionToken,
@@ -154,17 +155,53 @@ export async function GET(request: Request) {
     } catch {
       profiles = [];
     }
+    // Gallery style presets a dock chip can set: codes and settings only (an
+    // sref or an opening sentence runs from the queue). Dock-made ones are
+    // already in the dock.
+    let galleryPresets: Array<{ id: string; name: string; codes: string[]; params: string; gallery: true }> = [];
+    try {
+      const presets = await client.query(api.promptGrid.listPresets, { ownerUserId, world: resolved.key });
+      galleryPresets = presets
+        .filter((preset) => preset.source !== "dock" && preset.srefs.length === 0 && !preset.sentence && preset.status !== "archived")
+        .slice(0, 16)
+        .map((preset) => ({
+          id: `gal:${preset.id}`, name: preset.name, gallery: true as const,
+          codes: [...preset.moodboards, ...preset.profiles].map((row) => row.code),
+          params: (preset.parameters ?? "").replace(/--(?:ar|aspect|seed)\s+\S+/g, "").replace(/\s+/g, " ").trim(),
+        }));
+    } catch {
+      galleryPresets = [];
+    }
     return corsJson({
       ok: true,
       worlds: worldList,
       world: toWorldDto(resolved),
       moodboards: toMoodboardDtos(rows),
       profiles,
+      galleryPresets,
     });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to load moodboards.";
     return corsJson({ error: message }, 400);
+  }
+}
+
+// The dock's own presets, kept as gallery style presets of the world.
+export async function POST(request: Request) {
+  try {
+    if (!validateExtensionToken(request)) return corsJson({ error: "Unauthorized extension request." }, 401);
+    const body = (await request.json().catch(() => null)) as { action?: string; world?: string; presets?: Array<{ id: string; name: string; codes: string[]; params?: string }> } | null;
+    if (body?.action !== "syncPresets" || !body.world || !Array.isArray(body.presets)) return corsJson({ error: "Expected {action: syncPresets, world, presets}." }, 400);
+    const ownerUserId = resolveExtensionOwnerUserId();
+    const presets = body.presets.slice(0, 32).map((preset) => ({
+      id: String(preset.id ?? "").slice(0, 80), name: String(preset.name ?? "").slice(0, 100),
+      codes: (Array.isArray(preset.codes) ? preset.codes : []).map(String).slice(0, 12), params: preset.params ? String(preset.params).slice(0, 300) : undefined,
+    })).filter((preset) => preset.id);
+    const result = await getServerConvexClient(ownerUserId).mutation(api.promptGrid.importDockPresets, { ownerUserId, world: body.world, presets });
+    return corsJson({ ok: true, ...result });
+  } catch (error) {
+    return corsJson({ error: error instanceof Error ? error.message : "Could not save the presets." }, 400);
   }
 }
 

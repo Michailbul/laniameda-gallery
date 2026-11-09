@@ -81,6 +81,8 @@ import type * as perceptualHash from "../perceptualHash.js";
 import type * as projectValidators from "../projectValidators.js";
 import type * as projects from "../projects.js";
 import type * as promptEditRunner from "../promptEditRunner.js";
+import type * as promptGrid from "../promptGrid.js";
+import type * as promptGridValidators from "../promptGridValidators.js";
 import type * as prompts from "../prompts.js";
 import type * as providerCredentials from "../providerCredentials.js";
 import type * as providerVault from "../providerVault.js";
@@ -204,6 +206,8 @@ declare const fullApi: ApiFromModules<{
   projectValidators: typeof projectValidators;
   projects: typeof projects;
   promptEditRunner: typeof promptEditRunner;
+  promptGrid: typeof promptGrid;
+  promptGridValidators: typeof promptGridValidators;
   prompts: typeof prompts;
   providerCredentials: typeof providerCredentials;
   providerVault: typeof providerVault;

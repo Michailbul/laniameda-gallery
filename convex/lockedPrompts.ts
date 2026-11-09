@@ -190,6 +190,24 @@ export const getLockedPrompt = ownerQuery({
 
 /* ── Save (versioned) ───────────────────────────────────────────────────── */
 
+type VariantInput = { key: string; label: string; kind: "short" | "prose" | "neutral"; text: string; seeds?: number[] };
+/** Variants with keys, words and seeds checked; a variant without seeds gets a stable one from its key. */
+const cleanVariants = (input: VariantInput[], ingestKey: string) => {
+  if (input.length > 3) throw new ConvexError("A prompt has at most 3 variants (short, prose, style-neutral).");
+  const out: Array<{ key: string; label: string; kind: VariantInput["kind"]; text: string; seeds: number[] }> = [];
+  for (const variant of input) {
+    const key = variant.key.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").slice(0, 24);
+    const text = variant.text.trim();
+    if (!key || !text) throw new ConvexError("Every variant needs a key and its words.");
+    if (/(^|\s)--[a-z]/i.test(text)) throw new ConvexError(`Keep flags out of the ${key} variant; style flags come from the preset.`);
+    if (out.some((row) => row.key === key)) throw new ConvexError(`Two variants are called ${key}.`);
+    const seeds = [...new Set((variant.seeds?.length ? variant.seeds : [seedFor(`${ingestKey}:${key}`)]).filter((n) => Number.isInteger(n) && n >= 0 && n <= SEED_MAX))].slice(0, 4);
+    if (!seeds.length) throw new ConvexError(`The ${key} variant needs a seed from 0 to ${SEED_MAX}.`);
+    out.push({ key, label: variant.label.trim().slice(0, 40) || key, kind: variant.kind, text: text.slice(0, LOCKED_PROMPT_LIMITS.text), seeds });
+  }
+  return out;
+};
+
 const refInput = v.object({
   url: v.optional(v.string()), code: v.optional(v.string()), assetId: v.optional(v.string()),
   weight: v.optional(v.number()), label: v.optional(v.string()),
@@ -217,6 +235,13 @@ export const saveLockedPrompt = ownerMutation({
     lockedFrameLabel: v.optional(v.string()),
     currentStyle: v.optional(v.union(v.string(), v.null())),
     sourceQueueItemIds: v.optional(v.array(v.string())),
+    // 2–3 wordings with their own locked seeds (null clears them).
+    variants: v.optional(v.union(v.null(), v.array(v.object({
+      key: v.string(), label: v.string(), kind: v.union(v.literal("short"), v.literal("prose"), v.literal("neutral")),
+      text: v.string(), seeds: v.optional(v.array(v.number())),
+    })))),
+    // Images attached for the Edit model on every run (a design sheet).
+    attach: v.optional(v.array(refInput)),
     archived: v.optional(v.boolean()),
     expectedRevision: v.optional(v.number()),
     ...journalArgs,
@@ -268,6 +293,8 @@ export const saveLockedPrompt = ownerMutation({
       imagePrompts: args.imagePrompts ? await resolveRefs(ctx, owner, args.imagePrompts, LOCKED_PROMPT_LIMITS.imagePrompts, "Image prompt") : existing?.imagePrompts ?? [],
       extraParams: args.extraParams === null ? undefined : clip(args.extraParams, 200) ?? existing?.extraParams,
       note: args.note === null ? undefined : clip(args.note, LOCKED_PROMPT_LIMITS.note) ?? existing?.note,
+      variants: args.variants === null ? undefined : args.variants ? cleanVariants(args.variants, ingestKey!) : existing?.variants,
+      attach: args.attach ? await resolveRefs(ctx, owner, args.attach, 4, "Attached image") : existing?.attach,
     };
     const sources: Id<"mjQueueItems">[] = [...(existing?.sourceQueueItemIds ?? [])];
     for (const raw of args.sourceQueueItemIds ?? []) {

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mjQueueRefValidator } from "./mjQueueValidators";
+import { variantValidator } from "./promptGridValidators";
 
 // Locked location prompts (convex/lockedPrompts.ts, lib/locked-prompt.ts): one
 // style-neutral prompt per place of a project, with the references that hold
@@ -21,6 +22,9 @@ export const lockedFrameValidator = v.object({
 export const lockedTakeValidator = v.object({
   assetId: v.id("assets"),
   styleId: v.optional(v.id("worldStyles")),
+  presetId: v.optional(v.id("stylePresets")),
+  variantKey: v.optional(v.string()),
+  seed: v.optional(v.number()),
   mode: v.optional(restyleModeValidator),
   queueItemId: v.optional(v.id("mjQueueItems")),
   jobId: v.optional(v.string()),
@@ -49,6 +53,11 @@ export const lockedPromptContentFields = {
   lockedFrame: v.optional(lockedFrameValidator),
   // The style it is shown in now (the recipe its first frames used).
   currentStyleId: v.optional(v.id("worldStyles")),
+  // 2–3 wordings (short, prose, style-neutral), each with its own locked
+  // seeds. Absent: the text on the locked seed is the one neutral variant.
+  variants: v.optional(v.array(variantValidator)),
+  // Images attached for the Edit model on every run (a design sheet).
+  attach: v.optional(v.array(mjQueueRefValidator)),
 };
 
 export const lockedPromptFields = {

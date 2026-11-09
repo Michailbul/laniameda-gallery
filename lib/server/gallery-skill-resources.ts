@@ -29,6 +29,7 @@ export const GALLERY_SKILL_RESOURCES = [
   { path: "references/newspapers.md", title: "The morning newspaper: Michael's daily review of what agents did", access: "public" },
   { path: "references/inspiration.md", title: "Inspiration review: references, project takes and Michael's verdicts", access: "public" },
   { path: "references/review.md", title: "Director review: rounds of frames an outside director likes, dislikes and comments on", access: "public" },
+  { path: "references/prompt-grid.md", title: "Prompt runs: prompt sets × style presets × locked seeds, screened then refined", access: "public" },
   { path: "references/locked-prompts.md", title: "Locked location prompts: one prompt per place, redone in any style in one click", access: "public" },
   { path: "references/projects.md", title: "Projects: a film Michael art-directs, its briefs from production and art-director scope", access: "public" },
   { path: "references/storybooks.md", title: "Storybook production spec", access: "public" },
