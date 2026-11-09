@@ -180,7 +180,7 @@ export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, i
       </div>
 
       <div className="foot">
-        <span>Laniameda</span>
+        <span>Michael Buloichyk · Art direction</span>
         <span>
           <a href={base ? `${base}/privacy` : "privacy"}>Privacy</a>
         </span>

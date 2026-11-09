@@ -24,6 +24,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Director review",
+  description: "Art direction review.",
   robots: { index: false, follow: false },
 };
 
