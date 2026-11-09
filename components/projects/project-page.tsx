@@ -109,13 +109,13 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
         ) : <p className="lmp-empty">Nothing from production yet.</p>}
       </Section>
 
-      <Section id="moodboards" title="Moodboards" note="Every look of the film as a board. Make one, pick its frames, then send it to Midjourney: an agent makes it there under the same name and records its code.">
+      <Section id="moodboards" title="Moodboards" note="Every look of the film as a board. Open one, or make a new one, and drag frames in from the project beside it. Then send it to Midjourney: an agent makes it there under the same name and records its code.">
         <ProjectMoodboards
           ownerUserId={ownerUserId}
           worldId={project.world.id}
           worldKey={key}
           worldName={project.world.name}
-          shelves={project.shelves.map((shelf) => ({ id: shelf.id, name: shelf.name, group: shelf.group }))}
+          shelves={project.shelves.map((shelf) => ({ id: shelf.id, name: shelf.name, group: shelf.group, count: shelf.count, artDirector: shelf.artDirector }))}
         />
       </Section>
 
