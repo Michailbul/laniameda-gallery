@@ -39,6 +39,8 @@ type Props = {
   openSignIn?: boolean;
   /** One door per person who gives feedback. */
   people: Door[];
+  /** Came through their personal link: only their door, already picked. */
+  invited?: Door & { code: string };
 };
 
 const GSI_SRC = "https://accounts.google.com/gsi/client";
@@ -59,14 +61,14 @@ const loadGsi = () =>
     script.addEventListener("error", () => reject(new Error("Google sign-in did not load.")), { once: true });
   });
 
-export function SignIn({ title, clientId, denied, invite, isDev, openSignIn, people }: Props) {
+export function SignIn({ title, clientId, denied, invite, isDev, openSignIn, people, invited }: Props) {
   const buttonRef = useRef<HTMLDivElement>(null);
   const [refused, setRefused] = useState<string | null>(denied ? `${denied.email ?? "This account"} has no access to this review.` : null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // The picked door: a person's id, "guest", or nothing yet.
-  const [door, setDoor] = useState<string | null>(null);
-  const doorRef = useRef<string | null>(null);
+  const [door, setDoor] = useState<string | null>(invited?.who ?? null);
+  const doorRef = useRef<string | null>(invited?.who ?? null);
   const pick = (value: string) => {
     doorRef.current = value;
     setDoor(value);
@@ -84,7 +86,7 @@ export function SignIn({ title, clientId, denied, invite, isDev, openSignIn, peo
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ credential: response.credential, who: doorRef.current }),
+        body: JSON.stringify({ credential: response.credential, who: doorRef.current, invite: invited?.code }),
       });
       const data = (await result.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
       if (result.ok && data?.ok) {
@@ -97,7 +99,7 @@ export function SignIn({ title, clientId, denied, invite, isDev, openSignIn, peo
       setError("Sign-in did not work. Check the connection and try again.");
     }
     setBusy(false);
-  }, []);
+  }, [invited?.code]);
 
   useEffect(() => {
     if (!clientId) return;
@@ -147,6 +149,30 @@ export function SignIn({ title, clientId, denied, invite, isDev, openSignIn, peo
     setBusy(false);
   };
 
+  // Their own link, without Google: the same session a Google sign-in sets.
+  const withoutGoogle = async () => {
+    if (!invited) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await fetch(`${reviewBase()}/api/auth/invite-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ code: invited.code }),
+      });
+      const data = (await result.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (result.ok && data?.ok) {
+        window.location.replace(window.location.pathname);
+        return;
+      }
+      setError(data?.error ?? "Could not open the review. Try again.");
+    } catch {
+      setError("Could not open the review. Check the connection and try again.");
+    }
+    setBusy(false);
+  };
+
   const devAs = async (as: "director" | "producer" | "owner") => {
     if (as === "owner") await fetch("/api/auth/dev-login", { method: "POST" }).catch(() => null);
     await fetch(`${reviewBase()}/api/dev-as`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ as }) }).catch(() => null);
@@ -159,21 +185,22 @@ export function SignIn({ title, clientId, denied, invite, isDev, openSignIn, peo
       : invite === "revoked"
         ? "This invite link is no longer active for this review. Ask Michael for a new one."
         : null;
-  const person = people.find((row) => row.who === door);
+  const doors = invited ? [invited] : people;
+  const person = doors.find((row) => row.who === door);
 
   return (
     <div className="rv-card">
       <div className="kick">Art direction review</div>
       <h1>{title}</h1>
 
-      <div className="rv-doors" role="radiogroup" aria-label="Sign in as" data-n={people.length + (openSignIn ? 1 : 0)}>
-        {people.map((row) => (
+      <div className="rv-doors" role="radiogroup" aria-label="Sign in as" data-n={doors.length + (openSignIn && !invited ? 1 : 0)}>
+        {doors.map((row) => (
           <button key={row.who} type="button" role="radio" aria-checked={door === row.who} onClick={() => pick(row.who)}>
             <b>{row.name}</b>
             <span>{row.title}</span>
           </button>
         ))}
-        {openSignIn ? (
+        {openSignIn && !invited ? (
           <button type="button" role="radio" aria-checked={door === "guest"} onClick={() => pick("guest")}>
             <b>Guest</b>
             <span>Look only</span>
@@ -199,6 +226,11 @@ export function SignIn({ title, clientId, denied, invite, isDev, openSignIn, peo
         {door === "guest" ? (
           <button type="button" className="rv-btn solid rv-guest-go" disabled={busy} onClick={() => void asGuest()}>
             {busy ? "Opening…" : "Continue as guest"}
+          </button>
+        ) : null}
+        {invited && !busy ? (
+          <button type="button" className="rv-link rv-no-google" onClick={() => void withoutGoogle()}>
+            No Google account? Continue
           </button>
         ) : null}
         {busy && person ? <div className="msg">Signing in…</div> : null}

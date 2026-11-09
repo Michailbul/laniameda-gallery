@@ -8,9 +8,9 @@ import {
   readReviewInvite,
   resolveReviewViewer,
   reviewCookieOptions,
-  reviewInviteUrl,
   signReviewSession,
 } from "@/lib/server/review-auth";
+import { newInviteCode } from "@/lib/server/review-invite";
 
 export const runtime = "nodejs";
 
@@ -58,7 +58,7 @@ export async function GET(request: Request, context: { params: Promise<{ slug: s
   return response;
 }
 
-// POST { email, base } (owner only): make an invite link for a reviewer.
+// POST { email, base, fresh? } (owner only): a reviewer's short invite link.
 // `base` is the review address the owner is looking at (origin + path); the
 // link is built under it so it works on the public site too.
 export async function POST(request: Request, context: { params: Promise<{ slug: string }> }) {
@@ -77,6 +77,11 @@ export async function POST(request: Request, context: { params: Promise<{ slug: 
   if (!email || !/^https?:\/\//.test(base)) {
     return NextResponse.json({ error: "Give the reviewer's email and the page address." }, { status: 400, headers: noStore });
   }
-  const url = await reviewInviteUrl(base, slug, email, typeof body?.name === "string" ? body.name : undefined);
-  return NextResponse.json({ url, expiresInDays: 30 }, { headers: noStore });
+  // The short personal link (<base>/i/<code>). The code stays the same until
+  // a new one is asked for (fresh: true), so links already sent keep working.
+  const name = typeof body?.name === "string" ? body.name : undefined;
+  const fresh = (body as { fresh?: unknown } | null)?.fresh === true;
+  const code = await client.mutation(api.review.setInviteCode, { slug, email, code: newInviteCode(name), fresh });
+  const url = `${base.replace(/\/+$/, "")}/i/${code}`;
+  return NextResponse.json({ url }, { headers: noStore });
 }

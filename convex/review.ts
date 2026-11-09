@@ -789,7 +789,9 @@ export const resolveComment = mutation({
  * account wins); later claims are refused, and the owner can unlink an alias.
  */
 export const claimReviewer = mutation({
-  args: { slug: v.string(), who: v.string() },
+  // `invite`: the person's short link code. Through their own link any
+  // Google account becomes theirs, even when the name is already claimed.
+  args: { slug: v.string(), who: v.string(), invite: v.optional(v.string()) },
   returns: v.object({ ok: v.boolean(), role: v.optional(reviewRoleValidator), reason: v.optional(v.string()) }),
   handler: async (ctx, args) => {
     const project = await requireProject(ctx, args.slug);
@@ -813,6 +815,16 @@ export const claimReviewer = mutation({
     const target = project.reviewers.find((row) => whoOf(row.email) === args.who);
     if (!target) return { ok: false, reason: "That person is not on this review." };
     const first = target.name?.trim().split(/\s+/)[0] ?? "This person";
+    const viaInvite = Boolean(args.invite && target.inviteCode && args.invite.trim().toLowerCase() === target.inviteCode);
+    if (viaInvite) {
+      await ctx.db.patch(project._id, {
+        reviewers: project.reviewers.map((row) => (row.email === target.email
+          ? { ...row, aliases: [...new Set([...(row.aliases ?? []), email])] }
+          : row)),
+        updatedAt: now,
+      });
+      return { ok: true, role: target.role };
+    }
     if (target.aliases?.length || target.googleAt) {
       return { ok: false, reason: `${first} already signs in with another Google account. Use that one, or ask Michael.` };
     }
@@ -821,6 +833,64 @@ export const claimReviewer = mutation({
       updatedAt: now,
     });
     return { ok: true, role: target.role };
+  },
+});
+
+const INVITE_CODE = /^[a-z0-9-]{6,48}$/;
+
+/**
+ * Owner: the short sign-in link code for a reviewer. Keeps the code they
+ * already have (so a link sent earlier keeps working) unless `fresh` asks
+ * for a new one, which turns the old link off.
+ */
+export const setInviteCode = mutation({
+  args: { slug: v.string(), email: v.string(), code: v.string(), fresh: v.optional(v.boolean()) },
+  returns: v.string(),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role !== "owner") throw new ConvexError("Only the owner can make invite links.");
+    const email = normalizeEmail(args.email);
+    const row = project.reviewers.find((entry) => entry.email === email);
+    if (!row) throw new ConvexError("That person is not on this review.");
+    if (row.inviteCode && !args.fresh) return row.inviteCode;
+    const code = args.code.trim().toLowerCase();
+    if (!INVITE_CODE.test(code)) throw new ConvexError("Bad invite code.");
+    if (project.reviewers.some((entry) => entry.inviteCode === code)) throw new ConvexError("Invite code taken; try again.");
+    await ctx.db.patch(project._id, {
+      reviewers: project.reviewers.map((entry) => (entry.email === email ? { ...entry, inviteCode: code } : entry)),
+      updatedAt: Date.now(),
+    });
+    return code;
+  },
+});
+
+/** The review page's server only (teaser token): who a short invite code signs in. */
+export const redeemInvite = query({
+  args: { slug: v.string(), code: v.string() },
+  returns: v.union(v.null(), v.object({
+    email: v.string(), name: v.optional(v.string()),
+    // For the tailored sign-in card: door id, first name, what they are.
+    who: v.string(), first: v.string(), title: v.string(),
+    // Their other Google accounts (already signed in through one of them).
+    aliases: v.array(v.string()),
+  })),
+  handler: async (ctx, args) => {
+    const project = await projectBySlug(ctx, args.slug);
+    if (!project) return null;
+    const subject = (await identityOf(ctx))?.subject?.trim() ?? "";
+    if (subject !== `${TEASER_SUBJECT_PREFIX}${project.slug}`) return null;
+    const code = args.code.trim().toLowerCase();
+    if (!INVITE_CODE.test(code)) return null;
+    const row = project.reviewers.find((entry) => entry.inviteCode === code);
+    if (!row) return null;
+    return {
+      email: row.email,
+      name: row.name,
+      who: peopleIds(project)(row.email),
+      first: row.name?.trim().split(/\s+/)[0] || "Reviewer",
+      title: row.title?.split("·")[0]?.trim() || (row.role === "viewer" ? "Looks only" : "Director"),
+      aliases: row.aliases ?? [],
+    };
   },
 });
 
@@ -1565,6 +1635,7 @@ export const upsertProject = signedOwnerMutation({
         notificationsSeenAt: before?.notificationsSeenAt,
         aliases: before?.aliases,
         googleAt: before?.googleAt,
+        inviteCode: before?.inviteCode,
       };
     });
     if (args.styles) {
