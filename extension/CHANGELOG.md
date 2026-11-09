@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.31.2 (9 Nov 2026)
+
+- MJ Queue cards are calmer: the agent's note is gone (you read the prompt
+  in Midjourney), the prompt shows two lines and opens on a click, reference
+  thumbs are smaller.
+- Next · Send no longer waits 20 s between clicks. The 30-jobs-an-hour stop
+  stays. The last-hour count tries again after 5 s when it misses, and shows
+  … while reading and ? with the reason on hover when it cannot read.
+
 ## 0.31.1 (9 Nov 2026)
 
 - MJ Queue: a world's name stays on one line in the threads list; its

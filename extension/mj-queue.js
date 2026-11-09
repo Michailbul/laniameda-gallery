@@ -158,9 +158,10 @@
   }
 
   // ── Pacing for "Next · Send" (CLAUDE.md, Midjourney pacing) ──
-  // At least 20 s between two sends, at most 30 jobs in any hour for the
-  // whole account (its own history: finished jobs plus the ones in flight).
-  const PACING = { gapMs: 20000, hourCap: 30, maxInFlight: 2 };
+  // At most 30 jobs in any hour for the whole account (its own history:
+  // finished jobs plus the ones in flight), and two in flight. No wait between
+  // sends: each one is Michael's own click (he dropped the 20 s gap, 9 Nov 2026).
+  const PACING = { gapMs: 0, hourCap: 30, maxInFlight: 2 };
 
   // rate: { lastHour, inFlight, newestJobAt } from the account; lastSendAt: this panel's last send.
   function pacing({ rate, lastSendAt, now = Date.now() }) {

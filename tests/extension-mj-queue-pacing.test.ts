@@ -27,11 +27,9 @@ describe("Next · Send pacing", () => {
     expect(rate.newestJobAt).toBe(Date.parse("2026-11-09T19:59:30.1Z"));
   });
 
-  test("at least 20 s after the last send or the newest job", () => {
-    const rate = { lastHour: 5, inFlight: 0, newestJobAt: now - 30_000 };
-    expect(api().pacing({ rate, lastSendAt: now - 5_000, now })).toMatchObject({ ok: false, waitMs: 15_000 });
-    expect(api().pacing({ rate: { ...rate, newestJobAt: now - 12_000 }, now }).waitMs).toBe(8_000);
-    expect(api().pacing({ rate, lastSendAt: now - 25_000, now })).toMatchObject({ ok: true, waitMs: 0 });
+  test("no wait between his clicks under the cap", () => {
+    const rate = { lastHour: 5, inFlight: 0, newestJobAt: now - 2_000 };
+    expect(api().pacing({ rate, lastSendAt: now - 1_000, now })).toMatchObject({ ok: true, waitMs: 0 });
   });
 
   test("30 jobs in the hour stops it and says why", () => {
