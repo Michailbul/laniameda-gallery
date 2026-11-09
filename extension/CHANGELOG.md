@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.31.3 (9 Nov 2026)
+
+- A folded prompt shows exactly two lines (a cut third line peeked out
+  under them).
+
 ## 0.31.2 (9 Nov 2026)
 
 - MJ Queue cards are calmer: the agent's note is gone (you read the prompt
