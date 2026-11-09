@@ -168,12 +168,14 @@ type TopBarProps = {
   people: Map<string, Person>;
   /** Anyone who may vote: like or dislike a whole style (again = clear). */
   onStyleVerdict?: (styleId: string, verdict: Verdict) => void;
+  // The notification bell (top right corner).
+  bell?: ReactNode;
 };
 
 export const TopBar = memo(function TopBar(props: TopBarProps) {
   const {
     mediaBase, styles, style, allCount, onStyle, filter, filterCounts, onFilter, isOwner, directorName,
-    roundMessage, size, onSize, onMenu, menuLabel, onRemoveStyle, styleMarks, people, onStyleVerdict,
+    roundMessage, size, onSize, onMenu, menuLabel, onRemoveStyle, styleMarks, people, onStyleVerdict, bell,
   } = props;
   const [styleMenu, setStyleMenu, styleMenuRef, styleMenuPop] = usePopover();
   const [menuStyle, setMenuStyle] = useState<StyleChip | null>(null);
@@ -199,6 +201,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
         </div>
         <div />
         <div className="rv-bar-r">
+          {bell}
           <button
             type="button"
             ref={keysRef}

@@ -35,6 +35,8 @@ export const reviewerValidator = v.object({
   title: v.optional(v.string()),
   addedAt: v.number(),
   lastSeenAt: v.optional(v.number()),
+  // Read up to here in the notification bell.
+  notificationsSeenAt: v.optional(v.number()),
 });
 
 // A style shown in the review, in carousel order. The style's recipe
@@ -64,6 +66,8 @@ export const reviewProjectFields = {
   publicUrl: v.optional(v.string()),
   // The owner's "read up to here" mark for director feedback.
   feedbackSeenAt: v.optional(v.number()),
+  // The owner's "read up to here" mark in the notification bell.
+  notificationsSeenAt: v.optional(v.number()),
   createdAt: v.number(),
   updatedAt: v.number(),
 };

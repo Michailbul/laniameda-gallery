@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Privacy · Director review",
+  description: "Art direction review.",
   robots: { index: false },
 };
 
@@ -21,7 +22,7 @@ export default function ReviewPrivacyPage() {
     >
       <div style={{ maxWidth: 640, margin: "0 auto", fontSize: 15 }}>
         <p style={{ fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace", fontSize: 11, letterSpacing: "0.12em", color: "rgba(255,244,234,0.5)", margin: "0 0 12px" }}>
-          LANIAMEDA · DIRECTOR REVIEW
+          DIRECTOR REVIEW
         </p>
         <h1 style={{ fontWeight: 800, fontSize: 28, letterSpacing: "0.02em", textTransform: "uppercase", margin: "0 0 28px" }}>Privacy</h1>
         <p style={paragraph}>

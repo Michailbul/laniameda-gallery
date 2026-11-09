@@ -795,6 +795,194 @@ export const markFeedbackSeen = mutation({
   },
 });
 
+// ---------------------------------------------------------------- notifications
+
+const NOTIFY_WINDOW = 15 * 60 * 1000;
+const NOTIFY_LIMIT = 60;
+
+const notificationValidator = v.object({
+  key: v.string(),
+  type: v.union(v.literal("comment"), v.literal("verdict"), v.literal("style_verdict"), v.literal("visit"), v.literal("round")),
+  // Short person id, as in feedback().people ("owner", "r1", "agent").
+  who: v.string(),
+  name: v.string(),
+  at: v.number(),
+  verdict: v.optional(reviewVerdictValidator),
+  // Frames the event is about (a run of likes is one notification).
+  frames: v.array(v.object({ assetId: v.id("assets"), code: v.string(), thumb: v.optional(v.string()) })),
+  count: v.optional(v.number()),
+  body: v.optional(v.string()),
+  folder: v.optional(v.string()),
+  styleId: v.optional(v.id("worldStyles")),
+  style: v.optional(v.string()),
+  version: v.optional(v.string()),
+  versionId: v.optional(v.id("reviewVersions")),
+});
+
+/**
+ * The bell: what other people did lately, newest first. The owner sees the
+ * reviewers' comments, likes (a run within 15 minutes is one line), style
+ * votes and visits; reviewers see everyone else's comments, style votes and
+ * new rounds. Your own actions never show. `seenAt` is your read mark.
+ */
+export const notifications = query({
+  args: { slug: v.string() },
+  returns: v.union(v.null(), v.object({ seenAt: v.number(), items: v.array(notificationValidator) })),
+  handler: async (ctx, args) => {
+    const project = await projectBySlug(ctx, args.slug);
+    if (!project) return null;
+    const viewer = await resolveViewer(ctx, project);
+    if (!viewer) return null;
+    const isOwner = viewer.role === "owner";
+    const mine = feedbackKey(viewer);
+    const whoOf = peopleIds(project);
+    // First names, as the page shows them ("Alejandro").
+    const nameOf = (email?: string, fallback?: string) => {
+      if (!email || email === "owner" || project.ownerEmails.includes(email)) return "Michael";
+      const row = project.reviewers.find((reviewer) => reviewer.email === email);
+      return (row?.name?.trim() || fallback || email.split("@")[0]!).split(/\s+/)[0]!;
+    };
+    const me = project.reviewers.find((row) => row.email === viewer.email);
+    const seenAt = (isOwner ? project.notificationsSeenAt : me?.notificationsSeenAt) ?? 0;
+    // Only what happened in the last 30 days, at most a few hundred rows.
+    const since = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const verdicts = await ctx.db
+      .query("reviewFeedback")
+      .withIndex("by_project_updatedAt", (q) => q.eq("projectId", project._id).gte("updatedAt", since))
+      .order("desc")
+      .take(400);
+    const comments = await ctx.db
+      .query("reviewComments")
+      .withIndex("by_project_createdAt", (q) => q.eq("projectId", project._id).gte("createdAt", since))
+      .order("desc")
+      .take(200);
+    const styleVotes = await ctx.db
+      .query("reviewStyleFeedback")
+      .withIndex("by_project_updatedAt", (q) => q.eq("projectId", project._id).gte("updatedAt", since))
+      .order("desc")
+      .take(100);
+    const versions = await versionsOf(ctx, project._id);
+    const labels = new Map(versions.map((row) => [row._id as string, row.label]));
+    const folders = new Map((await foldersOf(ctx, project._id)).map((row) => [row._id as string, row.name]));
+    const styleLabels = new Map<string, string>();
+    for (const entry of project.styles) {
+      const style = await ctx.db.get(entry.styleId);
+      styleLabels.set(entry.styleId, entry.label || style?.name || "Style");
+    }
+    const frameCache = new Map<string, { assetId: Id<"assets">; code: string; thumb?: string; folder?: string }>();
+    const frame = async (assetId: Id<"assets">) => {
+      const hit = frameCache.get(assetId);
+      if (hit) return hit;
+      const asset = await ctx.db.get(assetId);
+      const media = asset ? await mediaOf(ctx, asset) : undefined;
+      const item = await ctx.db
+        .query("reviewItems")
+        .withIndex("by_project_asset", (q) => q.eq("projectId", project._id).eq("assetId", assetId))
+        .first();
+      const value = {
+        assetId,
+        code: shortCode(assetId),
+        thumb: media?.thumbs.find((thumb) => thumb.w >= 240)?.src ?? media?.thumbs[media.thumbs.length - 1]?.src,
+        folder: item ? folders.get(item.folderId) : undefined,
+      };
+      frameCache.set(assetId, value);
+      return value;
+    };
+    const items: Array<Infer<typeof notificationValidator>> = [];
+
+    for (const row of comments) {
+      const own = viewer.email ? row.authorEmail === viewer.email : row.authorRole === "owner";
+      if (own) continue;
+      const who = row.authorRole === "agent" ? "agent" : whoOf(row.authorEmail ?? "owner");
+      const { folder, ...picture } = await frame(row.assetId);
+      items.push({
+        key: `c:${row._id}`, type: "comment", who, name: row.authorRole === "agent" ? "Agent" : nameOf(row.authorEmail, row.authorName),
+        at: row.createdAt, frames: [picture], body: row.body.slice(0, 280), folder,
+        version: row.versionId ? labels.get(row.versionId) : undefined,
+      });
+    }
+
+    if (isOwner) {
+      // Runs of the same person's likes (or dislikes) close together: one line.
+      const runs: Array<{ email: string; verdict: Doc<"reviewFeedback">["verdict"]; first: number; last: number; assetIds: Id<"assets">[] }> = [];
+      for (const row of verdicts) {
+        if (row.reviewerEmail === mine || row.role === "owner") continue;
+        const run = runs.find((entry) => entry.email === row.reviewerEmail && entry.verdict === row.verdict && entry.first - row.updatedAt <= NOTIFY_WINDOW);
+        if (run) {
+          run.first = row.updatedAt;
+          run.assetIds.push(row.assetId);
+        } else {
+          runs.push({ email: row.reviewerEmail, verdict: row.verdict, first: row.updatedAt, last: row.updatedAt, assetIds: [row.assetId] });
+        }
+      }
+      for (const run of runs) {
+        const frames = [];
+        for (const id of run.assetIds.slice(0, 4)) {
+          const { folder: _folder, ...picture } = await frame(id);
+          frames.push(picture);
+        }
+        const places = new Set<string>();
+        for (const id of run.assetIds.slice(0, 40)) {
+          const place = (await frame(id)).folder;
+          if (place) places.add(place);
+        }
+        items.push({
+          key: `v:${run.email}:${run.verdict}:${run.last}`, type: "verdict", who: whoOf(run.email), name: nameOf(run.email),
+          at: run.last, verdict: run.verdict, frames, count: run.assetIds.length,
+          folder: places.size === 1 ? [...places][0] : places.size > 1 ? `${places.size} folders` : undefined,
+        });
+      }
+      for (const row of project.reviewers) {
+        if (!row.lastSeenAt || row.lastSeenAt < since) continue;
+        items.push({
+          key: `s:${row.email}:${Math.floor(row.lastSeenAt / 60000)}`, type: "visit", who: whoOf(row.email),
+          name: nameOf(row.email), at: row.lastSeenAt, frames: [],
+        });
+      }
+    }
+
+    for (const row of styleVotes) {
+      if (row.reviewerEmail === mine) continue;
+      if (isOwner && row.role === "owner") continue;
+      items.push({
+        key: `y:${row._id}:${row.updatedAt}`, type: "style_verdict", who: whoOf(row.reviewerEmail), name: nameOf(row.reviewerEmail),
+        at: row.updatedAt, verdict: row.verdict, frames: [], styleId: row.styleId, style: styleLabels.get(row.styleId),
+      });
+    }
+
+    if (!isOwner) {
+      for (const row of versions) {
+        if (row.status !== "published" || !row.publishedAt || row.publishedAt < since) continue;
+        items.push({
+          key: `r:${row._id}`, type: "round", who: "owner", name: "Michael", at: row.publishedAt, frames: [],
+          version: row.label, versionId: row._id, body: row.title || row.note || undefined,
+        });
+      }
+    }
+
+    items.sort((a, b) => b.at - a.at);
+    return { seenAt, items: items.slice(0, NOTIFY_LIMIT) };
+  },
+});
+
+/** "I have read my notifications up to now." */
+export const markNotificationsSeen = mutation({
+  args: { slug: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    const now = Date.now();
+    if (viewer.role === "owner") {
+      await ctx.db.patch(project._id, { notificationsSeenAt: now });
+      return null;
+    }
+    if (!viewer.email || !project.reviewers.some((row) => row.email === viewer.email)) return null;
+    const reviewers = project.reviewers.map((row) => (row.email === viewer.email ? { ...row, notificationsSeenAt: now } : row));
+    await ctx.db.patch(project._id, { reviewers });
+    return null;
+  },
+});
+
 // ---------------------------------------------------------------- owner reads
 
 const styleRecipeSummary = async (ctx: Ctx, style: Doc<"worldStyles">) => {

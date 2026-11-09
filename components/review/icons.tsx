@@ -95,3 +95,10 @@ export const Zoom = (props: IconProps) => (
     <path d="m10.5 10.5 3 3M5 7h4M7 5v4" />
   </Svg>
 );
+
+export const BellIcon = (props: IconProps) => (
+  <Svg {...props}>
+    <path d="M4 11.5V7.2a4 4 0 0 1 8 0v4.3l1.2 1.2H2.8L4 11.5Z" />
+    <path d="M6.6 14.2a1.5 1.5 0 0 0 2.8 0" />
+  </Svg>
+);

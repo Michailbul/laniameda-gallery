@@ -15,6 +15,7 @@ import { Grid, type GridGroup, type StyleMark, type TileAction, type TileMark } 
 import { Sidebar, TopBar, type AreaGroup, type StyleChip } from "./Chrome";
 import { Milestones } from "./Milestones";
 import { BulkBar } from "./BulkBar";
+import { Bell } from "./Bell";
 import type { Person } from "./people";
 import type { LightboxVerdict } from "./Lightbox";
 import type { Audience } from "./OwnerTools";
@@ -666,6 +667,37 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     });
   }, [index]);
 
+  // ---------------------------------------------------------- the bell
+  // A notification takes you to its frame (in its folder), style or round.
+  const onNoteFrame = useCallback((assetId: string, comment: boolean, version?: string) => {
+    const item = index.byAsset.get(assetId);
+    if (!item) {
+      toast(version ? `That frame is in round ${version}, not in the one on screen.` : "That frame is not in the round on screen.");
+      return;
+    }
+    const folder = index.folderById.get(item.folderId);
+    setViewingList(null);
+    if (folder) changeView({ section: folder.section, folder: folder.slug, style: "", filter: "all" }, { clear: true });
+    window.setTimeout(() => openFrame(assetId, comment), 40);
+  }, [index, changeView, openFrame, toast]);
+  const onNoteStyle = useCallback((styleId: string) => {
+    const row = page.styles.find((entry) => entry.id === styleId);
+    if (!row || !index.roundStyles.has(styleId)) {
+      toast("That style is not in the round on screen.");
+      return;
+    }
+    changeView({ style: slugOf(row.label), filter: "all" });
+    window.scrollTo({ top: 0 });
+  }, [page.styles, index, changeView, toast]);
+  const onNoteRound = useCallback((versionId: string) => {
+    const version = page.versions.find((row) => row.id === versionId);
+    if (version && version.id !== page.versionId) onRound(version);
+  }, [page.versions, page.versionId, onRound]);
+  const bell = useMemo(
+    () => <Bell slug={slug} mediaBase={page.mediaBase} people={people} onFrame={onNoteFrame} onStyle={onNoteStyle} onRound={onNoteRound} />,
+    [slug, page.mediaBase, people, onNoteFrame, onNoteStyle, onNoteRound],
+  );
+
   const openItem = view.open ? index.byCode.get(view.open) : undefined;
   const lightboxIds = lightbox.ids.length && openItem && lightbox.ids.includes(openItem.assetId) ? lightbox.ids : flatIds;
   const openPosition = openItem ? Math.max(0, lightboxIds.indexOf(openItem.assetId)) : 0;
@@ -1014,6 +1046,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           styleMarks={styleMarks}
           people={people}
           onStyleVerdict={canVote ? applyStyleVerdict : undefined}
+          bell={isPreview ? undefined : bell}
         />
 
         <main className="rv-content" data-loading={loadingRound ? "" : undefined}>
