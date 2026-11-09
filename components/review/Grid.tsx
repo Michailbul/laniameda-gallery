@@ -36,9 +36,11 @@ export type TileMark = {
   fresh: boolean;
   // Owner lists the frame is in, e.g. "AC".
   lists: string;
+  // Owner only: archived (D), grayed out in place until the page reloads.
+  archived?: boolean;
 };
 
-export type TileAction = "like" | "dislike" | "comment" | "copy" | "release";
+export type TileAction = "like" | "dislike" | "archive" | "comment" | "copy" | "release";
 
 type GridProps = {
   groups: GridGroup[];
@@ -322,6 +324,7 @@ export function Grid(props: GridProps) {
                   people={people}
                   comments={mark?.comments ?? 0}
                   fresh={mark?.fresh ?? false}
+                  archived={mark?.archived ?? false}
                   selected={selected.has(item.assetId)}
                   canVote={canVote}
                   isOwner={isOwner}
@@ -390,6 +393,7 @@ type TileProps = {
   people: Map<string, Person>;
   comments: number;
   fresh: boolean;
+  archived: boolean;
   selected: boolean;
   canVote: boolean;
   isOwner: boolean;
@@ -398,7 +402,7 @@ type TileProps = {
 const MAX_FACES = 4;
 
 const Tile = memo(function Tile(props: TileProps) {
-  const { item, mediaBase, sizes, eager, high, far, verdict, mine, faces, lists, people, comments, fresh, selected, canVote, isOwner } = props;
+  const { item, mediaBase, sizes, eager, high, far, verdict, mine, faces, lists, people, comments, fresh, archived, selected, canVote, isOwner } = props;
   const ratio = item.width / Math.max(1, item.height);
   const poster = thumbAtLeast(item.thumbs, 960);
   const [playing, setPlaying] = useState(false);
@@ -419,6 +423,7 @@ const Tile = memo(function Tile(props: TileProps) {
       data-id={item.assetId}
       data-v={verdict}
       data-sel={selected ? "" : undefined}
+      data-arch={archived ? "" : undefined}
       data-far={far ? "" : undefined}
       data-held={item.held ? "" : undefined}
       style={{ "--ar": ratio.toFixed(4) } as React.CSSProperties}
@@ -453,6 +458,7 @@ const Tile = memo(function Tile(props: TileProps) {
             Held · only you<span className="rel">Release</span>
           </button>
         ) : null}
+        {archived ? <span className="rv-chip arch">Archived · D restores</span> : null}
       </div>
 
       <div className="rv-t-marks">
@@ -486,10 +492,17 @@ const Tile = memo(function Tile(props: TileProps) {
             <kbd>1</kbd>
             <span>{mine === "like" ? "Liked" : "Like"}</span>
           </button>
-          <button type="button" className="rv-act dislike" data-act="dislike" aria-pressed={mine === "dislike"}>
-            <kbd>2</kbd>
-            <span>{mine === "dislike" ? "Disliked" : "Dislike"}</span>
-          </button>
+          {isOwner ? (
+            <button type="button" className="rv-act archive" data-act="archive" aria-pressed={archived}>
+              <kbd>D</kbd>
+              <span>{archived ? "Restore" : "Archive"}</span>
+            </button>
+          ) : (
+            <button type="button" className="rv-act dislike" data-act="dislike" aria-pressed={mine === "dislike"}>
+              <kbd>2</kbd>
+              <span>{mine === "dislike" ? "Disliked" : "Dislike"}</span>
+            </button>
+          )}
           <button type="button" className="rv-act" data-act="comment">
             <kbd>C</kbd>
             <span>Comment</span>

@@ -84,7 +84,7 @@ export function ReviewApp(props: Props) {
 const SECTIONS: ReviewSection[] = ["locations", "characters", "scenes"];
 const SECTION_ORDER: Record<ReviewSection, number> = { locations: 0, characters: 1, scenes: 2 };
 const EMPTY_FEEDBACK: ReviewFeedback = { people: [], verdicts: [], styleVerdicts: [], comments: [], reviewers: [], openSignIn: undefined };
-const FILTER_KEYS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback"];
+const FILTER_KEYS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback", "archived"];
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message.replace(/^[\s\S]*ConvexError: /, "").replace(/\s+at [\s\S]*$/, "") : "That did not work.";
@@ -259,6 +259,18 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     [pending, fb],
   );
 
+  // ---------------------------------------------------------- archive (owner, D)
+  // The art director archives instead of disliking: the gallery's soft
+  // archive, which takes the frame out of the reviewers' view. A frame
+  // archived while the page is open stays in place, grayed out, so D again
+  // brings it back; after a reload it lives under the Archived filter.
+  const [archivedOverride, setArchivedOverride] = useState<Map<string, boolean>>(() => new Map());
+  const [keptInPlace, setKeptInPlace] = useState<Set<string>>(() => new Set());
+  const isArchived = useCallback(
+    (assetId: string) => isOwner && (archivedOverride.get(assetId) ?? Boolean(index.byAsset.get(assetId)?.archived)),
+    [isOwner, archivedOverride, index],
+  );
+
   // ---------------------------------------------------------- owner lists (keys 3–9)
   const [lists, setLists] = useState<Lists>(emptyLists);
   const [viewingList, setViewingList] = useState<ListKey | null>(null);
@@ -298,10 +310,11 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         comments: fb.comments.get(id)?.count ?? 0,
         fresh: fb.fresh.has(id),
         lists: listsOf.get(id) ?? "",
+        archived: isArchived(id),
       });
     }
     return map;
-  }, [page.items, mineOf, fb, isOwner, myKey, me, listsOf]);
+  }, [page.items, mineOf, fb, isOwner, myKey, me, listsOf, isArchived]);
 
   // ---------------------------------------------------------- style verdicts
   // Per style: your own verdict, the faces shown next to it (reviewers plus
@@ -409,6 +422,9 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   const styled = useMemo(() => (style ? scope.filter((item) => item.styleId === style.id) : scope), [scope, style]);
 
   const passes = useCallback((item: ReviewItem, filter: FeedbackFilter) => {
+    const archived = isArchived(item.assetId);
+    if (filter === "archived") return archived;
+    if (archived && !keptInPlace.has(item.assetId)) return false;
     if (filter === "all") return true;
     const mark = marks.get(item.assetId);
     if (!mark) return false;
@@ -421,7 +437,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       return (fb.theirs.get(item.assetId)?.length ?? 0) > 0 || Boolean(comment && !comment.lastByOwner);
     }
     return mark.fresh;
-  }, [marks, fb]);
+  }, [marks, fb, isArchived, keptInPlace]);
 
   const filterCounts = useMemo(() => {
     const counts = Object.fromEntries(FILTER_KEYS.map((key) => [key, 0])) as Record<FeedbackFilter, number>;
@@ -511,6 +527,30 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         }),
       );
   }, [canVote, mineOf, flash, setVerdictMutation, slug, toast]);
+
+  const setArchivedMutation = useMutation(api.review.setArchived);
+  const applyArchive = useCallback((ids: string[]) => {
+    if (!isOwner || ids.length === 0) return;
+    const archived = !ids.every((id) => isArchived(id));
+    setArchivedOverride((current) => {
+      const map = new Map(current);
+      for (const id of ids) map.set(id, archived);
+      return map;
+    });
+    if (archived) setKeptInPlace((current) => new Set([...current, ...ids]));
+    const count = ids.length > 1 ? ` ${ids.length}` : "";
+    flash(ids, archived ? `Archived${count}` : `Restored${count}`, archived ? "dislike" : "plain");
+    const settle = () =>
+      setArchivedOverride((current) => {
+        const map = new Map(current);
+        for (const id of ids) if (map.get(id) === archived) map.delete(id);
+        return map;
+      });
+    setArchivedMutation({ slug, assetIds: ids as Id<"assets">[], archived })
+      .then(() => { if (archived) toast("Archived · out of the director's view · D brings it back"); })
+      .catch((error) => toast(errorText(error), true))
+      .finally(settle);
+  }, [isOwner, isArchived, flash, setArchivedMutation, slug, toast]);
 
   // Like or dislike a whole style; the same choice again clears it.
   const applyStyleVerdict = useCallback((styleId: string, verdict: Verdict) => {
@@ -796,11 +836,12 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       return;
     }
     if (action === "like" || action === "dislike") applyVerdict(ids, action);
+    else if (action === "archive") applyArchive(ids);
     else if (action === "comment") {
       if (ids.length > 1) setComposeSignal((value) => value + 1);
       else openFrame(assetId, true);
     }
-  }, [index, selected, applyVerdict, openFrame, flash, updateItems, slug, toast]);
+  }, [index, selected, applyVerdict, applyArchive, openFrame, flash, updateItems, slug, toast]);
 
   const moveActive = useCallback((key: string) => {
     const ids = flatRef.current;
@@ -838,7 +879,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
 
   // Keys on the hovered frame (the open view handles its own keys).
   const keys = useRef({
-    open: false, isOwner: false, targets, applyVerdict, openFrame, clearSelection, moveActive, toggleList, stepRound,
+    open: false, isOwner: false, targets, applyVerdict, applyArchive, openFrame, clearSelection, moveActive, toggleList, stepRound,
     selectedSize: 0, selectAll: () => {}, compose: () => {},
   });
   useEffect(() => {
@@ -847,6 +888,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       isOwner,
       targets,
       applyVerdict,
+      applyArchive,
       openFrame,
       clearSelection,
       moveActive,
@@ -879,6 +921,10 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         state.stepRound(key === "]" ? 1 : -1);
       } else if (key === "?") {
         document.querySelector<HTMLButtonElement>(".rv-bar-r .rv-btn.round")?.click();
+      } else if (state.isOwner && (key === "d" || key === "2")) {
+        // The art director archives; dislike is the director's.
+        const ids = state.targets();
+        if (ids.length) state.applyArchive(ids);
       } else if (key === "1" || key === "2") {
         const ids = state.targets();
         if (ids.length) state.applyVerdict(ids, key === "1" ? "like" : "dislike");
@@ -1151,6 +1197,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           canVote={canVote}
           onLike={() => applyVerdict(selectedIds, "like")}
           onDislike={() => applyVerdict(selectedIds, "dislike")}
+          onArchive={isOwner ? () => applyArchive(selectedIds) : undefined}
           onComment={commentAll}
           onDownload={() => downloadFrames(reviewBase(), selectedIds)}
           onClear={clearSelection}
@@ -1228,6 +1275,8 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
             onList={isOwner ? (key) => toggleList(key, [openItem.assetId]) : undefined}
             focusComment={lightbox.focus}
             onVerdict={(verdict) => applyVerdict([openItem.assetId], verdict)}
+            archived={isOwner ? isArchived(openItem.assetId) : undefined}
+            onArchive={isOwner ? () => applyArchive([openItem.assetId]) : undefined}
             onNav={navFrame}
             onClose={closeFrame}
             onDownload={() => downloadFrames(reviewBase(), [openItem.assetId])}

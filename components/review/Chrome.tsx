@@ -116,6 +116,7 @@ export const FILTER_SHORT: Record<FeedbackFilter, string> = {
   todo: "To review",
   new: "New",
   feedback: "His feedback",
+  archived: "Archived",
 };
 
 const filterOptions = (isOwner: boolean, director: string): Array<[FeedbackFilter, string]> =>
@@ -128,6 +129,7 @@ const filterOptions = (isOwner: boolean, director: string): Array<[FeedbackFilte
         ["disliked", `Disliked by ${director}`],
         ["commented", "With comments"],
         ["todo", "Nobody has looked yet"],
+        ["archived", "Archived (D)"],
       ]
     : [
         ["all", "All frames"],
@@ -217,7 +219,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
               <div className="rv-pop-h" style={{ padding: "4px 0 12px" }}>Keys on the frame under the pointer</div>
               <dl>
                 <dt><kbd>1</kbd></dt><dd>Like</dd>
-                <dt><kbd>2</kbd></dt><dd>Dislike</dd>
+                {isOwner ? (<><dt><kbd>D</kbd><kbd>2</kbd></dt><dd>Archive (again brings it back)</dd></>) : (<><dt><kbd>2</kbd></dt><dd>Dislike</dd></>)}
                 <dt><kbd>C</kbd></dt><dd>Comment</dd>
                 <dt><kbd>O</kbd><kbd>↵</kbd></dt><dd>Open large</dd>
                 <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Next and previous frame</dd>

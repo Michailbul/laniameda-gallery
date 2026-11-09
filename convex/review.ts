@@ -4,6 +4,7 @@ import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/s
 import { REVIEWER_SUBJECT_PREFIX, TEASER_SUBJECT_PREFIX, actorMatchesUserId, signedOwnerMutation, signedOwnerQuery } from "./actor";
 import { canActorAccessOwnerUserId } from "./authz";
 import { buildR2PublicUrl } from "./r2_url";
+import { archiveAsset, archiveEntryOf, restoreAsset } from "./assetArchiveCore";
 import { assetFolderIds, worldsOfAsset } from "./worldCore";
 import { fileAssetsInWorld } from "./worlds";
 import {
@@ -191,6 +192,8 @@ const pageItemValidator = v.object({
   previous: v.optional(v.array(v.object({ assetId: v.id("assets"), thumb: v.optional(v.string()) }))),
   // Owner only: held back from the director (only in the draft).
   held: v.optional(v.boolean()),
+  // Owner only: archived in the gallery (D). Reviewers never get archived frames.
+  archived: v.optional(v.boolean()),
 });
 
 const pageValidator = v.object({
@@ -307,6 +310,10 @@ export const page = query({
         if (!asset) continue;
         // A held frame is the owner's alone: never on a reviewer's page.
         if (row.held && !isOwner) continue;
+        // Archived (D) frames are out of the review: the owner sees them
+        // grayed out, everyone else (and the owner's director preview) not at all.
+        const archived = Boolean(await archiveEntryOf(ctx, row.assetId));
+        if (archived && !isOwner) continue;
         const media = await mediaOf(ctx, asset);
         let previous: Array<{ assetId: Id<"assets">; thumb?: string }> | undefined;
         if (row.previousAssetIds?.length) {
@@ -334,6 +341,7 @@ export const page = query({
           note: row.note,
           previous,
           held: isOwner && row.held ? true : undefined,
+          ...(archived ? { archived: true } : {}),
         });
       }
     }
@@ -675,6 +683,38 @@ export const setVerdict = mutation({
         updatedAt: now,
       });
       changed += 1;
+    }
+    return { changed };
+  },
+});
+
+/**
+ * The art director's D on the review page: archive frames (or bring them
+ * back) with the gallery's own soft archive, so they gray out here, leave the
+ * reviewers' view and sit in the gallery's Archive tray. Owner only.
+ */
+export const setArchived = mutation({
+  args: { slug: v.string(), assetIds: v.array(v.id("assets")), archived: v.boolean() },
+  returns: v.object({ changed: v.number() }),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role !== "owner") throw new ConvexError("Only the art director can archive frames.");
+    let changed = 0;
+    for (const assetId of uniqueIds(args.assetIds)) {
+      await assertInProject(ctx, project._id, assetId);
+      const entry = await archiveEntryOf(ctx, assetId);
+      if (args.archived) {
+        if (entry) continue;
+        const asset = await ctx.db.get(assetId);
+        if (!asset || !canActorAccessOwnerUserId(project.ownerUserId, asset.ownerUserId)) {
+          throw new ConvexError("That frame is not in this review.");
+        }
+        await archiveAsset(ctx, project.ownerUserId, asset);
+        changed += 1;
+      } else if (entry) {
+        await restoreAsset(ctx, entry);
+        changed += 1;
+      }
     }
     return { changed };
   },
@@ -2260,7 +2300,7 @@ export const signInTeaser = query({
     for (const row of ordered) {
       if (frames.length >= TEASER_FRAMES) break;
       const asset = await ctx.db.get(row.assetId);
-      if (!asset) continue;
+      if (!asset || (await archiveEntryOf(ctx, row.assetId))) continue;
       const media = await mediaOf(ctx, asset);
       const thumb = media.thumbs[0];
       if (!thumb) continue;
@@ -2323,7 +2363,7 @@ export const downloadList = query({
       const row = rows[rows.length - 1];
       if (!row) continue;
       const asset = await ctx.db.get(assetId);
-      if (!asset) continue;
+      if (!asset || (viewer.role !== "owner" && (await archiveEntryOf(ctx, assetId)))) continue;
       const key = await ref(ctx, asset.r2Key, asset.storageId, asset.sourceUrl);
       out.push({
         assetId,

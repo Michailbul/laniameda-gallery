@@ -5,6 +5,7 @@ import { signedOwnerMutation, signedOwnerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { deleteAssetCascade } from "./assets";
+import { archiveAsset, archiveEntryOf, restoreAsset } from "./assetArchiveCore";
 
 /**
  * Archive (D on a board) is soft: the frame grays out, sits in the Archive
@@ -16,8 +17,7 @@ import { deleteAssetCascade } from "./assets";
  * journal entry: 36 DEAR ANNETE frames archived at 16:29 were gone at 16:39.
  */
 
-/** The world-page hide reason archive sets, so restore undoes only its own hide. */
-export const ARCHIVE_HIDE_REASON = "Archived (D)";
+export { ARCHIVE_HIDE_REASON } from "./assetArchiveCore";
 
 /** Most frames one "Delete for good" removes in one transaction. */
 export const PURGE_BATCH = 25;
@@ -32,18 +32,7 @@ export const archive = signedOwnerMutation({
     const asset = await ctx.db.get(assetId);
     if (!asset || !canActorAccessOwnerUserId(ownerUserId, asset.ownerUserId))
       throw new ConvexError("Asset not found.");
-    const existing = await ctx.db
-      .query("assetArchive")
-      .withIndex("by_asset", (q) => q.eq("assetId", assetId))
-      .unique();
-    if (existing) return archivedAtOf(existing);
-    const archivedAt = Date.now();
-    await ctx.db.insert("assetArchive", { ownerUserId, assetId, archivedAt });
-    // Off the world page, as the old delete took it off; restore brings it back.
-    if (!asset.worldPageHidden) {
-      await ctx.db.patch(assetId, { worldPageHidden: true, worldPageHiddenReason: ARCHIVE_HIDE_REASON });
-    }
-    return archivedAt;
+    return await archiveAsset(ctx, ownerUserId, asset);
   },
 });
 
@@ -51,18 +40,11 @@ export const restore = signedOwnerMutation({
   args: { ownerUserId: v.string(), assetId: v.id("assets") },
   returns: v.null(),
   handler: async (ctx, { ownerUserId, assetId }) => {
-    const entry = await ctx.db
-      .query("assetArchive")
-      .withIndex("by_asset", (q) => q.eq("assetId", assetId))
-      .unique();
+    const entry = await archiveEntryOf(ctx, assetId);
     if (!entry) return null;
     if (!canActorAccessOwnerUserId(ownerUserId, entry.ownerUserId))
       throw new ConvexError("Asset not found.");
-    await ctx.db.delete(entry._id);
-    const asset = await ctx.db.get(assetId);
-    if (asset?.worldPageHidden && asset.worldPageHiddenReason === ARCHIVE_HIDE_REASON) {
-      await ctx.db.patch(assetId, { worldPageHidden: undefined, worldPageHiddenReason: undefined });
-    }
+    await restoreAsset(ctx, entry);
     return null;
   },
 });

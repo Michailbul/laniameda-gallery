@@ -13,6 +13,8 @@ type BulkBarProps = {
   canVote: boolean;
   onLike: () => void;
   onDislike: () => void;
+  /** The art director: D archives instead of disliking. */
+  onArchive?: () => void;
   onComment: (body: string) => Promise<boolean>;
   onDownload: () => void;
   onClear: () => void;
@@ -21,7 +23,7 @@ type BulkBarProps = {
 };
 
 export function BulkBar(props: BulkBarProps) {
-  const { count, canVote, onLike, onDislike, onComment, onDownload, onClear, composeSignal, ownerTools } = props;
+  const { count, canVote, onLike, onDislike, onArchive, onComment, onDownload, onClear, composeSignal, ownerTools } = props;
   const [composerOpen, setOpen, composeRef, composePop] = usePopover();
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
@@ -54,9 +56,15 @@ export function BulkBar(props: BulkBarProps) {
           <button type="button" className="rv-btn" onClick={onLike}>
             <kbd>1</kbd> Like all
           </button>
-          <button type="button" className="rv-btn" onClick={onDislike}>
-            <kbd>2</kbd> Dislike all
-          </button>
+          {onArchive ? (
+            <button type="button" className="rv-btn" onClick={onArchive}>
+              <kbd>D</kbd> Archive all
+            </button>
+          ) : (
+            <button type="button" className="rv-btn" onClick={onDislike}>
+              <kbd>2</kbd> Dislike all
+            </button>
+          )}
           <button type="button" ref={composeRef} className="rv-btn" onClick={() => setOpen(!composerOpen)} aria-expanded={composerOpen}>
             <kbd>C</kbd> Comment on all
           </button>
