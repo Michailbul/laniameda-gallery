@@ -189,6 +189,8 @@ const pageItemValidator = v.object({
   isNew: v.boolean(),
   note: v.optional(v.string()),
   previous: v.optional(v.array(v.object({ assetId: v.id("assets"), thumb: v.optional(v.string()) }))),
+  // Owner only: held back from the director (only in the draft).
+  held: v.optional(v.boolean()),
 });
 
 const pageValidator = v.object({
@@ -235,6 +237,7 @@ const pageValidator = v.object({
     // Owner only, on the draft: frames it adds to / takes out of the current round.
     added: v.optional(v.number()),
     removed: v.optional(v.number()),
+    held: v.optional(v.number()),
   })),
   versionId: v.optional(v.id("reviewVersions")),
   items: v.array(pageItemValidator),
@@ -302,6 +305,8 @@ export const page = query({
         const row = rows[index]!;
         const asset = assets[index];
         if (!asset) continue;
+        // A held frame is the owner's alone: never on a reviewer's page.
+        if (row.held && !isOwner) continue;
         const media = await mediaOf(ctx, asset);
         let previous: Array<{ assetId: Id<"assets">; thumb?: string }> | undefined;
         if (row.previousAssetIds?.length) {
@@ -328,21 +333,24 @@ export const page = query({
           isNew: previousAssets.size > 0 && !previousAssets.has(row.assetId),
           note: row.note,
           previous,
+          held: isOwner && row.held ? true : undefined,
         });
       }
     }
 
     // Owner only: what the draft changes against the current round, so the
     // page can say "Next round · 5 frames waiting" without opening it.
-    let draftChange: { added: number; removed: number } | undefined;
+    let draftChange: { added: number; removed: number; held: number } | undefined;
     if (isOwner && project.draftVersionId) {
-      const draftAssets = new Set((await itemsOf(ctx, project.draftVersionId)).map((row) => row.assetId as string));
+      const draftRows = await itemsOf(ctx, project.draftVersionId);
+      const draftAssets = new Set(draftRows.filter((row) => !row.held).map((row) => row.assetId as string));
       const currentAssets = project.currentVersionId
         ? new Set((await itemsOf(ctx, project.currentVersionId)).map((row) => row.assetId as string))
         : new Set<string>();
       draftChange = {
         added: [...draftAssets].filter((id) => !currentAssets.has(id)).length,
         removed: [...currentAssets].filter((id) => !draftAssets.has(id)).length,
+        held: draftRows.filter((row) => row.held).length,
       };
     }
 
@@ -1299,6 +1307,7 @@ export const listItems = signedOwnerQuery({
         order: row.order,
         note: row.note,
         previousAssetIds: row.previousAssetIds,
+        held: row.held ? true : undefined,
       })),
     };
   },
@@ -1832,6 +1841,9 @@ export const promote = signedOwnerMutation({
     folderSlug: v.optional(v.string()),
     styleId: v.optional(v.id("worldStyles")),
     note: v.optional(v.string()),
+    // Held · only you: true holds the frames back from the director, false
+    // releases them; left out keeps a frame's state (new frames: not held).
+    held: v.optional(v.boolean()),
   },
   returns: v.object({
     draftVersionId: v.id("reviewVersions"),
@@ -1874,6 +1886,7 @@ export const promote = signedOwnerMutation({
         await ctx.db.patch(existing._id, {
           ...(styleId ? { styleId } : {}),
           ...(args.note !== undefined ? { note: args.note.trim() || undefined } : {}),
+          ...(args.held !== undefined ? { held: args.held || undefined } : {}),
         });
         if (styleId) moves.push({ assetId, styleId, previousStyleId: existing.styleId });
         updated += 1;
@@ -1889,6 +1902,7 @@ export const promote = signedOwnerMutation({
         styleId,
         order: order++,
         note: args.note?.trim() || undefined,
+        held: args.held || undefined,
         addedAt: Date.now(),
       });
       added += 1;
@@ -1927,6 +1941,7 @@ export const updateItems = signedOwnerMutation({
     folderSlug: v.optional(v.string()),
     styleId: v.optional(v.union(v.id("worldStyles"), v.null())),
     note: v.optional(v.string()),
+    held: v.optional(v.boolean()),
   },
   returns: v.object({ draftLabel: v.string(), changed: v.number() }),
   handler: async (ctx, args) => {
@@ -1940,6 +1955,7 @@ export const updateItems = signedOwnerMutation({
         ...(folder ? { folderId: folder._id } : {}),
         ...(args.styleId !== undefined ? { styleId: args.styleId ?? undefined } : {}),
         ...(args.note !== undefined ? { note: args.note.trim() || undefined } : {}),
+        ...(args.held !== undefined ? { held: args.held || undefined } : {}),
       });
       if (args.styleId !== undefined && (args.styleId ?? undefined) !== row.styleId) {
         moves.push({ assetId: row.assetId, styleId: args.styleId ?? undefined, previousStyleId: row.styleId });
@@ -2013,15 +2029,21 @@ export const createDraft = signedOwnerMutation({
 /** Publish the draft: it becomes the round the director sees. */
 export const publishDraft = signedOwnerMutation({
   args: { ...ownerArgs, title: v.optional(v.string()), note: v.optional(v.string()), label: v.optional(v.string()) },
-  returns: v.object({ versionId: v.id("reviewVersions"), label: v.string(), items: v.number() }),
+  returns: v.object({ versionId: v.id("reviewVersions"), label: v.string(), items: v.number(), held: v.number() }),
   handler: async (ctx, args) => {
     const project = await requireOwnedProject(ctx, args.ownerUserId!, args.slug);
     if (!project.draftVersionId) throw new ConvexError("There is no draft round to publish.");
     const draft = await ctx.db.get(project.draftVersionId);
     if (!draft) throw new ConvexError("There is no draft round to publish.");
-    const items = (await itemsOf(ctx, draft._id)).length;
-    if (items === 0) throw new ConvexError("The draft round is empty.");
+    const rows = await itemsOf(ctx, draft._id);
+    const heldRows = rows.filter((row) => row.held);
+    const items = rows.length - heldRows.length;
+    if (items === 0) throw new ConvexError(heldRows.length ? "Every frame in the draft is held. Release the ones to send first." : "The draft round is empty.");
     const now = Date.now();
+    // Held frames never go out: they leave the round being published and wait
+    // in the next draft, still held.
+    const carried = heldRows.map(({ _id, _creationTime, versionId, ...rest }) => { void _creationTime; void versionId; void _id; return rest; });
+    for (const row of heldRows) await ctx.db.delete(row._id);
     const label = args.label?.trim() || draft.label;
     await ctx.db.patch(draft._id, {
       status: "published",
@@ -2031,7 +2053,11 @@ export const publishDraft = signedOwnerMutation({
       ...(args.note !== undefined ? { note: args.note.trim() || undefined } : {}),
     });
     await ctx.db.patch(project._id, { currentVersionId: draft._id, draftVersionId: undefined, updatedAt: now });
-    return { versionId: draft._id, label, items };
+    if (carried.length) {
+      const next = await ensureDraft(ctx, (await ctx.db.get(project._id))!);
+      for (const row of carried) await ctx.db.insert("reviewItems", { ...row, versionId: next._id, held: true });
+    }
+    return { versionId: draft._id, label, items, held: carried.length };
   },
 });
 

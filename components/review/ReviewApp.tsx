@@ -770,6 +770,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
 
   const [composeSignal, setComposeSignal] = useState(0);
 
+  const updateItems = useMutation(api.review.updateItems);
   const onAct = useCallback((action: TileAction, assetId: string, tile: HTMLElement) => {
     if (action === "copy") {
       const item = index.byAsset.get(assetId);
@@ -784,12 +785,22 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       return;
     }
     const ids = selected.has(assetId) && selected.size > 1 ? [...selected] : [assetId];
+    if (action === "release") {
+      // One click: a held frame (or every held one selected with it) joins the round.
+      const itemIds = ids.map((id) => index.byAsset.get(id)).filter((item) => item?.held).map((item) => item!.id);
+      if (!itemIds.length) return;
+      void updateItems({ slug, itemIds, held: false }).then(
+        (result) => flash(ids, `Released into ${result.draftLabel}`, "plain"),
+        () => toast("Could not release it. Try again.", true),
+      );
+      return;
+    }
     if (action === "like" || action === "dislike") applyVerdict(ids, action);
     else if (action === "comment") {
       if (ids.length > 1) setComposeSignal((value) => value + 1);
       else openFrame(assetId, true);
     }
-  }, [index, selected, applyVerdict, openFrame, flash]);
+  }, [index, selected, applyVerdict, openFrame, flash, updateItems, slug, toast]);
 
   const moveActive = useCallback((key: string) => {
     const ids = flatRef.current;

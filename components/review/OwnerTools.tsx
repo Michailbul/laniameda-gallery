@@ -70,6 +70,7 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
           <span className="k">Next round · {shown.label}</span>
           <span>
             <b>{changes}.</b> {sees(audience)} {current ? current.label : "nothing yet"} until you send it.
+            {shown.held ? <> <span className="rv-held-note">{plural(shown.held, "frame")} held · only you</span></> : null}
           </span>
           <span className="acts">
             <button type="button" className="rv-btn ghost" disabled={busy} onClick={() => setDialog("discard")}>Throw away</button>
@@ -112,7 +113,7 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
             {dialog === "send" ? (
               <>
                 <h4>Send {shown.label} to {audience.name}</h4>
-                <p>{changes}. {plural(itemCount, "frame")} in all. {audience.plural ? "They see" : "He sees"} it as soon as you send it.</p>
+                <p>{changes}. {plural(Math.max(itemCount - (shown.held ?? 0), 0), "frame")} in all. {audience.plural ? "They see" : "He sees"} it as soon as you send it.{shown.held ? ` ${plural(shown.held, "held frame")} stay with you in the next round.` : ""}</p>
                 <label>
                   Title, optional
                   <input className="rv-input" value={title} placeholder={`Round ${shown.number}`} onChange={(event) => setTitle(event.target.value)} autoFocus />
@@ -382,7 +383,7 @@ export function BulkOwnerTools({ slug, itemIds, codes, folders, styles, shown, c
   const inDraft = Boolean(shown?.isDraft);
   const later = inDraft ? "" : ` ${sees(audience)} ${current?.label ?? "the current round"} unchanged until you send the next round.`;
 
-  const apply = async (patch: { folderId?: Id<"reviewFolders">; styleId?: Id<"worldStyles"> | null }, label: string) => {
+  const apply = async (patch: { folderId?: Id<"reviewFolders">; styleId?: Id<"worldStyles"> | null; held?: boolean }, label: string) => {
     setBusy(true);
     try {
       const result = await update({ slug, itemIds, ...patch });
@@ -458,6 +459,13 @@ export function BulkOwnerTools({ slug, itemIds, codes, folders, styles, shown, c
           Remove from round
         </button>
       )}
+      <button type="button" className="rv-btn" disabled={busy} title="Only you see held frames; sending the round leaves them out"
+        onClick={() => void apply({ held: true }, "held back · only you")}>
+        Hold · only me
+      </button>
+      <button type="button" className="rv-btn" disabled={busy} onClick={() => void apply({ held: false }, "released")}>
+        Release
+      </button>
       <button
         type="button"
         className="rv-btn"

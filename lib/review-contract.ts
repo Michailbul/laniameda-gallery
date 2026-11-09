@@ -158,6 +158,7 @@ export const reviewPromoteSchema = z.object({
   note: z.string().trim().max(400).optional().describe("Caption the director reads under each frame. Empty clears it on frames already there."),
   dryRun: z.boolean().optional().describe("Write nothing: report each frame's suggested folder and style and whether it is already in the current or draft round."),
   confirmed: z.boolean().optional().describe("true only when Michael said in this session to show these frames to the director. Required when a frame sits on a project's art-director shelf."),
+  held: z.boolean().optional().describe("Held · only you: the frames sit in the draft for Michael alone and publishing leaves them out. Default true for agents; false only when Michael said to send them."),
 });
 
 export const REVIEW_ORGANIZE_OPS = ["move", "remove", "reorder", "replace"] as const;
@@ -176,6 +177,7 @@ export const reviewOrganizeSchema = z.object({
   style: styleRef.nullable().optional().describe("move: the style they are shown in; null takes the style off."),
   note: z.string().trim().max(400).optional().describe("move: caption under each frame; empty clears it."),
   with: frame.optional().describe("replace: the new take, asset:<id> or a bare id."),
+  held: z.boolean().optional().describe("move: true holds the frames back from the director (only Michael sees them); false releases them into the round, only on Michael's word."),
 });
 
 export const REVIEW_ROUND_OPS = ["draft", "publish", "set_current", "discard_draft"] as const;

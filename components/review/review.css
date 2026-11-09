@@ -1201,3 +1201,11 @@ button.rv-note:hover { background: var(--hover); color: var(--text); }
 .rv-sec-copy { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); background: none; border: 1px solid var(--line-2); border-radius: 999px; padding: 3px 9px; cursor: pointer; }
 .rv-sec-copy:hover, .rv-sec-copy[data-on] { color: var(--text); background: var(--sel); }
 @media (max-width: 640px) { .rv-recipe-line { grid-template-columns: minmax(0, 1fr) auto; } .rv-recipe-line .k { grid-column: 1 / -1; } }
+
+/* Held · only you (owner view): in the draft, never sent. */
+.rv-t[data-held] { outline: 1px dashed rgba(var(--ink), 0.45); outline-offset: -1px; }
+.rv-t[data-held] img { filter: saturate(0.85); }
+.rv-chip.held { display: inline-flex; align-items: center; gap: 6px; background: rgba(var(--ground), 0.82); color: var(--text); border: 1px dashed rgba(var(--ink), 0.5); cursor: pointer; text-transform: uppercase; letter-spacing: 0.1em; font-family: var(--mono); font-size: 9.5px; }
+.rv-chip.held .rel { display: none; padding-left: 6px; border-left: 1px solid var(--line-2); }
+.rv-chip.held:hover .rel, .rv-t:hover .rv-chip.held .rel { display: inline; }
+.rv-held-note { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border: 1px dashed var(--line-2); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }

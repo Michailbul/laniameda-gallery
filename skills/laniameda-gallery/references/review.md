@@ -44,6 +44,14 @@ rolling back and choosing who may look stay Michael's calls.
   older round stays exactly as it was shown. A round is a `draft` (being
   prepared, only Michael sees it) or `published`. One published round is
   `current`: what the director sees by default. There is at most one draft.
+- **Held · only you**: a draft item can be held. Michael (and agents) see it
+  in its folder with a HELD mark; the director never does. Publishing leaves
+  held frames out and carries them, still held, into the next draft. One
+  click on the HELD mark (or Release on a selection) puts it into the round.
+  Agent promotions are held by default (`review_promote` `held`, default
+  true for agents); `review_organize {op: "move", held: false}` releases,
+  only on Michael's word. Michael's own promotions from the gallery are not
+  held. (Michael, 9 Nov 2026: art-director scope first.)
 - **Item**: a frame in a round: the asset, its folder, its style, an optional
   caption the director reads, and earlier takes it replaced. One frame may sit
   in two folders (a place and a person).
