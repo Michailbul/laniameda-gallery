@@ -13,7 +13,8 @@
   const H = () => globalScope.SaveToGalleryMjQueue;
   const C = () => globalScope.SaveToGalleryMjQueueCompose;
   const KEYS = { view: "stgMjqView", batch: "stgMjqBatch", scope: "stgMjqScope" };
-  const REFRESH_MS = 60000;
+  // New prompts from agents (MCP queue_mj_prompts) show within a few seconds.
+  const REFRESH_MS = 4000;
   const CREATE_URL = "https://www.midjourney.com/imagine";
   const STATUS_LABEL = { queued: "Queued", injected: "In the bar", sent: "Sent", skipped: "Skipped" };
   const FILTER_LABEL = { open: "To send", sent: "Sent", skipped: "Skipped", all: "All" };
@@ -30,6 +31,7 @@
     scope: "open",
     filter: "open",
     activeId: null,
+    signature: "",
     readback: "",
     sending: false,
     editingId: null,
@@ -97,9 +99,15 @@
       render();
       return;
     }
+    const batches = Array.isArray(res.batches) ? res.batches : [];
+    const items = Array.isArray(res.items) ? res.items : [];
+    // Quiet polls redraw only when something changed, so the list never flickers or jumps.
+    const signature = JSON.stringify([batches, items]);
+    if (quiet && !state.error && signature === state.signature) return;
+    state.signature = signature;
     state.error = "";
-    state.batches = Array.isArray(res.batches) ? res.batches : [];
-    state.items = Array.isArray(res.items) ? res.items : [];
+    state.batches = batches;
+    state.items = items;
     if (!state.batches.some((batch) => batch.batchKey === state.batchKey)) {
       state.batchKey = H().threadOrder(state.batches, "open")[0] || H().threadOrder(state.batches, "all")[0] || "";
       if (state.view === "thread" && !state.batchKey) state.view = "threads";
@@ -659,6 +667,13 @@
   chrome.tabs.onUpdated.addListener((tabId, info) => {
     if (tabId === state.tab.id && (info.status === "complete" || info.url)) void readTab();
   });
+
+  // Coming back to the window or the panel reads the queue at once.
+  const refreshNow = () => {
+    if (state.visible && document.visibilityState === "visible" && !state.editingId && !state.sending) void refresh({ quiet: true });
+  };
+  document.addEventListener("visibilitychange", refreshNow);
+  globalScope.addEventListener("focus", refreshNow);
 
   let timer = null;
   // The side panel calls this when the MJ Queue tab is shown or hidden.
