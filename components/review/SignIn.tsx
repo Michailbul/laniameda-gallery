@@ -149,30 +149,6 @@ export function SignIn({ title, clientId, denied, invite, isDev, openSignIn, peo
     setBusy(false);
   };
 
-  // Their own link, without Google: the same session a Google sign-in sets.
-  const withoutGoogle = async () => {
-    if (!invited) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const result = await fetch(`${reviewBase()}/api/auth/invite-code`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
-        body: JSON.stringify({ code: invited.code }),
-      });
-      const data = (await result.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-      if (result.ok && data?.ok) {
-        window.location.replace(window.location.pathname);
-        return;
-      }
-      setError(data?.error ?? "Could not open the review. Try again.");
-    } catch {
-      setError("Could not open the review. Check the connection and try again.");
-    }
-    setBusy(false);
-  };
-
   const devAs = async (as: "director" | "producer" | "owner") => {
     if (as === "owner") await fetch("/api/auth/dev-login", { method: "POST" }).catch(() => null);
     await fetch(`${reviewBase()}/api/dev-as`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ as }) }).catch(() => null);
@@ -226,11 +202,6 @@ export function SignIn({ title, clientId, denied, invite, isDev, openSignIn, peo
         {door === "guest" ? (
           <button type="button" className="rv-btn solid rv-guest-go" disabled={busy} onClick={() => void asGuest()}>
             {busy ? "Opening…" : "Continue as guest"}
-          </button>
-        ) : null}
-        {invited && !busy ? (
-          <button type="button" className="rv-link rv-no-google" onClick={() => void withoutGoogle()}>
-            No Google account? Continue
           </button>
         ) : null}
         {busy && person ? <div className="msg">Signing in…</div> : null}

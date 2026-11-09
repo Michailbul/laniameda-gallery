@@ -539,7 +539,7 @@ export async function POST(request: Request) {
         : await reviewInviteUrl(base, overview.project.slug, email, reviewer!.name);
       return NextResponse.json({
         project: input.project, email, url, ...(code ? {} : { expiresInDays: 30 }),
-        next: "A personal sign-in link: it opens a sign-in card made for this reviewer (their name and role, one Google button, and a no-Google fallback). Give it to Michael; he sends it himself. Never email or post it.",
+        next: "A personal sign-in link: it opens a sign-in card made for this reviewer (their name and role, one Google button). The first Google account they use becomes theirs and locks the name. Give it to Michael; he sends it himself. Never email or post it.",
       });
     }
 

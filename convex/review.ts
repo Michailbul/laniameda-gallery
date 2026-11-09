@@ -478,6 +478,7 @@ export const feedback = query({
     reviewers: v.array(v.object({
       email: v.string(), name: v.optional(v.string()), role: v.string(), lastSeenAt: v.optional(v.number()),
       aliases: v.optional(v.array(v.string())),
+      locked: v.optional(v.boolean()),
     })),
     // Owner only: anyone with the link may look as a guest.
     openSignIn: v.optional(v.boolean()),
@@ -543,7 +544,7 @@ export const feedback = query({
       reviewers: viewer.role === "owner"
         ? project.reviewers.map((row) => ({
             email: row.email, name: row.name, role: row.role, lastSeenAt: row.lastSeenAt,
-            aliases: row.aliases,
+            aliases: row.aliases, locked: signInLocked(row),
           }))
         : [],
       openSignIn: viewer.role === "owner" ? project.openSignIn !== false : undefined,
@@ -782,6 +783,15 @@ export const resolveComment = mutation({
 // ---------------------------------------------------------------- sign-in doors
 
 /**
+ * A person's sign-in is locked once they have signed in as themselves (a
+ * Google account linked to them, their own address through Google, or any
+ * visit since the last reset). Then only their own accounts open their door,
+ * even through their personal link.
+ */
+const signInLocked = (row: Project["reviewers"][number]) =>
+  Boolean(row.aliases?.length || row.googleAt || (row.lastSeenAt && row.lastSeenAt > (row.signInResetAt ?? 0)));
+
+/**
  * Sign-in through a person's door ("Alejandro"). Called by the Google
  * sign-in route with the verified email's reviewer token. Their own address,
  * or one of their aliases, signs in as them. An unknown Google account that
@@ -818,6 +828,9 @@ export const claimReviewer = mutation({
     if (!target) return { ok: false, reason: "That person is not on this review." };
     const first = target.name?.trim().split(/\s+/)[0] ?? "This person";
     const viaInvite = Boolean(args.invite && target.inviteCode && args.invite.trim().toLowerCase() === target.inviteCode);
+    if (signInLocked(target)) {
+      return { ok: false, reason: `${first} has already signed in with another Google account, and only that account opens this door. If this is you, ask Michael to reset your sign-in.` };
+    }
     if (viaInvite) {
       await ctx.db.patch(project._id, {
         reviewers: project.reviewers.map((row) => (row.email === target.email
@@ -827,9 +840,7 @@ export const claimReviewer = mutation({
       });
       return { ok: true, role: target.role };
     }
-    if (target.aliases?.length || target.googleAt) {
-      return { ok: false, reason: `${first} already signs in with another Google account. Use that one, or ask Michael.` };
-    }
+
     await ctx.db.patch(project._id, {
       reviewers: project.reviewers.map((row) => (row.email === target.email ? { ...row, aliases: [email] } : row)),
       updatedAt: now,
@@ -893,6 +904,29 @@ export const redeemInvite = query({
       title: row.title?.split("·")[0]?.trim() || (row.role === "viewer" ? "Looks only" : "Director"),
       aliases: row.aliases ?? [],
     };
+  },
+});
+
+/**
+ * Owner: reset a person's sign-in (a new phone, a different Google account,
+ * or someone else got in as them). Their linked accounts stop working and the
+ * next Google account through their door or personal link becomes theirs.
+ */
+export const resetSignIn = mutation({
+  args: { slug: v.string(), email: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role !== "owner") throw new ConvexError("Only the owner can reset a sign-in.");
+    const email = normalizeEmail(args.email);
+    const now = Date.now();
+    await ctx.db.patch(project._id, {
+      reviewers: project.reviewers.map((row) => row.email === email
+        ? { ...row, aliases: [], googleAt: undefined, signInResetAt: now }
+        : row),
+      updatedAt: now,
+    });
+    return null;
   },
 });
 
@@ -1638,6 +1672,7 @@ export const upsertProject = signedOwnerMutation({
         aliases: before?.aliases,
         googleAt: before?.googleAt,
         inviteCode: before?.inviteCode,
+        signInResetAt: before?.signInResetAt,
       };
     });
     if (args.styles) {

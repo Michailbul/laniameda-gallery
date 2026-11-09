@@ -184,6 +184,7 @@ type PanelProps = {
 export function FeedbackPanel({ slug, people, reviewers, audience, stats, onlyTheirs, onOnlyTheirs, onMarkRead, onToast, openSignIn }: PanelProps) {
   const setOpenSignIn = useMutation(api.review.setOpenSignIn);
   const unlinkAlias = useMutation(api.review.unlinkAlias);
+  const resetSignIn = useMutation(api.review.resetSignIn);
   const others = people.filter((row) => row.role !== "owner" && row.role !== "agent");
   const lead = others.find((row) => row.role === "director") ?? others[0];
   // feedback.people lists the owner first, then the reviewers in the same order as feedback.reviewers.
@@ -194,6 +195,18 @@ export function FeedbackPanel({ slug, people, reviewers, audience, stats, onlyTh
     try {
       await setOpenSignIn({ slug, open: !openSignIn });
       onToast(openSignIn ? "Guests can no longer look." : "Anyone with the link can look as a guest now.");
+    } catch (error) {
+      onToast(message(error), true);
+    }
+  };
+
+  const reset = async (person: Person) => {
+    const email = reviewerOf(person)?.email;
+    if (!email) return;
+    if (!window.confirm(`Reset ${person.name}'s sign-in? The Google accounts linked to them stop working, and the next Google account through their door or personal link becomes theirs.`)) return;
+    try {
+      await resetSignIn({ slug, email });
+      onToast(`${person.name}'s sign-in is reset. Send them their link again.`);
     } catch (error) {
       onToast(message(error), true);
     }
@@ -319,6 +332,17 @@ export function FeedbackPanel({ slug, people, reviewers, audience, stats, onlyTh
                       </span>
                     ))}
                     <span>{seen ? `Looked ${ago(seen)}` : "Hasn't opened it yet"}</span>
+                    <span className="rv-lock">
+                      {reviewerOf(person)?.locked
+                        ? "Signed in · only their own account can open it"
+                        : "Not signed in yet · the first Google account through their link becomes theirs"}
+                      {reviewerOf(person)?.locked ? (
+                        <>
+                          {" "}
+                          <button type="button" className="rv-link" onClick={() => void reset(person)}>Reset sign-in</button>
+                        </>
+                      ) : null}
+                    </span>
                   </div>
                   <button type="button" className="rv-btn" disabled={copying === person.who} onClick={() => void copyInvite(person)}>
                     {copying === person.who ? "…" : "Copy invite link"}
