@@ -37,6 +37,15 @@ export const reviewerValidator = v.object({
   lastSeenAt: v.optional(v.number()),
   // Read up to here in the notification bell.
   notificationsSeenAt: v.optional(v.number()),
+  // Signed in on their own with a Google account nobody invited: looks only
+  // (role viewer) until the owner makes them a director or merges them.
+  guest: v.optional(v.boolean()),
+  // Picked "Director" at sign-in with an account nobody invited: the owner
+  // sees the request and can make them a director in one click.
+  wantsDirector: v.optional(v.boolean()),
+  // Other Google accounts of the same person: they sign in as this reviewer
+  // (a guest merged with "Same person as …").
+  aliases: v.optional(v.array(v.string())),
 });
 
 // A style shown in the review, in carousel order. The style's recipe
@@ -68,6 +77,9 @@ export const reviewProjectFields = {
   feedbackSeenAt: v.optional(v.number()),
   // The owner's "read up to here" mark in the notification bell.
   notificationsSeenAt: v.optional(v.number()),
+  // Anyone with the link may sign in as a guest with any Google account
+  // (looks only). Unset = open; false = invited people only.
+  openSignIn: v.optional(v.boolean()),
   createdAt: v.number(),
   updatedAt: v.number(),
 };

@@ -82,7 +82,7 @@ export function ReviewApp(props: Props) {
 
 const SECTIONS: ReviewSection[] = ["locations", "characters", "scenes"];
 const SECTION_ORDER: Record<ReviewSection, number> = { locations: 0, characters: 1, scenes: 2 };
-const EMPTY_FEEDBACK: ReviewFeedback = { people: [], verdicts: [], styleVerdicts: [], comments: [], reviewers: [] };
+const EMPTY_FEEDBACK: ReviewFeedback = { people: [], verdicts: [], styleVerdicts: [], comments: [], reviewers: [], openSignIn: undefined };
 const FILTER_KEYS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback"];
 
 const errorText = (error: unknown) =>
@@ -962,6 +962,8 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       {isOwner ? (
         <Suspense fallback={null}>
           <FeedbackPanel
+            slug={slug}
+            openSignIn={feedback.openSignIn !== false}
             people={feedback.people}
             reviewers={feedback.reviewers}
             audience={audience}
