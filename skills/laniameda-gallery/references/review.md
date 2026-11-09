@@ -19,9 +19,16 @@ rolling back and choosing who may look stay Michael's calls.
   emails and the style carousel. `cassandra-test` is the test project; try
   things there, never on the real one.
 - **Reviewer**: a Google account (email) with a role. `director` likes,
-  dislikes and comments; `viewer` only looks. Anyone not on the list is
-  refused. A reviewer without a Google account can get a private sign-in link
-  (30 days) that Michael sends himself.
+  dislikes and comments; `viewer` only looks. The sign-in card has two doors:
+  **Director** and **Guest**. While guest sign-in is open (project
+  `openSignIn`, on unless Michael turns it off in "Who can open it"), any
+  Google account gets in as a guest (`guest: true`, role `viewer`, looks
+  only). Picking Director with an account nobody invited also lets it in as a
+  guest, flagged `wantsDirector`; Michael then clicks "Make director", or
+  "Same person as …" to merge it into an invited reviewer (their likes and
+  comments move over and the address becomes an `alias` that signs in as that
+  reviewer). A private invite link (30 days, Michael sends it himself) signs a
+  reviewer in without Google.
 - **Folder**: where frames sit in the left nav, in one of three sections:
   `locations`, `characters`, later `scenes`. A folder has a name, a slug, an
   area that groups it ("San Pancho", "Mexico City", "Main cast"), one plain

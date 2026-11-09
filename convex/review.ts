@@ -81,9 +81,11 @@ export const resolveViewer = async (ctx: Ctx, project: Project): Promise<Viewer 
     const email = normalizeEmail(subject.slice(REVIEWER_SUBJECT_PREFIX.length));
     const name = typeof identity?.name === "string" ? identity.name : undefined;
     if (project.ownerEmails.includes(email)) return { role: "owner", email, name };
-    const reviewer = project.reviewers.find((row) => row.email === email);
+    // A second Google account of a reviewer acts as that reviewer (same key,
+    // same likes and comments).
+    const reviewer = project.reviewers.find((row) => row.email === email || row.aliases?.includes(email));
     if (!reviewer) return null;
-    return { role: reviewer.role, email, name: reviewer.name ?? name };
+    return { role: reviewer.role, email: reviewer.email, name: reviewer.name ?? name };
   }
   if (actorMatchesUserId(subject, project.ownerUserId)) return { role: "owner", name: "Michael" };
   return null;
@@ -469,7 +471,12 @@ export const feedback = query({
       assetId: v.id("assets"), count: v.number(), open: v.number(), lastAt: v.number(),
       lastByOwner: v.boolean(),
     })),
-    reviewers: v.array(v.object({ email: v.string(), name: v.optional(v.string()), role: v.string(), lastSeenAt: v.optional(v.number()) })),
+    reviewers: v.array(v.object({
+      email: v.string(), name: v.optional(v.string()), role: v.string(), lastSeenAt: v.optional(v.number()),
+      guest: v.optional(v.boolean()), wantsDirector: v.optional(v.boolean()), aliases: v.optional(v.array(v.string())),
+    })),
+    // Owner only: anyone with the link may sign in with Google.
+    openSignIn: v.optional(v.boolean()),
   })),
   handler: async (ctx, args) => {
     const project = await projectBySlug(ctx, args.slug);
@@ -530,8 +537,12 @@ export const feedback = query({
       })),
       comments: [...byAsset.values()],
       reviewers: viewer.role === "owner"
-        ? project.reviewers.map((row) => ({ email: row.email, name: row.name, role: row.role, lastSeenAt: row.lastSeenAt }))
+        ? project.reviewers.map((row) => ({
+            email: row.email, name: row.name, role: row.role, lastSeenAt: row.lastSeenAt,
+            guest: row.guest, wantsDirector: row.wantsDirector, aliases: row.aliases,
+          }))
         : [],
+      openSignIn: viewer.role === "owner" ? project.openSignIn !== false : undefined,
     };
   },
 });
@@ -762,6 +773,194 @@ export const resolveComment = mutation({
   },
 });
 
+// ---------------------------------------------------------------- open sign-in
+
+const MAX_GUESTS = 200;
+
+/**
+ * Sign-in from an account nobody invited. As a guest it joins looking only
+ * (role viewer, title "Guest") while guest sign-in is open. Picking
+ * "Director" with such an account also lets it in as a guest, flagged so the
+ * owner can make it a director or merge it with an invited person in one
+ * click. Called by the Google sign-in route with the verified email's
+ * reviewer token. Returns the role, or null when refused.
+ */
+export const joinReview = mutation({
+  args: {
+    slug: v.string(),
+    as: v.optional(v.union(v.literal("director"), v.literal("guest"))),
+    name: v.optional(v.string()),
+    pictureUrl: v.optional(v.string()),
+  },
+  returns: v.union(v.null(), v.object({ role: reviewRoleValidator, joined: v.boolean(), wantsDirector: v.boolean() })),
+  handler: async (ctx, args) => {
+    const project = await requireProject(ctx, args.slug);
+    const known = await resolveViewer(ctx, project);
+    if (known) return { role: known.role, joined: false, wantsDirector: false };
+    if (project.openSignIn === false) return null;
+    const subject = (await identityOf(ctx))?.subject?.trim() ?? "";
+    if (!subject.startsWith(REVIEWER_SUBJECT_PREFIX)) return null;
+    const email = normalizeEmail(subject.slice(REVIEWER_SUBJECT_PREFIX.length));
+    if (!EMAIL.test(email)) return null;
+    if (project.reviewers.filter((row) => row.guest).length >= MAX_GUESTS) {
+      throw new ConvexError("This review is full. Ask Michael for an invite.");
+    }
+    const now = Date.now();
+    const name = args.name?.trim().slice(0, 120) || email.split("@")[0]!;
+    const wantsDirector = args.as === "director";
+    await ctx.db.patch(project._id, {
+      reviewers: [
+        ...project.reviewers,
+        {
+          email, name, pictureUrl: args.pictureUrl?.slice(0, 500), role: "viewer" as const,
+          title: "Guest", guest: true, ...(wantsDirector ? { wantsDirector: true } : {}), addedAt: now, lastSeenAt: now,
+        },
+      ],
+      updatedAt: now,
+    });
+    return { role: "viewer" as const, joined: true, wantsDirector };
+  },
+});
+
+/** Owner: make a guest a director (likes and comments) or back to looking only. */
+export const setReviewerRole = mutation({
+  args: { slug: v.string(), email: v.string(), role: v.union(v.literal("director"), v.literal("viewer")) },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role !== "owner") throw new ConvexError("Only the owner can change roles.");
+    const email = normalizeEmail(args.email);
+    if (!project.reviewers.some((row) => row.email === email)) throw new ConvexError("That person is not on this review.");
+    const reviewers = project.reviewers.map((row) => row.email === email
+      ? {
+          ...row,
+          role: args.role,
+          wantsDirector: undefined,
+          title: row.guest ? (args.role === "director" ? "Director" : "Guest") : row.title,
+          guest: args.role === "director" ? undefined : row.guest,
+        }
+      : row);
+    await ctx.db.patch(project._id, { reviewers, updatedAt: Date.now() });
+    return null;
+  },
+});
+
+/** Owner: take a guest off the review (they can sign in again while guest sign-in is open). */
+export const removeGuest = mutation({
+  args: { slug: v.string(), email: v.string() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role !== "owner") throw new ConvexError("Only the owner can remove people.");
+    const email = normalizeEmail(args.email);
+    const row = project.reviewers.find((entry) => entry.email === email);
+    if (!row?.guest) throw new ConvexError("Only guests can be removed here.");
+    await ctx.db.patch(project._id, { reviewers: project.reviewers.filter((entry) => entry.email !== email), updatedAt: Date.now() });
+    return null;
+  },
+});
+
+/** Owner: let anyone with the link sign in as a guest, or invited people only. */
+export const setOpenSignIn = mutation({
+  args: { slug: v.string(), open: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role !== "owner") throw new ConvexError("Only the owner can change who may sign in.");
+    await ctx.db.patch(project._id, { openSignIn: args.open, updatedAt: Date.now() });
+    return null;
+  },
+});
+
+/**
+ * Owner: a guest is someone already on the list, signed in with another
+ * Google account ("Same person as Alejandro"). Their likes, style votes and
+ * comments move to that reviewer (on a frame both judged, the newer verdict
+ * wins), the guest's address becomes an alias that signs in as the reviewer,
+ * and the guest row goes.
+ */
+export const mergeGuest = mutation({
+  args: { slug: v.string(), guestEmail: v.string(), intoEmail: v.string() },
+  returns: v.object({ verdicts: v.number(), styleVotes: v.number(), comments: v.number() }),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role !== "owner") throw new ConvexError("Only the owner can merge people.");
+    const guestEmail = normalizeEmail(args.guestEmail);
+    const intoEmail = normalizeEmail(args.intoEmail);
+    const guest = project.reviewers.find((row) => row.email === guestEmail);
+    const into = project.reviewers.find((row) => row.email === intoEmail);
+    if (!guest || !into || guestEmail === intoEmail) throw new ConvexError("Pick two different people on this review.");
+    const now = Date.now();
+
+    let verdicts = 0;
+    const verdictRows = await ctx.db
+      .query("reviewFeedback")
+      .withIndex("by_project_updatedAt", (q) => q.eq("projectId", project._id))
+      .collect();
+    for (const row of verdictRows.filter((entry) => entry.reviewerEmail === guestEmail)) {
+      const theirs = await ctx.db
+        .query("reviewFeedback")
+        .withIndex("by_project_asset_reviewer", (q) => q.eq("projectId", project._id).eq("assetId", row.assetId).eq("reviewerEmail", intoEmail))
+        .first();
+      if (theirs) {
+        if (row.updatedAt > theirs.updatedAt) await ctx.db.patch(theirs._id, { verdict: row.verdict, updatedAt: row.updatedAt });
+        await ctx.db.delete(row._id);
+      } else {
+        await ctx.db.patch(row._id, { reviewerEmail: intoEmail, role: into.role });
+      }
+      verdicts += 1;
+    }
+
+    let styleVotes = 0;
+    const styleRows = await ctx.db
+      .query("reviewStyleFeedback")
+      .withIndex("by_project_updatedAt", (q) => q.eq("projectId", project._id))
+      .collect();
+    for (const row of styleRows.filter((entry) => entry.reviewerEmail === guestEmail)) {
+      const theirs = await ctx.db
+        .query("reviewStyleFeedback")
+        .withIndex("by_project_style_reviewer", (q) => q.eq("projectId", project._id).eq("styleId", row.styleId).eq("reviewerEmail", intoEmail))
+        .first();
+      if (theirs) {
+        if (row.updatedAt > theirs.updatedAt) await ctx.db.patch(theirs._id, { verdict: row.verdict, updatedAt: row.updatedAt });
+        await ctx.db.delete(row._id);
+      } else {
+        await ctx.db.patch(row._id, { reviewerEmail: intoEmail, role: into.role });
+      }
+      styleVotes += 1;
+    }
+
+    let comments = 0;
+    const commentRows = await ctx.db
+      .query("reviewComments")
+      .withIndex("by_project_createdAt", (q) => q.eq("projectId", project._id))
+      .collect();
+    for (const row of commentRows.filter((entry) => entry.authorEmail === guestEmail)) {
+      await ctx.db.patch(row._id, {
+        authorEmail: intoEmail,
+        authorName: into.name?.trim() || row.authorName,
+        authorRole: into.role,
+        updatedAt: now,
+      });
+      comments += 1;
+    }
+
+    const aliases = [...new Set([...(into.aliases ?? []), guestEmail, ...(guest.aliases ?? [])])];
+    const reviewers = project.reviewers
+      .filter((row) => row.email !== guestEmail)
+      .map((row) => row.email === intoEmail
+        ? {
+            ...row,
+            aliases,
+            pictureUrl: row.pictureUrl ?? guest.pictureUrl,
+            lastSeenAt: Math.max(row.lastSeenAt ?? 0, guest.lastSeenAt ?? 0) || undefined,
+          }
+        : row);
+    await ctx.db.patch(project._id, { reviewers, updatedAt: now });
+    return { verdicts, styleVotes, comments };
+  },
+});
+
 /** The review page records who visited and when (reviewers only). */
 export const recordVisit = mutation({
   args: { slug: v.string(), name: v.optional(v.string()), pictureUrl: v.optional(v.string()) },
@@ -802,7 +1001,7 @@ const NOTIFY_LIMIT = 60;
 
 const notificationValidator = v.object({
   key: v.string(),
-  type: v.union(v.literal("comment"), v.literal("verdict"), v.literal("style_verdict"), v.literal("visit"), v.literal("round")),
+  type: v.union(v.literal("comment"), v.literal("verdict"), v.literal("style_verdict"), v.literal("visit"), v.literal("round"), v.literal("join")),
   // Short person id, as in feedback().people ("owner", "r1", "agent").
   who: v.string(),
   name: v.string(),
@@ -930,6 +1129,14 @@ export const notifications = query({
           key: `v:${run.email}:${run.verdict}:${run.last}`, type: "verdict", who: whoOf(run.email), name: nameOf(run.email),
           at: run.last, verdict: run.verdict, frames, count: run.assetIds.length,
           folder: places.size === 1 ? [...places][0] : places.size > 1 ? `${places.size} folders` : undefined,
+        });
+      }
+      for (const row of project.reviewers) {
+        if (!row.guest || row.addedAt < since) continue;
+        items.push({
+          key: `j:${row.email}`, type: "join", who: whoOf(row.email), name: nameOf(row.email, row.name),
+          at: row.addedAt, frames: [], body: row.wantsDirector ? "Asks to be a director. Open Who can open it to switch them." : undefined,
+          verdict: undefined,
         });
       }
       for (const row of project.reviewers) {
@@ -1468,8 +1675,23 @@ export const upsertProject = signedOwnerMutation({
         title: row.title?.trim() || before?.title,
         addedAt: before?.addedAt ?? now,
         lastSeenAt: before?.lastSeenAt,
+        notificationsSeenAt: before?.notificationsSeenAt,
+        guest: before?.guest,
+        wantsDirector: before?.wantsDirector,
+        aliases: before?.aliases,
       };
     });
+    // Guests who joined through open sign-in stay unless the list names them.
+    if (reviewers && existing) {
+      for (const row of existing.reviewers) {
+        if (row.guest && !reviewers.some((entry) => entry.email === row.email)) {
+          reviewers.push({
+            ...row, name: row.name, pictureUrl: row.pictureUrl, title: row.title, lastSeenAt: row.lastSeenAt,
+            notificationsSeenAt: row.notificationsSeenAt, guest: row.guest, wantsDirector: row.wantsDirector, aliases: row.aliases,
+          });
+        }
+      }
+    }
     if (args.styles) {
       for (const entry of args.styles) {
         const style = await ctx.db.get(entry.styleId);
@@ -1934,6 +2156,8 @@ export const signInCard = query({
     subtitle: v.optional(v.string()),
     mediaBase: v.string(),
     cover: v.optional(v.object({ src: v.string(), w: v.number(), h: v.number() })),
+    // Any Google account may sign in (the sign-in card words it that way).
+    openSignIn: v.optional(v.boolean()),
   })),
   handler: async (ctx, args) => {
     const project = await projectBySlug(ctx, args.slug);
@@ -1954,7 +2178,7 @@ export const signInCard = query({
         void thumb;
       }
     }
-    return { title: project.title, subtitle: project.subtitle, mediaBase: mediaBase(), cover };
+    return { title: project.title, subtitle: project.subtitle, mediaBase: mediaBase(), cover, openSignIn: project.openSignIn !== false };
   },
 });
 
