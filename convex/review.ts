@@ -2158,6 +2158,8 @@ export const signInCard = query({
     cover: v.optional(v.object({ src: v.string(), w: v.number(), h: v.number() })),
     // Any Google account may sign in (the sign-in card words it that way).
     openSignIn: v.optional(v.boolean()),
+    // The director's first name for the Director door ("Alejandro").
+    directorName: v.optional(v.string()),
   })),
   handler: async (ctx, args) => {
     const project = await projectBySlug(ctx, args.slug);
@@ -2178,7 +2180,10 @@ export const signInCard = query({
         void thumb;
       }
     }
-    return { title: project.title, subtitle: project.subtitle, mediaBase: mediaBase(), cover, openSignIn: project.openSignIn !== false };
+    const directors = project.reviewers.filter((row) => row.role === "director" && !row.guest && row.name?.trim());
+    const lead = directors.find((row) => /director/i.test(row.title ?? "")) ?? directors[0];
+    const directorName = lead?.name?.trim().split(/\s+/)[0];
+    return { title: project.title, subtitle: project.subtitle, mediaBase: mediaBase(), cover, openSignIn: project.openSignIn !== false, directorName };
   },
 });
 

@@ -72,6 +72,7 @@ export default async function ReviewRoute({ params, searchParams }: { params: Pr
             title={card.title}
             subtitle={card.subtitle}
             openSignIn={card.openSignIn}
+            directorName={card.directorName}
             roundLine={round ? round.title || `Round ${round.label.replace(/^v0\./, "")}` : undefined}
             clientId={googleReviewClientId()}
             denied={denied}

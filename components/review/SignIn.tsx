@@ -33,6 +33,8 @@ type Props = {
   isDev: boolean;
   /** Any Google account may sign in. */
   openSignIn?: boolean;
+  /** The director's first name, on the Director door ("Alejandro"). */
+  directorName?: string;
 };
 
 const GSI_SRC = "https://accounts.google.com/gsi/client";
@@ -53,7 +55,7 @@ const loadGsi = () =>
     script.addEventListener("error", () => reject(new Error("Google sign-in did not load.")), { once: true });
   });
 
-export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, isDev, openSignIn }: Props) {
+export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, isDev, openSignIn, directorName }: Props) {
   const buttonRef = useRef<HTMLDivElement>(null);
   const [refused, setRefused] = useState<string | null>(denied ? denied.email ?? "This account" : null);
   const [error, setError] = useState<string | null>(null);
@@ -171,15 +173,15 @@ export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, i
         {!openSignIn
           ? "Sign in with the Google account Michael invited to look, like and comment."
           : door === "director"
-            ? "Sign in with the Google account Michael invited, or open the invite link he sent."
+            ? `${directorName ? `${directorName}, sign in` : "Sign in"} with your Google account, or open the invite link Michael sent.`
             : "Sign in with any Google account to look at the frames."}
       </p>
 
       {openSignIn ? (
         <div className="rv-doors" role="radiogroup" aria-label="Sign in as">
           <button type="button" role="radio" aria-checked={door === "director"} onClick={() => pickDoor("director")}>
-            <b>Director</b>
-            <span>Like and comment</span>
+            <b>{directorName ?? "Director"}</b>
+            <span>{directorName ? "Director · like and comment" : "Like and comment"}</span>
           </button>
           <button type="button" role="radio" aria-checked={door === "guest"} onClick={() => pickDoor("guest")}>
             <b>Guest</b>
