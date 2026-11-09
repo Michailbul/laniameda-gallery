@@ -7,6 +7,7 @@ Save to Gallery is published on the Chrome Web Store as **Unlisted** (installabl
 - Item `nlhmjpghlanlanpapgigmacjbnjoancb`, publisher mbuloichykai@gmail.com (`7d243133-8afe-4b3f-83ca-3fffc5910bbe`), visibility Unlisted, submitted for its first review on 9 Nov 2026 (0.27.1).
 - Store link (works once approved): https://chromewebstore.google.com/detail/nlhmjpghlanlanpapgigmacjbnjoancb
 - Publishing: `.github/workflows/extension-publish.yml` with service account `cws-publisher@laniameda-review.iam.gserviceaccount.com` (Google Cloud project laniameda-review, Chrome Web Store API on). Repo secrets `CWS_SERVICE_ACCOUNT_JSON`, `CWS_PUBLISHER_ID`, `CWS_EXTENSION_ID`. The key is also at `~/.config/laniameda/cws/cws-publisher.json` on the MacBook (owner-only).
+- GitHub Actions is blocked while the GitHub account has a billing lock (9 Nov 2026), so the iMac publishes: its `~/.config/laniameda/extension-sync.sh` runs `scripts/publish-extension.sh` (service-account key at `~/.config/laniameda/cws/cws-publisher.json`) when origin/main has a version the store has not had, at most once an hour. `scripts/publish-extension.sh <key> origin/main --status` reads the store state.
 - Raise `version` in manifest.json in every extension PR; the merge publishes it. While a version is still in review, an upload is refused; the next bump goes through.
 
 ## Listing
