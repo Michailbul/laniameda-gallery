@@ -1159,10 +1159,10 @@ button.rv-note:hover { background: var(--hover); color: var(--text); }
   text-transform: uppercase;
 }
 .rv-same option { background: rgb(var(--raised)); color: var(--text); text-transform: none; }
-.rv-guest-acts { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.rv-person .who .rv-alias { white-space: normal; }
 
 /* Sign-in doors: Director (like and comment) or Guest (look only). */
-.rv-doors { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 22px 0 0; }
+.rv-doors { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; margin: 26px 0 0; }
 .rv-doors button {
   display: flex;
   flex-direction: column;
@@ -1178,3 +1178,4 @@ button.rv-note:hover { background: var(--hover); color: var(--text); }
 .rv-doors button[aria-checked="true"] { border-color: rgba(var(--ink), 0.7); background: var(--sel); color: var(--text); }
 .rv-doors b { font: 800 12px/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; }
 .rv-doors span { font: 500 10px/1.3 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+.rv-guest-go { align-self: flex-start; height: 40px; padding: 0 22px; }

@@ -4,10 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { reviewBase } from "@/lib/review-client";
 
 // The sign-in card. It floats (glass) over the blurred review behind it
-// (TeaserBackdrop, rendered by the server). Google Identity Services gives a
-// credential that goes to `${base}/api/auth/google`, which sets the review
-// session; then the page reloads into the review. Invite links land here
-// with ?invite=… when they fail.
+// (TeaserBackdrop, rendered by the server). One door per person who gives
+// feedback ("Alejandro · Director", "Lukáš · Producer") and a Guest door.
+// A person's door shows the Google button; its credential goes to
+// `${base}/api/auth/google` with the door's id, which sets the review session.
+// Guest needs no account: `${base}/api/auth/guest` sets a looking-only
+// session. Then the page reloads into the review. Invite links land here with
+// ?invite=… when they fail. No One Tap: nothing signs in before a door is
+// picked.
 
 type GoogleId = {
   initialize: (options: Record<string, unknown>) => void;
@@ -23,18 +27,18 @@ declare global {
   }
 }
 
+type Door = { who: string; name: string; title: string };
+
 type Props = {
   title: string;
-  subtitle?: string;
-  roundLine?: string;
   clientId: string;
   denied?: { email?: string };
   invite?: string;
   isDev: boolean;
-  /** Any Google account may sign in. */
+  /** Guests may look without signing in. */
   openSignIn?: boolean;
-  /** The director's first name, on the Director door ("Alejandro"). */
-  directorName?: string;
+  /** One door per person who gives feedback. */
+  people: Door[];
 };
 
 const GSI_SRC = "https://accounts.google.com/gsi/client";
@@ -55,23 +59,24 @@ const loadGsi = () =>
     script.addEventListener("error", () => reject(new Error("Google sign-in did not load.")), { once: true });
   });
 
-export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, isDev, openSignIn, directorName }: Props) {
+export function SignIn({ title, clientId, denied, invite, isDev, openSignIn, people }: Props) {
   const buttonRef = useRef<HTMLDivElement>(null);
-  const [refused, setRefused] = useState<string | null>(denied ? denied.email ?? "This account" : null);
+  const [refused, setRefused] = useState<string | null>(denied ? `${denied.email ?? "This account"} has no access to this review.` : null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [base, setBase] = useState("");
-  // The two doors: directors like and comment; guests look.
-  const [door, setDoor] = useState<"director" | "guest">("director");
-  const doorRef = useRef(door);
-  const pickDoor = (value: "director" | "guest") => {
+  // The picked door: a person's id, "guest", or nothing yet.
+  const [door, setDoor] = useState<string | null>(null);
+  const doorRef = useRef<string | null>(null);
+  const pick = (value: string) => {
     doorRef.current = value;
     setDoor(value);
+    setRefused(null);
+    setError(null);
   };
-  const [notice, setNotice] = useState<string | null>(null);
 
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- reads the picked door from a ref so Google's callback stays the same function
   const onCredential = useCallback(async (response: { credential?: string }) => {
-    if (!response.credential) return;
+    if (!response.credential || !doorRef.current || doorRef.current === "guest") return;
     setBusy(true);
     setError(null);
     try {
@@ -79,34 +84,19 @@ export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, i
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ credential: response.credential, as: doorRef.current }),
+        body: JSON.stringify({ credential: response.credential, who: doorRef.current }),
       });
-      const data = (await result.json().catch(() => null)) as
-        | { ok?: boolean; email?: string; error?: string; role?: string; wantsDirector?: boolean }
-        | null;
+      const data = (await result.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
       if (result.ok && data?.ok) {
-        if (data.wantsDirector) {
-          // Not on the director list with this account: in as a guest now,
-          // and Michael sees the request to switch it.
-          setNotice(`${data.email ?? "This account"} is not on the director list yet. You're in as a guest for now, and Michael has been asked to make you a director.`);
-          window.setTimeout(() => window.location.replace(window.location.pathname), 4500);
-          return;
-        }
         window.location.replace(window.location.pathname);
         return;
       }
-      if (result.status === 403) setRefused(data?.email ?? "This account");
+      if (result.status === 403) setRefused(data?.error ?? "This account has no access to this review.");
       else setError(data?.error ?? "Sign-in did not work. Try again.");
     } catch {
       setError("Sign-in did not work. Check the connection and try again.");
     }
     setBusy(false);
-  }, []);
-
-  useEffect(() => {
-    // Read the address only in the browser (the page may sit under another path).
-    const handle = window.requestAnimationFrame(() => setBase(reviewBase()));
-    return () => window.cancelAnimationFrame(handle);
   }, []);
 
   useEffect(() => {
@@ -121,8 +111,6 @@ export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, i
           ux_mode: "popup",
           auto_select: false,
           itp_support: true,
-          use_fedcm_for_prompt: true,
-          cancel_on_tap_outside: true,
         });
         google.renderButton(buttonRef.current, {
           type: "standard",
@@ -134,21 +122,29 @@ export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, i
           width: 300,
           locale: "en",
         });
-        if (!denied) google.prompt();
       })
       .catch((reason) => !cancelled && setError(reason instanceof Error ? reason.message : "Google sign-in did not load."));
     return () => {
       cancelled = true;
       window.google?.accounts?.id?.cancel();
     };
-  }, [clientId, denied, onCredential]);
+  }, [clientId, onCredential]);
 
-  const switchAccount = async () => {
-    await fetch(`${reviewBase()}/api/auth/logout`, { method: "POST", credentials: "same-origin" }).catch(() => null);
-    window.google?.accounts?.id?.disableAutoSelect();
-    setRefused(null);
+  const asGuest = async () => {
+    setBusy(true);
     setError(null);
-    window.google?.accounts?.id?.prompt();
+    try {
+      const result = await fetch(`${reviewBase()}/api/auth/guest`, { method: "POST", credentials: "same-origin" });
+      const data = (await result.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
+      if (result.ok && data?.ok) {
+        window.location.replace(window.location.pathname);
+        return;
+      }
+      setError(data?.error ?? "Could not open the review. Try again.");
+    } catch {
+      setError("Could not open the review. Check the connection and try again.");
+    }
+    setBusy(false);
   };
 
   const devAs = async (as: "director" | "producer" | "owner") => {
@@ -163,51 +159,49 @@ export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, i
       : invite === "revoked"
         ? "This invite link is no longer active for this review. Ask Michael for a new one."
         : null;
+  const person = people.find((row) => row.who === door);
 
   return (
     <div className="rv-card">
-      <div className="kick">Art direction review{roundLine ? ` · ${roundLine}` : ""}</div>
+      <div className="kick">Art direction review</div>
       <h1>{title}</h1>
-      <p className="sub">
-        {subtitle?.trim() && !/^art direction review$/i.test(subtitle.trim()) ? `${subtitle.trim()}. ` : ""}
-        {!openSignIn
-          ? "Sign in with the Google account Michael invited to look, like and comment."
-          : door === "director"
-            ? `${directorName ? `${directorName}, sign in` : "Sign in"} with your Google account, or open the invite link Michael sent.`
-            : "Sign in with any Google account to look at the frames."}
-      </p>
 
-      {openSignIn ? (
-        <div className="rv-doors" role="radiogroup" aria-label="Sign in as">
-          <button type="button" role="radio" aria-checked={door === "director"} onClick={() => pickDoor("director")}>
-            <b>{directorName ?? "Director"}</b>
-            <span>{directorName ? "Director · like and comment" : "Like and comment"}</span>
+      <div className="rv-doors" role="radiogroup" aria-label="Sign in as" data-n={people.length + (openSignIn ? 1 : 0)}>
+        {people.map((row) => (
+          <button key={row.who} type="button" role="radio" aria-checked={door === row.who} onClick={() => pick(row.who)}>
+            <b>{row.name}</b>
+            <span>{row.title}</span>
           </button>
-          <button type="button" role="radio" aria-checked={door === "guest"} onClick={() => pickDoor("guest")}>
+        ))}
+        {openSignIn ? (
+          <button type="button" role="radio" aria-checked={door === "guest"} onClick={() => pick("guest")}>
             <b>Guest</b>
             <span>Look only</span>
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
       <div className="act">
-        {notice ? <div className="msg">{notice}</div> : null}
         {inviteMessage && !refused ? <div className="msg err">{inviteMessage}</div> : null}
-        {refused ? (
-          <>
-            <div className="msg err">
-              <b>{refused}</b> has no access to this review. {openSignIn ? "Try again, or ask Michael for an invite link." : "Ask Michael to add it, or open the invite link he sent."}
-            </div>
-            <button type="button" className="rv-btn solid" onClick={() => void switchAccount()}>Use another account</button>
-          </>
-        ) : null}
+        {refused ? <div className="msg err">{refused}</div> : null}
         {clientId ? (
-          // A light colour scheme keeps Google's iframe transparent (no white box).
-          <div ref={buttonRef} className="rv-gsi" style={{ display: refused ? "none" : undefined, opacity: busy ? 0.5 : 1 }} />
-        ) : (
-          <div className="msg">Google sign-in is not switched on yet. Open the private link Michael sent you, or ask him for one.</div>
-        )}
-        {busy ? <div className="msg">Signing in…</div> : null}
+          // Rendered once and shown under a person's door. A light colour
+          // scheme keeps Google's iframe transparent (no white box).
+          <div
+            ref={buttonRef}
+            className="rv-gsi"
+            aria-label={person ? `Sign in as ${person.name} with Google` : undefined}
+            style={{ display: person ? undefined : "none", opacity: busy ? 0.5 : 1 }}
+          />
+        ) : person ? (
+          <div className="msg">Google sign-in is not switched on yet. Open the invite link Michael sent you.</div>
+        ) : null}
+        {door === "guest" ? (
+          <button type="button" className="rv-btn solid rv-guest-go" disabled={busy} onClick={() => void asGuest()}>
+            {busy ? "Opening…" : "Continue as guest"}
+          </button>
+        ) : null}
+        {busy && person ? <div className="msg">Signing in…</div> : null}
         {error ? <div className="msg err">{error}</div> : null}
         {isDev ? (
           <div className="dev">
@@ -216,13 +210,6 @@ export function SignIn({ title, subtitle, roundLine, clientId, denied, invite, i
             <button type="button" className="rv-btn" onClick={() => void devAs("producer")}>Dev · producer</button>
           </div>
         ) : null}
-      </div>
-
-      <div className="foot">
-        <span>Michael Buloichyk · Art direction</span>
-        <span>
-          <a href={base ? `${base}/privacy` : "privacy"}>Privacy</a>
-        </span>
       </div>
     </div>
   );

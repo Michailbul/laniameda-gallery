@@ -38,8 +38,6 @@ const lineOf = (note: Note) => {
       return `${note.verdict === "like" ? "likes" : "dislikes"} the style`;
     case "visit":
       return "opened the review";
-    case "join":
-      return "signed in as a guest";
     case "round":
       return `put up round ${note.version ?? ""}`.trim();
   }
@@ -115,7 +113,7 @@ export function Bell({ slug, mediaBase, people, onFrame, onStyle, onRound }: Pro
           {items.map((note) => {
             const person = personOf(people, note.who);
             const fresh = note.at > litSince;
-            const clickable = note.type !== "visit" && note.type !== "join";
+            const clickable = note.type !== "visit";
             const Row = clickable ? "button" : "div";
             return (
               <Row
