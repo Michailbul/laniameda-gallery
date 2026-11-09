@@ -1254,11 +1254,13 @@ async function quickEditRequest(message) {
 
 const DESCRIBE_EDGE = 1024;
 
-async function describeFetchJson(path, init) {
+async function describeFetchJson(path, init, query) {
   const config = await getConfig();
+  // normalizeRouteUrl sets the path only: the query goes on after it.
+  const url = normalizeRouteUrl(config.apiUrl, path) + (query ? `?${new URLSearchParams(query)}` : "");
   let response;
   try {
-    response = await fetch(normalizeRouteUrl(config.apiUrl, path), { ...init, headers: apiHeaders(config) });
+    response = await fetch(url, { ...init, headers: apiHeaders(config) });
   } catch (err) {
     return { ok: false, error: `Network error: ${err.message}` };
   }
@@ -1343,7 +1345,7 @@ async function describeRequest(message) {
       return res?.ok ? { ok: true, worlds: (res.worlds || []).map((w) => ({ key: w.key, name: w.name, worldId: w.worldId })) } : res;
     }
     case "styles":
-      return describeFetchJson(`${STYLES_ROUTE_PATH}?world=${encodeURIComponent(String(message.world || ""))}`, { method: "GET" });
+      return describeFetchJson(STYLES_ROUTE_PATH, { method: "GET" }, { world: String(message.world || "") });
     case "prepare":
       return prepareDescribeImage(message);
     case "run":

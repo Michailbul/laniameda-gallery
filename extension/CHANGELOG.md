@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.29.1 (9 Nov 2026)
+
+- The describer's style list loads (its world was cut from the request, so
+  "Our style" showed HTTP 404).
+
 ## 0.29.0 (9 Nov 2026)
 
 - Make it ours. When you run Describe on midjourney.com (drop an image to
