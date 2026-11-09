@@ -38,8 +38,14 @@ midjourney.com a QUEUE pill sits bottom-right with the number left to send.
   **↑** moves it up.
 - The tab follows the gallery live: new prompts from agents show within a
   few seconds while it is open.
-- **Next →** or ⌥⇧N injects the next queued prompt. ⌥⇧Q opens or closes the
-  panel.
+- **Next · Send** (⌥⇧S, 0.31) puts the next queued prompt in the bar and
+  presses Enter once: one job per click. It waits at least 20 s between
+  sends and stops at 30 jobs in the account's last hour (read from
+  Midjourney's own history, shown as N / 30). **Put next in bar** (⌥⇧N)
+  only fills the bar, to edit first.
+- Threads are grouped by world under collapsible headers; pin a world or a
+  thread to keep it on top (synced across your Chromes). A wide side panel
+  shows threads and the open thread side by side.
 
 Nothing is sent without your click: no timers, no loops, no background
 submits. V8.2 has no omni or character reference (the Edit model replaced

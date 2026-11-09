@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.31.0 (9 Nov 2026)
+
+- MJ Queue: one button, Next · Send. It puts the next queued prompt (or the
+  one already waiting in the bar) in the Imagine bar and presses Enter once,
+  so a thread goes out by clicking it again and again (⌥⇧S). One job per
+  click, never a timer or a loop. Put next in bar (⌥⇧N) stays for editing
+  first.
+- Pacing on the button: after each send it counts down at least 20 s (from
+  the last send or the account's newest job), and a live "N / 30" shows the
+  account's jobs in the last hour from Midjourney's own history (finished
+  plus running). At 30, or with two jobs still running, it stops and says
+  why. Card Send buttons follow the same gate.
+- The queue tab is dark and follows the panel's width: narrow is one column
+  with readable contrast; wide (680 px and up) shows the threads on the left
+  and the open thread on the right, with bigger reference thumbs and cards in
+  a grid when there is room. Every prompt shows in full. Geist, bold
+  uppercase titles, mono badges; the selected thread is a soft neutral pill.
+- Threads grouped by world (DEAR ANNETE, CASSANDRA, ANDROMEDA …) under
+  collapsible headers with thread and prompt counts. Pin a world or a thread
+  and it sits on top; pins follow you across your Chromes.
+- A prompt made by the describer shows its source picture as a SOURCE thumb.
+
 ## 0.30.1 (9 Nov 2026)
 
 - Describer style tiles name their world only when the style comes from a
