@@ -10,6 +10,7 @@ import { api } from "@/convex/_generated/api";
 import { CopyChip, InboxGate } from "@/components/inbox/inbox-ui";
 import { galleryRoutePath, worldStylesPath } from "@/lib/gallery-routes";
 import type { RestylePreset } from "@/components/locked/restyle-dialog";
+import { ProjectMoodboards } from "./project-moodboards";
 
 const RestyleDialog = dynamic(() => import("@/components/locked/restyle-dialog").then((m) => m.RestyleDialog), { ssr: false });
 
@@ -90,6 +91,7 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
           <nav className="lmp-links" aria-label="Project places">
             <Link href={`/w/${encodeURIComponent(key)}`} className="lmp-link">World<span>{project.world.memberCount}</span></Link>
             <Link href={worldStylesPath(key)} className="lmp-link">Styles<span>{project.styles}</span></Link>
+            <a href="#moodboards" className="lmp-link">Moodboards</a>
             {project.reviews.map((review) => (
               <Link key={review.slug} href={`/review/${review.slug}`} className="lmp-link">Director review{review.unread ? <span data-hot>{review.unread} new</span> : null}</Link>
             ))}
@@ -104,6 +106,16 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
             {project.briefs.map((brief) => <BriefCard key={brief.id} brief={brief} ownerUserId={ownerUserId} worldKey={key} />)}
           </div>
         ) : <p className="lmp-empty">Nothing from production yet.</p>}
+      </Section>
+
+      <Section id="moodboards" title="Moodboards" note="Every look of the film as a board. Make one, pick its frames, then send it to Midjourney: an agent makes it there under the same name and records its code.">
+        <ProjectMoodboards
+          ownerUserId={ownerUserId}
+          worldId={project.world.id}
+          worldKey={key}
+          worldName={project.world.name}
+          shelves={project.shelves.map((shelf) => ({ id: shelf.id, name: shelf.name, group: shelf.group }))}
+        />
       </Section>
 
       <Section title="Locked locations" count={locked?.prompts.length} note="One prompt per place, without style words, with its brief images and a fixed seed. Redo any place in another style in one click.">
@@ -254,9 +266,9 @@ function LockedPlaces({ prompts, onRestyle }: { prompts: LockedRow[]; onRestyle:
   );
 }
 
-function Section({ title, count, note, children }: { title: string; count?: number; note?: string; children: ReactNode }) {
+function Section({ id, title, count, note, children }: { id?: string; title: string; count?: number; note?: string; children: ReactNode }) {
   return (
-    <section className="lmp-section">
+    <section id={id} className="lmp-section">
       <div className="lmp-section-h">
         <h2 style={SANS}>{title}</h2>
         {count !== undefined ? <span className="lmp-mono lmp-count">{count}</span> : null}
@@ -417,6 +429,20 @@ const CSS = `
 .lmp-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .lmp-btn{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;padding:8px 14px;border-radius:999px;background:var(--lm-ink);color:var(--lm-paper)}
 .lmp-btn:hover{opacity:.9}
+.lmp-btn.ghost{background:transparent;color:var(--lm-text-secondary);box-shadow:inset 0 0 0 1px var(--lm-border-strong)}
+.lmp-btn.ghost:hover{color:var(--lm-text-primary)}
+.lmp-btn[data-on]{background:transparent;color:var(--lm-text-primary);box-shadow:inset 0 0 0 1px var(--lm-border-strong)}
+.lmp-btn.small{padding:5px 10px;font-size:10px}
+.lmp-btn:disabled{opacity:.5;cursor:default}
+.lmp-boards-bar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.lmp-board-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px}
+.lmp-board{display:grid;gap:6px;align-content:start;min-width:0}
+.lmp-board-sync{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:26px}
+.lmp-board-sync .lmp-mono{font-size:10px;letter-spacing:.04em;color:var(--lm-text-tertiary)}
+.lmp-board-sync[data-tone="ok"] .lmp-mono{color:var(--lm-teal,#79B791)}
+.lmp-board-sync[data-tone="drift"] .lmp-mono:first-child{color:var(--lm-ember,#FF8C42)}
+.lmp-asked{display:inline-flex;align-items:center;gap:4px}
+.lmp-err{font-size:11px;color:var(--lm-coral)}
 .lmp-takes{display:flex;flex-direction:column;gap:4px;margin-top:10px}
 .lmp-takes a{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:12.5px;color:var(--lm-text-tertiary)}
 .lmp-takes b{color:var(--lm-text-primary)}
