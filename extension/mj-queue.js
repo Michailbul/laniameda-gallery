@@ -157,7 +157,38 @@
     });
   }
 
+  // ── Pacing for "Next · Send" (CLAUDE.md, Midjourney pacing) ──
+  // At least 20 s between two sends, at most 30 jobs in any hour for the
+  // whole account (its own history: finished jobs plus the ones in flight).
+  const PACING = { gapMs: 20000, hourCap: 30, maxInFlight: 2 };
+
+  // rate: { lastHour, inFlight, newestJobAt } from the account; lastSendAt: this panel's last send.
+  function pacing({ rate, lastSendAt, now = Date.now() }) {
+    const last = Math.max(lastSendAt || 0, (rate && rate.newestJobAt) || 0);
+    const waitMs = last ? Math.max(0, last + PACING.gapMs - now) : 0;
+    const lastHour = rate ? rate.lastHour : null;
+    if (lastHour != null && lastHour >= PACING.hourCap) {
+      return { ok: false, waitMs, lastHour, reason: `${lastHour} jobs in the last hour: Midjourney's limit for the account is ${PACING.hourCap}. Wait for the oldest to drop out.` };
+    }
+    if (rate && rate.inFlight >= PACING.maxInFlight) {
+      return { ok: false, waitMs, lastHour, reason: `${rate.inFlight} jobs are still running. Send the next one when one finishes.` };
+    }
+    return { ok: waitMs === 0, waitMs, lastHour, reason: waitMs ? "" : "" };
+  }
+
+  // Jobs in the last hour from Midjourney's own history rows (enqueue_time).
+  function rateFromHistory(rows, queue, now = Date.now()) {
+    const times = (rows || []).map((row) => Date.parse(row && row.enqueue_time)).filter(Number.isFinite);
+    const inFlight = ((queue && queue.running) || []).length + ((queue && queue.waiting) || []).length;
+    return {
+      lastHour: times.filter((time) => now - time < 3600000).length + inFlight,
+      inFlight,
+      newestJobAt: times.length ? Math.max(...times) : 0,
+    };
+  }
+
   globalScope.SaveToGalleryMjQueue = {
+    PACING, pacing, rateFromHistory,
     recount,
     nextQueued, jobIdsIn, promptNeedle, parseRefLines, refLines,
     threadName, threadGroups, threadOrder, filterItems, filterCounts, worldLabel,
@@ -300,6 +331,43 @@
     return { ok: true, readback: area.value };
   }
 
+  // The account's pace, read from Midjourney's own history at most every 20 s
+  // (the pacing rule's gentle reading). Read only.
+  let rateCache = null;
+  function midjourneyUserId() {
+    const uuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+    try {
+      const fromSettings = uuid.exec(localStorage.getItem("settings_v30") || "");
+      if (fromSettings) return fromSettings[0];
+      for (const key of Object.keys(localStorage)) {
+        const match = /:([0-9a-f-]{36})$/i.exec(key);
+        if (match && uuid.test(match[1])) return match[1];
+      }
+    } catch {
+      // storage blocked
+    }
+    return null;
+  }
+  async function readRate(force) {
+    if (!force && rateCache && Date.now() - rateCache.at < 20000) return rateCache.value;
+    const user = midjourneyUserId();
+    if (!user) return { ok: false, error: "Sign in to Midjourney to read the pace." };
+    const headers = { "Content-Type": "application/json", "X-CSRF-Protection": "1" };
+    try {
+      const [history, queue] = await Promise.all([
+        fetch(`https://www.midjourney.com/api/imagine?user_id=${user}&page_size=100`, { credentials: "include", headers }).then((r) => r.json()),
+        fetch("https://www.midjourney.com/api/user-queue", { credentials: "include", headers }).then((r) => r.json()).catch(() => null),
+      ]);
+      const rows = Array.isArray(history) ? history : history && history.data;
+      if (!Array.isArray(rows)) return { ok: false, error: "Midjourney did not answer the history." };
+      const value = { ok: true, ...rateFromHistory(rows, queue), at: Date.now() };
+      rateCache = { at: Date.now(), value };
+      return value;
+    } catch (err) {
+      return { ok: false, error: String(err?.message || err) };
+    }
+  }
+
   function snapshotJobIds() {
     const values = [];
     for (const node of document.querySelectorAll('a[href*="/jobs/"], img[src*="cdn.midjourney.com/"]')) {
@@ -355,6 +423,7 @@
         if (!current || space(current.value) !== space(command)) {
           sending = false;
           active = null;
+          rateCache = null;
           void save(item.id, { status: "sent", sentCommand: command }).then(() => watchForJob(item, before));
           resolve({ ok: true, sent: true });
           return;
@@ -431,6 +500,10 @@
     }
     if (message.action === "mjQueueSend") {
       pressSend(message.itemId).then(sendResponse);
+      return true;
+    }
+    if (message.action === "mjQueueRate") {
+      readRate(Boolean(message.force)).then(sendResponse);
       return true;
     }
     return false;

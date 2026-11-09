@@ -1,9 +1,19 @@
 // MJ Queue tab of the extension's side panel. Agents queue Midjourney prompts in
 // the gallery, grouped in threads (one per direction or round, each with a
-// copyable id thr-xxxxxxxx). Here Michael picks a thread, puts a prompt in the
-// Imagine bar of the Midjourney tab, edits it if he wants and clicks Send: one
-// job per click. The Midjourney page side (mj-queue.js) does the bar work.
-// Nothing is ever submitted by a timer or a loop.
+// copyable id thr-xxxxxxxx). Here Michael picks a thread and sends it:
+// "Next · Send" puts the next queued prompt in the Imagine bar of the
+// Midjourney tab and presses Enter once, so a thread goes out by clicking one
+// button again and again. One job per click, never a timer or a loop. Between
+// two sends the button waits at least 20 s, and it stops at 30 jobs in the
+// account's last hour (the Midjourney pacing rule). "Put in bar" stays for
+// when he wants to edit first. The Midjourney page side (mj-queue.js) does the
+// bar work and reads the account's pace.
+//
+// Layout follows the panel's width: narrow is one column (threads, then a
+// thread); wide shows the threads on the left and the open thread on the
+// right, cards in a grid when there is room. Threads are grouped by world
+// with collapsible headers; a world or a thread can be pinned to the top
+// (chrome.storage.sync, so pins follow him across his Chromes).
 (function registerMjQueuePanel(globalScope) {
   "use strict";
 
@@ -12,9 +22,16 @@
 
   const H = () => globalScope.SaveToGalleryMjQueue;
   const C = () => globalScope.SaveToGalleryMjQueueCompose;
-  const KEYS = { view: "stgMjqView", batch: "stgMjqBatch", scope: "stgMjqScope" };
+  const KEYS = {
+    view: "stgMjqView", batch: "stgMjqBatch", scope: "stgMjqScope",
+    collapsed: "stgMjqCollapsed", lastSend: "stgMjqLastSend",
+    pins: "stgMjqPins", // sync
+  };
   // New prompts from agents (MCP queue_mj_prompts) show within a few seconds.
   const REFRESH_MS = 4000;
+  // The account's pace is read at most this often (gentle reading).
+  const RATE_MS = 30000;
+  const WIDE_PX = 680;
   const CREATE_URL = "https://www.midjourney.com/imagine";
   const STATUS_LABEL = { queued: "Queued", injected: "In the bar", sent: "Sent", skipped: "Skipped" };
   const FILTER_LABEL = { open: "To send", sent: "Sent", skipped: "Skipped", all: "All" };
@@ -37,10 +54,18 @@
     editingId: null,
     editDraft: null,
     tab: { id: null, onMidjourney: false, bar: false, reachable: false },
+    wide: false,
+    pins: { worlds: [], threads: [] },
+    collapsed: {},
+    lastSendAt: 0,
+    rate: null,
+    rateError: "",
+    rateAt: 0,
   };
 
   const space = (value) => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
   const capital = (value) => (value ? value.charAt(0).toUpperCase() + value.slice(1) : value);
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
   const el = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -109,7 +134,7 @@
     state.batches = batches;
     state.items = items;
     if (!state.batches.some((batch) => batch.batchKey === state.batchKey)) {
-      state.batchKey = H().threadOrder(state.batches, "open")[0] || H().threadOrder(state.batches, "all")[0] || "";
+      state.batchKey = railOrder()[0] || H().threadOrder(state.batches, "all")[0] || "";
       if (state.view === "thread" && !state.batchKey) state.view = "threads";
     }
     if (state.editingId && quiet) return;
@@ -152,6 +177,7 @@
     }
     const changed = JSON.stringify(next) !== JSON.stringify(state.tab);
     state.tab = next;
+    if (next.reachable && Date.now() - state.rateAt > RATE_MS) void readRate();
     if (changed) render();
   }
 
@@ -172,6 +198,51 @@
     });
   }
 
+  // ── Pace (Midjourney pacing rule) ──
+
+  async function readRate(force = false) {
+    if (!state.tab.reachable) return state.rate;
+    state.rateAt = Date.now();
+    const res = await toTab({ action: "mjQueueRate", force });
+    if (res && res.ok) {
+      state.rate = { lastHour: res.lastHour, inFlight: res.inFlight, newestJobAt: res.newestJobAt };
+      state.rateError = "";
+    } else {
+      state.rateError = (res && res.error) || "Could not read the pace.";
+    }
+    paintPace();
+    return state.rate;
+  }
+
+  const gate = () => H().pacing({ rate: state.rate, lastSendAt: state.lastSendAt });
+
+  // Repaints only the pace bits (button countdown, counter) once a second.
+  let ticker = null;
+  function paintPace() {
+    const now = gate();
+    for (const node of root.querySelectorAll("[data-pace-count]")) {
+      node.textContent = state.rate ? `${state.rate.lastHour} / ${H().PACING.hourCap}` : "– / 30";
+      node.classList.toggle("mjq-pace--hot", Boolean(state.rate && state.rate.lastHour >= H().PACING.hourCap - 5));
+      node.title = state.rateError || "Jobs on this Midjourney account in the last hour (finished and running), from its own history.";
+    }
+    for (const node of root.querySelectorAll("[data-next-send]")) {
+      const left = Math.ceil(now.waitMs / 1000);
+      const open = threadItems().some((item) => item.status === "queued") || activeItem()?.status === "injected";
+      node.disabled = state.sending || !open || !now.ok || !state.tab.bar;
+      node.textContent = state.sending ? "Sending…" : left > 0 ? `Wait ${left}s` : "Next · Send";
+      node.classList.toggle("mjq-btn--waiting", left > 0);
+      node.title = !state.tab.bar ? "Open Midjourney Create in this tab." : now.reason || (left > 0
+        ? "Midjourney pacing: at least 20 s between two jobs."
+        : "Put the next prompt in the bar and send it: one job per click (⌥⇧S).");
+    }
+    for (const node of root.querySelectorAll("[data-pace-reason]")) {
+      node.textContent = now.reason || "";
+      node.hidden = !now.reason;
+    }
+    clearTimeout(ticker);
+    if (state.visible && now.waitMs > 0) ticker = setTimeout(paintPace, Math.min(1000, now.waitMs));
+  }
+
   // ── Actions ──
 
   function threadItems() {
@@ -180,18 +251,20 @@
       .sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
   }
 
-  async function inject(item) {
+  const activeItem = () => state.items.find((item) => item.id === state.activeId) || null;
+
+  async function inject(item, { quietRender = false } = {}) {
     await readTab();
     if (!state.tab.onMidjourney) {
       state.message = "Open Midjourney Create in this tab first.";
       render();
-      return;
+      return false;
     }
     const res = await toTab({ action: "mjQueueInject", item });
     if (!res.ok) {
       state.message = res.unreachable ? "Reload the Midjourney tab once so the extension can reach it." : res.error;
       render();
-      return;
+      return false;
     }
     state.activeId = item.id;
     state.readback = res.readback || "";
@@ -202,11 +275,12 @@
       item.status = "injected";
       await save(item, { status: "injected" });
     }
-    render();
+    if (!quietRender) render();
+    return true;
   }
 
   function injectNext() {
-    if (state.view !== "thread") return;
+    if (!state.batchKey) return;
     const next = H().nextQueued(threadItems(), state.activeId);
     if (!next) {
       state.message = "Nothing left to send in this thread.";
@@ -216,24 +290,72 @@
     void inject(next);
   }
 
-  // Send: only from his own click. The Midjourney page presses Enter once.
-  async function send(event, item) {
-    if (!event.isTrusted || state.sending || state.activeId !== item.id) return;
+  // The one job, after the gate. The Midjourney page presses Enter once.
+  async function doSend(item) {
     state.sending = true;
     render();
     const res = await toTab({ action: "mjQueueSend", itemId: item.id });
     state.sending = false;
     if (res.ok && res.sent) {
+      state.lastSendAt = Date.now();
+      remember({ [KEYS.lastSend]: state.lastSendAt });
       state.activeId = null;
       state.readback = "";
-      state.message = "Sent. The next one is ready when you are.";
+      const left = threadItems().filter((entry) => entry.status === "queued" && entry.id !== item.id).length;
+      state.message = left ? `Sent. ${left} left in this thread.` : "Sent. That was the last one in this thread.";
       item.status = "sent";
       state.batches = H().recount(state.batches, state.items);
       void refresh({ quiet: true });
+      setTimeout(() => void readRate(true), 4000);
     } else {
       state.message = res.error || "Not sent.";
     }
     render();
+    return Boolean(res.ok && res.sent);
+  }
+
+  // A Send on a card, only from his own click, under the same pace gate.
+  async function send(event, item) {
+    if (!event.isTrusted || state.sending || state.activeId !== item.id) return;
+    const now = gate();
+    if (!now.ok) {
+      state.message = now.reason || `Midjourney pacing: wait ${Math.ceil(now.waitMs / 1000)} s.`;
+      render();
+      return;
+    }
+    await doSend(item);
+  }
+
+  // Next · Send: the prompt in the bar if one is waiting there, else the next
+  // queued one; put in the bar, then Enter once. Only from his own click.
+  async function nextSend(event) {
+    if (!event.isTrusted || state.sending || !state.batchKey) return;
+    await readRate(true);
+    const now = gate();
+    if (!now.ok) {
+      state.message = now.reason || `Midjourney pacing: wait ${Math.ceil(now.waitMs / 1000)} s.`;
+      render();
+      return;
+    }
+    const waiting = activeItem();
+    const item = waiting && waiting.batchKey === state.batchKey && waiting.status === "injected"
+      ? waiting
+      : H().nextQueued(threadItems(), state.activeId);
+    if (!item) {
+      state.message = "Nothing left to send in this thread.";
+      render();
+      return;
+    }
+    state.sending = true;
+    paintPace();
+    if (state.activeId !== item.id) {
+      const ok = await inject(item, { quietRender: true });
+      if (!ok) { state.sending = false; render(); return; }
+      // Midjourney can rewrite the bar a moment after it is filled.
+      await sleep(450);
+    }
+    state.sending = false;
+    await doSend(item);
   }
 
   function openThread(batchKey) {
@@ -246,7 +368,8 @@
     state.message = "";
     remember({ [KEYS.view]: "thread", [KEYS.batch]: batchKey });
     render();
-    root.querySelector(".mjq-list")?.scrollTo(0, 0);
+    root.querySelector(".mjq-main")?.scrollTo(0, 0);
+    if (!state.wide) globalScope.scrollTo(0, 0);
   }
 
   function showThreads() {
@@ -258,7 +381,7 @@
   }
 
   function stepThread(delta) {
-    const order = H().threadOrder(state.batches, state.scope);
+    const order = railOrder();
     if (!order.length) return;
     const at = order.indexOf(state.batchKey);
     openThread(order[(at + delta + order.length) % order.length]);
@@ -290,6 +413,45 @@
       void copyId(chip, id);
     }, `Copy this thread's id to hand it to an agent (${batch.batch})`);
     return chip;
+  }
+
+  // ── Pins and groups ──
+
+  const isPinnedWorld = (key) => state.pins.worlds.includes(key);
+  const isPinnedThread = (key) => state.pins.threads.includes(key);
+
+  function togglePin(kind, key) {
+    const list = state.pins[kind];
+    const next = list.includes(key) ? list.filter((entry) => entry !== key) : [key, ...list].slice(0, 60);
+    state.pins = { ...state.pins, [kind]: next };
+    try {
+      void chrome.storage.sync.set({ [KEYS.pins]: state.pins });
+    } catch {
+      // storage unavailable
+    }
+    render();
+  }
+
+  // The rail: pinned threads on top, then worlds (pinned worlds first).
+  function railGroups() {
+    const groups = H().threadGroups(state.batches, state.scope);
+    const pinned = [];
+    for (const group of groups) {
+      group.threads = group.threads.filter((thread) => {
+        if (!isPinnedThread(thread.batchKey)) return true;
+        pinned.push({ ...thread, worldLabel: group.label });
+        return false;
+      });
+    }
+    const worlds = groups
+      .filter((group) => group.threads.length)
+      .sort((a, b) => Number(isPinnedWorld(b.worldKey)) - Number(isPinnedWorld(a.worldKey)));
+    return { pinned, worlds };
+  }
+
+  function railOrder() {
+    const { pinned, worlds } = railGroups();
+    return [...pinned, ...worlds.flatMap((group) => group.threads)].map((thread) => thread.batchKey);
   }
 
   // ── Render ──
@@ -334,13 +496,70 @@
         setTimeout(readTab, 2500);
       }));
     }
+    const pace = el("span", "mjq-pace");
+    const paceCount = el("b", "mjq-pace-count");
+    paceCount.dataset.paceCount = "1";
+    pace.append(el("span", "mjq-pace-label", "last hour"), paceCount);
+    strip.appendChild(pace);
     const left = state.items.filter((item) => item.status === "queued" || item.status === "injected").length;
     strip.appendChild(el("span", "mjq-total", `${left} to send`));
-    strip.appendChild(button("↻", "mjq-btn--icon", () => refresh(), "Refresh"));
+    strip.appendChild(button("↻", "mjq-btn--icon", () => { void refresh(); void readRate(true); }, "Refresh"));
     return strip;
   }
 
-  function renderThreads(box) {
+  function pinButton(kind, key, label) {
+    const on = kind === "worlds" ? isPinnedWorld(key) : isPinnedThread(key);
+    const pin = button(on ? "Pinned" : "Pin", `mjq-pin${on ? " mjq-pin--on" : ""}`, (event) => {
+      event.stopPropagation();
+      togglePin(kind, key);
+    }, on ? `Unpin ${label}` : `Pin ${label} to the top (follows you across your Chromes)`);
+    return pin;
+  }
+
+  function threadRow(thread, worldLabel) {
+    const selected = thread.batchKey === state.batchKey && (state.wide || state.view === "thread");
+    const row = el("div", `mjq-thread${thread.done ? " mjq-thread--done" : ""}${selected ? " mjq-thread--on" : ""}`);
+    row.tabIndex = 0;
+    row.addEventListener("click", () => openThread(thread.batchKey));
+    row.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") openThread(thread.batchKey);
+    });
+    const top = el("div", "mjq-row");
+    top.append(
+      el("span", "mjq-tname", capital(thread.name)),
+      pinButton("threads", thread.batchKey, "this thread"),
+      el("span", `mjq-count${thread.left ? "" : " mjq-count--done"}`, thread.left ? String(thread.left) : "✓"),
+    );
+    const meta = el("div", "mjq-row mjq-tmeta");
+    if (worldLabel) meta.appendChild(el("span", "mjq-wtag", worldLabel));
+    meta.append(
+      idChip(thread),
+      el("span", "mjq-mono", `${thread.sent}/${thread.total} sent${thread.skipped ? ` · ${thread.skipped} skipped` : ""} · ${ago(thread.updatedAt)}`),
+    );
+    row.append(top, progressBar(thread), meta);
+    return row;
+  }
+
+  function groupHead(key, label, counts, { pinKind = null, collapsible = true } = {}) {
+    const collapsed = collapsible && Boolean(state.collapsed[key]);
+    const head = el("div", `mjq-ghead${collapsed ? " mjq-ghead--closed" : ""}`);
+    const toggle = el("button", "mjq-gtoggle");
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", String(!collapsed));
+    toggle.append(el("span", "mjq-caret", collapsible ? (collapsed ? "▸" : "▾") : "◆"), el("span", "mjq-glabel", label), el("span", "mjq-gcount", counts));
+    if (collapsible) {
+      toggle.addEventListener("click", () => {
+        state.collapsed = { ...state.collapsed, [key]: !collapsed };
+        remember({ [KEYS.collapsed]: state.collapsed });
+        render();
+      });
+    }
+    head.appendChild(toggle);
+    if (pinKind) head.appendChild(pinButton(pinKind, key, label));
+    return { head, collapsed };
+  }
+
+  function renderRail(box) {
     const head = el("div", "mjq-row mjq-head");
     head.append(
       el("span", "mjq-label", "Threads"),
@@ -351,31 +570,22 @@
       }, state.scope === "open" ? "Showing threads with prompts to send. Click to show finished ones." : "Showing every thread. Click for open ones only."),
     );
     box.appendChild(head);
-    const groups = H().threadGroups(state.batches, state.scope);
+    const { pinned, worlds } = railGroups();
     if (state.loading) box.appendChild(el("p", "mjq-empty", "Loading the queue…"));
-    else if (!groups.length) box.appendChild(el("p", "mjq-empty", state.batches.length ? "Every thread is sent." : "No threads yet. Agents add them in the gallery."));
-    for (const group of groups) {
-      box.appendChild(el("p", "mjq-group", group.label));
-      for (const thread of group.threads) {
-        const row = el("div", `mjq-thread${thread.done ? " mjq-thread--done" : ""}${thread.batchKey === state.batchKey ? " mjq-thread--last" : ""}`);
-        row.tabIndex = 0;
-        row.addEventListener("click", () => openThread(thread.batchKey));
-        row.addEventListener("keydown", (event) => {
-          if (event.key === "Enter") openThread(thread.batchKey);
-        });
-        const top = el("div", "mjq-row");
-        top.append(
-          el("span", "mjq-tname", capital(thread.name)),
-          el("span", `mjq-count${thread.left ? "" : " mjq-count--done"}`, thread.left ? String(thread.left) : "✓"),
-        );
-        const meta = el("div", "mjq-row mjq-tmeta");
-        meta.append(
-          idChip(thread),
-          el("span", "mjq-mono", `${thread.sent}/${thread.total} sent${thread.skipped ? ` · ${thread.skipped} skipped` : ""} · ${ago(thread.updatedAt)}`),
-        );
-        row.append(top, progressBar(thread), meta);
-        box.appendChild(row);
-      }
+    else if (!pinned.length && !worlds.length) box.appendChild(el("p", "mjq-empty", state.batches.length ? "Every thread is sent." : "No threads yet. Agents add them in the gallery."));
+    if (pinned.length) {
+      const left = pinned.reduce((sum, thread) => sum + thread.left, 0);
+      const { head: ph, collapsed } = groupHead("__pinned", "Pinned", `${pinned.length} · ${left} to send`);
+      ph.classList.add("mjq-ghead--pinned");
+      box.appendChild(ph);
+      if (!collapsed) for (const thread of pinned) box.appendChild(threadRow(thread, thread.worldLabel));
+    }
+    for (const group of worlds) {
+      const counts = `${group.threads.length} thread${group.threads.length === 1 ? "" : "s"} · ${group.left} to send`;
+      const { head: gh, collapsed } = groupHead(group.worldKey || "__other", group.label, counts, { pinKind: "worlds" });
+      if (isPinnedWorld(group.worldKey)) gh.classList.add("mjq-ghead--pinned");
+      box.appendChild(gh);
+      if (!collapsed) for (const thread of group.threads) box.appendChild(threadRow(thread));
     }
   }
 
@@ -404,6 +614,7 @@
     if (item.omniRef) row.appendChild(thumb(item.omniRef, "OREF"));
     if (item.characterRef) row.appendChild(thumb(item.characterRef, "CREF"));
     for (const ref of item.editRefs || []) row.appendChild(thumb(ref, "FRAME"));
+    if (item.describe?.sourceUrl) row.appendChild(thumb({ url: item.describe.sourceUrl, label: "Described from" }, "SOURCE"));
     for (const code of item.profileCodes || []) row.appendChild(el("span", "mjq-pcode", `-p ${code}`));
     return row.childNodes.length ? row : null;
   }
@@ -429,7 +640,7 @@
     const input = (value) => Object.assign(el("input", "mjq-input"), { value: value || "" });
     const area = (value, rows) => Object.assign(el("textarea", "mjq-input"), { value: value || "", rows });
     const title = field("Title", input(initial.title));
-    const prompt = field("Prompt", area(initial.prompt, 6));
+    const prompt = field("Prompt", area(initial.prompt, 7));
     const images = field("Image prompts · one URL a line, ::weight", area(initial.images, 2));
     const srefs = field("Style refs · URL or code a line, ::weight", area(initial.srefs, 3));
     const codes = field("Profile codes", input(initial.codes));
@@ -500,7 +711,7 @@
   function itemCard(item, index) {
     const active = state.activeId === item.id;
     const card = el("article", `mjq-item mjq-item--${item.status}${active ? " mjq-item--active" : ""}`);
-    const head = el("div", "mjq-row");
+    const head = el("div", "mjq-row mjq-ihead");
     head.append(
       el("span", "mjq-num", String(index + 1).padStart(2, "0")),
       el("span", "mjq-title", item.title || space(item.prompt).split(" ").slice(0, 7).join(" ")),
@@ -529,14 +740,8 @@
       card.appendChild(editForm(item));
       return card;
     }
-    if (active) {
-      card.appendChild(readbackBox(item));
-    } else {
-      const cmd = el("div", "mjq-cmd mjq-cmd--clamp", item.command);
-      cmd.title = "Click to show the whole command";
-      cmd.addEventListener("click", () => cmd.classList.toggle("mjq-cmd--clamp"));
-      card.appendChild(cmd);
-    }
+    if (active) card.appendChild(readbackBox(item));
+    else card.appendChild(el("div", "mjq-cmd", item.command));
     if (item.status === "sent") {
       const meta = [item.sentAt ? `Sent ${new Date(item.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Sent"];
       if (item.jobId) meta.push(`job ${item.jobId.slice(0, 8)}`);
@@ -544,12 +749,13 @@
     }
     const actions = el("div", "mjq-actions");
     if (active) {
+      const now = gate();
       const sendBtn = button(state.sending ? "Sending…" : "Send", "mjq-btn--send", (event) => send(event, item), "Send this one job to Midjourney (your click)");
-      sendBtn.disabled = state.sending || !state.tab.bar;
+      sendBtn.disabled = state.sending || !state.tab.bar || !now.ok;
       actions.appendChild(sendBtn);
     }
     if (item.status !== "skipped") {
-      actions.appendChild(button(active || item.status === "sent" ? "Again" : "Put in bar", active ? "" : "mjq-btn--primary", () => inject(item), "Put the full command in the Imagine bar"));
+      actions.appendChild(button(active || item.status === "sent" ? "Again" : "Put in bar", "", () => inject(item), "Put the full command in the Imagine bar, to edit it there first"));
     }
     actions.appendChild(button("Edit", "", () => {
       state.editingId = item.id;
@@ -581,13 +787,14 @@
   function renderThread(box) {
     const batch = state.batches.find((entry) => entry.batchKey === state.batchKey);
     if (!batch) {
-      showThreads();
+      if (state.wide) box.appendChild(el("p", "mjq-empty", state.loading ? "Loading…" : "Pick a thread on the left."));
+      else showThreads();
       return;
     }
     const items = threadItems();
     const nav = el("div", "mjq-row mjq-nav");
+    if (!state.wide) nav.appendChild(button("← Threads", "mjq-btn--ghost", showThreads, "All threads (Esc)"));
     nav.append(
-      button("← Threads", "mjq-btn--ghost", showThreads, "All threads (Esc)"),
       el("span", "mjq-label mjq-grow", H().threadGroups([batch], "all")[0]?.label || ""),
       idChip(batch),
       button("‹", "mjq-btn--icon", () => stepThread(-1), "Previous thread (⌥⇧↑)"),
@@ -595,8 +802,25 @@
     );
     box.appendChild(nav);
     box.appendChild(el("h2", "mjq-ttitle", capital(H().threadName(batch))));
-    const bar = el("div", "mjq-row mjq-bar");
     const counts = H().filterCounts(items);
+
+    // The send bar: one click puts the next prompt in and sends it.
+    const sendBar = el("div", "mjq-sendbar");
+    const next = button("Next · Send", "mjq-btn--next", nextSend);
+    next.dataset.nextSend = "1";
+    const putNext = button("Put next in bar", "mjq-btn--ghostline", injectNext, "Put the next prompt in the bar without sending, to edit it first (⌥⇧N)");
+    putNext.disabled = !counts.open;
+    const pace = el("div", "mjq-pacebox");
+    const count = el("b", "mjq-pace-count");
+    count.dataset.paceCount = "1";
+    pace.append(count, el("span", "mjq-pace-label", "jobs in the last hour"));
+    sendBar.append(next, putNext, pace);
+    box.appendChild(sendBar);
+    const reason = el("p", "mjq-pace-reason");
+    reason.dataset.paceReason = "1";
+    reason.hidden = true;
+    box.appendChild(reason);
+
     const tabs = el("div", "mjq-tabs");
     for (const key of ["open", "sent", "skipped", "all"]) {
       const tab = button(`${FILTER_LABEL[key]} ${counts[key]}`, `mjq-tab${state.filter === key ? " mjq-tab--on" : ""}`, () => {
@@ -606,10 +830,7 @@
       tab.disabled = !counts[key] && key !== "open";
       tabs.appendChild(tab);
     }
-    const next = button("Next →", "mjq-btn--primary", injectNext, "Put the next prompt in the bar (⌥⇧N)");
-    next.disabled = !counts.open;
-    bar.append(tabs, next);
-    box.appendChild(bar);
+    box.appendChild(tabs);
     if (state.message) box.appendChild(el("p", "mjq-message", state.message));
     const list = el("div", "mjq-list");
     const shown = H().filterItems(items, state.filter, state.activeId);
@@ -622,14 +843,30 @@
     if (!state.visible) return;
     const focused = document.activeElement && root.contains(document.activeElement) && document.activeElement.matches("input, textarea");
     if (focused && state.editingId) return;
+    const railScroll = root.querySelector(".mjq-rail")?.scrollTop || 0;
+    const mainScroll = root.querySelector(".mjq-main")?.scrollTop || 0;
     root.textContent = "";
+    root.classList.toggle("mjq--wide", state.wide);
     root.appendChild(tabStrip());
     if (state.error) root.appendChild(el("p", "mjq-error", state.error));
-    const box = el("div", "mjq-body");
-    if (state.view === "thread" && state.batchKey) renderThread(box);
-    else renderThreads(box);
-    root.appendChild(box);
-    root.appendChild(el("p", "mjq-hint", "⌥⇧N next prompt · ⌥⇧↑↓ threads · Esc threads · Send is your click or your Enter in the bar, one job each"));
+    if (state.wide) {
+      const split = el("div", "mjq-split");
+      const rail = el("div", "mjq-rail");
+      const main = el("div", "mjq-main");
+      renderRail(rail);
+      renderThread(main);
+      split.append(rail, main);
+      root.appendChild(split);
+      rail.scrollTop = railScroll;
+      main.scrollTop = mainScroll;
+    } else {
+      const box = el("div", "mjq-body");
+      if (state.view === "thread" && state.batchKey) renderThread(box);
+      else renderRail(box);
+      root.appendChild(box);
+    }
+    root.appendChild(el("p", "mjq-hint", "Next · Send puts the next prompt in the bar and sends it: one job per click, 20 s apart, 30 an hour at most · ⌥⇧S next · send · ⌥⇧N next in bar · ⌥⇧↑↓ threads"));
+    paintPace();
   }
 
   // ── Wiring ──
@@ -649,6 +886,8 @@
         if (item && item.status === "injected") {
           // A send he made with his own Enter in the bar.
           state.activeId = null;
+          state.lastSendAt = Date.now();
+          remember({ [KEYS.lastSend]: state.lastSendAt });
           state.message = "Sent. The next one is ready when you are.";
         }
       }
@@ -664,7 +903,7 @@
 
   document.addEventListener("keydown", (event) => {
     if (!state.visible) return;
-    if (event.key === "Escape" && state.view === "thread" && !state.editingId) {
+    if (event.key === "Escape" && state.view === "thread" && !state.editingId && !state.wide) {
       showThreads();
       return;
     }
@@ -672,6 +911,9 @@
     if (event.code === "KeyN") {
       event.preventDefault();
       injectNext();
+    } else if (event.code === "KeyS") {
+      event.preventDefault();
+      void nextSend(event);
     } else if (event.code === "ArrowDown" || event.code === "ArrowUp") {
       event.preventDefault();
       stepThread(event.code === "ArrowDown" ? 1 : -1);
@@ -682,6 +924,22 @@
   chrome.tabs.onUpdated.addListener((tabId, info) => {
     if (tabId === state.tab.id && (info.status === "complete" || info.url)) void readTab();
   });
+
+  // Pins follow him across his Chromes.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "sync" && changes[KEYS.pins]) {
+      state.pins = normalizePins(changes[KEYS.pins].newValue);
+      render();
+    }
+  });
+
+  // The layout follows the panel's width.
+  new ResizeObserver(() => {
+    const wide = root.clientWidth >= WIDE_PX;
+    if (wide === state.wide) return;
+    state.wide = wide;
+    render();
+  }).observe(root);
 
   // Coming back to the window or the panel reads the queue at once.
   const refreshNow = () => {
@@ -697,6 +955,7 @@
     root.hidden = !visible;
     clearInterval(timer);
     if (!visible) return;
+    state.wide = root.clientWidth >= WIDE_PX;
     render();
     void readTab();
     void refresh({ quiet: !state.loading });
@@ -708,10 +967,21 @@
     }, REFRESH_MS);
   }
 
-  chrome.storage.local.get([KEYS.view, KEYS.batch, KEYS.scope], (stored) => {
+  function normalizePins(value) {
+    const list = (entry) => (Array.isArray(entry) ? entry.filter((key) => typeof key === "string").slice(0, 60) : []);
+    return { worlds: list(value?.worlds), threads: list(value?.threads) };
+  }
+
+  chrome.storage.local.get([KEYS.view, KEYS.batch, KEYS.scope, KEYS.collapsed, KEYS.lastSend], (stored) => {
     state.view = stored?.[KEYS.view] === "thread" ? "thread" : "threads";
     state.batchKey = String(stored?.[KEYS.batch] || "");
     state.scope = stored?.[KEYS.scope] === "all" ? "all" : "open";
+    state.collapsed = stored?.[KEYS.collapsed] && typeof stored[KEYS.collapsed] === "object" ? stored[KEYS.collapsed] : {};
+    state.lastSendAt = Number(stored?.[KEYS.lastSend]) || 0;
+    if (state.visible) render();
+  });
+  chrome.storage.sync.get([KEYS.pins], (stored) => {
+    state.pins = normalizePins(stored?.[KEYS.pins]);
     if (state.visible) render();
   });
 
