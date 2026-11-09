@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
@@ -23,49 +23,73 @@ export function ProjectRuns({ ownerUserId, world }: { ownerUserId: string; world
   const runs = useQuery(api.promptGrid.listRuns, isAuthenticated ? { ownerUserId, world } : "skip");
   const [open, setOpen] = useState(false);
   if (sets === undefined || presets === undefined) return <Loader2 className="animate-spin" size={14} style={{ color: "var(--lm-text-ghost)" }} />;
+  const parents = presets.filter((preset) => !preset.parentPresetId);
+  const childrenOf = (id: string) => presets.filter((preset) => preset.parentPresetId === id);
   return (
     <div className="lpr">
       <style>{CSS}</style>
-      <div className="lpr-cols">
-        <div>
-          <span className="lpr-k">Prompt sets</span>
-          {sets.map((set) => (
-            <div key={set.id} className="lpr-set">
-              <b style={SANS}>{set.name}</b>
-              <span className="lpr-m">{set.prompts.length} prompts · {set.prompts.reduce((n, p) => n + p.variants.length, 0)} variants</span>
-              <div className="lpr-thumbs">
-                {set.prompts.slice(0, 8).map((prompt) => prompt.thumbUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img key={prompt.id} src={prompt.thumbUrl} alt="" title={prompt.title} loading="lazy" />
-                ) : <span key={prompt.id} title={prompt.title}>{prompt.title.split(" ").slice(0, 2).join(" ")}</span>)}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div>
-          <span className="lpr-k">Style presets · one exact recipe each</span>
-          <div className="lpr-presets">
-            {presets.map((preset) => (
-              <span key={preset.id} className="lpr-preset" data-child={preset.parentPresetId ? "" : undefined} title={[...preset.moodboards.map((m) => `${m.code} ${m.name ?? ""}`), ...preset.profiles.map((p) => `${p.code} ${p.name ?? ""}`), ...preset.srefs.map((s) => `--sref ${s.code}${s.sv ? ` --sv ${s.sv}` : ""}`), preset.parameters ?? ""].join("\n")}>
-                {preset.parentPresetId ? preset.perturbation : preset.name}
-                {preset.status === "locked" ? <i>locked</i> : null}
-              </span>
-            ))}
-          </div>
-        </div>
+      <span className="lpr-k">Looks</span>
+      <div className="lpr-cards">
+        {parents.map((preset) => <PresetCard key={preset.id} preset={preset} variations={childrenOf(preset.id).length} />)}
+      </div>
+      <span className="lpr-k" style={{ marginTop: 18 }}>Shots</span>
+      <div className="lpr-cards">
+        {sets.map((set) => <SetCard key={set.id} set={set} />)}
       </div>
       <div className="lpr-runs">
-        <button type="button" className="lpr-go" onClick={() => setOpen(true)}>New run ▸</button>
+        <button type="button" className="lpr-go" onClick={() => setOpen(true)}>Compare looks</button>
         {(runs ?? []).map((run) => (
           <Link key={run.id} href={`/w/${world}/grid?run=${run.id}`} className="lpr-run">
             <b style={SANS}>{run.name}</b>
-            <span className="lpr-m">{run.stage}{run.draft ? " · draft" : ""} · {run.jobs} jobs · {run.frames} frames back</span>
+            <span className="lpr-m">{run.frames ? `${run.frames} pictures back` : `${run.jobs} to send`}</span>
           </Link>
         ))}
       </div>
       {open ? <RunDialog ownerUserId={ownerUserId} world={world} sets={sets} presets={presets} onClose={() => setOpen(false)} /> : null}
     </div>
   );
+}
+
+type Preset = Presets[number];
+type PromptSet = Sets[number];
+
+function Mosaic({ urls, words }: { urls: string[]; words?: string }) {
+  if (!urls.length) return <div className="lpr-mosaic lpr-mosaic--words"><span>{words ?? "No pictures yet"}</span></div>;
+  return (
+    <div className="lpr-mosaic" data-n={Math.min(urls.length, 3)}>
+      {urls.slice(0, 3).map((url) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img key={url} src={url} alt="" loading="lazy" />
+      ))}
+    </div>
+  );
+}
+
+function PresetCard({ preset, variations, on, onClick }: { preset: Preset; variations?: number; on?: boolean; onClick?: () => void }) {
+  const body = (
+    <>
+      <Mosaic urls={preset.covers} />
+      <span className="lpr-name" style={SANS}>{preset.name.replace(/^CAS /, "")}</span>
+      {variations ? <span className="lpr-m">+{variations} variations</span> : null}
+    </>
+  );
+  return onClick
+    ? <button type="button" className="lpr-card" data-on={on || undefined} onClick={onClick}>{body}</button>
+    : <div className="lpr-card">{body}</div>;
+}
+
+function SetCard({ set, on, onClick }: { set: PromptSet; on?: boolean; onClick?: () => void }) {
+  const pictures = set.prompts.map((prompt) => prompt.thumbUrl).filter(Boolean) as string[];
+  const body = (
+    <>
+      <Mosaic urls={pictures} words={set.prompts.slice(0, 4).map((prompt) => prompt.title).join(" · ")} />
+      <span className="lpr-name" style={SANS}>{set.name.replace(/^Cassandra /, "")}</span>
+      <span className="lpr-m">{set.prompts.length} shots</span>
+    </>
+  );
+  return onClick
+    ? <button type="button" className="lpr-card" data-on={on || undefined} onClick={onClick}>{body}</button>
+    : <div className="lpr-card">{body}</div>;
 }
 
 function RunDialog({ ownerUserId, world, sets, presets, onClose }: { ownerUserId: string; world: string; sets: Sets; presets: Presets; onClose: () => void }) {
@@ -75,16 +99,13 @@ function RunDialog({ ownerUserId, world, sets, presets, onClose }: { ownerUserId
   const [presetIds, setPresetIds] = useState<Set<string>>(new Set(presets.filter((p) => p.status === "locked").map((p) => p.id)));
   const [stage, setStage] = useState<"screen" | "refine">("screen");
   const [draft, setDraft] = useState(true);
-  const [variants, setVariants] = useState<Set<string>>(new Set());
   const [allSeeds, setAllSeeds] = useState(false);
   const [done, setDone] = useState<FunctionReturnType<typeof api.promptGrid.queueRun> | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const queue = useMutation(api.promptGrid.queueRun);
-  const set = sets.find((row) => row.id === setId);
-  const keys = useMemo(() => [...new Set((set?.prompts ?? []).flatMap((p) => p.variants.map((v) => v.key)))], [set]);
   useEffect(() => { setDraft(stage === "screen"); }, [stage]);
-  const args = { ownerUserId, world, set: setId, presets: [...presetIds], stage, draft, allSeeds, variants: variants.size ? [...variants] : undefined };
+  const args = { ownerUserId, world, set: setId, presets: [...presetIds], stage, draft, allSeeds };
   const preview = useQuery(api.promptGrid.previewRun, isAuthenticated && setId && presetIds.size ? args : "skip");
   const toggle = (list: Set<string>, id: string) => { const next = new Set(list); if (next.has(id)) next.delete(id); else next.add(id); return next; };
   const send = async () => {
@@ -96,7 +117,7 @@ function RunDialog({ ownerUserId, world, sets, presets, onClose }: { ownerUserId
   return (
     <div className="lpr-scrim" onClick={onClose} role="presentation">
       <div className="lpr-dialog" role="dialog" aria-label="New run" onClick={(event) => event.stopPropagation()}>
-        <header className="lpr-h"><div><span className="lpr-k">Prompts × presets × locked seeds</span><h2 style={SANS}>New run</h2></div><button type="button" className="lpr-x" onClick={onClose} aria-label="Close"><X size={14} /></button></header>
+        <header className="lpr-h"><div><span className="lpr-k">Same shots, several looks</span><h2 style={SANS}>Compare looks</h2></div><button type="button" className="lpr-x" onClick={onClose} aria-label="Close"><X size={14} /></button></header>
         {done ? (
           <div className="lpr-done">
             <Check size={18} aria-hidden />
@@ -112,17 +133,25 @@ function RunDialog({ ownerUserId, world, sets, presets, onClose }: { ownerUserId
         ) : (
           <>
             <section className="lpr-sec">
-              <span className="lpr-k">Prompt set</span>
-              <div className="lpr-row">{sets.map((row) => <button key={row.id} type="button" className="lpr-chip" data-on={row.id === setId || undefined} onClick={() => setSetId(row.id)}>{row.name}<span>{row.prompts.length}</span></button>)}</div>
+              <span className="lpr-k">Shots</span>
+              <div className="lpr-cards">{sets.map((row) => <SetCard key={row.id} set={row} on={row.id === setId} onClick={() => setSetId(row.id)} />)}</div>
             </section>
             <section className="lpr-sec">
-              <span className="lpr-k">Presets</span>
-              <div className="lpr-row">
-                {presets.map((preset) => (
-                  <button key={preset.id} type="button" className="lpr-chip" data-on={presetIds.has(preset.id) || undefined} data-child={preset.parentPresetId ? "" : undefined} onClick={() => setPresetIds((list) => toggle(list, preset.id))}>
-                    {preset.parentPresetId ? `· ${preset.perturbation}` : preset.name}
-                  </button>
-                ))}
+              <span className="lpr-k">Looks</span>
+              <div className="lpr-cards">
+                {presets.filter((preset) => !preset.parentPresetId).map((preset) => {
+                  const kids = presets.filter((row) => row.parentPresetId === preset.id);
+                  return (
+                    <div key={preset.id} className="lpr-pick">
+                      <PresetCard preset={preset} on={presetIds.has(preset.id)} onClick={() => setPresetIds((list) => toggle(list, preset.id))} />
+                      {kids.length ? (
+                        <div className="lpr-kids">
+                          {kids.map((kid) => <button key={kid.id} type="button" className="lpr-kid" data-on={presetIds.has(kid.id) || undefined} onClick={() => setPresetIds((list) => toggle(list, kid.id))} title={kid.name}>{kid.perturbation}</button>)}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </section>
             <section className="lpr-sec lpr-two">
@@ -135,9 +164,8 @@ function RunDialog({ ownerUserId, world, sets, presets, onClose }: { ownerUserId
               </div>
               <div>
                 <span className="lpr-k">Wordings</span>
-                <div className="lpr-row">{keys.map((key) => <button key={key} type="button" className="lpr-chip" data-on={variants.size === 0 || variants.has(key) || undefined} onClick={() => setVariants((list) => toggle(list.size ? list : new Set(keys), key))}>{key}</button>)}</div>
-                <label className="lpr-check"><input type="checkbox" checked={draft} onChange={(event) => setDraft(event.target.checked)} /> Draft</label>
-                {stage === "refine" ? <label className="lpr-check"><input type="checkbox" checked={allSeeds} onChange={(event) => setAllSeeds(event.target.checked)} /> Every locked seed</label> : null}
+                <p className="lpr-m">{stage === "screen" ? "One wording per shot, on its first seed." : `Every wording${allSeeds ? " on every seed" : ""}.`}</p>
+                {stage === "refine" ? <label className="lpr-check"><input type="checkbox" checked={allSeeds} onChange={(event) => setAllSeeds(event.target.checked)} /> Every seed too</label> : null}
               </div>
             </section>
             {preview ? (
@@ -160,6 +188,22 @@ function RunDialog({ ownerUserId, world, sets, presets, onClose }: { ownerUserId
 }
 
 const CSS = `
+.lpr-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.lpr-card{display:flex;flex-direction:column;gap:5px;padding:5px 5px 8px;border-radius:9px;border:1px solid transparent;text-align:left;background:transparent}
+button.lpr-card:hover{background:var(--lm-surface-2)}
+.lpr-card[data-on]{background:var(--lm-surface-2);border-color:var(--lm-border-strong)}
+.lpr-name{font-size:12.5px;font-weight:900;text-transform:uppercase;line-height:1.1;padding:0 2px}
+.lpr-card .lpr-m{padding:0 2px}
+.lpr-mosaic{display:grid;gap:2px;aspect-ratio:4/3;border-radius:6px;overflow:hidden;background:var(--lm-surface-2)}
+.lpr-mosaic[data-n="2"]{grid-template-columns:1fr 1fr}
+.lpr-mosaic[data-n="3"]{grid-template-columns:2fr 1fr;grid-template-rows:1fr 1fr}
+.lpr-mosaic[data-n="3"] img:first-child{grid-row:1/3}
+.lpr-mosaic img{width:100%;height:100%;object-fit:cover;display:block}
+.lpr-mosaic--words{display:flex;align-items:flex-end;padding:8px;font-size:11px;line-height:1.3;color:var(--lm-text-tertiary)}
+.lpr-pick{display:flex;flex-direction:column;gap:4px}
+.lpr-kids{display:flex;flex-wrap:wrap;gap:3px;padding:0 4px}
+.lpr-kid{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:9.5px;padding:2px 6px;border-radius:999px;border:1px dashed var(--lm-border-subtle);color:var(--lm-text-tertiary)}
+.lpr-kid[data-on]{background:var(--lm-surface-2);border-style:solid;border-color:var(--lm-border-strong);color:var(--lm-text-primary)}
 .lpr-k{display:block;margin-bottom:8px;font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--lm-text-tertiary)}
 .lpr-m{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10.5px;color:var(--lm-text-tertiary)}
 .lpr-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:16px}

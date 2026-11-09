@@ -104,8 +104,11 @@ const presetOut = v.object({
   srefs: v.array(v.object({ code: v.string(), sv: v.optional(v.string()), weight: v.optional(v.number()) })),
   parameters: v.optional(v.string()), sentence: v.optional(v.string()), note: v.optional(v.string()),
   revision: v.number(), updatedAt: v.number(),
+  // Pictures of the look: its style's covers, else its moodboard's first images (a perturbation shows its parent's).
+  covers: v.array(v.string()),
 });
-const toPresetOut = (row: Preset) => ({
+const toPresetOut = (row: Preset, covers: string[] = []) => ({
+  covers,
   id: row._id, ingestKey: row.ingestKey, name: row.name, status: row.status, source: row.source, styleId: row.styleId,
   parentPresetId: row.parentPresetId, perturbation: row.perturbation,
   moodboards: row.moodboards.map((m) => ({ code: m.code, name: m.name })), profiles: row.profiles.map((p) => ({ code: p.code, name: p.name })),
@@ -123,7 +126,33 @@ export const listPresets = ownerQuery({
     const out: Preset[] = [];
     for (const parent of parents) out.push(parent, ...rows.filter((row) => row.parentPresetId === parent._id).sort((a, b) => a.name.localeCompare(b.name)));
     out.push(...rows.filter((row) => row.parentPresetId && !out.includes(row)));
-    return out.map(toPresetOut);
+    const memo = new Map<string, string[]>();
+    const coversOf = async (row: Preset): Promise<string[]> => {
+      const root = row.parentPresetId ? rows.find((other) => other._id === row.parentPresetId) ?? row : row;
+      const hit = memo.get(root._id);
+      if (hit) return hit;
+      const ids: Id<"assets">[] = [];
+      const style = root.styleId ? await ctx.db.get(root.styleId) : null;
+      if (style) ids.push(...style.coverAssetIds.slice(0, 3));
+      if (ids.length < 3 && style?.shelfFolderId) {
+        for (const link of await ctx.db.query("assetFolders").withIndex("by_folder_createdAt", (q) => q.eq("folderId", style.shelfFolderId!)).order("desc").take(3)) if (!ids.includes(link.assetId)) ids.push(link.assetId);
+      }
+      for (const board of root.moodboards) {
+        if (ids.length >= 3 || !board.moodboardId) continue;
+        for (const item of await ctx.db.query("moodboardItems").withIndex("by_moodboard_position", (q) => q.eq("moodboardId", board.moodboardId!)).take(3)) if (!ids.includes(item.assetId)) ids.push(item.assetId);
+      }
+      const urls: string[] = [];
+      for (const id of ids.slice(0, 3)) {
+        const asset = await ctx.db.get(id);
+        const url = asset ? await thumbOf(ctx, asset) : undefined;
+        if (url) urls.push(url);
+      }
+      memo.set(root._id, urls);
+      return urls;
+    };
+    const result = [];
+    for (const row of out) result.push(toPresetOut(row, await coversOf(row)));
+    return result;
   },
 });
 

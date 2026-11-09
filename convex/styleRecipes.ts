@@ -2,6 +2,7 @@ import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalQuery, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
+import { resolveAssetThumbUrl } from "./r2_url";
 import { projectBySlug, resolveViewer } from "./review";
 import { composeRecipe } from "../lib/mj-recipe";
 
@@ -17,6 +18,8 @@ export const recipeCodeValidator = v.object({
   flag: v.union(v.literal("sref"), v.literal("profile")),
   kind: v.union(v.literal("moodboard"), v.literal("profile"), v.literal("sref"), v.literal("unknown")),
   name: v.optional(v.string()),
+  // A moodboard's first pictures, so its name reads as a look.
+  thumbs: v.optional(v.array(v.string())),
 });
 
 export const recipeViewValidator = v.object({
@@ -49,12 +52,21 @@ export const recipeViewsOf = async (ctx: Ctx, owner: string, style: Doc<"worldSt
   const nameOf = codeNamer(ctx, owner);
   const out: RecipeView[] = [];
   for (const recipe of style.recipes) {
-    const known = new Map<string, { kind: "moodboard" | "profile"; name: string }>();
+    const known = new Map<string, { kind: "moodboard" | "profile"; name: string; thumbs?: string[] }>();
     const boardCodes: string[] = [];
     for (const id of recipe.moodboardIds) {
       const board = await ctx.db.get(id);
       const code = board?.mjCode ?? (board?.mjMoodboardId ? `m${board.mjMoodboardId}` : undefined);
-      if (board && code) { boardCodes.push(code); known.set(code, { kind: "moodboard", name: board.name }); }
+      if (board && code) {
+        boardCodes.push(code);
+        const thumbs: string[] = [];
+        for (const item of await ctx.db.query("moodboardItems").withIndex("by_moodboard_position", (q) => q.eq("moodboardId", board._id)).take(3)) {
+          const asset = await ctx.db.get(item.assetId);
+          const url = asset ? await resolveAssetThumbUrl(ctx, asset) : null;
+          if (url) thumbs.push(url);
+        }
+        known.set(code, { kind: "moodboard", name: board.name, thumbs });
+      }
     }
     const profileCodes: string[] = [];
     for (const id of recipe.profileIds) {
@@ -68,8 +80,9 @@ export const recipeViewsOf = async (ctx: Ctx, owner: string, style: Doc<"worldSt
     if (!composed.params && !composed.prompt) continue;
     const codes: RecipeView["codes"] = composed.srefs.map((code) => ({ code, flag: "sref" as const, kind: "sref" as const }));
     for (const code of composed.profiles) {
-      const hit = known.get(code) ?? await nameOf(code);
-      codes.push({ code, flag: "profile", kind: hit?.kind ?? "unknown", name: hit?.name });
+      const own = known.get(code);
+      const hit = own ?? await nameOf(code);
+      codes.push({ code, flag: "profile", kind: hit?.kind ?? "unknown", name: hit?.name, thumbs: own?.thumbs });
     }
     out.push({ name: recipe.name, params: composed.params, prompt: composed.prompt, frames: recipe.frames, codes });
   }

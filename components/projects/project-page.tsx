@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useConvexAuth, useQuery } from "convex/react";
@@ -119,13 +119,13 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
         />
       </Section>
 
-      <Section title="Locked locations" count={locked?.prompts.length} note="One prompt per place, without style words, with its brief images and a fixed seed. Redo any place in another style in one click.">
+      <Section title="Locked locations" count={locked?.prompts.filter((row) => !row.place.startsWith("Test shots")).length} note="Each place written once, without a style. Click a place to redo it in another look.">
         {locked === undefined ? <Loader2 className="animate-spin" size={14} style={{ color: "var(--lm-text-ghost)" }} /> : locked.prompts.length ? (
           <LockedPlaces prompts={locked.prompts} onRestyle={setRestyle} />
         ) : <p className="lmp-empty">No locked location prompts yet.</p>}
       </Section>
 
-      <Section title="Runs" note="Prompt sets × style presets × locked seeds. Screen every preset first, then refine the ones you keep.">
+      <Section title="Compare looks" note="The same shots through several looks, on the same seeds. You send each job; then keep or drop on the grid.">
         <ProjectRuns ownerUserId={ownerUserId} world={key} />
       </Section>
 
@@ -214,57 +214,38 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
 type LockedRow = FunctionReturnType<typeof api.lockedPrompts.listLockedPrompts>["prompts"][number];
 
 function LockedPlaces({ prompts, onRestyle }: { prompts: LockedRow[]; onRestyle: (preset: RestylePreset) => void }) {
-  const places = useMemo(() => {
-    const map = new Map<string, LockedRow[]>();
-    for (const row of prompts) map.set(row.place, [...(map.get(row.place) ?? []), row]);
-    return [...map.entries()];
-  }, [prompts]);
-  // The area with the most prompts first (School before Mexico City).
+  // Test shots belong to Compare looks; here only real places, one picture grid per area.
+  const places = prompts.filter((row) => !row.place.startsWith("Test shots"));
   const areaOf = (place: string) => place.split("·")[0]!.trim();
-  const areas = [...new Set(places.map(([place]) => areaOf(place)))]
-    .sort((a, b) => prompts.filter((row) => areaOf(row.place) === b).length - prompts.filter((row) => areaOf(row.place) === a).length);
+  const areas = [...new Set(places.map((row) => areaOf(row.place)))]
+    .sort((a, b) => places.filter((row) => areaOf(row.place) === b).length - places.filter((row) => areaOf(row.place) === a).length);
   return (
     <div className="lmp-locked">
       {areas.map((area) => (
         <div key={area} className="lmp-locked-area">
           <div className="lmp-locked-area-h">
             <h3 style={SANS}>{area}</h3>
-            <button type="button" className="lmp-more" onClick={() => onRestyle({ places: [area] })}>Redo all of {area} in style ▾</button>
+            <button type="button" className="lmp-more" onClick={() => onRestyle({ places: [area] })}>Redo in another style</button>
           </div>
-          {places.filter(([place]) => place.split("·")[0]!.trim() === area).map(([place, rows]) => (
-            <div key={place} className="lmp-place">
-              <div className="lmp-place-h">
-                <b style={SANS}>{place.split("·").slice(1).join("·").trim() || place}</b>
-                <span className="lmp-mono">{rows.length} {rows.length === 1 ? "prompt" : "prompts"}</span>
-                <button type="button" className="lmp-redo" onClick={() => onRestyle({ places: [place] })}>Redo in style ▾</button>
-              </div>
-              <div className="lmp-lp-row">
-                {rows.map((row) => {
-                  const thumb = row.lastTakes[0]?.thumbUrl ?? row.lockedFrame?.thumbUrl ?? row.imagePrompts[0]?.thumbUrl;
-                  return (
-                    <article key={row.id} className="lmp-lp">
-                      <div className="lmp-lp-art">
-                        {thumb ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={thumb} alt="" loading="lazy" />
-                        ) : <span className="lmp-lp-words">Words only</span>}
-                        {!row.lockedFrame && !row.lastTakes.length && row.imagePrompts.length ? <span className="lmp-wall-chip">Brief</span> : null}
-                        {row.lockedFrame ? <span className="lmp-wall-chip">Locked frame</span> : null}
-                      </div>
-                      <div className="lmp-lp-body">
-                        <b style={SANS}>{row.title}</b>
-                        <span className="lmp-mono">{[row.scenes.length ? `Scenes ${row.scenes.join(", ")}` : null, row.currentStyle?.name, row.takes ? `${row.takes} takes` : null].filter(Boolean).join(" · ")}</span>
-                        <div className="lmp-lp-actions">
-                          <CopyChip value={`lp:${row.id}`} label={`seed ${row.seed}`} title="Copy the locked prompt id" />
-                          <button type="button" className="lmp-redo" onClick={() => onRestyle({ promptIds: [row.id] })}>Redo ▾</button>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
+          <div className="lmp-lp-row">
+            {places.filter((row) => areaOf(row.place) === area).map((row) => {
+              const thumb = row.lastTakes[0]?.thumbUrl ?? row.lockedFrame?.thumbUrl ?? row.imagePrompts[0]?.thumbUrl;
+              return (
+                <button type="button" key={row.id} className="lmp-lp" title="Redo this place in another style" onClick={() => onRestyle({ promptIds: [row.id] })}>
+                  <div className="lmp-lp-art">
+                    {thumb ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={thumb} alt="" loading="lazy" />
+                    ) : <span className="lmp-lp-words">{row.text.split(",").slice(0, 2).join(",")}</span>}
+                    <span className="lmp-wall-chip">{row.place.split("·").slice(1).join("·").trim() || row.place}</span>
+                  </div>
+                  <div className="lmp-lp-body">
+                    <b style={SANS}>{row.title}</b>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
         </div>
       ))}
     </div>
@@ -465,10 +446,11 @@ const CSS = `
 .lmp-redo{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 10px;border-radius:999px;border:1px solid var(--lm-border-strong);color:var(--lm-text-primary)}
 .lmp-redo:hover{background:var(--lm-surface-2)}
 .lmp-lp-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:8px}
-.lmp-lp{border:1px solid var(--lm-border-subtle);border-radius:var(--lm-radius,8px);overflow:hidden}
+.lmp-lp{display:block;width:100%;text-align:left;background:transparent;cursor:pointer;border:1px solid var(--lm-border-subtle);border-radius:var(--lm-radius,8px);overflow:hidden}
+.lmp-lp:hover{border-color:var(--lm-border-strong)}
 .lmp-lp-art{position:relative;aspect-ratio:16/9;background:var(--lm-surface-2)}
 .lmp-lp-art img{width:100%;height:100%;object-fit:cover;display:block}
-.lmp-lp-words{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--lm-text-ghost)}
+.lmp-lp-words{position:absolute;inset:0;display:flex;align-items:center;padding:12px;font-size:12px;line-height:1.35;color:var(--lm-text-tertiary)}
 .lmp-lp-body{display:flex;flex-direction:column;gap:5px;padding:9px 10px 10px}
 .lmp-lp-body b{font-size:13px;font-weight:800;text-transform:uppercase;line-height:1.15}
 .lmp-lp-body .lmp-mono{font-size:10px;color:var(--lm-text-tertiary)}

@@ -31,7 +31,9 @@ function Grid({ ownerUserId, world, run }: { ownerUserId: string; world: string;
   const runs = useQuery(api.promptGrid.listRuns, isAuthenticated ? { ownerUserId, world } : "skip");
   const runId = run ?? runs?.[0]?.id;
   const grid = useQuery(api.promptGrid.getRunGrid, isAuthenticated && runId ? { ownerUserId, run: runId } : "skip");
-  const boards = useQuery(api.moodboards.listMoodboards, isAuthenticated && grid ? { ownerUserId, folderId: grid.run.worldId, includeChildren: true, includeArchived: false } : "skip");
+  const boards = useQuery(api.moodboards.listMoodboards, isAuthenticated && grid ? { ownerUserId, folderId: grid.run.worldId, includeChildren: true, includeArchived: false, previewLimit: 3 } : "skip");
+  const presetList = useQuery(api.promptGrid.listPresets, isAuthenticated && grid ? { ownerUserId, world } : "skip");
+  const coversOf = (id: string) => presetList?.find((preset) => preset.id === id)?.covers ?? [];
   const setVerdict = useMutation(api.promptGrid.setRunVerdict);
   const addItems = useMutation(api.moodboards.addMoodboardItems);
   const saveStyle = useMutation(api.worldStyles.saveStyle);
@@ -118,14 +120,25 @@ function Grid({ ownerUserId, world, run }: { ownerUserId: string; world: string;
             <h1 style={SANS}>{grid.run.name}</h1>
             <div className="lrg-tools">
               <Link href={`/w/${grid.run.worldKey}/queue?thread=${grid.run.threadId}`} className="lrg-btn">Open the queue</Link>
-              <span className="lrg-k">{kept.length} kept</span>
-              <select value={boardId} onChange={(event) => setBoardId(event.target.value)} className="lrg-select" aria-label="Moodboard">
-                <option value="">Moodboard…</option>
-                {(boards ?? []).map((board) => <option key={board._id} value={board._id}>{board.name}</option>)}
-              </select>
-              <button type="button" className="lrg-btn" disabled={!boardId || !kept.length} onClick={() => void toBoard()}>Add kept to moodboard</button>
+              <span className="lrg-k">{kept.length} kept{kept.length ? " · pick a moodboard to add them" : ""}</span>
             </div>
           </section>
+          {kept.length && boards?.length ? (
+            <div className="lrg-boards">
+              {boards.map((board) => (
+                <button key={board._id} type="button" className="lrg-board" data-on={boardId === board._id || undefined} onClick={() => setBoardId(board._id)} title={board.name}>
+                  <span className="lrg-board-pics">
+                    {board.previewItems.slice(0, 3).map((item, index) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img key={index} src={item.thumbUrl ?? item.url} alt="" loading="lazy" />
+                    ))}
+                  </span>
+                  <span className="lrg-board-name">{board.name}</span>
+                </button>
+              ))}
+              {boardId ? <button type="button" className="lrg-btn" onClick={() => void toBoard()}>Add {kept.length} kept</button> : null}
+            </div>
+          ) : null}
           <div className="lrg-scroll">
             <table className="lrg-table">
               <thead>
@@ -138,9 +151,15 @@ function Grid({ ownerUserId, world, run }: { ownerUserId: string; world: string;
                 {grid.presets.map((preset) => (
                   <tr key={preset.id} data-v={preset.verdict}>
                     <th className="lrg-rowh" onMouseEnter={() => { hovered.current = { kind: "row", presetId: preset.id }; }} onMouseLeave={() => { hovered.current = null; }}>
-                      <b style={SANS}>{preset.name}</b>
+                      <span className="lrg-covers">
+                        {coversOf(preset.id).map((url) => (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img key={url} src={url} alt="" loading="lazy" />
+                        ))}
+                      </span>
+                      <b style={SANS}>{preset.name.replace(/^CAS /, "")}</b>
                       {preset.verdict ? <span className="lrg-v" data-v={preset.verdict}>{preset.verdict === "keep" ? "Kept" : "Dropped"}</span> : null}
-                      <button type="button" className="lrg-mini" onClick={() => setRowForStyle(preset.id)}>Save as style</button>
+                      <button type="button" className="lrg-mini lrg-hover" onClick={() => setRowForStyle(preset.id)}>Save as style</button>
                     </th>
                     {grid.prompts.map((prompt) => {
                       const cell = grid.cells.find((c) => c.presetId === preset.id && c.promptId === prompt.id);
@@ -195,6 +214,16 @@ const CSS = `
 .lrg-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .lrg-btn{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:8px 13px;border-radius:999px;background:var(--lm-ink);color:var(--lm-paper)}
 .lrg-btn:disabled{opacity:.4}
+.lrg-boards{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:0 16px 14px}
+.lrg-board{display:flex;flex-direction:column;gap:4px;width:150px;padding:4px;border-radius:8px;border:1px solid transparent;text-align:left}
+.lrg-board:hover,.lrg-board[data-on]{background:var(--lm-surface-2);border-color:var(--lm-border-strong)}
+.lrg-board-pics{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;aspect-ratio:3/1;border-radius:5px;overflow:hidden;background:var(--lm-surface-2)}
+.lrg-board-pics img{width:100%;height:100%;object-fit:cover}
+.lrg-board-name{font-size:11px;font-weight:800;text-transform:uppercase;line-height:1.15}
+.lrg-covers{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin-bottom:6px;border-radius:5px;overflow:hidden}
+.lrg-covers img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.lrg-hover{visibility:hidden}
+.lrg-rowh:hover .lrg-hover{visibility:visible}
 .lrg-select{font-size:12px;padding:7px 10px;border-radius:999px;border:1px solid var(--lm-border-strong);background:var(--lm-paper);color:var(--lm-text-primary)}
 .lrg-scroll{overflow-x:auto;padding:0 16px}
 .lrg-table{border-collapse:separate;border-spacing:4px}
