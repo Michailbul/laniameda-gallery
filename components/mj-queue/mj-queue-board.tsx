@@ -317,6 +317,7 @@ function refTiles(item: Item) {
     ...item.styleRefs.map((ref) => ({ ref, kind: "Style" })),
     ...(item.omniRef ? [{ ref: item.omniRef, kind: "Omni" }] : []),
     ...(item.characterRef ? [{ ref: item.characterRef, kind: "Character" }] : []),
+    ...(item.editRefs ?? []).map((ref) => ({ ref, kind: "Frame" })),
   ];
   return tiles;
 }
@@ -363,6 +364,11 @@ function PromptRow({ ownerUserId, item, index, copied, onCopy }: {
         <span className="mjq-item-title">{item.title || "Untitled prompt"}</span>
         <span className={`mjq-status s-${item.status}`}>{STATUS_LABEL[item.status]}</span>
       </div>
+      {item.lockedPromptId ? <div className="mjq-locked">
+        <span>{item.placeLabel ?? "Locked location"}</span>
+        {item.styleLabel ? <span>in {item.styleLabel}</span> : null}
+        <span>{item.restyleMode === "frame" ? "Same layout · locked frame" : "Same prompt and seed"}</span>
+      </div> : null}
       {item.note && <p className="mjq-note">{item.note}</p>}
       {item.warnings.map((warning) => <p key={warning} className="mjq-warn">{warning}</p>)}
       <button type="button" className={`mjq-cmd${expanded ? " is-open" : ""}`} aria-expanded={expanded}
@@ -477,6 +483,8 @@ const CSS = `
 .mjq-status{flex:0 0 auto;padding:3px 6px;border:1px solid var(--lm-border-strong);border-radius:var(--lm-radius);font:700 8.5px/1 var(--lm-font);letter-spacing:.14em;text-transform:uppercase;color:var(--lm-text-tertiary)}
 .mjq-status.s-queued{color:var(--lm-coral);border-color:color-mix(in srgb,var(--lm-coral) 55%,transparent)}
 .mjq-status.s-injected{background:var(--lm-coral);border-color:var(--lm-coral);color:var(--lm-paper)}
+.mjq-locked{display:flex;flex-wrap:wrap;gap:4px}
+.mjq-locked span{padding:3px 7px;border-radius:999px;background:var(--lm-surface-2);font:700 9px/1.2 var(--lm-font);letter-spacing:.1em;text-transform:uppercase;color:var(--lm-text-secondary)}
 .mjq-note{margin:0;font:500 13px/1.45 var(--lm-font-display);color:var(--lm-text-secondary)}
 .mjq-warn{margin:0;font:600 10px/1.45 var(--lm-font);letter-spacing:.04em;color:var(--lm-coral)}
 .mjq-cmd{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;width:100%;text-align:left;margin:0;padding:10px 12px;cursor:pointer;

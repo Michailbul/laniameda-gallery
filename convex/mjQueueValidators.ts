@@ -35,6 +35,15 @@ export const mjQueueItemFields = {
   characterRef: v.optional(mjQueueRefValidator),
   profileCodes: v.array(v.string()),
   params: v.optional(v.string()),
+  // Images attached for the Edit model (--edit), e.g. a locked frame to restyle.
+  editRefs: v.optional(v.array(mjQueueRefValidator)),
+  // A restyle of a locked location prompt (convex/lockedPrompts.ts): which
+  // prompt, in which world style, by which mode; the labels the panel shows.
+  lockedPromptId: v.optional(v.id("lockedPrompts")),
+  placeLabel: v.optional(v.string()),
+  styleId: v.optional(v.id("worldStyles")),
+  styleLabel: v.optional(v.string()),
+  restyleMode: v.optional(v.union(v.literal("seed"), v.literal("frame"))),
   note: v.optional(v.string()),
   status: mjQueueStatusValidator,
   injectedAt: v.optional(v.number()),

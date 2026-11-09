@@ -77,7 +77,7 @@ const toOut = (row: Item) => {
 
 const assetRefPattern = /^asset:/;
 
-async function resolveRef(ctx: Ctx, owner: string, input: RefInput, label: string): Promise<Ref> {
+export async function resolveRef(ctx: Ctx, owner: string, input: RefInput, label: string): Promise<Ref> {
   const weight = typeof input.weight === "number" && Number.isFinite(input.weight) ? input.weight : undefined;
   const refLabel = text(input.label, 120, "A reference label");
   const rawUrl = input.url?.trim();
@@ -111,7 +111,7 @@ async function resolveRef(ctx: Ctx, owner: string, input: RefInput, label: strin
   throw new ConvexError(`${label}: give a url, an asset:<id> or a code.`);
 }
 
-async function resolveRefs(ctx: Ctx, owner: string, inputs: RefInput[] | undefined, max: number, label: string) {
+export async function resolveRefs(ctx: Ctx, owner: string, inputs: RefInput[] | undefined, max: number, label: string) {
   const list = inputs ?? [];
   if (list.length > max) throw new ConvexError(`At most ${max} ${label.toLowerCase()}s per prompt.`);
   const out: Ref[] = [];
@@ -138,7 +138,7 @@ async function ownedRows(ctx: Ctx, owner: string) {
   return rows;
 }
 
-async function batchRows(ctx: Ctx, owner: string, batchKey: string) {
+export async function batchRows(ctx: Ctx, owner: string, batchKey: string) {
   const rows: Item[] = [];
   for (const candidate of resolveUserIdCandidates(owner)) {
     rows.push(...await ctx.db.query("mjQueueItems")

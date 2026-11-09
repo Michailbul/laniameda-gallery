@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.28.0 (9 Nov 2026)
+
+- Restyles of locked location prompts show what they are: the place, the
+  style ("in CAS STORYBOOK") and the mode (same prompt and seed, or same
+  layout from the locked frame). An attached frame shows as a FRAME thumb.
+- The command adds `--edit <frame>` (Midjourney's Edit model, V8.2) when an
+  item restyles a locked frame. Still one job per click; nothing is sent by
+  itself.
+
 ## 0.27.1 (9 Nov 2026)
 
 - The MJ Queue tab reads the gallery every 4 seconds while it is open (was

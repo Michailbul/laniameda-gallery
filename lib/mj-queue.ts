@@ -17,6 +17,7 @@ export const MJ_QUEUE_LIMITS = {
   imagePrompts: 5,
   styleRefs: 10,
   profileCodes: 10,
+  editRefs: 4,
   url: 2048,
   listItems: 500,
 } as const;
@@ -30,6 +31,9 @@ export type MjQueueComposable = {
   characterRef?: MjQueueRef | null;
   profileCodes?: string[];
   params?: string;
+  // Images attached to the prompt for Midjourney's Edit model (V8.2, up to
+  // four): "--edit url1 url2". An attached frame holds its layout (restyle).
+  editRefs?: MjQueueRef[];
 };
 
 const space = (value: string | undefined) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -124,6 +128,12 @@ export function composeMjCommand(item: MjQueueComposable) {
   const codes = [...new Set((item.profileCodes ?? []).map(space).filter(Boolean))];
   if (codes.length) parts.push(`--profile ${codes.join(" ")}`);
   if (params) parts.push(params);
+
+  const edits = (item.editRefs ?? []).map((ref) => space(ref.url)).filter(Boolean).slice(0, 4);
+  if (edits.length) {
+    if (!version || major(version) >= 8) parts.push(`--edit ${edits.join(" ")}`);
+    else warnings.push("Attached frame left out: the Edit model is V8.2. Drop the pinned version to keep the layout.");
+  }
 
   if (!prose && !images.length) warnings.push("No prompt words yet.");
   return { command: parts.join(" "), warnings };

@@ -14,6 +14,7 @@ import {
   inspirationCaptureFields, inspirationPrivateDeletionFields, assetCaptureFields,
 } from "./inspirationValidators";
 import { mjQueueItemFields } from "./mjQueueValidators";
+import { lockedPromptFields, lockedPromptRevisionFields } from "./lockedPromptValidators";
 import { folderScopeValidator, productionBriefFields, projectDetailsValidator } from "./projectValidators";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
 import {
@@ -74,6 +75,14 @@ export default defineSchema({
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
     .index("by_owner_world_updatedAt", ["ownerUserId", "worldFolderId", "updatedAt"])
     .searchIndex("search_text", { searchField: "searchText", filterFields: ["ownerUserId", "worldFolderId"] }),
+  // Locked location prompts of a project (convex/lockedPrompts.ts): one
+  // style-neutral prompt per place, restyled into any world style through the
+  // MJ Queue; every content change is a revision.
+  lockedPrompts: defineTable(lockedPromptFields)
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_world_updatedAt", ["ownerUserId", "worldFolderId", "updatedAt"]),
+  lockedPromptRevisions: defineTable(lockedPromptRevisionFields)
+    .index("by_prompt_revision", ["lockedPromptId", "revision"]),
   // Director review (convex/review.ts, reviewValidators.ts).
   reviewProjects: defineTable(reviewProjectFields)
     .index("by_slug", ["slug"])

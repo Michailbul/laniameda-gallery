@@ -55,6 +55,9 @@ other inspiration pieces and inspiration-library takes made for the project.
 | `set_project` | Make a world a project or change its details. |
 | `get_style` | Each recipe now carries `copy`: `params` (every code merged into one Midjourney parameter line) and `prompt` (the template with `[subject]`). |
 
+Locked location prompts (one style-neutral prompt per place, redone in any
+style in one click) are part of the project: references/locked-prompts.md.
+
 ## Add a brief
 
 1. Save its pictures first as ordinary gallery assets in the world (piece

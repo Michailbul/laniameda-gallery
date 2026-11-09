@@ -69,6 +69,12 @@
     if (codes.length) parts.push(`--profile ${codes.join(" ")}`);
     if (params) parts.push(params);
 
+    const edits = ((item && item.editRefs) || []).map((ref) => space(ref && ref.url)).filter(Boolean).slice(0, 4);
+    if (edits.length) {
+      if (!version || major(version) >= 8) parts.push(`--edit ${edits.join(" ")}`);
+      else warnings.push("Attached frame left out: the Edit model is V8.2. Drop the pinned version to keep the layout.");
+    }
+
     if (!prose && !images.length) warnings.push("No prompt words yet.");
     return { command: parts.join(" "), warnings };
   }

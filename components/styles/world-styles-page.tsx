@@ -17,6 +17,9 @@ import { MOSAIC_COVERS, MOSAIC_CSS, StyleCaption, StyleMosaic, framesLabel, orde
 import { handleEditTakeKey } from "@/lib/edit-take-keys";
 import { useReviewPromote } from "@/components/review-promote/use-review-promote";
 import { StyleRecipes } from "./style-recipes";
+import type { RestylePreset } from "@/components/locked/restyle-dialog";
+
+const RestyleDialog = dynamic(() => import("@/components/locked/restyle-dialog").then((m) => m.RestyleDialog), { ssr: false });
 
 // The styles page of a world's universe (/w/<world>/styles): every style as a
 // carousel of mosaic covers across the top, then the chosen style's frames as
@@ -137,6 +140,8 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
   const stories = useQuery(api.worldStyles.listStyleStories, isAuthenticated && activeId && ready ? { ownerUserId, styleId: activeId, perBook: 40 } : "skip");
   // The recipe Michael copies into Midjourney: the whole parameter line and the template.
   const detail = useQuery(api.worldStyles.getStyle, isAuthenticated && activeId && ready ? { ownerUserId, style: activeId } : "skip");
+  const lockedCount = useQuery(api.lockedPrompts.countLockedPrompts, isAuthenticated && ready ? { ownerUserId, world } : "skip");
+  const [restyle, setRestyle] = useState<RestylePreset | null>(null);
   const story = storyId ? stories?.find((row) => row.id === storyId) ?? null : null;
 
   // What the masonry shows: the style's frames (or one storybook's), with the
@@ -309,6 +314,11 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
         <section className="px-3 pt-5 md:px-6">
           <StyleHead card={active} madeWith={madeWith?.items} />
           {detail && detail.id === active.id ? <StyleRecipes recipes={detail.recipes} names={madeWith?.items ?? []} /> : null}
+          {lockedCount ? (
+            <button type="button" className="lms-copy mb-4" onClick={() => setRestyle({ styleIds: [active.id] })}>
+              Redo locked locations in {active.name} ▾
+            </button>
+          ) : null}
           <StoryChips total={active.frameCount} stories={stories} storyId={storyId} onStory={setStoryId} />
           <Masonry frames={list} loading={!story && frames.status === "LoadingFirstPage"}
             canLoadMore={!story && frames.status === "CanLoadMore"} onLoadMore={() => frames.loadMore(PAGE)}
@@ -323,8 +333,10 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
           onStep={(delta) => { const next = list[openIndex + delta]; if (next) setOpenId(next.assetId); }}
           onClose={() => setOpenId(null)}
           onLike={(superLike) => void like(opened, superLike)} onDrop={() => void drop(opened)}
-          onPalette={(kind) => setPalette({ kind, frame: opened })} />
+          onPalette={(kind) => setPalette({ kind, frame: opened })}
+          onRestyle={(promptId) => setRestyle({ promptIds: [promptId] })} />
       ) : null}
+      {restyle ? <RestyleDialog ownerUserId={ownerUserId} world={listing.world.key} preset={restyle} onClose={() => setRestyle(null)} /> : null}
       {palette && listing ? (
         <Palette ownerUserId={ownerUserId} kind={palette.kind} listing={listing} activeId={activeId} homeWorldId={active?.world.id ?? null}
           onPick={(target) => void pick(palette.kind, palette.frame, target)} onClose={() => setPalette(null)} />
@@ -574,16 +586,18 @@ function FrameMedia({ frame, width, eager }: { frame: Frame; width: number; eage
 
 /* ── Open view ────────────────────────────────────────────────────────────── */
 
-function OpenView({ ownerUserId, frame, index, count, style, story, level, gone, flash, focus, onStep, onClose, onLike, onDrop, onPalette }: {
+function OpenView({ ownerUserId, frame, index, count, style, story, level, gone, flash, focus, onStep, onClose, onLike, onDrop, onPalette, onRestyle }: {
   ownerUserId: string; frame: Frame; index: number; count: number; style: Card; story: Story | null;
   level: Level; gone?: Gone; flash: Flash | null; focus: { what: "edit" | "comment"; n: number } | null;
   onStep: (delta: number) => void; onClose: () => void; onLike: (superLike: boolean) => void; onDrop: () => void;
   onPalette: (kind: PaletteKind) => void;
+  onRestyle: (promptId: string) => void;
 }) {
   const { isAuthenticated } = useConvexAuth();
   const view = useQuery(api.styleFrames.getFrameView, isAuthenticated ? { ownerUserId, assetId: frame.assetId } : "skip");
   const detail = useQuery(api.worldStyles.getStyle, isAuthenticated ? { ownerUserId, style: style.id } : "skip");
   const madeWith = useQuery(api.styleFrames.styleMadeWith, isAuthenticated ? { ownerUserId, styleId: style.id } : "skip");
+  const lockedOf = useQuery(api.lockedPrompts.lockedForAsset, isAuthenticated ? { ownerUserId, assetId: frame.assetId } : "skip");
   const [loaded, setLoaded] = useState<string | null>(null);
   // A wipe belongs to the frame it was opened on.
   const [wipe, setWipe] = useState<{ assetId: string; compare: EditCompare } | null>(null);
@@ -657,6 +671,19 @@ function OpenView({ ownerUserId, frame, index, count, style, story, level, gone,
           <ActionPill k="B" onClick={() => onPalette("storybook")}>Storybook</ActionPill>
           <ActionPill k="2" onClick={onDrop}>{gone && gone.back !== false ? "Back in style" : "Off this style"}</ActionPill>
         </div>
+
+        {lockedOf?.length ? (
+          <Section title="Locked location">
+            <div className="flex flex-col gap-1.5">
+              {lockedOf.map((row) => (
+                <div key={row.id} className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[13px]"><b>{row.place}</b> · {row.title} <span className="lms-kicker">({row.as})</span></span>
+                  <button type="button" className="lms-copy" onClick={() => onRestyle(row.id)}>Redo in style ▾</button>
+                </div>
+              ))}
+            </div>
+          </Section>
+        ) : null}
 
         {view?.places.length ? (
           <Section title="Where it is">
@@ -843,6 +870,8 @@ function KeyHint({ open }: { open: boolean }) {
 }
 
 const PAGE_CSS = `
+.lms-copy{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;padding:7px 11px;border-radius:999px;border:1px solid var(--lm-border-strong);color:var(--lm-text-primary);background:transparent}
+.lms-copy:hover{background:var(--lm-surface-2)}
 .lms{font-family:var(--font-geist-sans),system-ui,sans-serif;--lm-font:var(--font-geist-mono),ui-monospace,monospace;--lm-font-display:var(--font-geist-sans),system-ui,sans-serif}
 .lms-mono,.lms-kicker,.lms-pill,.lms-seg,.lms-chip,.lms-keys,.lms-act,.lms-keep,.lms-mw{font-family:var(--font-geist-mono),ui-monospace,monospace}
 .lms-kicker{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--lm-text-tertiary)}

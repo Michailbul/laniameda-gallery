@@ -1,13 +1,17 @@
 "use client";
 
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useConvexAuth, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ArrowLeft, ArrowUpRight, ChevronDown, FileText, Loader2, Lock } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { CopyChip, InboxGate } from "@/components/inbox/inbox-ui";
 import { galleryRoutePath, worldStylesPath } from "@/lib/gallery-routes";
+import type { RestylePreset } from "@/components/locked/restyle-dialog";
+
+const RestyleDialog = dynamic(() => import("@/components/locked/restyle-dialog").then((m) => m.RestyleDialog), { ssr: false });
 
 // The art director's project room (/w/<world>/project). One page with the
 // whole film: what production sent (briefs with their files and pictures),
@@ -47,6 +51,8 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
   const project = useQuery(api.projects.getProject, isAuthenticated ? { ownerUserId, world } : "skip");
   // Inspiration reads the world's members: after the first screen is in.
   const inspiration = useQuery(api.projects.projectInspiration, isAuthenticated && project ? { ownerUserId, world, limit: 24 } : "skip");
+  const locked = useQuery(api.lockedPrompts.listLockedPrompts, isAuthenticated && project ? { ownerUserId, world } : "skip");
+  const [restyle, setRestyle] = useState<RestylePreset | null>(null);
 
   if (project === undefined) {
     return <main className="grid min-h-dvh place-items-center" style={{ background: "var(--lm-paper)" }}>
@@ -98,6 +104,12 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
             {project.briefs.map((brief) => <BriefCard key={brief.id} brief={brief} ownerUserId={ownerUserId} worldKey={key} />)}
           </div>
         ) : <p className="lmp-empty">Nothing from production yet.</p>}
+      </Section>
+
+      <Section title="Locked locations" count={locked?.prompts.length} note="One prompt per place, without style words, with its brief images and a fixed seed. Redo any place in another style in one click.">
+        {locked === undefined ? <Loader2 className="animate-spin" size={14} style={{ color: "var(--lm-text-ghost)" }} /> : locked.prompts.length ? (
+          <LockedPlaces prompts={locked.prompts} onRestyle={setRestyle} />
+        ) : <p className="lmp-empty">No locked location prompts yet.</p>}
       </Section>
 
       <Section title="Art director shelves" count={adShelves.length} note="Your working shelves. Not in the director review, not on the public page.">
@@ -177,7 +189,68 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
           ))}
         </div>
       </Section>
+      {restyle ? <RestyleDialog ownerUserId={ownerUserId} world={key} preset={restyle} onClose={() => setRestyle(null)} /> : null}
     </main>
+  );
+}
+
+type LockedRow = FunctionReturnType<typeof api.lockedPrompts.listLockedPrompts>["prompts"][number];
+
+function LockedPlaces({ prompts, onRestyle }: { prompts: LockedRow[]; onRestyle: (preset: RestylePreset) => void }) {
+  const places = useMemo(() => {
+    const map = new Map<string, LockedRow[]>();
+    for (const row of prompts) map.set(row.place, [...(map.get(row.place) ?? []), row]);
+    return [...map.entries()];
+  }, [prompts]);
+  // The area with the most prompts first (School before Mexico City).
+  const areaOf = (place: string) => place.split("·")[0]!.trim();
+  const areas = [...new Set(places.map(([place]) => areaOf(place)))]
+    .sort((a, b) => prompts.filter((row) => areaOf(row.place) === b).length - prompts.filter((row) => areaOf(row.place) === a).length);
+  return (
+    <div className="lmp-locked">
+      {areas.map((area) => (
+        <div key={area} className="lmp-locked-area">
+          <div className="lmp-locked-area-h">
+            <h3 style={SANS}>{area}</h3>
+            <button type="button" className="lmp-more" onClick={() => onRestyle({ places: [area] })}>Redo all of {area} in style ▾</button>
+          </div>
+          {places.filter(([place]) => place.split("·")[0]!.trim() === area).map(([place, rows]) => (
+            <div key={place} className="lmp-place">
+              <div className="lmp-place-h">
+                <b style={SANS}>{place.split("·").slice(1).join("·").trim() || place}</b>
+                <span className="lmp-mono">{rows.length} {rows.length === 1 ? "prompt" : "prompts"}</span>
+                <button type="button" className="lmp-redo" onClick={() => onRestyle({ places: [place] })}>Redo in style ▾</button>
+              </div>
+              <div className="lmp-lp-row">
+                {rows.map((row) => {
+                  const thumb = row.lastTakes[0]?.thumbUrl ?? row.lockedFrame?.thumbUrl ?? row.imagePrompts[0]?.thumbUrl;
+                  return (
+                    <article key={row.id} className="lmp-lp">
+                      <div className="lmp-lp-art">
+                        {thumb ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={thumb} alt="" loading="lazy" />
+                        ) : <span className="lmp-lp-words">Words only</span>}
+                        {!row.lockedFrame && !row.lastTakes.length && row.imagePrompts.length ? <span className="lmp-wall-chip">Brief</span> : null}
+                        {row.lockedFrame ? <span className="lmp-wall-chip">Locked frame</span> : null}
+                      </div>
+                      <div className="lmp-lp-body">
+                        <b style={SANS}>{row.title}</b>
+                        <span className="lmp-mono">{[row.scenes.length ? `Scenes ${row.scenes.join(", ")}` : null, row.currentStyle?.name, row.takes ? `${row.takes} takes` : null].filter(Boolean).join(" · ")}</span>
+                        <div className="lmp-lp-actions">
+                          <CopyChip value={`lp:${row.id}`} label={`seed ${row.seed}`} title="Copy the locked prompt id" />
+                          <button type="button" className="lmp-redo" onClick={() => onRestyle({ promptIds: [row.id] })}>Redo ▾</button>
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -351,5 +424,23 @@ const CSS = `
 .lmp-chip{display:inline-flex;align-items:baseline;gap:7px;font-size:12.5px;font-weight:600;padding:7px 11px;border-radius:999px;border:1px solid var(--lm-border-subtle);color:var(--lm-text-primary)}
 .lmp-chip:hover{background:var(--lm-surface-2)}
 .lmp-chip .lmp-mono{font-size:10px;font-weight:500;color:var(--lm-text-tertiary)}
+.lmp-locked{display:flex;flex-direction:column;gap:22px}
+.lmp-locked-area-h{display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:10px}
+.lmp-locked-area-h h3{font-size:18px;font-weight:900;text-transform:uppercase}
+.lmp-place{margin-bottom:14px}
+.lmp-place-h{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;margin-bottom:8px}
+.lmp-place-h b{font-size:14px;font-weight:800;text-transform:uppercase}
+.lmp-place-h .lmp-mono{font-size:10.5px;color:var(--lm-text-tertiary)}
+.lmp-redo{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 10px;border-radius:999px;border:1px solid var(--lm-border-strong);color:var(--lm-text-primary)}
+.lmp-redo:hover{background:var(--lm-surface-2)}
+.lmp-lp-row{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr));gap:8px}
+.lmp-lp{border:1px solid var(--lm-border-subtle);border-radius:var(--lm-radius,8px);overflow:hidden}
+.lmp-lp-art{position:relative;aspect-ratio:16/9;background:var(--lm-surface-2)}
+.lmp-lp-art img{width:100%;height:100%;object-fit:cover;display:block}
+.lmp-lp-words{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--lm-text-ghost)}
+.lmp-lp-body{display:flex;flex-direction:column;gap:5px;padding:9px 10px 10px}
+.lmp-lp-body b{font-size:13px;font-weight:800;text-transform:uppercase;line-height:1.15}
+.lmp-lp-body .lmp-mono{font-size:10px;color:var(--lm-text-tertiary)}
+.lmp-lp-actions{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:2px}
 @media (min-width:768px){.lmp-bar,.lmp-section{padding-left:28px;padding-right:28px}.lmp-hero-text{padding:96px 28px 34px}}
 `;
