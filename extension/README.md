@@ -36,6 +36,8 @@ midjourney.com a QUEUE pill sits bottom-right with the number left to send.
 - **Edit** changes the words, references, codes, params or note and saves
   them to the gallery. **Skip** sets an item aside, **Restore** brings it back,
   **↑** moves it up.
+- The tab follows the gallery live: new prompts from agents show within a
+  few seconds while it is open.
 - **Next →** or ⌥⇧N injects the next queued prompt. ⌥⇧Q opens or closes the
   panel.
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.27.1 (9 Nov 2026)
+
+- The MJ Queue tab reads the gallery every 4 seconds while it is open (was
+  every minute), and at once when you come back to the window. Prompts an
+  agent queues through MCP show up within seconds. The list redraws only
+  when something changed, so it never flickers.
+
 ## 0.27.0 (8 Nov 2026)
 
 - Keys for the Midjourney dock. While a prompt is being written: ⌥1–⌥9 add
