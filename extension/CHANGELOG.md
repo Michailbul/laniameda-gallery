@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.31.1 (9 Nov 2026)
+
+- MJ Queue: a world's name stays on one line in the threads list; its
+  counts shorten instead.
+
 ## 0.31.0 (9 Nov 2026)
 
 - MJ Queue: one button, Next · Send. It puts the next queued prompt (or the
