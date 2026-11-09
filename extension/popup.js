@@ -16,6 +16,8 @@ const addModePanelEl = document.getElementById("addModePanel");
 const bookmarkModePanelEl = document.getElementById("bookmarkModePanel");
 const queueModeTabEl = document.getElementById("queueModeTab");
 const editModeTabEl = document.getElementById("editModeTab");
+const describeModeTabEl = document.getElementById("describeModeTab");
+const describeRootEl = document.getElementById("dsRoot");
 const quickEditRootEl = document.getElementById("qeRoot");
 
 const bookmarkUrlEl = document.getElementById("bookmarkUrl");
@@ -168,7 +170,11 @@ const destinationFolderId = async () => {
 };
 
 const setExtensionMode = (mode, { persist = false } = {}) => {
-  extensionMode = mode === "bookmark" || mode === "queue" || mode === "edit" ? mode : "add";
+  extensionMode = mode === "bookmark" || mode === "queue" || mode === "edit" || mode === "describe" ? mode : "add";
+  const isDescribe = extensionMode === "describe";
+  describeModeTabEl?.setAttribute("aria-selected", String(isDescribe));
+  if (describeRootEl) describeRootEl.hidden = !isDescribe;
+  document.body.classList.toggle("ds-mode", isDescribe);
   const isAddMode = extensionMode === "add";
   const isQueue = extensionMode === "queue";
   const isEdit = extensionMode === "edit";
@@ -183,7 +189,7 @@ const setExtensionMode = (mode, { persist = false } = {}) => {
   // The MJ Queue tab takes the whole panel; the gallery settings hide.
   document.body.classList.toggle("mjq-mode", isQueue);
   globalThis.SaveToGalleryMjQueuePanel?.setVisible(isQueue);
-  const label = { add: "add", bookmark: "bookmark", queue: "queue", edit: "mj settings" }[extensionMode];
+  const label = { add: "add", bookmark: "bookmark", queue: "queue", edit: "mj settings", describe: "describe" }[extensionMode];
   modeBadgeEl.textContent = `${label} mode · v${chrome.runtime.getManifest().version}`;
   if (persist) {
     void chrome.storage.sync.set({ [EXTENSION_MODE_KEY]: extensionMode });
@@ -978,6 +984,12 @@ queueModeTabEl?.addEventListener("click", () => {
 editModeTabEl?.addEventListener("click", () => {
   setExtensionMode("edit", { persist: true });
 });
+
+describeModeTabEl?.addEventListener("click", () => {
+  setExtensionMode("describe", { persist: true });
+});
+// describe-panel.js switches here when a right-click sends it a picture.
+globalThis.SaveToGalleryPanelMode = (mode) => setExtensionMode(mode, { persist: true });
 
 worldModeTabEl?.addEventListener("click", () => {
   setFilingMode("world", { persist: true });

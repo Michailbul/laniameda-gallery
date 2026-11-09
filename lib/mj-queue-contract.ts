@@ -30,6 +30,12 @@ export const mjQueueItemInputSchema = z.object({
     .describe("Every other flag as typed, e.g. --ar 3:1 --draft --relax --stylize 250. --draft and --relax are valid V8.2 prompt params."),
   note: z.string().max(MJ_QUEUE_LIMITS.note).optional().describe("Plain words for Michael: what to look for in this one."),
   order: z.number().optional().describe("Place in the batch; default after the last item."),
+  describe: z.object({
+    sourceUrl: z.string().max(MJ_QUEUE_LIMITS.url).optional(),
+    pageUrl: z.string().max(MJ_QUEUE_LIMITS.url).optional(),
+    descriptions: z.array(z.string().max(1500)).max(4),
+    mode: z.enum(["keep", "ours"]),
+  }).optional().describe("Set by the extension's describer: the source picture and Midjourney's Describe lines (lineage)."),
 });
 
 export const mjQueueAddSchema = z.object({

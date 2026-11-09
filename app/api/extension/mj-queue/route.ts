@@ -3,11 +3,12 @@ import { api } from "@/convex/_generated/api";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/server/extension-auth";
 import { clientErrorMessage } from "@/lib/server/route-error";
-import { mjQueueListSchema, mjQueueUpdateSchema } from "@/lib/mj-queue-contract";
+import { mjQueueAddSchema, mjQueueListSchema, mjQueueUpdateSchema } from "@/lib/mj-queue-contract";
 
 // The extension's MJ Queue tab (side panel): GET reads the batches and
 // their prompts with the composed commands; POST saves an edit, a skip, a
-// reorder or the record of a send Michael made himself.
+// reorder or the record of a send Michael made himself, or (action "queue")
+// adds the describer's prompt as a new item.
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -38,7 +39,16 @@ export async function POST(request: Request) {
   try {
     if (!validateExtensionToken(request)) return corsJson({ error: "Unauthorized extension request." }, 401);
     const ownerUserId = resolveExtensionOwnerUserId();
-    const input = mjQueueUpdateSchema.parse(await request.json().catch(() => null));
+    const body = await request.json().catch(() => null);
+    // {action: "queue"} adds prompts (the describer's "Queue"); anything else is an update.
+    if (body && typeof body === "object" && (body as { action?: unknown }).action === "queue") {
+      const { action: _action, ...rest } = body as Record<string, unknown>;
+      void _action;
+      const add = mjQueueAddSchema.parse(rest);
+      const result = await getServerConvexClient(ownerUserId).mutation(api.mjQueue.queueItems, { ownerUserId, createdBy: "extension describer", ...add });
+      return corsJson({ ok: true, ...result });
+    }
+    const input = mjQueueUpdateSchema.parse(body);
     const item = await getServerConvexClient(ownerUserId).mutation(api.mjQueue.updateItem, { ownerUserId, ...input });
     return corsJson({ ok: true, item });
   } catch (error) {

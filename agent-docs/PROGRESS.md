@@ -2,11 +2,24 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-11-06
+Last updated: 2026-11-09
 
 ---
 
 ## ✔ Shipped
+
+### 2026-11-09 — Describe → our prompt, with a style lock (extension 0.29.0, branch `feat/mj-describe-to-prompt`, backend pushed 9 Nov 20:23)
+- Extension: `mj-describe-hook.js` (MAIN world) reads Midjourney's own
+  `POST /api/describe` answers and its IndexedDB cache (`mjDatabase2.descriptions`);
+  `mj-describe.js` shows the MAKE IT OURS card; `describe-panel.js` is the side
+  panel's Describe tab (drop, paste, recent describes, right-click "Describe to a
+  prompt"); `mj-describe-core.js` is the shared UI.
+- Backend: `promptEditRunner.describe` (the quick-edit agent with the picture,
+  Haiku routes fal → Pika), `styleRecipes.describeStyleOf` (style lock, line,
+  template, composed recipe), routes `/api/extension/prompt-describe`,
+  `/api/extension/styles` (worldStyles.listStyles), `/api/extension/mj-queue`
+  POST `{action:"queue"}`; `mjQueueItems.describe` lineage; the extension save
+  route passes `agentDescription`. Pure helpers `lib/mj-describe.ts` (tests).
 
 ### 2026-11-06 — Director review: CASSANDRA's review page, rounds, feedback, full agent control (branch `feat/director-review`)
 - `/review/<slug>` (public for CASSANDRA at www.mishabuloichyk.com/cassandra):

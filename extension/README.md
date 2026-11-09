@@ -45,9 +45,29 @@ Nothing is sent without your click: no timers, no loops, no background
 submits. V8.2 has no omni or character reference (the Edit model replaced
 both); an item that carries one says so and leaves the flag out.
 
+## Describe → our prompt (0.29)
+
+- On midjourney.com, run Describe as usual. A **MAKE IT OURS** pill shows
+  bottom-right with the picture; its card shows how Midjourney read the image
+  and writes our prompt from it. The extension only reads Midjourney's own
+  Describe answer (and its local cache of earlier ones); it sends nothing.
+- **Style words come from:** *Keep its look* (the image's own style,
+  described, so the prompt recreates it), *Our style* (the image's style
+  words out, the chosen gallery world style in: lock, line, template,
+  `--sref`/`--profile`/params from its recipe) or *Both*.
+- Each result: **Put in bar** (the bar only, never Enter), **Queue** (MJ
+  Queue item with the source picture and Midjourney's descriptions),
+  **Copy**, **Save to gallery** (picture + prompt as inspiration in the
+  world, on that click only).
+- Side panel → **Describe**: drop a file or an image from any page, paste,
+  pick a recent Midjourney describe, or right-click an image anywhere →
+  *Describe to a prompt*. Same controls; works without Midjourney's Describe.
+
 ## Files
 
 `background.js` service worker (gallery calls), `content.js` save UI,
 `midjourney-adapter.js` Midjourney metadata, `moodboard-dock.js` the dock,
 `prompt-packs*.js` phrase packs, `mj-queue-compose.js` + `mj-queue.js` +
-`mj-queue.css` the queue. History: CHANGELOG.md.
+`mj-queue.css` the queue, `mj-describe-hook.js` (page world: reads
+Midjourney's Describe answers) + `mj-describe.js` + `mj-describe-core.js` +
+`describe-panel.js` the describer. History: CHANGELOG.md.
