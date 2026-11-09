@@ -403,6 +403,7 @@
     for (const ref of item.styleRefs || []) row.appendChild(thumb(ref, "SREF"));
     if (item.omniRef) row.appendChild(thumb(item.omniRef, "OREF"));
     if (item.characterRef) row.appendChild(thumb(item.characterRef, "CREF"));
+    for (const ref of item.editRefs || []) row.appendChild(thumb(ref, "FRAME"));
     for (const code of item.profileCodes || []) row.appendChild(el("span", "mjq-pcode", `-p ${code}`));
     return row.childNodes.length ? row : null;
   }
@@ -506,6 +507,14 @@
       el("span", `mjq-status mjq-status--${item.status}`, STATUS_LABEL[item.status] || item.status),
     );
     card.appendChild(head);
+    // A restyle of a locked location prompt: which place, in which style, how.
+    if (item.lockedPromptId) {
+      const tags = el("div", "mjq-locked");
+      tags.append(el("span", "", item.placeLabel || "Locked location"));
+      if (item.styleLabel) tags.append(el("span", "", `in ${item.styleLabel}`));
+      tags.append(el("span", "", item.restyleMode === "frame" ? "Same layout · locked frame" : "Same prompt + seed"));
+      card.appendChild(tags);
+    }
     const refs = refsRow(item);
     if (refs) card.appendChild(refs);
     if (item.note) card.appendChild(el("p", "mjq-note", item.note));

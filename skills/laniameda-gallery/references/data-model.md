@@ -635,6 +635,26 @@ only plain collections may be children. One level deep.
   template, then moodboard, profile and loose codes, each once).
   `styleRecipes.reviewStyleRecipes` serves them to the review owner only.
 
+### Locked location prompts (9 Nov 2026; references/locked-prompts.md)
+
+- `lockedPrompts`: `ownerUserId`, `worldFolderId`, `ingestKey`, `title`,
+  `place`, `reviewFolder`, `shelfId`, `scenes`, `text` (no flags), `imagePrompts`
+  (mjQueue refs with weight), `aspect`, `seed`, `extraParams`, `note`,
+  `lockedFrame` ({assetId, editUrl, thumbUrl, label}), `currentStyleId`,
+  `takes` ({assetId, styleId, mode, queueItemId, jobId, at}),
+  `sourceQueueItemIds`, `archivedAt`, `searchText`, `revision`. Indexes
+  `by_owner_ingestKey`, `by_owner_world_updatedAt`. Saves journal
+  `lockedPrompt.save`.
+- `lockedPromptRevisions`: every content change (`by_prompt_revision`).
+- `mjQueueItems` gained `editRefs` (`--edit`), `lockedPromptId`, `placeLabel`,
+  `styleId`, `styleLabel`, `restyleMode` (seed | frame).
+- Composition: `lib/locked-prompt.ts` (`restyle`, `applyStyleTemplate`,
+  `seedFor`); `composeMjCommand` and its extension twin add `--edit` last
+  (V8.2 only).
+- Results: `fileRestyleResults` files saved frames on the place shelf, the
+  style shelf and the art-director shelf "Location takes", adds takes and
+  `generationLineage` rows (`edit_source`, `starting_image_asset`, `other`).
+
 ### `videoRefs`: YouTube research (the YouTube page)
 
 One row per YouTube video per owner, apart from assets. Holds the video's and

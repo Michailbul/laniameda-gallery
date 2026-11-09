@@ -63,6 +63,8 @@ import type * as inspirationPrivate from "../inspirationPrivate.js";
 import type * as inspirationPrivateNode from "../inspirationPrivateNode.js";
 import type * as inspirationValidators from "../inspirationValidators.js";
 import type * as inventoryExport from "../inventoryExport.js";
+import type * as lockedPromptValidators from "../lockedPromptValidators.js";
+import type * as lockedPrompts from "../lockedPrompts.js";
 import type * as membershipAudit from "../membershipAudit.js";
 import type * as menuFilters from "../menuFilters.js";
 import type * as midjourneySrefs from "../midjourneySrefs.js";
@@ -183,6 +185,8 @@ declare const fullApi: ApiFromModules<{
   inspirationPrivateNode: typeof inspirationPrivateNode;
   inspirationValidators: typeof inspirationValidators;
   inventoryExport: typeof inventoryExport;
+  lockedPromptValidators: typeof lockedPromptValidators;
+  lockedPrompts: typeof lockedPrompts;
   membershipAudit: typeof membershipAudit;
   menuFilters: typeof menuFilters;
   midjourneySrefs: typeof midjourneySrefs;

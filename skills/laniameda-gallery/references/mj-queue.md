@@ -42,6 +42,8 @@ the same label join that batch after its last item. Each item:
 - `omniRef` / `characterRef`: V8.2 has neither; the Edit model replaced both.
   They are added (`--oref/--ow`, `--cref/--cw`) only when params pin `--v 7`
   or `--v 6`; otherwise the item carries a warning he sees.
+- `editRefs`: images attached for the Edit model (`--edit url`, V8.2, up to
+  four), written after the params. A restyle of a locked frame uses it.
 - `note`: plain words for him: what to look for in this one.
 - `ingestKey`: stable key; repeating it returns the existing item unchanged.
 
@@ -52,6 +54,11 @@ the world, tagged reference/inspiration, never public), then queue their ids.
 
 The answer returns each item's `ref` (mjq:<id>), the composed `command` and
 `warnings`. Read the command back before telling Michael the batch is ready.
+
+Restyles of locked location prompts (references/locked-prompts.md) are
+queued by `restyle_locked_prompts`, not by hand: their items carry
+`lockedPromptId`, `placeLabel`, `styleLabel` and `restyleMode`, and the panel
+shows place · style · mode.
 
 ## Read and edit
 

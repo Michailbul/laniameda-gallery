@@ -28,6 +28,8 @@ const fixtures: Record<string, MjQueueComposable> = {
   crefV6: { prompt: "a portrait", characterRef: { url: `${R2}/face.jpg` }, params: "--v 6.1" },
   crefNiji: { prompt: "a portrait", characterRef: { url: `${R2}/face.jpg` }, params: "--niji 6" },
   empty: { prompt: "  " },
+  restyleFrame: { prompt: "a school patio, wide shot", profileCodes: ["dfvmdw1"], params: "--raw --ar 16:9 --seed 42", editRefs: [{ url: "https://cdn.midjourney.com/1c8e8ead-03c5-47ec-9ac0-5e9472ee466a/0_2.png" }] },
+  editV7: { prompt: "a patio", params: "--v 7", editRefs: [{ url: `${R2}/frame.jpg` }] },
 };
 
 describe("composeMjCommand", () => {
@@ -71,5 +73,16 @@ describe("thread ids", () => {
     }
     expect(threadIdOf(labels[0])).toBe(threadIdOf(labels[1]));
     expect(threadIdOf(labels[0])).not.toBe(threadIdOf("Dear Annete · the monster's hand · round 1"));
+  });
+});
+
+describe("edit attachments", () => {
+  test("--edit goes last and only for V8.2", () => {
+    expect(composeMjCommand(fixtures.restyleFrame).command).toBe(
+      "a school patio, wide shot --profile dfvmdw1 --raw --ar 16:9 --seed 42 --edit https://cdn.midjourney.com/1c8e8ead-03c5-47ec-9ac0-5e9472ee466a/0_2.png",
+    );
+    const v7 = composeMjCommand(fixtures.editV7);
+    expect(v7.command).not.toContain("--edit");
+    expect(v7.warnings.length).toBe(1);
   });
 });

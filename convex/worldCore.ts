@@ -231,6 +231,7 @@ export type WorldChangeOp =
   | "world.universe"
   | "brief.save"
   | "project.save"
+  | "lockedPrompt.save"
   | "undo";
 
 export type JournalMeta = { actor?: string; session?: string };
