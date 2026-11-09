@@ -16,6 +16,7 @@ import { galleryRoutePath, worldStylesPath } from "@/lib/gallery-routes";
 import { MOSAIC_COVERS, MOSAIC_CSS, StyleCaption, StyleMosaic, framesLabel, orderMedia } from "./style-mosaic";
 import { handleEditTakeKey } from "@/lib/edit-take-keys";
 import { useReviewPromote } from "@/components/review-promote/use-review-promote";
+import { StyleRecipes } from "./style-recipes";
 
 // The styles page of a world's universe (/w/<world>/styles): every style as a
 // carousel of mosaic covers across the top, then the chosen style's frames as
@@ -134,6 +135,8 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
   const ready = frames.status !== "LoadingFirstPage";
   const madeWith = useQuery(api.styleFrames.styleMadeWith, isAuthenticated && activeId && ready ? { ownerUserId, styleId: activeId } : "skip");
   const stories = useQuery(api.worldStyles.listStyleStories, isAuthenticated && activeId && ready ? { ownerUserId, styleId: activeId, perBook: 40 } : "skip");
+  // The recipe Michael copies into Midjourney: the whole parameter line and the template.
+  const detail = useQuery(api.worldStyles.getStyle, isAuthenticated && activeId && ready ? { ownerUserId, style: activeId } : "skip");
   const story = storyId ? stories?.find((row) => row.id === storyId) ?? null : null;
 
   // What the masonry shows: the style's frames (or one storybook's), with the
@@ -305,6 +308,7 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
       ) : active ? (
         <section className="px-3 pt-5 md:px-6">
           <StyleHead card={active} madeWith={madeWith?.items} />
+          {detail && detail.id === active.id ? <StyleRecipes recipes={detail.recipes} names={madeWith?.items ?? []} /> : null}
           <StoryChips total={active.frameCount} stories={stories} storyId={storyId} onStory={setStoryId} />
           <Masonry frames={list} loading={!story && frames.status === "LoadingFirstPage"}
             canLoadMore={!story && frames.status === "CanLoadMore"} onLoadMore={() => frames.loadMore(PAGE)}

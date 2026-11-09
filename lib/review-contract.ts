@@ -157,6 +157,7 @@ export const reviewPromoteSchema = z.object({
   style: styleRef.optional().describe("The style they are shown in. Omit to use the review style whose shelf holds each frame."),
   note: z.string().trim().max(400).optional().describe("Caption the director reads under each frame. Empty clears it on frames already there."),
   dryRun: z.boolean().optional().describe("Write nothing: report each frame's suggested folder and style and whether it is already in the current or draft round."),
+  confirmed: z.boolean().optional().describe("true only when Michael said in this session to show these frames to the director. Required when a frame sits on a project's art-director shelf."),
 });
 
 export const REVIEW_ORGANIZE_OPS = ["move", "remove", "reorder", "replace"] as const;

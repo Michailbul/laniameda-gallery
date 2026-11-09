@@ -59,7 +59,7 @@ export const slugify = (value: string) =>
 
 // ---------------------------------------------------------------- access
 
-const projectBySlug = async (ctx: Ctx, slug: string) =>
+export const projectBySlug = async (ctx: Ctx, slug: string) =>
   await ctx.db.query("reviewProjects").withIndex("by_slug", (q) => q.eq("slug", slug.trim().toLowerCase())).unique();
 
 const requireProject = async (ctx: Ctx, slug: string) => {

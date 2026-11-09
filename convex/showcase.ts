@@ -222,7 +222,8 @@ const collectSetMembers = async (
             .withIndex("by_parent", (q) => q.eq("parentFolderId", folder._id))
             .collect()
         )
-          .filter((f) => f.kind === undefined)
+          // Art-director shelves never become public chapters.
+          .filter((f) => f.kind === undefined && f.scope !== "art_director")
           .sort((a, b) => a.name.localeCompare(b.name))
       : [];
   const chapters = await Promise.all(

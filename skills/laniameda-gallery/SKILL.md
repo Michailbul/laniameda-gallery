@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.37.0
+version: 1.38.0
 ---
 
 # Laniameda Gallery
@@ -80,6 +80,7 @@ building one; the inbox tools already return a stack's `url` the same way.
 | Inbox stack | A world's decisions for Michael ("Decisions" in the gallery): stacks of sort, duplicates, artifact, A/B, choose-one and rule cards. Agents state facts and never judge taste; he decides; agents apply and learn | post_inbox_cards {world}, list_inbox_stacks {world}, list_inbox_decisions, close_stack, find_similar_groups {world}; references/inbox.md |
 | Task | One piece of work in the queue ("Tasks" in the gallery, /tasks): Michael's asset comments and Inbox answers become tasks by themselves; agents list, claim (a lease), work and complete with a result naming the ids produced, or blocked with an ask: a one-line question and 2–4 picture options he picks with a click (never prose). Titles and summaries are Michael's, in plain words; briefs and results are for agents. Start every session or cron run with list_tasks | list_tasks, get_task, create_task, edit_task, claim_task, release_task, complete_task, comment_task; references/tasks.md |
 | Newspaper | One edition per Prague day (/newspaper), compiled at 07:30 from the tables: per world the journal's changes, new assets with thumbnails, storybooks, moodboards with sync drift, characters; tasks done and blocked, open Inbox stacks, and needsYou. Pure facts; an agent adds the prose. Never stars, publishes or deletes | get_newspaper, write_newspaper, compile_newspaper; references/newspapers.md |
+| Project | A world Michael works on for a client (CASSANDRA): one room with the world, art-director shelves, the director review, production briefs (what the director or producers sent, by whom, when, why, with private files and pictures) and the inspiration. Art-director scope first: nothing in it reaches the review or the public page until Michael promotes or publishes it | project_open, production_briefs, save_production_brief, production_brief_file, set_project; references/projects.md |
 | Director review | A project (CASSANDRA) an outside director opens at its own address: frames in folders (locations, characters, scenes) and styles, shown in rounds v0.1, v0.2 …; the director likes, dislikes and comments. Agents prepare the draft round and reply; Michael publishes | review_open, review_items, review_feedback, review_setup, review_promote, review_organize, review_round, review_comment; references/review.md |
 | Tags | Piece type, visual medium, platform, content, style and named model | list_tags, upsert_tags, add_tag_aliases; references/data-model.md |
 | Story | Private text for any story worth keeping, from any source: narration, post, article, premise, own idea, script. World-free by default; style locks are the world-only kind | save_story, list_stories, get_story, update_story; references/stories.md |
@@ -133,6 +134,14 @@ styles. Agents prepare the draft round with `review_promote` and
 reviewers and invite links are Michael's calls; `review_round` refuses to
 publish, roll back or discard without `confirmed: true`. Read
 references/review.md.
+
+Projects (`/w/<world>/project`, owner only): CASSANDRA is a project.
+`project_open` returns it whole; `production_briefs {query: "school brief"}`
+finds what production sent, with pictures and private files. Everything added
+to a project is the art director's first: new shelves in a project world are
+art-director only, briefs and recipes never reach the director or the public,
+and `review_promote` refuses art-director frames without Michael's
+`confirmed: true`. Read references/projects.md.
 
 ## Make media findable
 

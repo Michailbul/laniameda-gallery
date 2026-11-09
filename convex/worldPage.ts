@@ -258,7 +258,8 @@ const loadTree = async (ctx: QueryCtx, folderId: Id<"folders">) => {
     .query("folders")
     .withIndex("by_parent", (q) => q.eq("parentFolderId", folderId))
     .collect();
-  return new Set<string>([folderId, ...children.map((child) => child._id)]);
+  // Art-director shelves are Michael's alone: never a door to the public page.
+  return new Set<string>([folderId, ...children.filter((child) => child.scope !== "art_director").map((child) => child._id)]);
 };
 
 /**

@@ -571,6 +571,14 @@ export async function POST(request: Request) {
           next: "Nothing was changed. Call review_promote again without dryRun.",
         });
       }
+      // Art-director scope first (Michael, 9 Nov 2026): frames on a project's
+      // art-director shelf reach the review only on his word.
+      if (input.confirmed !== true) {
+        const private_ = await client.query(api.projects.artDirectorOnly, { ownerUserId, assetIds });
+        if (private_.length) {
+          fail(`${private_.length} of these frames are on art-director shelves (${listOf(unique(private_.map((row) => row.shelf)))}) and stay with Michael until he promotes them. Ask him; with his go in this session, call again with confirmed: true.`);
+        }
+      }
       const groups = new Map<string, string[]>();
       const unplaced: string[] = [];
       if (folder) groups.set(folder.id, assetIds);
