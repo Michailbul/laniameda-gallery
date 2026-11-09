@@ -19,6 +19,13 @@ export const mjQueueRefValidator = v.object({
   label: v.optional(v.string()),
 });
 
+export const mjQueueDescribeValidator = v.object({
+  sourceUrl: v.optional(v.string()),
+  pageUrl: v.optional(v.string()),
+  descriptions: v.array(v.string()),
+  mode: v.union(v.literal("keep"), v.literal("ours")),
+});
+
 export const mjQueueItemFields = {
   ownerUserId: v.string(),
   worldFolderId: v.optional(v.id("folders")),
@@ -44,6 +51,9 @@ export const mjQueueItemFields = {
   styleId: v.optional(v.id("worldStyles")),
   styleLabel: v.optional(v.string()),
   restyleMode: v.optional(v.union(v.literal("seed"), v.literal("frame"))),
+  // Made by the extension's describer (lib/mj-describe.ts): the picture it
+  // came from, Midjourney's Describe lines when caught, and the style mode.
+  describe: v.optional(mjQueueDescribeValidator),
   note: v.optional(v.string()),
   status: mjQueueStatusValidator,
   injectedAt: v.optional(v.number()),

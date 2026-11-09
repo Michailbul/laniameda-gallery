@@ -21,6 +21,8 @@ const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
 const MOODBOARDS_ROUTE_PATH = "/api/extension/moodboards";
 const MJ_QUEUE_ROUTE_PATH = "/api/extension/mj-queue";
 const QUICK_EDIT_ROUTE_PATH = "/api/extension/prompt-edit";
+const DESCRIBE_ROUTE_PATH = "/api/extension/prompt-describe";
+const STYLES_ROUTE_PATH = "/api/extension/styles";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const X_POST_ROUTE_PATH = "/api/extension/x-post";
 const COMMENTS_ROUTE_PATH = "/api/extension/comments";
@@ -48,6 +50,7 @@ const CONTENT_SCRIPT_FILES = chrome.runtime.getManifest().content_scripts?.[0]?.
 const CONTENT_STYLE_FILES = chrome.runtime.getManifest().content_scripts?.[0]?.css ?? [];
 const SAVE_IMAGE_CONTEXT_MENU_ID = "save-image-to-laniameda";
 const OPEN_SAVE_MENU_CONTEXT_MENU_ID = "open-save-menu-laniameda";
+const DESCRIBE_CONTEXT_MENU_ID = "describe-image-laniameda";
 // Pinterest's hover layer covers the <img>, so a right-click on a pin rarely
 // gets Chrome's "image" context. The menu-opening item therefore shows on every
 // context, limited to Pinterest pages. Match patterns can't wildcard a TLD.
@@ -258,6 +261,7 @@ async function saveToGallery(payload) {
         imageHeight: payload.imageHeight || undefined,
         mediaType: payload.mediaType || undefined,
         inputImages: Array.isArray(payload.inputImages) ? payload.inputImages : undefined,
+        agentDescription: payload.agentDescription || undefined,
       }),
     });
   } catch (err) {
@@ -737,6 +741,10 @@ async function handleOpenSaveMenuContextMenuClick(info, tab) {
 }
 
 async function handleImageContextMenuClick(info, tab) {
+  if (info.menuItemId === DESCRIBE_CONTEXT_MENU_ID) {
+    await describeFromContextMenu(info, tab);
+    return;
+  }
   if (info.menuItemId === OPEN_SAVE_MENU_CONTEXT_MENU_ID) {
     await handleOpenSaveMenuContextMenuClick(info, tab);
     return;
@@ -831,6 +839,10 @@ async function reinjectContentScripts() {
         target: { tabId: tab.id },
         files: onMidjourney ? CONTENT_SCRIPT_FILES : CONTENT_SCRIPT_JS_FILES,
       });
+      // The Describe watcher lives in the page itself (it installs once per page).
+      if (onMidjourney) {
+        await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["mj-describe-hook.js"], world: "MAIN" });
+      }
     }),
   );
 }
@@ -846,6 +858,16 @@ function installContextMenus() {
       },
       () => {
         // Ignore duplicate/create timing errors across service-worker restarts.
+        void chrome.runtime.lastError;
+      },
+    );
+    chrome.contextMenus.create(
+      {
+        id: DESCRIBE_CONTEXT_MENU_ID,
+        title: "Describe to a prompt",
+        contexts: ["image"],
+      },
+      () => {
         void chrome.runtime.lastError;
       },
     );
@@ -1225,6 +1247,146 @@ async function quickEditRequest(message) {
   return data;
 }
 
+// ── Describer (mj-describe-core.js): a picture into our Midjourney prompt ──
+// The gallery runs the quick edit's agent with the picture; the worker only
+// reads the image, carries the calls and files the pair when asked. Nothing
+// here talks to Midjourney.
+
+const DESCRIBE_EDGE = 1024;
+
+async function describeFetchJson(path, init) {
+  const config = await getConfig();
+  let response;
+  try {
+    response = await fetch(normalizeRouteUrl(config.apiUrl, path), { ...init, headers: apiHeaders(config) });
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}` };
+  }
+  const data = await response.json().catch(() => null);
+  if (!response.ok || !data || data.ok === false) return { ok: false, status: response.status, error: data?.error || `HTTP ${response.status}` };
+  return { ok: true, ...data };
+}
+
+// The picture at 1024 px as a JPEG data URL (Midjourney's CDN refuses the
+// gallery's server, so the bytes travel with the request), plus its size.
+async function prepareDescribeImage({ imageUrl, dataUrl }) {
+  let blob;
+  try {
+    if (typeof dataUrl === "string" && dataUrl.startsWith("data:image/")) {
+      blob = await (await fetch(dataUrl)).blob();
+    } else if (typeof imageUrl === "string" && /^https?:\/\//.test(imageUrl)) {
+      const response = await fetch(imageUrl, { credentials: "include", cache: "force-cache" });
+      if (!response.ok) return { ok: false, error: `The picture answered ${response.status}.` };
+      blob = await response.blob();
+    } else {
+      return { ok: false, error: "No picture." };
+    }
+    const bitmap = await createImageBitmap(blob);
+    const width = bitmap.width;
+    const height = bitmap.height;
+    const scale = Math.min(1, DESCRIBE_EDGE / Math.max(width, height));
+    const canvas = new OffscreenCanvas(Math.max(1, Math.round(width * scale)), Math.max(1, Math.round(height * scale)));
+    const context = canvas.getContext("2d");
+    context.fillStyle = "#191919";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const jpeg = await canvas.convertToBlob({ type: "image/jpeg", quality: 0.86 });
+    return { ok: true, dataUrl: `data:image/jpeg;base64,${arrayBufferToBase64(await jpeg.arrayBuffer())}`, width, height };
+  } catch (err) {
+    return { ok: false, error: `Could not read the picture: ${err.message}` };
+  }
+}
+
+async function saveDescribedPair(message) {
+  const imageUrl = typeof message.imageUrl === "string" && /^https?:\/\//.test(message.imageUrl) ? message.imageUrl : undefined;
+  let media = {};
+  let width;
+  let height;
+  let hashSource = imageUrl || "";
+  if (imageUrl) {
+    const captured = await fetchImageBytes({ imageUrl });
+    if (!captured.ok) return { ok: false, error: captured.error || "Could not read the picture." };
+    media = capturedMediaFields(captured);
+    width = captured.width;
+    height = captured.height;
+  } else if (typeof message.dataUrl === "string" && message.dataUrl.startsWith("data:image/")) {
+    const [head, base64] = message.dataUrl.split(",");
+    const contentType = /data:([^;]+)/.exec(head)?.[1] || "image/png";
+    media = { file: { base64, contentType } };
+    hashSource = base64.slice(0, 20000);
+  } else {
+    return { ok: false, error: "No picture to save." };
+  }
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(hashSource));
+  const key = [...new Uint8Array(digest)].slice(0, 12).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const res = await saveToGallery({
+    imageUrl,
+    sourceUrl: message.pageUrl || imageUrl,
+    folderIds: message.folderId ? [message.folderId] : [],
+    collectionPillar: "inspirations",
+    promptText: message.promptText,
+    agentDescription: message.agentDescription,
+    ingestKey: `describe:${key}`,
+    imageWidth: width,
+    imageHeight: height,
+    ...media,
+  });
+  if (res?.ok && imageUrl) assetStatus.markSaved(imageUrl);
+  return res;
+}
+
+async function describeRequest(message) {
+  switch (message.op) {
+    case "worlds": {
+      const res = await listMoodboards();
+      return res?.ok ? { ok: true, worlds: (res.worlds || []).map((w) => ({ key: w.key, name: w.name, worldId: w.worldId })) } : res;
+    }
+    case "styles":
+      return describeFetchJson(`${STYLES_ROUTE_PATH}?world=${encodeURIComponent(String(message.world || ""))}`, { method: "GET" });
+    case "prepare":
+      return prepareDescribeImage(message);
+    case "run":
+      return describeFetchJson(DESCRIBE_ROUTE_PATH, {
+        method: "POST",
+        body: JSON.stringify({
+          image: message.image,
+          descriptions: Array.isArray(message.descriptions) ? message.descriptions.slice(0, 4) : undefined,
+          aspect: message.aspect || undefined,
+          width: message.width || undefined,
+          height: message.height || undefined,
+          mode: message.mode,
+          style: message.style || undefined,
+          system: message.system || undefined,
+          note: message.note || undefined,
+        }),
+      });
+    case "queue":
+      return describeFetchJson(MJ_QUEUE_ROUTE_PATH, {
+        method: "POST",
+        body: JSON.stringify({ action: "queue", batch: message.batch, world: message.world || undefined, items: [message.item] }),
+      });
+    case "save":
+      return saveDescribedPair(message);
+    default:
+      return { ok: false, error: "Unknown describe step." };
+  }
+}
+
+// Right-click an image → the side panel's Describe tab opens with it.
+async function describeFromContextMenu(info, tab) {
+  const imageUrl = typeof info.srcUrl === "string" ? info.srcUrl : "";
+  if (!imageUrl) return;
+  try {
+    // Open first: the click is the user gesture sidePanel.open needs.
+    if (tab?.windowId != null) await chrome.sidePanel.open({ windowId: tab.windowId });
+  } catch (err) {
+    console.warn("[Save to Gallery] side panel did not open:", err);
+  }
+  await chrome.storage.sync.set({ extensionMode: "describe" }).catch(() => {});
+  await chrome.storage.session.set({ describePending: { imageUrl, pageUrl: info.pageUrl || tab?.url || "", at: Date.now() } });
+}
+
 // ── Collections (stored as `folders` rows) ──
 
 async function getFolders() {
@@ -1587,6 +1749,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "mjQuickEdit") {
     quickEditRequest(message)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "describe") {
+    describeRequest(message)
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

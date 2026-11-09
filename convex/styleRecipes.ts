@@ -1,6 +1,6 @@
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internalQuery, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { projectBySlug, resolveViewer } from "./review";
 import { composeRecipe } from "../lib/mj-recipe";
@@ -95,5 +95,33 @@ export const reviewStyleRecipes = query({
       out.push({ styleId: style._id, name: style.name, recipes: await recipeViewsOf(ctx, project.ownerUserId, style) });
     }
     return out;
+  },
+});
+
+/**
+ * A style as the describer applies it (extension "in our style"): its line,
+ * the lock story's text, the first recipe's template and full parameter line,
+ * raises and lowers. Called from promptEditRunner.describe after the signed
+ * owner check; the style must belong to that owner.
+ */
+export const describeStyleOf = internalQuery({
+  args: { ownerUserId: v.string(), style: v.string() },
+  returns: v.union(v.null(), v.object({
+    name: v.string(), line: v.optional(v.string()), lock: v.optional(v.string()),
+    template: v.optional(v.string()), params: v.optional(v.string()),
+    raises: v.array(v.string()), lowers: v.array(v.string()),
+  })),
+  handler: async (ctx, args) => {
+    const id = ctx.db.normalizeId("worldStyles", args.style.trim().replace(/^style:/, ""));
+    const style = id ? await ctx.db.get(id) : null;
+    if (!style || !canActorAccessOwnerUserId(args.ownerUserId, style.ownerUserId)) return null;
+    const lockStory = style.lockStoryId ? await ctx.db.get(style.lockStoryId) : null;
+    const lock = lockStory && canActorAccessOwnerUserId(args.ownerUserId, lockStory.ownerUserId) ? lockStory.body.slice(0, 6000) : undefined;
+    const [first] = await recipeViewsOf(ctx, args.ownerUserId, style);
+    return {
+      name: style.name, line: style.line, lock,
+      template: style.recipes[0]?.template, params: first?.params,
+      raises: style.raises, lowers: style.lowers,
+    };
   },
 });

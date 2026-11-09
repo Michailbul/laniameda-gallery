@@ -5,7 +5,7 @@ import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } 
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { resolveWorld } from "./worldCore";
-import { mjQueueItemFields, mjQueueRefValidator, mjQueueStatusValidator } from "./mjQueueValidators";
+import { mjQueueDescribeValidator, mjQueueItemFields, mjQueueRefValidator, mjQueueStatusValidator } from "./mjQueueValidators";
 import { MJ_QUEUE_LIMITS, batchKeyOf, composeMjCommand } from "../lib/mj-queue";
 
 // Midjourney prompt queue. Agents queue prompts with their references set;
@@ -37,6 +37,7 @@ const itemInput = v.object({
   params: v.optional(v.string()),
   note: v.optional(v.string()),
   order: v.optional(v.number()),
+  describe: v.optional(mjQueueDescribeValidator),
 });
 
 const { ownerUserId: _owner, ...publicFields } = mjQueueItemFields;
@@ -263,6 +264,12 @@ export const queueItems = ownerMutation({
         profileCodes: cleanCodes(input.profileCodes),
         params: text(input.params, MJ_QUEUE_LIMITS.params, `${label} params`),
         note: text(input.note, MJ_QUEUE_LIMITS.note, `${label} note`),
+        describe: input.describe ? {
+          sourceUrl: /^https:\/\//i.test(input.describe.sourceUrl ?? "") ? input.describe.sourceUrl!.slice(0, MJ_QUEUE_LIMITS.url) : undefined,
+          pageUrl: /^https?:\/\//i.test(input.describe.pageUrl ?? "") ? input.describe.pageUrl!.slice(0, MJ_QUEUE_LIMITS.url) : undefined,
+          descriptions: input.describe.descriptions.map((line) => line.trim().slice(0, 1500)).filter(Boolean).slice(0, 4),
+          mode: input.describe.mode,
+        } : undefined,
         status: "queued" as const,
         ingestKey,
         createdBy,

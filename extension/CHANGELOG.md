@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.29.0 (9 Nov 2026)
+
+- Make it ours. When you run Describe on midjourney.com (drop an image to
+  describe, or Describe on a picture), the extension reads Midjourney's four
+  descriptions as they arrive (read-only: no extra request, nothing sent) and
+  a MAKE IT OURS pill appears bottom-right. Its card writes our prompt from
+  the picture, Midjourney's reading and the world's rules: the look's opening
+  sentence, the subject as the subject, forms, materials, light, shot and
+  lens, no real places, artists or brands, no negatives, the right params.
+- Style lock: choose where the style words come from. Keep its look (the
+  prompt describes the image's own style, to recreate it), Our style (the
+  image's style words out, a gallery world style in: its lock, line,
+  template and recipe codes), or Both side by side. Styles are the world's
+  styles from the gallery, with their cover pictures.
+- Each prompt: Put in bar, Queue (an MJ Queue item, thread "<world> ·
+  Described", keeps the source picture and Midjourney's descriptions), Copy,
+  Save to gallery (the picture as inspiration in the world, with the prompt
+  and Midjourney's reading; only on that click).
+- Our own describer: a Describe tab in the side panel. Drop a file or an
+  image dragged from any page, paste one, pick one of the last Midjourney
+  describes, or right-click any image → Describe to a prompt. Works without
+  Midjourney's Describe (Haiku sees the picture) and uses its descriptions
+  when the extension caught them for that image.
+- Runs through the gallery's quick-edit agent (/api/extension/prompt-describe,
+  Haiku 5.5 on fal, Pika when fal is blocked), with the world's system prompt
+  from the MJ settings tab.
+
 ## 0.28.0 (9 Nov 2026)
 
 - Restyles of locked location prompts show what they are: the place, the

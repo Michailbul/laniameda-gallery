@@ -144,6 +144,11 @@ export async function POST(request: Request) {
     const promptText = typeof data.promptText === "string" ? data.promptText.trim() : undefined;
     const sourceUrl = typeof data.sourceUrl === "string" ? data.sourceUrl : undefined;
     const modelName = typeof data.modelName === "string" ? data.modelName : undefined;
+    // The describer's lineage note (how Midjourney read the picture, which mode).
+    const agentDescription =
+      typeof data.agentDescription === "string" && data.agentDescription.trim()
+        ? data.agentDescription.trim().slice(0, 4000)
+        : undefined;
     const mediaType = data.mediaType === "video" ? "video" : "image";
     // Client-supplied intrinsic dimensions (naturalWidth/Height from the page).
     // Used as a fallback when the server decoder can't read the image format,
@@ -431,6 +436,7 @@ export async function POST(request: Request) {
       mediaFileName,
       posterFile,
       promptText: promptText || undefined,
+      agentDescription,
       allowPromptOnly: false,
       ingestKey,
       tagNames,
