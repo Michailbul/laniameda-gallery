@@ -15,6 +15,7 @@ import {
 } from "./inspirationValidators";
 import { mjQueueItemFields } from "./mjQueueValidators";
 import { lockedPromptFields, lockedPromptRevisionFields } from "./lockedPromptValidators";
+import { promptRunFields, promptSetFields, stylePresetFields } from "./promptGridValidators";
 import { folderScopeValidator, productionBriefFields, projectDetailsValidator } from "./projectValidators";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
 import {
@@ -83,6 +84,16 @@ export default defineSchema({
     .index("by_owner_world_updatedAt", ["ownerUserId", "worldFolderId", "updatedAt"]),
   lockedPromptRevisions: defineTable(lockedPromptRevisionFields)
     .index("by_prompt_revision", ["lockedPromptId", "revision"]),
+  // Prompt sets × style presets × seeds (convex/promptGrid.ts).
+  stylePresets: defineTable(stylePresetFields)
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_world_updatedAt", ["ownerUserId", "worldFolderId", "updatedAt"]),
+  promptSets: defineTable(promptSetFields)
+    .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
+    .index("by_owner_world_updatedAt", ["ownerUserId", "worldFolderId", "updatedAt"]),
+  promptRuns: defineTable(promptRunFields)
+    .index("by_owner_world_createdAt", ["ownerUserId", "worldFolderId", "createdAt"])
+    .index("by_owner_threadId", ["ownerUserId", "threadId"]),
   // Director review (convex/review.ts, reviewValidators.ts).
   reviewProjects: defineTable(reviewProjectFields)
     .index("by_slug", ["slug"])

@@ -3011,3 +3011,6 @@ html.stg-x-capturing .stg-badge {
   color: #8d877e;
   font-size: 11px;
 }
+
+/* A gallery style preset in the dock (prompt runs share it): dashed, no ×. */
+.stg-mb-preset--gallery { border-style: dashed; }

@@ -366,8 +366,14 @@ function PromptRow({ ownerUserId, item, index, copied, onCopy }: {
       </div>
       {item.lockedPromptId ? <div className="mjq-locked">
         <span>{item.placeLabel ?? "Locked location"}</span>
-        {item.styleLabel ? <span>in {item.styleLabel}</span> : null}
-        <span>{item.restyleMode === "frame" ? "Same layout · locked frame" : "Same prompt and seed"}</span>
+        {item.runId ? <>
+          {item.presetLabel ? <span>{item.presetLabel}</span> : null}
+          <span>{item.variantLabel ?? item.variantKey ?? "Wording"} · seed {item.seed}</span>
+          {item.screen ? <span>Screening</span> : null}
+        </> : <>
+          {item.styleLabel ? <span>in {item.styleLabel}</span> : null}
+          <span>{item.restyleMode === "frame" ? "Same layout · locked frame" : "Same prompt and seed"}</span>
+        </>}
       </div> : null}
       {item.note && <p className="mjq-note">{item.note}</p>}
       {item.warnings.map((warning) => <p key={warning} className="mjq-warn">{warning}</p>)}

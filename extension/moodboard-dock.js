@@ -447,6 +447,9 @@
     fetchedAt: 0,
     // Saved presets of the current world (chrome.storage.sync, per world).
     presets: [],
+    // The world's gallery style presets a chip can set (codes + settings);
+    // dock presets are copied to the gallery so prompt runs can use them.
+    galleryPresets: [],
     // The world's main profiles as Michael set them (shift-click); null
     // means the built-in list for the world.
     pins: null,
@@ -834,6 +837,11 @@
     state.worldKey = res.world?.key || key;
     const next = Array.isArray(res.moodboards) ? res.moodboards : [];
     const profiles = Array.isArray(res.profiles) ? res.profiles : [];
+    const galleryPresets = Array.isArray(res.galleryPresets) ? res.galleryPresets : [];
+    if (JSON.stringify(galleryPresets) !== JSON.stringify(state.galleryPresets)) {
+      state.galleryPresets = galleryPresets;
+      renderPresets();
+    }
     const signature = JSON.stringify([state.worldKey, next, profiles]);
     if (signature !== state.signature) {
       state.signature = signature;
@@ -978,7 +986,7 @@
     activeLabel.title = label;
     activeLabel.classList.toggle("stg-mb-active--next", waiting);
     for (const chip of presetBox.querySelectorAll(".stg-mb-preset")) {
-      const preset = state.presets.find((entry) => entry.id === chip.dataset.id);
+      const preset = allPresets().find((entry) => entry.id === chip.dataset.id);
       const on = Boolean(preset) && !waiting && presetInPrompt(value, preset);
       const isArmed = Boolean(preset) && waiting && presetArmed(preset);
       chip.classList.toggle("stg-mb-preset--on", on);
@@ -1149,8 +1157,24 @@
     }, 6000);
   }
 
+  // Dock presets go to the gallery too (style presets of the world), so a
+  // prompt run can use them. Sent only when the list changed.
+  let syncedPresets = "";
+  function syncPresetsToGallery(world, list) {
+    const signature = JSON.stringify([world, list]);
+    if (!world || signature === syncedPresets || !extensionAlive()) return;
+    syncedPresets = signature;
+    try {
+      chrome.runtime.sendMessage({ action: "syncDockPresets", world, presets: list }, () => void chrome.runtime.lastError);
+    } catch {
+      // extension reloaded
+    }
+  }
+  const allPresets = () => [...state.presets, ...state.galleryPresets.filter((entry) => !state.presets.some((own) => own.name === entry.name))];
+
   function storePresets(list) {
     state.presets = list;
+    syncPresetsToGallery(state.worldKey, list);
     try {
       chrome.storage.sync.set({ [presetKey()]: list });
     } catch {
@@ -1167,6 +1191,7 @@
         if (world !== state.worldKey) return;
         const list = stored?.[presetKey(world)];
         state.presets = Array.isArray(list) ? list : [];
+        syncPresetsToGallery(world, state.presets);
         const pins = stored?.[pinKey(world)];
         state.pins = Array.isArray(pins) ? pins : null;
         renderPresets();
@@ -1260,22 +1285,25 @@
 
   function renderPresets() {
     if (!presetBox) return;
-    const signature = JSON.stringify([state.worldKey, state.presets]);
+    const signature = JSON.stringify([state.worldKey, state.presets, state.galleryPresets]);
     if (presetBox.dataset.signature === signature) return;
     presetBox.dataset.signature = signature;
     presetBox.textContent = "";
-    for (const preset of state.presets) {
-      const chip = el("button", "stg-mb-preset");
+    for (const preset of allPresets()) {
+      const chip = el("button", `stg-mb-preset${preset.gallery ? " stg-mb-preset--gallery" : ""}`);
       chip.type = "button";
       chip.dataset.id = preset.id;
-      chip.title = `${preset.name}\n${presetSpec(preset)}`;
-      const remove = el("span", "stg-mb-preset-x", "×");
-      remove.title = "Delete preset";
-      remove.addEventListener("click", (event) => {
-        event.stopPropagation();
-        deletePreset(preset);
-      });
-      chip.append(el("span", "stg-mb-preset-name", preset.name), remove);
+      chip.title = `${preset.gallery ? "Gallery preset · " : ""}${preset.name}\n${presetSpec(preset)}`;
+      chip.append(el("span", "stg-mb-preset-name", preset.name));
+      if (!preset.gallery) {
+        const remove = el("span", "stg-mb-preset-x", "×");
+        remove.title = "Delete preset";
+        remove.addEventListener("click", (event) => {
+          event.stopPropagation();
+          deletePreset(preset);
+        });
+        chip.append(remove);
+      }
       chip.addEventListener("mousedown", (event) => event.preventDefault());
       chip.addEventListener("click", () => onPresetClick(preset));
       chip.addEventListener("mouseenter", () => showPresetCard(preset, chip));
@@ -1511,7 +1539,7 @@
       onProfileClick(profile);
       flashChip(chip);
     } else if (kind === "preset") {
-      const preset = state.presets[slot - 1];
+      const preset = allPresets()[slot - 1];
       if (!preset) return showNote(`No preset ${slot} yet`);
       onPresetClick(preset);
       flashChip(presetBox.querySelector(`.stg-mb-preset[data-id="${CSS.escape(preset.id)}"]`));

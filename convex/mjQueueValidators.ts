@@ -54,6 +54,14 @@ export const mjQueueItemFields = {
   // Made by the extension's describer (lib/mj-describe.ts): the picture it
   // came from, Midjourney's Describe lines when caught, and the style mode.
   describe: v.optional(mjQueueDescribeValidator),
+  // A cell of a prompt run (convex/promptGrid.ts): preset × variant × seed.
+  runId: v.optional(v.id("promptRuns")),
+  presetId: v.optional(v.id("stylePresets")),
+  presetLabel: v.optional(v.string()),
+  variantKey: v.optional(v.string()),
+  variantLabel: v.optional(v.string()),
+  seed: v.optional(v.number()),
+  screen: v.optional(v.boolean()),
   note: v.optional(v.string()),
   status: mjQueueStatusValidator,
   injectedAt: v.optional(v.number()),

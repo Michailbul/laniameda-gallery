@@ -511,8 +511,14 @@
     if (item.lockedPromptId) {
       const tags = el("div", "mjq-locked");
       tags.append(el("span", "", item.placeLabel || "Locked location"));
-      if (item.styleLabel) tags.append(el("span", "", `in ${item.styleLabel}`));
-      tags.append(el("span", "", item.restyleMode === "frame" ? "Same layout · locked frame" : "Same prompt + seed"));
+      if (item.runId) {
+        if (item.presetLabel) tags.append(el("span", "", item.presetLabel));
+        tags.append(el("span", "", `${item.variantLabel || item.variantKey || "wording"} · seed ${item.seed}`));
+        if (item.screen) tags.append(el("span", "", "Screening"));
+      } else {
+        if (item.styleLabel) tags.append(el("span", "", `in ${item.styleLabel}`));
+        tags.append(el("span", "", item.restyleMode === "frame" ? "Same layout · locked frame" : "Same prompt + seed"));
+      }
       card.appendChild(tags);
     }
     const refs = refsRow(item);
