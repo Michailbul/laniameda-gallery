@@ -64,7 +64,7 @@ type Folder = Overview["folders"][number];
 type Style = Overview["styles"][number];
 type ItemRow = {
   itemId: string; asset: string; code: string; folder?: string; folderId: string; style?: string; styleId?: string;
-  order: number; note?: string; previousAssetIds?: string[];
+  order: number; note?: string; previousAssetIds?: string[]; held?: boolean;
 };
 type ItemList = { version: { id: string; label: string; status: string } | null; items: ItemRow[] };
 type Suggestion = { assetId: string; folderId?: string; styleId?: string; inCurrent: boolean; inDraft: boolean };
@@ -261,7 +261,7 @@ export async function POST(request: Request) {
             item: row.itemId, asset: row.asset, code: row.code,
             folder: home?.slug, folderName: home?.name, section: home?.section,
             style: shownIn ? styleLabel(shownIn) : row.style, styleId: row.styleId ? styleHandle(row.styleId) : undefined,
-            order: row.order, note: row.note, previous: row.previousAssetIds?.map(asset),
+            order: row.order, note: row.note, previous: row.previousAssetIds?.map(asset), held: row.held || undefined,
             rank: [sectionRank(home?.section), home?.order ?? 0, row.order] as const,
           };
         })
@@ -597,6 +597,8 @@ export async function POST(request: Request) {
           const result = await client.mutation(api.review.promote, {
             ownerUserId, slug: input.project, assetIds: batch as Id<"assets">[],
             folderId: folderId as Id<"reviewFolders">, styleId: style?.styleId as Id<"worldStyles"> | undefined, note: input.note,
+            // Art-director scope: an agent's promotion is held for Michael unless he said to send (held: false).
+            held: input.held ?? true,
           });
           added += result.added;
           updated += result.updated;
@@ -606,9 +608,11 @@ export async function POST(request: Request) {
       }
       return NextResponse.json({
         ok: unplaced.length === 0, project: input.project, draft: draftLabel ?? null, added, updated, placed,
+        held: input.held ?? true,
         unplaced: unplaced.length ? unplaced.map(asset) : undefined,
         next: [
           unplaced.length ? "Unplaced frames have no folder named like their shelves: promote them again with folder." : "",
+          (input.held ?? true) ? "Held · only Michael sees them; publishing leaves them out until he releases them (review_organize op move, held: false, on his word)." : "",
           "review_items {round: \"draft\"} checks the draft. Publish only on Michael's go.",
         ].filter(Boolean).join(" "),
       });
@@ -641,14 +645,14 @@ export async function POST(request: Request) {
       let result: { draftLabel: string; changed?: number; removed?: number };
       let movedTo: string | undefined;
       if (action === "move") {
-        if (!input.folder && input.style === undefined && input.note === undefined) fail("move needs folder, style or note.");
+        if (!input.folder && input.style === undefined && input.note === undefined && input.held === undefined) fail("move needs folder, style, note or held.");
         const target = input.folder ? findFolder(overview, input.folder, input.section) : undefined;
         movedTo = target?.slug;
         const styleId = input.style === null ? null : input.style ? findStyle(overview, input.style).styleId : undefined;
         result = await client.mutation(api.review.updateItems, {
           ownerUserId, slug: input.project, itemIds,
           folderId: target?.id as Id<"reviewFolders"> | undefined,
-          styleId: styleId as Id<"worldStyles"> | null | undefined, note: input.note,
+          styleId: styleId as Id<"worldStyles"> | null | undefined, note: input.note, held: input.held,
         });
       } else if (action === "remove") {
         result = await client.mutation(api.review.removeItems, { ownerUserId, slug: input.project, itemIds });
@@ -697,9 +701,9 @@ export async function POST(request: Request) {
         });
         const overview = await overviewOf(input.project);
         return NextResponse.json({
-          ok: true, project: input.project, current: result.label, frames: result.items,
+          ok: true, project: input.project, current: result.label, frames: result.items, held: result.held,
           url: reviewUrl(input.project), publicUrl: overview.project.publicUrl,
-          next: "The director now sees this round. review_round {op: \"set_current\", round} rolls back.",
+          next: `The director now sees this round.${result.held ? ` ${result.held} held frames stayed with Michael in the next draft.` : ""} review_round {op: "set_current", round} rolls back.`,
         });
       }
       if (action === "set_current") {

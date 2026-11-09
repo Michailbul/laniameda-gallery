@@ -133,6 +133,10 @@ export const reviewItemFields = {
   note: v.optional(v.string()),
   // Earlier takes this frame replaced, oldest first (iterations).
   previousAssetIds: v.optional(v.array(v.id("assets"))),
+  // Held · only you (art-director scope, 9 Nov 2026): in the draft for Michael
+  // and agents only. Publishing leaves it out and carries it into the next
+  // draft; one click releases it into the round.
+  held: v.optional(v.boolean()),
   addedAt: v.number(),
 };
 

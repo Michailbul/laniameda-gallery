@@ -38,7 +38,7 @@ export type TileMark = {
   lists: string;
 };
 
-export type TileAction = "like" | "dislike" | "comment" | "copy";
+export type TileAction = "like" | "dislike" | "comment" | "copy" | "release";
 
 type GridProps = {
   groups: GridGroup[];
@@ -420,6 +420,7 @@ const Tile = memo(function Tile(props: TileProps) {
       data-v={verdict}
       data-sel={selected ? "" : undefined}
       data-far={far ? "" : undefined}
+      data-held={item.held ? "" : undefined}
       style={{ "--ar": ratio.toFixed(4) } as React.CSSProperties}
       onPointerEnter={isVideo ? () => setPlaying(true) : undefined}
       onPointerLeave={isVideo ? () => setPlaying(false) : undefined}
@@ -446,7 +447,12 @@ const Tile = memo(function Tile(props: TileProps) {
         <button type="button" className="rv-chip rv-code" data-act="copy" title="Copy this frame's code">
           {item.code}
         </button>
-        {item.isNew ? <span className="rv-chip new">New</span> : null}
+        {item.isNew && !item.held ? <span className="rv-chip new">New</span> : null}
+        {item.held ? (
+          <button type="button" className="rv-chip held" data-act="release" title="Held · only you see it. Click to release it into the round the director gets.">
+            Held · only you<span className="rel">Release</span>
+          </button>
+        ) : null}
       </div>
 
       <div className="rv-t-marks">
