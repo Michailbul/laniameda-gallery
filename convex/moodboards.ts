@@ -571,21 +571,31 @@ export const addMoodboardItems = ownerMutation({
   },
 });
 
+// What a removal took off, so the board's own Undo can put it back where it was.
+const removedItemValidator = v.object({ assetId: v.id("assets"), index: v.number(), addedAt: v.number(), note: v.optional(v.string()) });
+
 export const removeMoodboardItems = ownerMutation({
   args: { ownerUserId: v.string(), moodboardId: v.id("moodboards"), assetIds: v.array(v.id("assets")), ...journalArgs },
-  returns: v.object({ moodboardId: v.id("moodboards"), removed: v.number(), itemCount: v.number(), revision: v.number() }),
+  returns: v.object({
+    moodboardId: v.id("moodboards"), removed: v.number(), itemCount: v.number(), revision: v.number(),
+    // Each removed item with its place in the order before the removal.
+    removedItems: v.array(removedItemValidator),
+    previousCoverAssetId: v.optional(v.id("assets")),
+  }),
   handler: async (ctx, args) => {
     if (args.assetIds.length > MOODBOARD_LIMITS.itemsPerCall) throw new ConvexError(`Remove at most ${MOODBOARD_LIMITS.itemsPerCall} assets per call.`);
     const board = await requireBoard(ctx, args.ownerUserId, args.moodboardId);
     const before = await snapshotMoodboard(ctx, board);
-    const removedIds = new Set<Id<"assets">>();
-    for (const assetId of new Set(args.assetIds)) {
-      const item = await findItem(ctx, board._id, assetId);
-      if (!item) continue;
+    const wanted = new Set(args.assetIds);
+    const removedItems: { assetId: Id<"assets">; index: number; addedAt: number; note?: string }[] = [];
+    for (const [index, item] of (await itemsOf(ctx, board._id)).entries()) {
+      if (!wanted.has(item.assetId)) continue;
       await ctx.db.delete(item._id);
-      removedIds.add(assetId);
+      removedItems.push({ assetId: item.assetId, index, addedAt: item.addedAt, ...(item.note ? { note: item.note } : {}) });
     }
-    if (removedIds.size === 0) return { moodboardId: board._id, removed: 0, itemCount: board.itemCount, revision: board.revision };
+    const previousCoverAssetId = board.coverAssetId;
+    if (removedItems.length === 0) return { moodboardId: board._id, removed: 0, itemCount: board.itemCount, revision: board.revision, removedItems, previousCoverAssetId };
+    const removedIds = new Set(removedItems.map((item) => item.assetId));
     const coverAssetId = board.coverAssetId && removedIds.has(board.coverAssetId)
       ? (await itemQuery(ctx, board._id).first())?.assetId
       : board.coverAssetId;
@@ -593,7 +603,62 @@ export const removeMoodboardItems = ownerMutation({
     const revision = board.revision + 1;
     await ctx.db.patch(board._id, { itemCount, coverAssetId, revision, updatedAt: Date.now() });
     await journalBoard(ctx, args.ownerUserId, "moodboard.items", `Moodboard "${board.name}": removed ${removedIds.size} image${removedIds.size === 1 ? "" : "s"}`, before, board._id, args);
-    return { moodboardId: board._id, removed: removedIds.size, itemCount, revision };
+    return { moodboardId: board._id, removed: removedIds.size, itemCount, revision, removedItems, previousCoverAssetId };
+  },
+});
+
+// Undo of a removal: the items go back at their old places in the order,
+// with their original added time and note, so a removal undone leaves the
+// Midjourney sync state as it was. Items already back on the board are left.
+export const restoreMoodboardItems = ownerMutation({
+  args: {
+    ownerUserId: v.string(), moodboardId: v.id("moodboards"),
+    items: v.array(removedItemValidator),
+    // The cover before the removal; set again when it is on the board.
+    coverAssetId: v.optional(v.id("assets")),
+    ...journalArgs,
+  },
+  returns: v.object({ moodboardId: v.id("moodboards"), restored: v.number(), itemCount: v.number(), revision: v.number() }),
+  handler: async (ctx, args) => {
+    if (args.items.length === 0) throw new ConvexError("Supply at least one item to put back.");
+    if (args.items.length > MOODBOARD_LIMITS.itemsPerCall) throw new ConvexError(`Put back at most ${MOODBOARD_LIMITS.itemsPerCall} items per call.`);
+    const owner = args.ownerUserId;
+    const board = await requireBoard(ctx, owner, args.moodboardId);
+    const current = await itemsOf(ctx, board._id);
+    const present = new Set(current.map((item) => item.assetId));
+    const back = [...new Map(args.items.filter((item) => !present.has(item.assetId)).map((item) => [item.assetId, item])).values()]
+      .sort((a, b) => a.index - b.index);
+    if (back.length === 0) return { moodboardId: board._id, restored: 0, itemCount: board.itemCount, revision: board.revision };
+    for (const item of back) await requireAsset(ctx, owner, item.assetId);
+    await assertAssetsFitWorld(ctx, await worldIdOfFolder(ctx, board.folderId), back.map((item) => item.assetId), `Moodboard "${board.name}"`);
+    if (board.itemCount + back.length > MOODBOARD_LIMITS.items) {
+      throw new ConvexError(`A moodboard holds at most ${MOODBOARD_LIMITS.items} images; "${board.name}" has ${board.itemCount}.`);
+    }
+    const before = await snapshotMoodboard(ctx, board);
+    // Rebuild the order: each item at its old index (ascending, so earlier
+    // ones land first), clamped to the end when the board has shrunk since.
+    type Slot = { existing: Doc<"moodboardItems"> } | { restored: (typeof back)[number] };
+    const order: Slot[] = current.map((existing) => ({ existing }));
+    for (const restored of back) order.splice(Math.min(Math.max(0, Math.floor(restored.index)), order.length), 0, { restored });
+    const now = Date.now();
+    for (const [position, slot] of order.entries()) {
+      if ("existing" in slot) {
+        if (slot.existing.position !== position) await ctx.db.patch(slot.existing._id, { position });
+        continue;
+      }
+      const note = slot.restored.note ? text(slot.restored.note, MOODBOARD_LIMITS.itemNote, "Item note") : undefined;
+      await ctx.db.insert("moodboardItems", {
+        ownerUserId: board.ownerUserId, moodboardId: board._id, assetId: slot.restored.assetId, position,
+        ...(note ? { note } : {}), addedAt: Math.min(slot.restored.addedAt, now),
+      });
+    }
+    const onBoard = new Set([...present, ...back.map((item) => item.assetId)]);
+    const coverAssetId = args.coverAssetId && onBoard.has(args.coverAssetId) ? args.coverAssetId : board.coverAssetId ?? back[0].assetId;
+    const itemCount = board.itemCount + back.length;
+    const revision = board.revision + 1;
+    await ctx.db.patch(board._id, { itemCount, coverAssetId, revision, updatedAt: now });
+    await journalBoard(ctx, owner, "moodboard.items", `Moodboard "${board.name}": put back ${back.length} image${back.length === 1 ? "" : "s"}`, before, board._id, args);
+    return { moodboardId: board._id, restored: back.length, itemCount, revision };
   },
 });
 

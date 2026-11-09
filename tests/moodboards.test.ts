@@ -4,7 +4,7 @@ import { moodboardDocValidator } from "../convex/moodboardValidators";
 import {
   addMoodboardItems, createMoodboard, deleteMoodboard, detachAssetFromMoodboards, getMoodboard,
   listMoodboardGenerations, listMoodboards, listMoodboardsForAsset, removeMoodboardItems,
-  reorderMoodboardItems, setMoodboardMidjourney, updateMoodboard,
+  reorderMoodboardItems, restoreMoodboardItems, setMoodboardMidjourney, updateMoodboard,
 } from "../convex/moodboards";
 import { internalDeleteAsset } from "../convex/assets";
 import { deleteFolder } from "../convex/folders";
@@ -178,6 +178,50 @@ describe("moodboards backend", () => {
     expect(read.items.map((item) => item.assetId)).toEqual([a, c]);
     const none = await call(removeMoodboardItems, { moodboardId: board, assetIds: [stray] });
     expect(none).toMatchObject({ removed: 0, revision: removed.revision });
+  });
+
+  test("undo puts a removed image back in its old place, with its cover and added time", async () => {
+    const { db, styles, asset, call } = await setup();
+    const [a, b, c, d] = [await asset(), await asset(), await asset(), await asset()];
+    const board = (await call(createMoodboard, { folderId: styles, name: "Golden" })).moodboardId;
+    await call(addMoodboardItems, { moodboardId: board, assetIds: [a, b, c, d] });
+    await call(updateMoodboard, { moodboardId: board, coverAssetId: c });
+    await call(setMoodboardMidjourney, { moodboardId: board, mjCode: "88ji6bg" });
+    const synced = await call(getMoodboard, { moodboardId: board });
+    const addedAtC = synced.items.find((item) => item.assetId === c)!.addedAt;
+
+    const removed = await call(removeMoodboardItems, { moodboardId: board, assetIds: [c] });
+    expect(removed.removedItems).toEqual([{ assetId: c, index: 2, addedAt: addedAtC }]);
+    expect(removed.previousCoverAssetId).toBe(c);
+    const off = await call(getMoodboard, { moodboardId: board });
+    expect(moodboardSyncState(off.moodboard, off.items.map((item) => item.addedAt))).toMatchObject({ removedSince: 1, upToDate: false });
+
+    const back = await call(restoreMoodboardItems, { moodboardId: board, items: removed.removedItems, coverAssetId: removed.previousCoverAssetId });
+    expect(back).toMatchObject({ restored: 1, itemCount: 4 });
+    const read = await call(getMoodboard, { moodboardId: board });
+    expect(read.items.map((item) => item.assetId)).toEqual([a, b, c, d]);
+    expect(read.moodboard.coverAssetId).toBe(c);
+    expect(read.items.find((item) => item.assetId === c)!.addedAt).toBe(addedAtC);
+    expect(moodboardSyncState(read.moodboard, read.items.map((item) => item.addedAt))).toMatchObject({ upToDate: true });
+    // The asset was never touched.
+    expect(await db.get(c)).toBeTruthy();
+    // A second undo of the same removal changes nothing.
+    expect(await call(restoreMoodboardItems, { moodboardId: board, items: removed.removedItems })).toMatchObject({ restored: 0, revision: back.revision });
+  });
+
+  test("undo of several removals lands each at its own index, clamped when the board shrank", async () => {
+    const { styles, asset, call } = await setup();
+    const [a, b, c, d, e] = [await asset(), await asset(), await asset(), await asset(), await asset()];
+    const board = (await call(createMoodboard, { folderId: styles, name: "Golden" })).moodboardId;
+    await call(addMoodboardItems, { moodboardId: board, assetIds: [a, b, c, d, e] });
+    const first = await call(removeMoodboardItems, { moodboardId: board, assetIds: [b, d] });
+    expect(first.removedItems.map((item) => [item.assetId, item.index])).toEqual([[b, 1], [d, 3]]);
+    await call(restoreMoodboardItems, { moodboardId: board, items: first.removedItems });
+    expect((await call(getMoodboard, { moodboardId: board })).items.map((item) => item.assetId)).toEqual([a, b, c, d, e]);
+    const last = await call(removeMoodboardItems, { moodboardId: board, assetIds: [e] });
+    await call(removeMoodboardItems, { moodboardId: board, assetIds: [a, b, c] });
+    await call(restoreMoodboardItems, { moodboardId: board, items: last.removedItems });
+    expect((await call(getMoodboard, { moodboardId: board })).items.map((item) => item.assetId)).toEqual([d, e]);
   });
 
   test("a recorded sync keeps the code history and sets the board in Midjourney", async () => {

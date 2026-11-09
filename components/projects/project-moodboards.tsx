@@ -7,6 +7,7 @@ import { ArrowUpRight, Check, Loader2, Plus, Send } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { BoardCard } from "@/components/gallery/moodboards-view";
+import { MoodboardFrameKeys } from "@/components/gallery/moodboard-frame-keys";
 import { syncOf, useSendToMidjourney } from "./moodboard-sync";
 import type { StudioShelf } from "./moodboard-studio";
 
@@ -48,6 +49,8 @@ export function ProjectMoodboards({ ownerUserId, worldId, worldKey, worldName, s
 
   return (
     <div className="lmp-boards">
+      {/* D on a board image (a card's mosaic, the studio, its large view) takes it off that board; Z puts it back. */}
+      <MoodboardFrameKeys ownerUserId={ownerUserId} session="moodboard-studio" />
       <div className="lmp-boards-bar">
         <button type="button" className="lmp-btn" onClick={() => openStudio("new")}>
           <Plus size={13} aria-hidden />New moodboard

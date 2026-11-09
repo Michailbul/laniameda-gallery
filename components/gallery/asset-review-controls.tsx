@@ -17,6 +17,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
 import { ASSET_HOTKEYS, assetHotkeyOf, promoteHotkeyOf } from "@/lib/asset-hotkeys";
+import { MOODBOARD_KEYS, moodboardKeysActive, useMoodboardKeysActive } from "@/components/gallery/moodboard-frame-keys";
 import type { PromoteFrame } from "@/components/review-promote/promote-model";
 import { useReviewPromote } from "@/components/review-promote/use-review-promote";
 import { heroNotice } from "@/lib/world-hero-inserts";
@@ -263,11 +264,18 @@ export function ReviewDockHints() {
   const active = useReviewActive();
   const count = useArchiveItems().length;
   const open = useTrayOpen();
+  // On a moodboard the frame keys are the board's: D off the board, Z undo.
+  const onBoard = useMoodboardKeysActive();
   if (!active) return null;
   return (
     <div className="asset-review-dock" aria-label="Frame keys">
       <span className="asset-review-dock-keys">
-        {KEYS.map(({ key, label }) => (
+        {onBoard ? MOODBOARD_KEYS.map(({ key, label, title }) => (
+          <span key={key} title={title}>
+            <kbd>{key}</kbd>
+            <span className="asset-review-dock-label">{label}</span>
+          </span>
+        )) : KEYS.map(({ key, label }) => (
           <span
             key={key}
             title={
@@ -570,6 +578,9 @@ export function AssetReviewControls({
       const key = promoteKey ? null : assetHotkeyOf(event);
       // 2 and O belong to the world page.
       if (!promoteKey && (!key || key === ASSET_HOTKEYS.drop || key === ASSET_HOTKEYS.open)) return;
+      // On a moodboard (or an image opened from one), D takes the image off
+      // that board instead: components/gallery/moodboard-frame-keys.tsx.
+      if (key === ASSET_HOTKEYS.archive && (moodboardKeysActive() || document.querySelector("[data-mb-open]"))) return;
       // Other open dialogs own their keys. The gallery detail view is allowed.
       const visible = (node: HTMLElement) => node.getClientRects().length > 0;
       if (
