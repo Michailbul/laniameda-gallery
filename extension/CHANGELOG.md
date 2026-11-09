@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.30.1 (9 Nov 2026)
+
+- Describer style tiles name their world only when the style comes from a
+  sister world (3D, ART DECO …); the side panel shows every style without a
+  scroll of its own.
+- (0.29.1) The describer's style list loads: its world was cut from the
+  request, so "Our style" showed HTTP 404.
+
 ## 0.30.0 (9 Nov 2026)
 
 - Dock presets are copied to the gallery as style presets of the world, so

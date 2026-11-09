@@ -95,6 +95,7 @@
     .ds-row{display:flex;gap:6px;align-items:center}
     .ds-select{flex:1;min-width:0;height:28px;padding:0 8px;border-radius:7px;border:1px solid var(--line);background:var(--chip);color:var(--ink);font:600 11.5px/1 Inter,system-ui,sans-serif}
     .ds-styles{display:grid;grid-template-columns:repeat(auto-fill,minmax(98px,1fr));gap:6px;max-height:228px;overflow:auto;padding:1px}
+    .ds--light .ds-styles{max-height:none;overflow:visible}
     .ds-style{position:relative;display:flex;flex-direction:column;gap:0;padding:0;border:1px solid var(--line);border-radius:8px;background:var(--panel);overflow:hidden;cursor:pointer;text-align:left;color:var(--ink)}
     .ds-style img,.ds-style i{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;background:var(--line)}
     .ds-style span{display:block;padding:5px 6px 6px;font:700 10px/1.2 Inter,system-ui,sans-serif;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -230,7 +231,8 @@
         button.title = [style.name, style.line, style.recipe ? `Recipe: ${style.recipe}` : "", style.hasLock ? "Has a style lock" : ""].filter(Boolean).join("\n");
         button.setAttribute("aria-pressed", String(style.id === state.styleId));
         if (style.thumbUrl) { const img = el("img"); img.src = style.thumbUrl; img.alt = ""; img.loading = "lazy"; button.appendChild(img); } else button.appendChild(el("i"));
-        if (style.worldShort && state.styles.some((other) => other.worldShort !== style.worldShort)) button.appendChild(el("em", "", style.worldShort));
+        // Styles from a sister world of the universe (3D, ART DECO …) say which.
+        if (style.worldShort && style.world !== state.worldKey) button.appendChild(el("em", "", style.worldShort));
         button.appendChild(el("span", "", style.name));
         button.addEventListener("click", () => {
           state.styleId = style.id;
