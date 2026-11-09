@@ -44,6 +44,8 @@ export const reviewerValidator = v.object({
   // Signed in with Google under their own invited address: their name can no
   // longer be claimed by another account.
   googleAt: v.optional(v.number()),
+  // The owner's "Reset sign-in": visits before it no longer lock the name.
+  signInResetAt: v.optional(v.number()),
   // Short personal sign-in link: <public address>/i/<inviteCode>
   // ("alejandro-k7m2xq9p"). Stays the same until the owner makes a new one.
   inviteCode: v.optional(v.string()),

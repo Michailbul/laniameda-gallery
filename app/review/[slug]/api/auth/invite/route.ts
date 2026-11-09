@@ -1,15 +1,7 @@
 import { NextResponse } from "next/server";
 import { ConvexHttpClient } from "convex/browser";
 import { api } from "@/convex/_generated/api";
-import {
-  REVIEW_COOKIE,
-  convexTokenFor,
-  mintReviewerConvexToken,
-  readReviewInvite,
-  resolveReviewViewer,
-  reviewCookieOptions,
-  signReviewSession,
-} from "@/lib/server/review-auth";
+import { convexTokenFor, readReviewInvite, resolveReviewViewer } from "@/lib/server/review-auth";
 import { newInviteCode } from "@/lib/server/review-invite";
 
 export const runtime = "nodejs";
@@ -22,40 +14,15 @@ const convexClient = () => {
   return new ConvexHttpClient(url);
 };
 
-// GET ?token=… : open a private invite link. Sets rv_session for the invited
-// email (when it is still on the project's reviewers) and goes to the review.
-// The redirect is relative ("../../"), so it lands on whichever address the
-// link was opened at (/cassandra on the public site, /review/<slug> here).
+// GET ?token=… : an old long invite link. It no longer signs anyone in
+// directly (that skipped Google, so anyone holding it could be that person):
+// it goes to the sign-in card, where the person signs in with Google.
 export async function GET(request: Request, context: { params: Promise<{ slug: string }> }) {
   const { slug } = await context.params;
   const token = new URL(request.url).searchParams.get("token");
   const invite = await readReviewInvite(token);
-  const back = (status: number, query = "") =>
-    new Response(null, { status, headers: { Location: `../../${query}`, ...noStore } });
-  if (!invite || invite.slug !== slug.toLowerCase()) return back(303, "?invite=invalid");
-
-  const client = convexClient();
-  client.setAuth(mintReviewerConvexToken(invite.email));
-  const access = await client.query(api.review.access, { slug });
-  if (!access) return back(303, "?invite=revoked");
-  if (access.role !== "owner") {
-    await client.mutation(api.review.recordVisit, { slug, name: invite.name }).catch(() => null);
-  }
-  const response = back(303);
-  const cookie = await signReviewSession({ email: invite.email, name: invite.name });
-  const options = reviewCookieOptions();
-  response.headers.append(
-    "Set-Cookie",
-    [
-      `${REVIEW_COOKIE}=${cookie}`,
-      `Path=${options.path}`,
-      `Max-Age=${options.maxAge}`,
-      "HttpOnly",
-      `SameSite=Lax`,
-      ...(options.secure ? ["Secure"] : []),
-    ].join("; "),
-  );
-  return response;
+  const query = invite && invite.slug === slug.toLowerCase() ? "" : "?invite=invalid";
+  return new Response(null, { status: 303, headers: { Location: `../../${query}`, ...noStore } });
 }
 
 // POST { email, base, fresh? } (owner only): a reviewer's short invite link.
