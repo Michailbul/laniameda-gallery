@@ -21,14 +21,16 @@ const worldOf = async (ctx: QueryCtx, asset: Doc<"assets">): Promise<World | nul
   const links = await ctx.db.query("assetFolders").withIndex("by_asset", (q) => q.eq("assetId", asset._id)).collect();
   const folderIds = new Set<Id<"folders">>(links.map((link) => link.folderId));
   if (asset.folderId) folderIds.add(asset.folderId);
-  for (const folderId of folderIds) {
-    const folder = await ctx.db.get(folderId);
-    if (!folder) continue;
+  const folders = (await Promise.all([...folderIds].map((id) => ctx.db.get(id)))).filter((row): row is Doc<"folders"> => Boolean(row));
+  // Art-director scope (9 Nov 2026): a piece Michael keeps on an art-director
+  // shelf is placed by hand only; auto-shelving never moves it anywhere.
+  if (folders.some((folder) => folder.scope === "art_director")) return null;
+  for (const folder of folders) {
     const world = folder.parentFolderId ? await ctx.db.get(folder.parentFolderId) : folder;
     if (!world || !world.worldKey) continue;
     const children = await ctx.db.query("folders").withIndex("by_parent", (q) => q.eq("parentFolderId", world._id)).collect();
     const shelves: Shelf[] = children
-      .filter((child) => isShelfGroup(child.group) && child.kind !== "storybook")
+      .filter((child) => isShelfGroup(child.group) && child.kind !== "storybook" && child.scope !== "art_director")
       .map((child) => ({ id: child._id, name: child.name, group: child.group as ShelfGroup, description: child.description }));
     if (shelves.length === 0) continue;
     const skip = new Set<ShelfGroup>();

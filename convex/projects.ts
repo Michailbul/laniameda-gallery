@@ -171,7 +171,8 @@ const reviewsOfWorld = async (ctx: Ctx, owner: string, root: Folder) => {
   const projects: Doc<"reviewProjects">[] = [];
   for (const candidate of resolveUserIdCandidates(owner)) {
     for (const row of await ctx.db.query("reviewProjects").withIndex("by_owner", (q) => q.eq("ownerUserId", candidate)).take(50)) {
-      if (row.worldFolderId === root._id || slugs.has(row.slug)) projects.push(row);
+      // Listed review slugs decide when there are any (cassandra, not cassandra-test).
+      if (slugs.size ? slugs.has(row.slug) : row.worldFolderId === root._id) projects.push(row);
     }
   }
   const out = [];
