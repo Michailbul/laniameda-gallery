@@ -188,7 +188,9 @@
   font: 600 10px/1.2 var(--font-geist-mono, ui-monospace, monospace);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 244, 234, 0.72);
+  /* The tray follows the theme: inherit its text colour. */
+  color: inherit;
+  opacity: 0.8;
   cursor: pointer;
 }
 .asset-review-show-archived input {
