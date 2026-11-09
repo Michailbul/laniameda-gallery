@@ -743,7 +743,8 @@
     if (active) card.appendChild(readbackBox(item));
     else {
       // Two lines; a click opens the whole prompt (he reads it in Midjourney anyway).
-      const cmd = el("div", `mjq-cmd${expanded.has(item.id) ? "" : " mjq-cmd--clamp"}`, item.command);
+      const cmd = el("div", `mjq-cmd${expanded.has(item.id) ? "" : " mjq-cmd--clamp"}`);
+      cmd.appendChild(el("span", "mjq-cmd-text", item.command));
       cmd.title = expanded.has(item.id) ? "Click to fold" : "Click to show the whole prompt";
       cmd.addEventListener("click", () => {
         if (getSelection()?.toString()) return;

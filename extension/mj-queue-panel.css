@@ -385,13 +385,13 @@ body.mjq-mode .badge { color: var(--text-3); }
   user-select: text;
 }
 
-.mjq-cmd--clamp {
+/* The clamp sits on the inner line box, so no cut third line shows in the padding. */
+.mjq-cmd--clamp { color: var(--text-2); cursor: pointer; }
+.mjq-cmd--clamp .mjq-cmd-text {
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  color: var(--text-2);
-  cursor: pointer;
 }
 .mjq-cmd--clamp:hover { color: var(--ink); border-color: var(--border-focus); }
 .mjq-cmd:not(.mjq-cmd--clamp) { cursor: pointer; }
