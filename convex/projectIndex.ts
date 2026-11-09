@@ -122,8 +122,9 @@ export const findInProject = ownerQuery({
   handler: async (ctx, args) => {
     const root = await resolveWorld(ctx, args.ownerUserId, args.world);
     const data = await load(ctx, args.ownerUserId, root._id);
-    const tokens = words(args.query);
     const scene = sceneOf(args.query);
+    // "scene 61" asks for the scene number: the word itself and the number are not search words.
+    const tokens = words(scene === null ? args.query : args.query.replace(/(?:scene|sc\.?|shot)\s*\d{1,3}/gi, " "));
     const limit = Math.min(Math.max(args.limit ?? 30, 1), 80);
     type Hit = { score: number; row: { kind: string; handle: string; title: string; line?: string; open: string } };
     const hits: Hit[] = [];
