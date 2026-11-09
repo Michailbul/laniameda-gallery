@@ -36,6 +36,13 @@ export const TYPED_ID_ROUTES: readonly TypedIdRoute[] = [
   { prefix: "world", aliases: ["worlds"], tool: "open_world", argument: "world", bareAccepted: true, note: "a world's root collection id, key or name" },
   { prefix: "collection", aliases: ["collections", "folder", "folders"], tool: "list_collections", argument: "parentFolderId / folderId", bareAccepted: true, note: "collections are addressed by their bare folderId everywhere; open_world lists a world's shelves" },
   { prefix: "profile", aliases: ["profiles", "mjProfile"], tool: "mj_profiles", argument: "profile", bareAccepted: true },
+  { prefix: "brief", aliases: ["briefs"], tool: "project_get", argument: "ref", bareAccepted: false, note: "a production brief of a project (what the director or producers sent)" },
+  { prefix: "lp", aliases: ["locked"], tool: "project_get", argument: "ref", bareAccepted: false, note: "a locked place: one style-free prompt with its wordings, seeds and brief images" },
+  { prefix: "set", aliases: ["sets", "promptSet"], tool: "project_get", argument: "ref", bareAccepted: false, note: "a shot set of a project" },
+  { prefix: "preset", aliases: ["presets", "stylePreset"], tool: "project_get", argument: "ref", bareAccepted: false, note: "a look: one exact Midjourney recipe as frozen codes" },
+  { prefix: "run", aliases: ["runs"], tool: "project_get", argument: "ref", bareAccepted: false, note: "a prompt run (its grid); thr-xxxxxxxx works too" },
+  { prefix: "style", aliases: ["styles"], tool: "get_style", argument: "style", bareAccepted: false, note: "a world style; project_get opens it too" },
+  { prefix: "inspiration", aliases: [], tool: "get_inspiration", argument: "sourceId", bareAccepted: false, note: "a reference in the Inspiration library" },
 ];
 
 const routeByPrefix = new Map<string, TypedIdRoute>();
@@ -71,7 +78,7 @@ export const galleryIdHelp = (value: string): string => {
       return `${route.prefix}:${id || "<id>"} is read with ${route.tool} { ${route.argument}: "${route.bareAccepted ? id || "<id>" : `${route.prefix}:${id || "<id>"}`}" }, not get_gallery_item (${GALLERY_ITEM_PREFIXES}). The typed-ID table is in references/data-model.md.`;
     }
     if (!route) {
-      return `Unknown id prefix "${prefix}:". get_gallery_item reads ${GALLERY_ITEM_PREFIXES}; moodboard:, story:, character:, stack:, task: and video: have their own read tools (typed-ID table in references/data-model.md).`;
+      return `Unknown id prefix "${prefix}:". get_gallery_item reads ${GALLERY_ITEM_PREFIXES}; moodboard:, story:, character:, stack:, task:, video:, style:, inspiration: and the project handles brief:, lp:, set:, preset:, run: (project_get) have their own read tools (typed-ID table in references/data-model.md).`;
     }
   }
   return `Typed gallery ID is required: ${GALLERY_ITEM_PREFIXES}. A bare id from the gallery is an asset in most cases (asset:${value}); ids from open_world are bare too: shelves are collection ids, moodboards go to get_moodboard, stories to get_story, characters to get_character by code. Table: references/data-model.md.`;

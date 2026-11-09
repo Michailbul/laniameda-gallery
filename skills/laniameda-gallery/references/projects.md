@@ -22,6 +22,34 @@ the art director scope. Not to the public/director views."
 - Frames that were already public before they joined an art-director shelf
   stay public: the shelf hides nothing that was published another way.
 
+## Find anything (agents start here)
+
+1. `project_open {world}`: the whole project as a map with handles: details,
+   briefs, art-director and other shelves, the director review and its
+   folders (with script scenes), **locked places** grouped by area and place,
+   **shot sets**, **looks** (style presets, variations under their parent),
+   **runs**, world styles, moodboards, inspiration.
+2. `project_find {world, query}`: one search across all of it, by words
+   ("school patio", "night beach", "metro") or a scene ("scene 61"). Results
+   are ranked, each with its handle and the tool that opens it; brief
+   pictures that match come back as `asset:` handles.
+3. `project_get {ref}`: opens any project handle whole: `brief:`, `lp:`,
+   `set:`, `preset:`, `run:` (or `thr-xxxxxxxx`), `style:`.
+   `get_gallery_item` points here for those prefixes.
+
+| Handle | What | Open with |
+|---|---|---|
+| `brief:<id>` | what production sent: sender, date, why, files, pictures | `project_get` |
+| `lp:<id>` | a locked place: wordings, seeds, brief images, takes | `project_get` |
+| `set:<id>` | a shot set: shots with every wording and seed | `project_get` |
+| `preset:<id>` | a look: codes, copy-ready parameters, variations, runs | `project_get` |
+| `run:<id>` | a run: rows = looks, columns = shots, frames, Michael's keep/drop | `project_get` |
+| `style:<id>` | a world style and its recipes | `get_style` |
+| `moodboard:<id>` | a moodboard | `get_moodboard` |
+| `asset:<id>` | a picture | `get_gallery_item`, `preview_assets` |
+| review folder slug | frames in the director review | `review_items {project, folder}` |
+| shelf id | pieces on a shelf | `list_assets_page {folderId}` |
+
 ## The objects
 
 - **Project details** on the world root (`folders.project`): `line`,
