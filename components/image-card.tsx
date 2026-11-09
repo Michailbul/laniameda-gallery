@@ -23,6 +23,7 @@ import { BookmarkPostCard } from "@/components/gallery/bookmark-post-card";
 import type { BookmarkPost } from "@/lib/bookmarks";
 import type { GalleryEntryPreview } from "@/lib/gallery-entries";
 import { VideoScrubPreview, useVideoScrub } from "@/components/video-scrub-preview";
+import { isTileHiddenTag } from "@/lib/tag-hygiene";
 import { ArchivedChip, useArchiveStore, useArchivedAt, useIsHero, useStarOverride } from "@/components/gallery/asset-review-controls";
 
 const CINEMA_PILLAR = "cinema-inspiration";
@@ -324,7 +325,10 @@ export const ImageCard = memo(function ImageCard({
   const displayedTypeLabel = displayedMember.typeLabel;
   // Removable tag chips (owner only), minus any that repeat a badge beside them.
   const badgeWords = new Set([displayedTypeLabel, ...displayedCollections].filter(Boolean).map((label) => label!.toLowerCase()));
-  const chipTags = onRemoveTag ? displayedTags.filter((tag) => !badgeWords.has(tag.toLowerCase())) : [];
+  // Model names and pickup sources never show (lib/tag-hygiene.ts).
+  const chipTags = onRemoveTag
+    ? displayedTags.filter((tag) => !badgeWords.has(tag.toLowerCase()) && !isTileHiddenTag(tag))
+    : [];
   const displayLabel = isPackDeck
     ? activePreview.agentDescription || activePreview.name || activePreview.prompt || "Gallery asset"
     : image.agentDescription || image.name || activePreview.prompt || "Gallery asset";
@@ -1298,11 +1302,13 @@ export const ImageCard = memo(function ImageCard({
 
       {/* Labels, the board way: one line of small dark chips on the bottom
           edge, readable at rest. Where it is filed (the first collection in
-          linen), what it is, the model, public; on hover the owner's tags join
+          linen), what it is, public; on hover the owner's tags join
           the line (a click removes one). One line that never wraps, so chips
           never sit on top of each other. A star note owns the bottom edge at
-          rest, so there the line waits for hover. */}
-      {!isCinema && (
+          rest, so there the line waits for hover. An archived frame's
+          Archived · Restore chip owns the bottom edge, so the line steps aside.
+          The model is no chip (Michael, 9 Nov 2026). */}
+      {!isCinema && !isArchived && (
         <div
           className={`lm-chips pointer-events-none absolute bottom-1.5 left-1.5 right-1.5 z-30 transition-opacity duration-[var(--duration-normal)] ${
             promptOpen ? "opacity-0" : starNote ? "opacity-0 group-hover:opacity-100" : ""
@@ -1325,7 +1331,6 @@ export const ImageCard = memo(function ImageCard({
             </span>
           )}
           {displayedTypeLabel && <span>{displayedTypeLabel}</span>}
-          {image.modelName && <span>{image.modelName}</span>}
           {showPublicBadge && displayedMember.isPublic && (
             <span className="p" title="Already public">Public</span>
           )}

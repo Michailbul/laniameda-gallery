@@ -53,13 +53,37 @@ export type ArchiveStore = {
   isHero: (assetId: string) => boolean;
   setHeroIds: (ids: ReadonlySet<string>) => void;
   setHeroOverride: (assetId: string, hero: boolean | undefined) => void;
+  /**
+   * Frames archived before this page loaded: the grid leaves them out, so an
+   * archive clears the gallery on the next refresh (the tray still has them).
+   * Empty while "show archived in the grid" is on.
+   */
+  hiddenIds: () => ReadonlySet<string>;
+  showArchived: () => boolean;
+  setShowArchived: (show: boolean) => void;
 };
+
+const SHOW_ARCHIVED_KEY = "lm-show-archived";
+const NO_IDS: ReadonlySet<string> = new Set();
 
 const EMPTY_ARCHIVE: ArchiveItem[] = [];
 
 export function createArchiveStore(): ArchiveStore {
   let items = EMPTY_ARCHIVE;
   let byId = new Map<string, number>();
+  // Archived in this visit: stays grayed in place (undo is one key away).
+  const loadedAt = Date.now();
+  let showArchived = false;
+  try {
+    showArchived = typeof window !== "undefined" && window.localStorage.getItem(SHOW_ARCHIVED_KEY) === "1";
+  } catch {
+    showArchived = false;
+  }
+  let hidden: ReadonlySet<string> = NO_IDS;
+  const rebuildHidden = () => {
+    const next = showArchived ? [] : items.filter((item) => item.archivedAt < loadedAt).map((item) => item.assetId);
+    hidden = next.length ? new Set(next) : NO_IDS;
+  };
   let active = false;
   let trayOpen = false;
   let restoreFn: (assetId: string) => void = () => {};
@@ -82,6 +106,7 @@ export function createArchiveStore(): ArchiveStore {
       items = next;
       active = nextActive;
       byId = new Map(next.map((item) => [item.assetId, item.archivedAt]));
+      rebuildHidden();
       if (!next.length) trayOpen = false;
       emit();
     },
@@ -99,6 +124,19 @@ export function createArchiveStore(): ArchiveStore {
       if (stars.get(assetId) === starred) return;
       if (starred === undefined) stars.delete(assetId);
       else stars.set(assetId, starred);
+      emit();
+    },
+    hiddenIds: () => hidden,
+    showArchived: () => showArchived,
+    setShowArchived: (show) => {
+      if (show === showArchived) return;
+      showArchived = show;
+      try {
+        window.localStorage.setItem(SHOW_ARCHIVED_KEY, show ? "1" : "0");
+      } catch {
+        // Private mode: the choice lasts for this visit.
+      }
+      rebuildHidden();
       emit();
     },
     isHero: (assetId) => heroes.get(assetId) ?? heroIds.has(assetId),
@@ -157,6 +195,17 @@ export function useArchiveItems() {
 export function useReviewActive() {
   const store = useArchiveStore();
   return useSyncExternalStore(store.subscribe, store.active, () => false);
+}
+
+/** Asset ids the grid leaves out (archived before this page loaded). */
+export function useHiddenArchivedIds() {
+  const store = useArchiveStore();
+  return useSyncExternalStore(store.subscribe, store.hiddenIds, () => NO_IDS);
+}
+
+function useShowArchived() {
+  const store = useArchiveStore();
+  return useSyncExternalStore(store.subscribe, store.showArchived, () => false);
 }
 
 function useTrayOpen() {
@@ -311,6 +360,7 @@ function ArchiveTrayItem({ item, onPurge, purging }: { item: ArchiveItem; onPurg
 export function ArchiveTray({ ownerUserId }: { ownerUserId?: string } = {}) {
   const store = useArchiveStore();
   const open = useTrayOpen();
+  const showArchived = useShowArchived();
   const items = useArchiveItems();
   const purge = useMutation(api.assetReview.purge);
   const [purging, setPurging] = useState(false);
@@ -358,7 +408,15 @@ export function ArchiveTray({ ownerUserId }: { ownerUserId?: string } = {}) {
           ×
         </button>
       </header>
-      <p>Archived frames stay until you restore or delete them. Restore, or double-click a frame.</p>
+      <p>Archived frames stay here until you restore or delete them. In the gallery they gray out, then leave the grid when the page reloads.</p>
+      <label className="asset-review-show-archived">
+        <input
+          type="checkbox"
+          checked={showArchived}
+          onChange={(event) => store.setShowArchived(event.target.checked)}
+        />
+        Show archived frames in the grid
+      </label>
       {ownerUserId && items.length > 0 && (
         <button
           type="button"

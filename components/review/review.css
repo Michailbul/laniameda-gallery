@@ -1005,7 +1005,8 @@ button.rv-chip:hover { color: var(--text); }
   .rv-bar { position: absolute; top: 0; right: 0; min-height: 0; padding: 0; display: block; pointer-events: none; }
   .rv-bar-l { display: none; }
   .rv-bar-r { position: absolute; top: 22px; right: 20px; pointer-events: auto; }
-  .rv-stylebar { padding: 12px 64px 10px 20px; }
+  /* Room on the right for the bell and the ? button. */
+  .rv-stylebar { padding: 12px 104px 10px 20px; }
 }
 
 /* ------------------------------------------------------------ notification bell */

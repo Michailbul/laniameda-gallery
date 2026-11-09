@@ -59,6 +59,7 @@ import { deleteCommentsForAsset } from "./assetComments";
 import { detachAssetFromEditJobs } from "./editJobs";
 import { stripAssetFromTasks } from "./tasks";
 import { galleryAssetSearchText } from "../lib/gallery-search";
+import { isModelTag } from "../lib/tag-hygiene";
 
 const pillarValidator = optionalPillarValidator;
 // Perceptual hash for Group similar; a minute after ingest, when the card
@@ -176,8 +177,9 @@ export const resolveTagIdsForNames = async (
   names: string[],
   pillar: string | undefined,
 ) => {
+  // Model names never become tags: modelName carries them (lib/tag-hygiene.ts).
   const cleanedNames = Array.from(
-    new Set(names.map((name) => name.trim()).filter(Boolean)),
+    new Set(names.map((name) => name.trim()).filter((name) => name && !isModelTag(name))),
   );
   if (cleanedNames.length === 0) {
     return [] as Id<"tags">[];
@@ -3601,7 +3603,7 @@ export const addAssetTags = ownerMutation({
     const addedTagNames: string[] = [];
     for (const raw of args.tagNames) {
       const normalized = normalizeTagName(raw);
-      if (!normalized) continue;
+      if (!normalized || isModelTag(raw)) continue;
       const canonical = canonicalTagKey(raw);
       const cached = canonical ? resolvedByCanonical.get(canonical) : undefined;
       if (cached) {
