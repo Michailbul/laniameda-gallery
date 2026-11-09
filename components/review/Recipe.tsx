@@ -28,6 +28,14 @@ export function ReviewRecipe({ name, recipes }: { name: string; recipes: Recipe[
             <ul className="rv-recipe-codes">
               {recipe.codes.map((code) => (
                 <li key={`${code.flag}-${code.code}`}>
+                  {code.thumbs?.length ? (
+                    <span className="rv-recipe-pics">
+                      {code.thumbs.map((url) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img key={url} src={url} alt="" loading="lazy" />
+                      ))}
+                    </span>
+                  ) : null}
                   <code>{code.code}</code>
                   <span>{code.kind === "sref" ? "Style reference" : code.kind === "moodboard" ? "Moodboard" : "Profile"}</span>
                   {code.kind !== "sref" ? <b>{code.name ?? "not named yet"}</b> : null}

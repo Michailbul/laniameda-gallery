@@ -16,22 +16,25 @@ export type RecipeRow = {
   parameters?: string;
   template?: string;
   frames?: number;
-  moodboards: Array<{ name: string; mjCode?: string }>;
+  moodboards: Array<{ name: string; mjCode?: string; previews?: Array<{ thumbUrl?: string }> }>;
   profiles: Array<{ name: string; code: string }>;
   unknownCodes: string[];
 };
 
-export type CodeName = { code: string; name?: string; kind: "moodboard" | "profile" | "unknown" };
+export type CodeName = { code: string; name?: string; kind: "moodboard" | "profile" | "unknown"; previews?: Array<{ thumbUrl?: string }> };
 
 export function StyleRecipes({ recipes, names }: { recipes: RecipeRow[]; names: CodeName[] }) {
   const usable = recipes.filter((recipe) => recipe.parameters || recipe.template || recipe.moodboards.length || recipe.profiles.length);
   if (!usable.length) return null;
   const named = new Map<string, CodeName>();
   for (const recipe of usable) {
-    for (const board of recipe.moodboards) if (board.mjCode) named.set(board.mjCode, { code: board.mjCode, name: board.name, kind: "moodboard" });
+    for (const board of recipe.moodboards) if (board.mjCode) named.set(board.mjCode, { code: board.mjCode, name: board.name, kind: "moodboard", previews: board.previews });
     for (const profile of recipe.profiles) named.set(profile.code, { code: profile.code, name: profile.name, kind: "profile" });
   }
-  for (const item of names) if (item.code && !named.get(item.code)?.name) named.set(item.code, item);
+  for (const item of names) {
+    const have = named.get(item.code);
+    if (item.code && (!have?.name || !have.previews?.length)) named.set(item.code, { ...item, ...(have?.name ? { name: have.name } : {}), previews: have?.previews?.length ? have.previews : item.previews });
+  }
 
   return (
     <section className="lms-recipes" aria-label="Midjourney recipe">
@@ -58,6 +61,14 @@ export function StyleRecipes({ recipes, names }: { recipes: RecipeRow[]; names: 
                   const known = named.get(code);
                   return (
                     <li key={`${flag}-${code}`}>
+                      {known?.previews?.length ? (
+                        <span className="lms-recipe-pics">
+                          {known.previews.slice(0, 3).map((preview, index) => preview.thumbUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img key={index} src={preview.thumbUrl} alt="" loading="lazy" />
+                          ) : null)}
+                        </span>
+                      ) : null}
                       <code>{code}</code>
                       <span>{flag === "sref" ? "Style reference" : known?.kind === "moodboard" ? "Moodboard" : "Profile"}</span>
                       <b>{flag === "sref" ? "" : known?.name ?? "not named yet"}</b>
@@ -117,7 +128,9 @@ const RECIPE_CSS = `
 .lms-copy:hover{background:var(--lm-surface-2)}
 .lms-copy[data-on]{background:var(--lm-surface-2);color:var(--lm-text-primary)}
 .lms-recipe-codes{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:8px;padding-top:8px;border-top:1px solid var(--lm-border-subtle)}
-.lms-recipe-codes li{display:inline-flex;align-items:baseline;gap:6px;font-size:11px;color:var(--lm-text-tertiary)}
+.lms-recipe-pics{display:inline-flex;gap:1px;align-self:center;border-radius:4px;overflow:hidden}
+.lms-recipe-pics img{width:26px;height:26px;object-fit:cover;display:block}
+.lms-recipe-codes li{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--lm-text-tertiary)}
 .lms-recipe-codes code{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:11px;color:var(--lm-text-primary)}
 .lms-recipe-codes span{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase}
 .lms-recipe-codes b{font-weight:600;color:var(--lm-text-secondary)}
