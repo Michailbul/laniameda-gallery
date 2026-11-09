@@ -390,7 +390,8 @@ export function BoardCard({ row, onOpen, place }: { row: Row; onOpen: () => void
 }
 
 export function CreateMoodboard({ ownerUserId, owners, defaultFolderId, onCreated }: {
-  ownerUserId: string; owners: MoodboardCollectionOption[]; defaultFolderId: string; onCreated: (id: Id<"moodboards">) => void;
+  ownerUserId: string; owners: MoodboardCollectionOption[]; defaultFolderId: string;
+  onCreated: (id: Id<"moodboards">, board: { name: string; folderId: string }) => void;
 }) {
   const create = useMutation(api.moodboards.createMoodboard);
   const [folderId, setFolderId] = useState(defaultFolderId);
@@ -408,7 +409,7 @@ export function CreateMoodboard({ ownerUserId, owners, defaultFolderId, onCreate
         ownerUserId, folderId: folderId as Id<"folders">, name,
         description: description.trim() || undefined, styleTag: styleTag.trim() || undefined,
       });
-      onCreated(result.moodboardId);
+      onCreated(result.moodboardId, { name: name.trim(), folderId });
     } catch (err) { setError(errorText(err, "Could not create the moodboard.")); } finally { setBusy(false); }
   };
   return <form onSubmit={submit} className="mb-7 grid gap-3 border p-4 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]"

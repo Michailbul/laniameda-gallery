@@ -169,6 +169,7 @@ import {
 } from "@/lib/collection-worlds";
 import { CINEMATOGRAPHY_TAG } from "@/lib/cinematography";
 import { useBreakpoint } from "@/lib/use-breakpoint";
+import { takeMoodboardPick } from "@/lib/moodboard-pick-handoff";
 
 type SelectedImage = {
   id: string;
@@ -4590,6 +4591,14 @@ export function GalleryDashboard({
     }
     openMoodboardsTab(pick.board.id);
   }, [clearAssetSelection, openMoodboardsTab, setViewMode]);
+
+  // A board just made on the project page: straight into choosing its frames,
+  // once the address has been applied.
+  useEffect(() => {
+    if (pendingLocation !== null || !canAccessMyGallery) return;
+    const handoff = takeMoodboardPick(window.location.pathname);
+    if (handoff) startMoodboardPick(handoff, null);
+  }, [pendingLocation, canAccessMyGallery, startMoodboardPick]);
 
   const moodboardTabFolders = useMemo(
     () =>
