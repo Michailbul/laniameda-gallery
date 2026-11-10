@@ -36,6 +36,7 @@ average row sizes on the live tables (`semanticSearch:measureSearchRowSizes`).
 | `semanticSearch:searchAssets`, hybrid, no filters, limit 24 (agent default) | ~350 KB (2 × 28 KB query rows, up to 288 identity rows, 60-asset chunk) | ~180 KB on legacy storage (48 hits a lane, ~28 assets); ~140 KB split (7 KB query rows, hits cut by score before mapping) |
 | same, with a selective filter | ~1.8 MB (256 hits a lane, up to 512 assets hydrated) | first pass ~0.7 MB (96 a lane); widens to 256 only when the limit is not filled, reading only new hits and assets |
 | same, the gallery UI (limit 120) | ~620 KB | ~470 KB split (hydrating 120 results dominates) |
+| the gallery UI since 10 Nov (`semanticSearch:searchAssetsPage` + `loadSearchHits`) | one-shot, 100 results at most | first page ~0.4 MB (256 hits a lane mapped once through slim rows, 60 assets hydrated); each further page ~180 KB (60 assets, no vector search). After the ranked hits the grid reads ordinary gallery pages for keyword matches: ~180 KB a page, ~16 MB if someone scrolls a search to the very end of the vault |
 | the 18 Oct diagnosis' figure | ~16 MB unfiltered, ~29 MB filtered: true only before the 13 Oct identity table, when every hit read its 56 KB row | — |
 | `semanticSearch:findSimilarAssets`, visual, limit 12 | ~266 KB (whole 56 KB source row + 60-asset chunk) | ~70 KB split (one 7 KB vector row, ~16 assets) |
 | `semanticIndex:reindexAsset`, nothing changed | ~172 KB (two 56 KB reads + a 56 KB rewrite) | ~60 KB legacy (no rewrite); ~4 KB split |

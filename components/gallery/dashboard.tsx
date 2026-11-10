@@ -152,6 +152,7 @@ import {
   resolveScopeFolderFilter,
 } from "@/lib/gallery-filters";
 import type { BookmarkPost } from "@/lib/bookmarks";
+import { galleryWordMatcher } from "@/lib/gallery-search";
 import {
   MoodboardsView,
   type MoodboardAssetSummary,
@@ -221,9 +222,22 @@ type SelectedImage = {
   activePreviewId?: string;
 };
 
-type SemanticGalleryAsset = FunctionReturnType<
-  typeof api.semanticSearch.searchAssets
->[number];
+type SemanticSearchPage = FunctionReturnType<
+  typeof api.semanticSearch.searchAssetsPage
+>;
+type SemanticGalleryAsset = SemanticSearchPage["results"][number];
+type SemanticRankedHit = SemanticSearchPage["remaining"][number];
+// What the next page of a search is read with: the same scope and filters as
+// its first page.
+type SemanticPageArgs = {
+  ownerUserId?: string;
+  scope: "mine" | "public";
+  folderId?: Id<"folders">;
+  modelName?: string;
+  similarToAssetId?: Id<"assets">;
+};
+const NO_SEMANTIC_HITS: SemanticRankedHit[] = [];
+const SEARCH_PAGE_SIZE = 60;
 
 type SemanticMode =
   | { kind: "query"; query: string }
@@ -726,6 +740,15 @@ export function GalleryDashboard({
   const [semanticLoading, setSemanticLoading] = useState(false);
   const [semanticError, setSemanticError] = useState<string>();
   const semanticRequestIdRef = useRef(0);
+  // Ranked hits the search has not shown yet. They belong to one exact result
+  // list (`shown`), so anything that replaces or clears the results drops
+  // them without having to remember to.
+  const [semanticMore, setSemanticMore] = useState<{
+    shown: SemanticGalleryAsset[];
+    hits: SemanticRankedHit[];
+    args: SemanticPageArgs;
+  } | null>(null);
+  const semanticMoreBusyRef = useRef(false);
 
   const curatorUserIds = useMemo(() => {
     return parseUserIdList(
@@ -804,10 +827,8 @@ export function GalleryDashboard({
   const processAndReplaceThumbnail = useAction(
     api.thumbnails.processAndReplaceThumbnail,
   );
-  const semanticSearchAction = useAction(api.semanticSearch.searchAssets);
-  const findSimilarAssetsAction = useAction(
-    api.semanticSearch.findSimilarAssets,
-  );
+  const searchAssetsPageAction = useAction(api.semanticSearch.searchAssetsPage);
+  const loadSearchHitsAction = useAction(api.semanticSearch.loadSearchHits);
 
   useEffect(() => {
     const nextScope = resolveAccessibleGalleryScope({
@@ -2386,10 +2407,9 @@ export function GalleryDashboard({
     setSemanticLoading(true);
     setSemanticError(undefined);
 
-    void semanticSearchAction({
+    const pageArgs: SemanticPageArgs = {
       ownerUserId: galleryScope === "mine" ? ownerUserId : undefined,
       scope: galleryScope,
-      query: debouncedAssetSearchQuery,
       folderId:
         galleryScope === "mine" &&
         effectiveSelectedFolderId &&
@@ -2397,9 +2417,13 @@ export function GalleryDashboard({
           ? (effectiveSelectedFolderId as Id<"folders">)
           : undefined,
       modelName: selectedModelName ?? undefined,
-      limit: 120,
+    };
+    void searchAssetsPageAction({
+      ...pageArgs,
+      query: debouncedAssetSearchQuery,
+      pageSize: SEARCH_PAGE_SIZE,
     })
-      .then((results) => {
+      .then(({ results, remaining }) => {
         if (semanticRequestIdRef.current !== requestId) {
           return;
         }
@@ -2416,6 +2440,7 @@ export function GalleryDashboard({
           query: debouncedAssetSearchQuery,
         });
         setSemanticResults(results);
+        setSemanticMore({ shown: results, hits: remaining, args: pageArgs });
       })
       .catch((error) => {
         if (semanticRequestIdRef.current !== requestId) {
@@ -2439,8 +2464,46 @@ export function GalleryDashboard({
     isSimilarMode,
     ownerUserId,
     selectedModelName,
-    semanticSearchAction,
+    searchAssetsPageAction,
   ]);
+
+  // The search streams like the browse grid: 60 ranked pieces, then the next
+  // 60 each time the scroll reaches the end.
+  const semanticRemaining =
+    semanticMore && semanticMore.shown === semanticResults
+      ? semanticMore.hits
+      : NO_SEMANTIC_HITS;
+  const loadMoreSemanticResults = useCallback(() => {
+    if (
+      !semanticMore ||
+      semanticMore.shown !== semanticResults ||
+      semanticMore.hits.length === 0 ||
+      semanticMoreBusyRef.current
+    ) {
+      return;
+    }
+    const { shown, hits, args } = semanticMore;
+    const requestId = semanticRequestIdRef.current;
+    semanticMoreBusyRef.current = true;
+    void loadSearchHitsAction({ ...args, hits, pageSize: SEARCH_PAGE_SIZE })
+      .then(({ results, remaining }) => {
+        if (semanticRequestIdRef.current !== requestId) return;
+        const seen = new Set(shown.map((asset) => asset._id));
+        const next = [
+          ...shown,
+          ...results.filter((asset) => !seen.has(asset._id)),
+        ];
+        setSemanticResults(next);
+        setSemanticMore({ shown: next, hits: remaining, args });
+      })
+      .catch(() => {
+        // Keep what is on screen; the search just stops growing.
+        if (semanticRequestIdRef.current === requestId) setSemanticMore(null);
+      })
+      .finally(() => {
+        semanticMoreBusyRef.current = false;
+      });
+  }, [loadSearchHitsAction, semanticMore, semanticResults]);
 
   const loadedImageIdsRef = useRef(new Set<string>());
   const markImageLoaded = useCallback((assetId: string) => {
@@ -2627,10 +2690,41 @@ export function GalleryDashboard({
     styleShelfFilterId,
   ]);
 
-  const displayGalleryAssets =
-    filteredSemanticResults !== null
-      ? filteredSemanticResults
-      : lexicalFilteredAssets;
+  // Once every ranked hit is on screen, a search by words carries on with the
+  // pieces that contain those words, read from the rest of the gallery as the
+  // scroll continues. Ranking reaches 256 pieces a lane; the vault is bigger.
+  const semanticTailActive =
+    semanticMode?.kind === "query" &&
+    filteredSemanticResults !== null &&
+    semanticRemaining.length === 0;
+  const displayGalleryAssets = useMemo(() => {
+    if (filteredSemanticResults === null) return lexicalFilteredAssets;
+    if (!semanticTailActive) return filteredSemanticResults;
+    const ranked = new Set<string>(
+      (semanticResults ?? []).map((asset) => asset._id),
+    );
+    // Whole words here, not the substring match of a keyword-only search:
+    // "car" must not drag in every piece tagged "character".
+    const hasWords = galleryWordMatcher(assetSearchQuery);
+    const tail = baseGalleryAssets.filter(
+      (asset) =>
+        !ranked.has(asset._id) &&
+        (!bookmarksOnly || Boolean(asset.bookmark)) &&
+        hasWords(buildAssetSearchHaystack(asset, folderNameById)),
+    );
+    return tail.length > 0
+      ? [...filteredSemanticResults, ...tail]
+      : filteredSemanticResults;
+  }, [
+    assetSearchQuery,
+    baseGalleryAssets,
+    bookmarksOnly,
+    filteredSemanticResults,
+    folderNameById,
+    lexicalFilteredAssets,
+    semanticResults,
+    semanticTailActive,
+  ]);
 
   const baseImages = useMemo(() => {
     if (!displayGalleryAssets) return [];
@@ -3033,6 +3127,29 @@ export function GalleryDashboard({
       activePagedAssets.loadMore(60);
     }
   }, [pagedFrontierEmpty, activePagedAssets]);
+
+  // What the end of the grid asks for next. A search reads its ranked hits
+  // first, then the gallery pages behind its keyword matches; browsing reads
+  // the next gallery page.
+  const browseCanLoadMore =
+    anyPaginationActive && activePagedAssets.status !== "Exhausted";
+  const loadNextGridPage =
+    filteredSemanticResults === null
+      ? browseCanLoadMore ? loadNextGalleryPage : undefined
+      : semanticRemaining.length > 0
+        ? loadMoreSemanticResults
+        : semanticTailActive && browseCanLoadMore
+          ? loadNextGalleryPage
+          : undefined;
+  // The view's filters can hide every result read so far. No tile, no scroll
+  // sentinel: keep reading until one shows or the search runs out.
+  const searchFrontierEmpty =
+    filteredSemanticResults !== null &&
+    images.length === 0 &&
+    loadNextGridPage !== undefined;
+  useEffect(() => {
+    if (searchFrontierEmpty) loadNextGridPage?.();
+  }, [searchFrontierEmpty, loadNextGridPage]);
 
   // Every selectable (plain asset) entry currently in the grid — the target
   // set for the bulk toolbar's SELECT ALL.
@@ -4734,11 +4851,14 @@ export function GalleryDashboard({
       setSemanticError(undefined);
 
       try {
-        const results = await findSimilarAssetsAction({
+        const pageArgs: SemanticPageArgs = {
           ownerUserId: galleryScope === "mine" ? ownerUserId : undefined,
           scope: galleryScope,
-          assetId: imageId as Id<"assets">,
-          limit: 120,
+          similarToAssetId: imageId as Id<"assets">,
+        };
+        const { results, remaining } = await searchAssetsPageAction({
+          ...pageArgs,
+          pageSize: SEARCH_PAGE_SIZE,
         });
 
         if (semanticRequestIdRef.current !== requestId) {
@@ -4746,6 +4866,7 @@ export function GalleryDashboard({
         }
 
         setSemanticResults(results);
+        setSemanticMore({ shown: results, hits: remaining, args: pageArgs });
         setSemanticLoading(false);
       } catch (error) {
         if (semanticRequestIdRef.current !== requestId) {
@@ -4761,7 +4882,7 @@ export function GalleryDashboard({
         );
       }
     },
-    [findSimilarAssetsAction, galleryScope, images, ownerUserId],
+    [searchAssetsPageAction, galleryScope, images, ownerUserId],
   );
 
   const handleReplaceThumbnail = useCallback(
@@ -4965,6 +5086,7 @@ export function GalleryDashboard({
     showChildCollectionStacks && groupedChildSections.length > 0;
   const isLoading =
     gridInsertsLoading ||
+    searchFrontierEmpty ||
     (showChildCollectionStacks && !styleBranchWithShelves &&
       childCollectionStacks === undefined)
       ? true
@@ -6549,10 +6671,7 @@ export function GalleryDashboard({
                     markedAssetIds={moodboardPick ? pickOnBoardIds : undefined}
                     markedLabel="On board"
                     showPublicBadge={galleryScope === "mine"}
-                    onEndReached={
-                      last && anyPaginationActive && activePagedAssets.status !== "Exhausted"
-                        ? loadNextGalleryPage : undefined
-                    }
+                    onEndReached={last ? loadNextGridPage : undefined}
                     zoom={gridZoom}
                   />
                   );

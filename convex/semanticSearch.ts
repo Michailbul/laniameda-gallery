@@ -689,7 +689,7 @@ const hydrateFiltered = async (
   filtered: boolean,
   cache: Map<Id<"assets">, ScoredAsset | null>,
   trace?: SearchTrace,
-): Promise<ScoredAsset[]> => {
+): Promise<{ results: ScoredAsset[]; consumed: number }> => {
   const results: ScoredAsset[] = [];
   let index = 0;
   while (index < fused.length && results.length < limit) {
@@ -729,7 +729,8 @@ const hydrateFiltered = async (
       });
     }
   }
-  return results;
+  // `consumed` hits were judged; the ones after it have not been read.
+  return { results, consumed: index };
 };
 
 type SearchInput = {
@@ -746,6 +747,25 @@ type SearchInput = {
   plan: SearchPlan;
   trace?: SearchTrace;
 };
+
+// The pixel lane is for pixels. An imageless asset (a video) stores a short
+// text there in legacy storage, and query-text against that text outscores
+// every real cross-modal match, so it would crowd the images out of the
+// lane. Those assets are found by their words in the text lane instead.
+const eligibleLaneHits = (
+  lane: LaneName,
+  hits: VectorHit[],
+  resolved: Map<string, ResolvedHit | null>,
+  excludeAssetId?: Id<"assets">,
+) => dedupeScoredAssets(hits.flatMap((hit) => {
+  const doc = resolved.get(hit._id);
+  if (!doc?.assetId || doc.assetId === excludeAssetId ||
+      (lane === "visual" && doc.modality !== "multimodal_image")) return [];
+  return [{
+    assetId: doc.assetId, score: hit._score,
+    ...(doc.modality === "text_only" ? { textOnly: true } : {}),
+  }];
+}));
 
 const runAssetSearch = async (ctx: ActionCtx, input: SearchInput): Promise<ScoredAsset[]> => {
   const lanes = (["visual", "text"] as const).filter((lane) => input.vectors[lane]);
@@ -773,24 +793,12 @@ const runAssetSearch = async (ctx: ActionCtx, input: SearchInput): Promise<Score
     });
     await resolveHits(ctx, input.plan.storage, laneHits, resolved, input.trace);
 
-    // The pixel lane is for pixels. An imageless asset (a video) stores a short
-    // text there in legacy storage, and query-text against that text outscores
-    // every real cross-modal match, so it would crowd the images out of the
-    // lane. Those assets are found by their words in the text lane instead.
     const scored: Partial<Record<LaneName, LaneHit[]>> = {};
     const laneTop: Partial<Record<LaneName, number>> = {};
     for (const lane of lanes) {
       const hits = laneHits[lane];
       if (!hits) continue;
-      const eligible = dedupeScoredAssets(hits.flatMap((hit) => {
-        const doc = resolved.get(hit._id);
-        if (!doc?.assetId || doc.assetId === input.excludeAssetId ||
-            (lane === "visual" && doc.modality !== "multimodal_image")) return [];
-        return [{
-          assetId: doc.assetId, score: hit._score,
-          ...(doc.modality === "text_only" ? { textOnly: true } : {}),
-        }];
-      }));
+      const eligible = eligibleLaneHits(lane, hits, resolved, input.excludeAssetId);
       laneTop[lane] = eligible[0]?.score;
       scored[lane] = input.plan.cutoffBeforeResolve
         ? eligible
@@ -798,9 +806,9 @@ const runAssetSearch = async (ctx: ActionCtx, input: SearchInput): Promise<Score
     }
 
     const fused = fuseLanes(scored);
-    const results = fused.length === 0 ? [] : await hydrateFiltered(
+    const results = fused.length === 0 ? [] : (await hydrateFiltered(
       ctx, fused, input.keep, input.limit, input.spec, input.plan, input.filtered, hydrated, input.trace,
-    );
+    )).results;
     // Deeper hits can only help when a lane returned all it was asked for and
     // its last hit still cleared the cutoff.
     const canWiden = lanes.some((lane, index) => {
@@ -834,6 +842,32 @@ const cutoffForFilters = (filters: AssetFilters, minRelativeScore?: number) => {
   return (lane: LaneName) => minRelativeScore ?? (filtered ? 0 : RELATIVE_SCORE_CUTOFF[lane]);
 };
 
+// Each lane embeds the query with its own model. In hybrid mode a
+// rate-limited pixel model degrades the search to the text lane rather
+// than failing it.
+const embedQueryLanes = async (
+  ctx: ActionCtx, query: string, mode: SearchMode, storage: Storage, trace?: SearchTrace,
+): Promise<Partial<Record<LaneName, number[]>>> => {
+  const [visual, text] = await Promise.all([
+    mode === "text"
+      ? undefined
+      : getQueryEmbedding(ctx, query, pixelQueryModel(), storage, trace)
+          .catch((error: unknown) => {
+            if (mode === "visual") throw error;
+            console.warn(
+              `[semanticSearch] pixel lane unavailable, text lane only: ${
+                error instanceof Error ? error.message : error
+              }`,
+            );
+            return undefined;
+          }),
+    mode === "visual"
+      ? undefined
+      : getQueryEmbedding(ctx, query, textQueryModel(), storage, trace),
+  ]);
+  return { visual, text };
+};
+
 const searchByQuery = async (ctx: ActionCtx, input: {
   query: string;
   mode: SearchMode;
@@ -844,29 +878,9 @@ const searchByQuery = async (ctx: ActionCtx, input: {
   plan: SearchPlan;
   trace?: SearchTrace;
 }): Promise<ScoredAsset[]> => {
-  // Each lane embeds the query with its own model. In hybrid mode a
-  // rate-limited pixel model degrades the search to the text lane rather
-  // than failing it.
-  const { storage } = input.plan;
-  const [visual, text] = await Promise.all([
-    input.mode === "text"
-      ? undefined
-      : getQueryEmbedding(ctx, input.query, pixelQueryModel(), storage, input.trace)
-          .catch((error: unknown) => {
-            if (input.mode === "visual") throw error;
-            console.warn(
-              `[semanticSearch] pixel lane unavailable, text lane only: ${
-                error instanceof Error ? error.message : error
-              }`,
-            );
-            return undefined;
-          }),
-    input.mode === "visual"
-      ? undefined
-      : getQueryEmbedding(ctx, input.query, textQueryModel(), storage, input.trace),
-  ]);
+  const vectors = await embedQueryLanes(ctx, input.query, input.mode, input.plan.storage, input.trace);
   return await runAssetSearch(ctx, {
-    vectors: { visual, text },
+    vectors,
     spec: input.spec,
     limit: input.limit,
     filtered: hasMetadataFilters(input.filters),
@@ -1011,6 +1025,194 @@ export const findSimilarAssets = ownerAction({
       excludeAssetId: args.assetId,
       excludeHitIds: source.hitIds,
       plan,
+    });
+  },
+});
+
+// ── Paged search for the grid ───────────────────────────────────────────
+// searchAssets answers one request with at most 100 pieces. The grid instead
+// ranks every candidate once, shows the first page, and reads the next page
+// each time the scroll reaches the end, so a search is never cut short.
+const rankedHitValidator = v.object({
+  assetId: v.id("assets"),
+  score: v.number(),
+  visualScore: v.optional(v.number()),
+  textScore: v.optional(v.number()),
+});
+const searchPageValidator = v.object({
+  results: v.array(scoredGalleryAssetResultValidator),
+  // Ranked hits not read yet, best first. Pass them to loadSearchHits.
+  remaining: v.array(rankedHitValidator),
+});
+const SEARCH_PAGE_DEFAULT = 60;
+const SEARCH_PAGE_MAX = 120;
+// Two lanes of at most WIDEN_TAKE hits each.
+const RANKED_HITS_MAX = 2 * WIDEN_TAKE;
+const searchPageSize = (pageSize?: number) =>
+  Math.min(Math.max(Math.floor(pageSize ?? SEARCH_PAGE_DEFAULT), 1), SEARCH_PAGE_MAX);
+
+// Every candidate the lanes give in one pass (Convex returns at most 256 hits
+// a lane), best first: the hits inside each lane's cutoff in their fused
+// order, which is the head searchAssets returns, then the weaker ones.
+const rankAllCandidates = async (ctx: ActionCtx, input: {
+  vectors: Partial<Record<LaneName, number[]>>;
+  spec: ScopeSpec;
+  storage: Storage;
+  cutoffFor: (lane: LaneName) => number;
+  optionalVisual?: boolean;
+  excludeAssetId?: Id<"assets">;
+  excludeHitIds?: Set<string>;
+}): Promise<FusedHit[]> => {
+  const lanes = (["visual", "text"] as const).filter((lane) => input.vectors[lane]);
+  const raw = await Promise.all(lanes.map((lane) =>
+    runLane(ctx, input.storage, lane, input.vectors[lane]!, WIDEN_TAKE, input.spec)
+      .catch((error: unknown) => {
+        if (lane !== "visual" || !input.optionalVisual) throw error;
+        console.warn(`[semanticSearch] pixel lane unavailable, text lane only: ${
+          error instanceof Error ? error.message : error
+        }`);
+        return undefined;
+      })));
+  const laneHits: Partial<Record<LaneName, VectorHit[]>> = {};
+  lanes.forEach((lane, index) => {
+    const hits = raw[index]?.filter((hit) => !input.excludeHitIds?.has(hit._id));
+    if (hits) laneHits[lane] = hits;
+  });
+  const resolved = new Map<string, ResolvedHit | null>();
+  await resolveHits(ctx, input.storage, laneHits, resolved);
+
+  const every: Partial<Record<LaneName, LaneHit[]>> = {};
+  const strong: Partial<Record<LaneName, LaneHit[]>> = {};
+  for (const lane of lanes) {
+    const hits = laneHits[lane];
+    if (!hits) continue;
+    every[lane] = eligibleLaneHits(lane, hits, resolved, input.excludeAssetId);
+    strong[lane] = applyRelativeCutoff(every[lane]!, input.cutoffFor(lane));
+  }
+  const head = fuseLanes(strong);
+  const inHead = new Set(head.map((hit) => hit.assetId));
+  // Scores stay in reading order: a weaker hit never outscores the head.
+  const floor = head[head.length - 1]?.score ?? 1;
+  const tail = fuseLanes(every)
+    .filter((hit) => !inHead.has(hit.assetId))
+    .map((hit) => ({ ...hit, score: Math.min(hit.score, floor) }));
+  return [...head, ...tail];
+};
+
+// Read ranked hits in order until a page of them passes scope and filters.
+const readSearchPage = async (ctx: ActionCtx, hits: FusedHit[], input: {
+  spec: ScopeSpec;
+  storage: Storage;
+  filtered: boolean;
+  keep: (asset: FilterableAsset) => boolean;
+  pageSize: number;
+}) => {
+  const plan: SearchPlan = {
+    ...productionPlan(input.storage),
+    hydrateChunk: (remaining, filtered) =>
+      filtered ? HYDRATE_CHUNK : Math.min(HYDRATE_CHUNK, remaining),
+  };
+  const { results, consumed } = await hydrateFiltered(
+    ctx, hits, input.keep, input.pageSize, input.spec, plan, input.filtered, new Map(),
+  );
+  return { results, remaining: hits.slice(consumed) };
+};
+
+// First page of a grid search: by words (`query`) or by look
+// (`similarToAssetId`), plus the ranked hits still to read.
+export const searchAssetsPage = ownerAction({
+  args: {
+    ownerUserId: v.optional(v.string()),
+    scope: v.union(v.literal("mine"), v.literal("public")),
+    query: v.optional(v.string()),
+    similarToAssetId: v.optional(v.id("assets")),
+    pillar: optionalPillarValidator,
+    // Defaults: "hybrid" for a query, "visual" for look-alikes.
+    mode: searchModeValidator,
+    ...assetFilterArgs,
+    minRelativeScore: v.optional(v.number()),
+    pageSize: v.optional(v.number()),
+  },
+  returns: searchPageValidator,
+  handler: async (ctx, args) => {
+    const empty = { results: [], remaining: [] };
+    if (!isSemanticEmbeddingsEnabled()) {
+      return empty;
+    }
+
+    const ownerCandidates = resolveScope(args.scope, args.ownerUserId);
+    const storage = readStorage();
+    const filters: AssetFilters = args;
+    const keep = buildAssetFilter(filters, args.scope);
+    const page = {
+      storage,
+      filtered: hasMetadataFilters(filters),
+      pageSize: searchPageSize(args.pageSize),
+    };
+    const cutoffFor = cutoffForFilters(filters, args.minRelativeScore);
+
+    const sourceId = args.similarToAssetId;
+    if (sourceId) {
+      const source = await loadSimilaritySource(ctx, {
+        assetId: sourceId, scope: args.scope, ownerCandidates,
+        mode: args.mode ?? "visual", storage,
+      });
+      if (!source ||
+          (args.scope === "mine" && !ownerCandidates.includes(source.ownerUserId)) ||
+          (args.scope === "public" && !source.isPublic)) {
+        return empty;
+      }
+      const spec: ScopeSpec = { scope: args.scope, ownerCandidates, pillar: source.pillar };
+      const ranked = await rankAllCandidates(ctx, {
+        vectors: source.vectors, spec, storage, cutoffFor,
+        excludeAssetId: sourceId, excludeHitIds: source.hitIds,
+      });
+      return await readSearchPage(ctx, ranked, {
+        ...page, spec, keep: (asset) => asset._id !== sourceId && keep(asset),
+      });
+    }
+
+    const query = args.query?.trim();
+    if (!query) {
+      return empty;
+    }
+    const mode: SearchMode = args.mode ?? "hybrid";
+    const spec: ScopeSpec = { scope: args.scope, ownerCandidates, pillar: args.pillar };
+    const ranked = await rankAllCandidates(ctx, {
+      vectors: await embedQueryLanes(ctx, query, mode, storage),
+      spec, storage, cutoffFor, optionalVisual: mode === "hybrid",
+    });
+    return await readSearchPage(ctx, ranked, { ...page, spec, keep });
+  },
+});
+
+// Next page of a grid search. `hits` come back from the caller, so they are
+// only candidates: every piece is checked against the caller's scope and the
+// filters again before it is returned.
+export const loadSearchHits = ownerAction({
+  args: {
+    ownerUserId: v.optional(v.string()),
+    scope: v.union(v.literal("mine"), v.literal("public")),
+    hits: v.array(rankedHitValidator),
+    // The look-alike source, so it never lists itself.
+    similarToAssetId: v.optional(v.id("assets")),
+    ...assetFilterArgs,
+    pageSize: v.optional(v.number()),
+  },
+  returns: searchPageValidator,
+  handler: async (ctx, args) => {
+    if (args.hits.length > RANKED_HITS_MAX) {
+      throw new ConvexError("Too many search hits in one request.");
+    }
+    const ownerCandidates = resolveScope(args.scope, args.ownerUserId);
+    const filters: AssetFilters = args;
+    const keep = buildAssetFilter(filters, args.scope);
+    return await readSearchPage(ctx, args.hits, {
+      spec: { scope: args.scope, ownerCandidates },
+      storage: readStorage(),
+      filtered: hasMetadataFilters(filters),
+      keep: (asset) => asset._id !== args.similarToAssetId && keep(asset),
+      pageSize: searchPageSize(args.pageSize),
     });
   },
 });
