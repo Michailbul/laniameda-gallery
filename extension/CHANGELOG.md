@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.32.0 (10 Nov 2026)
+
+- Grow. Point at any generated picture on midjourney.com and press ⌥X: a
+  card opens beside that picture and the picture gets a coral ring, so it is
+  clear which frame the writer sees. Press 1–7 for a move, or type an idea and
+  press Enter: New angles ×3, Close-ups ×3, Wides ×3, Cast ×3, Props ×4, a
+  Story in six beats, a World kit of eight frames. ⌃1–⌃7 runs a move with the
+  idea you typed as its steer.
+- The writer (Haiku 5.5) looks at the picture and the prompt that made it and
+  writes new prompts in the same look. The frame's own codes and params
+  (--sref, --profile, --ar, --stylize, --v …) are put back on every prompt
+  unchanged; a seed is left out. The card shows what rides along. "+ this
+  frame as sref" adds the picture itself as a style reference, for frames
+  with no codes; an image prompt in the source is left out unless you keep it.
+- A world can be picked in the card: its WORLD.md and LEARNINGS.md from the
+  gallery steer the writer, and queued prompts land in that world's threads.
+- Results by keys: ↑↓ pick, ↵ puts one in the Imagine bar to edit and send by
+  hand, Q queues it, A queues the whole set as one MJ Queue thread named
+  "<World> · <set>", C copies, E edits the text, D drops, R runs the move
+  again, / goes back to the idea. Esc closes; the set stays with its picture
+  and comes back on the next ⌥X.
+- Holding ⌥ over a picture shows a small GROW tag on it (a click opens the
+  card). Nothing is sent to Midjourney: every job is still your own Enter.
+
 ## 0.31.3 (9 Nov 2026)
 
 - A folded prompt shows exactly two lines (a cut third line peeked out

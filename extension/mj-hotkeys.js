@@ -33,7 +33,7 @@
   });
 
   // Taken by other parts of the extension on midjourney.com.
-  const RESERVED = { "Alt+KeyE": "Quick edit", "Alt+Shift+KeyN": "Queue: new prompt" };
+  const RESERVED = { "Alt+KeyE": "Quick edit", "Alt+KeyX": "Grow from a picture", "Alt+Shift+KeyN": "Queue: new prompt" };
 
   const MODIFIER_CODES = new Set([
     "AltLeft", "AltRight", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "MetaLeft", "MetaRight", "CapsLock", "Fn",
