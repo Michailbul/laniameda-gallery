@@ -2,11 +2,30 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-11-09
+Last updated: 2026-11-10
 
 ---
 
 ## ✔ Shipped
+
+### 2026-11-10 — Search keeps loading on scroll (branch `fix/search-load-more`, backend pushed 10 Nov 22:08)
+- Cause: the grid asked `semanticSearch:searchAssets` once (limit 120, capped
+  at 100 on the server) and nothing fetched more at the end of the list, so
+  every search stopped at 100 pieces.
+- `semanticSearch:searchAssetsPage` ranks every candidate once (256 hits a
+  lane, Convex's ceiling), returns the first 60 pieces and the ranked hits not
+  read yet; `semanticSearch:loadSearchHits` reads the next 60 from those hits.
+  Hits handed back by the browser are only candidates: scope and filters are
+  checked again at hydration. The head is the cutoff-fused list the one-shot
+  search returns; weaker hits follow. "Similar" pages the same way
+  (`similarToAssetId`). `searchAssets` / `findSimilarAssets` are unchanged for
+  agents.
+- Grid: the end of the list loads the next ranked page; when the ranked hits
+  run out, a search by words carries on with whole-word keyword matches read
+  from the rest of the gallery pages (`galleryWordMatcher`: "car" finds "cars",
+  not "character").
+- Live check: "car" 100 → 352 ranked + keyword matches past 1,000; "porsche"
+  100 → 217; "castle" 100 → 433. Read costs: `DATABASE_IO.md`.
 
 ### 2026-11-09 — Describe → our prompt, with a style lock (extension 0.29.0, branch `feat/mj-describe-to-prompt`, backend pushed 9 Nov 20:23)
 - Extension: `mj-describe-hook.js` (MAIN world) reads Midjourney's own

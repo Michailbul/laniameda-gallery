@@ -11,3 +11,25 @@ export const galleryAssetSearchText = (asset: SearchableAsset) => [
   asset.bookmark?.text, asset.bookmark?.authorName, asset.bookmark?.authorHandle,
   asset.bookmark?.userNote, asset.bookmark?.quotedPost?.text,
 ].filter(Boolean).join("\n").toLowerCase();
+
+const SEARCH_WORD_SPLIT = /[^\p{L}\p{N}]+/u;
+
+/**
+ * Whole-word match for the keyword results that follow a ranked search: every
+ * word of the query must be a word of the text, so "car" finds "car" and
+ * "cars" but not "character" or "scarf". Plurals count in both directions.
+ */
+export const galleryWordMatcher = (query: string) => {
+  const terms = query.toLowerCase().split(SEARCH_WORD_SPLIT).filter(Boolean);
+  if (terms.length === 0) return () => false;
+  return (text: string) => {
+    const words = new Set(text.toLowerCase().split(SEARCH_WORD_SPLIT));
+    return terms.every(
+      (term) =>
+        words.has(term) ||
+        words.has(`${term}s`) ||
+        words.has(`${term}es`) ||
+        (term.length > 3 && term.endsWith("s") && words.has(term.slice(0, -1))),
+    );
+  };
+};
