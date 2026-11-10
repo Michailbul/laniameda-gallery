@@ -3,7 +3,7 @@
   "minimum_chrome_version": "114",
   "name": "Save to Gallery",
   "description": "Save web captures, X posts, or local files and folders into your laniameda collections",
-  "version": "0.31.3",
+  "version": "0.32.0",
   "icons": {
     "16": "icons/icon-16.png",
     "48": "icons/icon-48.png",
@@ -40,6 +40,7 @@
         "mj-quick-edit.js",
         "mj-describe-core.js",
         "mj-describe.js",
+        "mj-expand.js",
         "prompt-packs-data.js",
         "prompt-packs.js",
         "krea-adapter.js",

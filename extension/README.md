@@ -69,6 +69,24 @@ both); an item that carries one says so and leaves the flag out.
   pick a recent Midjourney describe, or right-click an image anywhere →
   *Describe to a prompt*. Same controls; works without Midjourney's Describe.
 
+## Grow: one frame into a set (0.32)
+
+- Point at a generated picture on midjourney.com and press **⌥X** (or hold ⌥
+  and click the GROW tag on it). A card opens beside the picture; a coral
+  ring marks the frame the writer sees.
+- Press **1–7**: New angles, Close-ups, Wides, Cast, Props, Story (six beats
+  with a logline), World kit (eight frames). Or type an idea and press Enter.
+  **⌃1–⌃7** runs a move steered by the typed idea.
+- The gallery's writer (Haiku 5.5, `/api/extension/prompt-expand`) gets the
+  picture, the words of its prompt and, when a world is picked, that world's
+  WORLD.md and LEARNINGS.md. It writes words only. The source command's
+  `--sref`, `--profile` and other params are put back on every result by the
+  gallery, so the look cannot drift; `--seed` is dropped.
+- **↵** puts the selected prompt in the Imagine bar (never Enter), **Q**
+  queues it, **A** queues the set as one MJ Queue thread "<World> · <set>",
+  **C** copies, **E** edits, **D** drops, **R** again, **/** back to the idea.
+- Rules and moves live in `lib/mj-expand.ts`; the card in `mj-expand.js`.
+
 ## Files
 
 `background.js` service worker (gallery calls), `content.js` save UI,
@@ -76,4 +94,4 @@ both); an item that carries one says so and leaves the flag out.
 `prompt-packs*.js` phrase packs, `mj-queue-compose.js` + `mj-queue.js` +
 `mj-queue.css` the queue, `mj-describe-hook.js` (page world: reads
 Midjourney's Describe answers) + `mj-describe.js` + `mj-describe-core.js` +
-`describe-panel.js` the describer. History: CHANGELOG.md.
+`describe-panel.js` the describer, `mj-expand.js` Grow. History: CHANGELOG.md.

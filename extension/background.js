@@ -23,6 +23,7 @@ const MJ_QUEUE_ROUTE_PATH = "/api/extension/mj-queue";
 const QUICK_EDIT_ROUTE_PATH = "/api/extension/prompt-edit";
 const DESCRIBE_ROUTE_PATH = "/api/extension/prompt-describe";
 const STYLES_ROUTE_PATH = "/api/extension/styles";
+const EXPAND_ROUTE_PATH = "/api/extension/prompt-expand";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const X_POST_ROUTE_PATH = "/api/extension/x-post";
 const COMMENTS_ROUTE_PATH = "/api/extension/comments";
@@ -1392,6 +1393,55 @@ async function describeRequest(message) {
   }
 }
 
+// ── Grow (mj-expand.js): one Midjourney frame into more prompts in its look ──
+// The gallery's writer (Haiku 5.5) sees the picture and the command that made
+// it; codes and params are put back on every result by the gallery. The worker
+// reads the image and carries the calls. Nothing here talks to Midjourney.
+async function expandRequest(message, sender) {
+  switch (message.op) {
+    case "openQueue": {
+      // The click or key in the card is the user gesture sidePanel.open needs.
+      try {
+        if (sender?.tab?.windowId != null) await chrome.sidePanel.open({ windowId: sender.tab.windowId });
+      } catch (err) {
+        return { ok: false, error: `The side panel did not open: ${err.message}` };
+      }
+      await chrome.storage.sync.set({ extensionMode: "queue" }).catch(() => {});
+      return { ok: true };
+    }
+    case "worlds": {
+      const res = await listMoodboards();
+      return res?.ok ? { ok: true, worlds: (res.worlds || []).map((w) => ({ key: w.key, name: w.name, worldId: w.worldId })) } : res;
+    }
+    case "prepare":
+      return prepareDescribeImage(message);
+    case "run":
+      return describeFetchJson(EXPAND_ROUTE_PATH, {
+        method: "POST",
+        body: JSON.stringify({
+          image: message.image,
+          command: message.command || undefined,
+          preset: message.preset || undefined,
+          idea: message.idea || undefined,
+          count: message.count || undefined,
+          world: message.world || undefined,
+          system: message.system || undefined,
+          keepImages: message.keepImages || undefined,
+          srefUrl: message.srefUrl || undefined,
+          width: message.width || undefined,
+          height: message.height || undefined,
+        }),
+      });
+    case "queue":
+      return describeFetchJson(MJ_QUEUE_ROUTE_PATH, {
+        method: "POST",
+        body: JSON.stringify({ action: "queue", batch: message.batch, world: message.world || undefined, items: message.items }),
+      });
+    default:
+      return { ok: false, error: "Unknown grow step." };
+  }
+}
+
 // Right-click an image → the side panel's Describe tab opens with it.
 async function describeFromContextMenu(info, tab) {
   const imageUrl = typeof info.srcUrl === "string" ? info.srcUrl : "";
@@ -1775,6 +1825,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "describe") {
     describeRequest(message)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "mjExpand") {
+    expandRequest(message, sender)
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

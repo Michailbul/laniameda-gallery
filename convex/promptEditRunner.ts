@@ -2,7 +2,7 @@
 
 import { ConvexError, v } from "convex/values";
 import { signedOwnerAction as ownerAction } from "./actor";
-import { internal } from "./_generated/api";
+import { api, internal } from "./_generated/api";
 import { resolveProviderKey } from "./providerVault";
 import {
   QUICK_EDIT_LIMITS, QUICK_EDIT_ROUTES, buildQuickEditMessages, cleanModelText, restoreUrls, type QuickEditModel,
@@ -10,6 +10,9 @@ import {
 import {
   DESCRIBE_LIMITS, aspectOf, buildDescribeMessages, describeParams, parseDescribeAnswer, type DescribeStyle,
 } from "../lib/mj-describe";
+import {
+  EXPAND_LIMITS, buildExpandMessages, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
+} from "../lib/mj-expand";
 
 // Quick edit of a Midjourney prompt from the extension (select text in the
 // Imagine bar, ⌥E, a few words). One short chat call on a fast model: fal
@@ -176,5 +179,100 @@ export const describe = ownerAction({
     const ours = args.mode !== "keep" && parsed.ours && style ? { ...finish(parsed.ours, "ours"), style: style.name } : undefined;
     if (!keep && !ours) throw new ConvexError(`${answer.model} answered without a prompt. Try again.`);
     return { title: parsed.title, keep, ours, model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes };
+  },
+});
+
+const expandRef = v.object({ code: v.optional(v.string()), url: v.optional(v.string()), weight: v.optional(v.number()) });
+type ExpandResult = {
+  set?: string; logline?: string;
+  items: Array<{ title: string; words: string; prompt: string; rest: string; profiles: string[]; srefs: Array<{ code?: string; url?: string; weight?: number }>; images: string[] }>;
+  source: { words: string; params: string; hadImages: number };
+  world?: string;
+  model: string; provider: string; ms: number; notes: string[];
+};
+
+/**
+ * Grow one Midjourney frame into more prompts (extension: ⌥X on an image).
+ * The writer (Haiku) sees the picture and the words that made it, plus the
+ * world's own rule file when a world is chosen. It writes words only: the
+ * source command's codes and params are put back on every result here, so the
+ * look that is working cannot drift. Nothing goes to Midjourney.
+ */
+export const expand = ownerAction({
+  args: {
+    ownerUserId: v.string(),
+    image: v.string(),
+    command: v.optional(v.string()),
+    preset: v.optional(v.string()),
+    idea: v.optional(v.string()),
+    count: v.optional(v.number()),
+    world: v.optional(v.string()),
+    system: v.optional(v.string()),
+    keepImages: v.optional(v.boolean()),
+    srefUrl: v.optional(v.string()),
+    aspect: v.optional(v.string()),
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+  },
+  returns: v.object({
+    set: v.optional(v.string()),
+    logline: v.optional(v.string()),
+    items: v.array(v.object({
+      title: v.string(), words: v.string(), prompt: v.string(), rest: v.string(),
+      profiles: v.array(v.string()), srefs: v.array(expandRef), images: v.array(v.string()),
+    })),
+    source: v.object({ words: v.string(), params: v.string(), hadImages: v.number() }),
+    world: v.optional(v.string()),
+    model: v.string(),
+    provider: v.string(),
+    ms: v.number(),
+    notes: v.array(v.string()),
+  }),
+  handler: async (ctx, args): Promise<ExpandResult> => {
+    const image = args.image.trim();
+    if (!/^(https:\/\/|data:image\/(png|jpe?g|webp|gif);base64,)/i.test(image)) throw new ConvexError("Send the picture as an https link or a data URL.");
+    if (image.length > EXPAND_LIMITS.image) throw new ConvexError("The picture is too large: send it at 1024 px.");
+    const command = (args.command ?? "").slice(0, EXPAND_LIMITS.command);
+    const preset = expandPreset(args.preset);
+    if (args.preset && !preset) throw new ConvexError("That move does not exist.");
+    const idea = args.idea?.trim().slice(0, EXPAND_LIMITS.idea) || undefined;
+    if (!preset && !idea) throw new ConvexError("Pick a move or say an idea.");
+    const count = Math.min(EXPAND_LIMITS.maxCount, Math.max(1, Math.round(args.count ?? preset?.count ?? 3)));
+    if (args.srefUrl && !/^https:\/\/\S+$/.test(args.srefUrl)) throw new ConvexError("The style reference must be an https link.");
+
+    // The world's own rule file and learnings, when a world is chosen.
+    let worldName: string | undefined;
+    let worldDoc: string | undefined;
+    let learnings: string | undefined;
+    const worldKey = args.world?.trim();
+    if (worldKey && worldKey !== "none") {
+      const read = async (path: string): Promise<{ world: string; body: string } | null> => {
+        try { return await ctx.runQuery(api.worlds.readWorldDoc, { ownerUserId: args.ownerUserId, world: worldKey, path }); } catch { return null; }
+      };
+      const [main, learned] = await Promise.all([read("WORLD.md"), read("LEARNINGS.md")]);
+      worldName = main?.world ?? learned?.world;
+      worldDoc = main?.body;
+      learnings = learned?.body;
+    }
+
+    const source = splitCommand(command);
+    const messages = buildExpandMessages({
+      image, sourceWords: source.words, lookNote: lookNoteOf(source), preset, idea, count,
+      system: args.system?.slice(0, EXPAND_LIMITS.system), worldName, worldDoc, learnings,
+    }) as Message[];
+    const answer = await runRoutes(ctx, args.ownerUserId, "haiku", messages, "Could not write the prompts", 600 + count * 520);
+    const parsed = parseExpandAnswer(answer.raw);
+    if (!parsed.items.length) throw new ConvexError(`${answer.model} answered without a prompt. Try again.`);
+    const options = {
+      keepImages: Boolean(args.keepImages), srefUrl: args.srefUrl || undefined,
+      fallbackAspect: aspectOf(args.aspect, args.width, args.height), iw: imageWeightOf(command),
+    };
+    return {
+      set: parsed.set, logline: parsed.logline,
+      items: parsed.items.slice(0, EXPAND_LIMITS.maxCount).map((item) => composeExpanded(item.title, item.words, source, options)),
+      source: { words: source.words, params: composeExpanded("", "", source, options).prompt, hadImages: source.images.length },
+      world: worldName,
+      model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes,
+    };
   },
 });
