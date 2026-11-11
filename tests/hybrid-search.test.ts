@@ -1,43 +1,66 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { buildAssetFilter, fuseLanes, searchAssets } from "../convex/semanticSearch";
+import { blendLanes, buildAssetFilter, searchAssets, visualLaneWeight } from "../convex/semanticSearch";
 import { reindexAsset } from "../convex/semanticIndex";
 import { callAsOwner } from "./helpers/call-as-owner";
 
-describe("lane fusion", () => {
-  test("a piece found by both lanes outranks one found by a single lane", () => {
-    const fused = fuseLanes({
-      visual: [
-        { assetId: "assets:a" as never, score: 0.37 },
-        { assetId: "assets:b" as never, score: 0.36 },
-      ],
-      text: [
-        { assetId: "assets:b" as never, score: 0.71 },
-        { assetId: "assets:c" as never, score: 0.7 },
-      ],
-    });
-    expect(fused.map((hit) => hit.assetId)).toEqual(["assets:b", "assets:a", "assets:c"]);
-    expect(fused[0]).toMatchObject({ visualScore: 0.36, textScore: 0.71 });
-    expect(fused[0]!.score).toBeLessThanOrEqual(1);
+const lane = (prefix: string, count: number, top: number, step: number, from = 0) =>
+  Array.from({ length: count }, (_, index) => ({
+    assetId: `assets:${prefix}${from + index}` as never,
+    score: top - index * step,
+  }));
+
+describe("lane blend", () => {
+  test("a piece both lanes rank high leads; one clear match in a single lane beats mediocre agreement", () => {
+    // The lanes share their first 30 pieces, in the same order.
+    const shared = lane("s", 30, 0.4, 0.002);
+    const visual = [
+      { assetId: "assets:standout" as never, score: 0.47 },
+      ...shared,
+      ...lane("v", 30, 0.33, 0.001),
+    ];
+    const text = [
+      ...shared.map((hit, index) => ({ ...hit, score: 0.72 - index * 0.002 })),
+      ...lane("t", 30, 0.65, 0.001),
+    ];
+    const blended = blendLanes({ visual, text });
+    expect(visualLaneWeight(visual, text)).toBe(1);
+    expect(blended[0]).toMatchObject({ assetId: "assets:s0", visualScore: 0.4, textScore: 0.72 });
+    // Only the pixel lane found it, far ahead of that lane's other hits.
+    const standout = blended.findIndex((hit) => hit.assetId === "assets:standout");
+    const weakInBoth = blended.findIndex((hit) => hit.assetId === "assets:s29");
+    expect(standout).toBeLessThan(weakInBoth);
+    expect(blended.every((hit) => hit.score >= 0 && hit.score <= 1)).toBeTrue();
   });
 
-  test("a text-only piece is judged on the text lane alone", () => {
-    const fused = fuseLanes({
-      visual: [{ assetId: "assets:a" as never, score: 0.37 }],
-      text: [
-        { assetId: "assets:v" as never, score: 0.8, textOnly: true },
-        { assetId: "assets:a" as never, score: 0.7 },
-      ],
-    });
-    // v tops the only lane it can be in; a is first in one lane, second in the other.
-    expect(fused.map((hit) => hit.assetId)).toEqual(["assets:v", "assets:a"]);
-    expect(fused[0]!.score).toBeCloseTo(1);
-    expect(fused[0]).not.toHaveProperty("textOnly");
+  test("a pixel lane that shares nothing with the text lane is dropped for that query", () => {
+    // A name the pixel model has never seen: 60 unrelated pictures.
+    const visual = lane("noise", 60, 0.35, 0.0005);
+    const text = lane("named", 60, 0.74, 0.002);
+    expect(visualLaneWeight(visual, text)).toBe(0);
+    const blended = blendLanes({ visual, text });
+    expect(blended.map((hit) => hit.assetId)).toEqual(text.map((hit) => hit.assetId));
+    expect(blended[0]!.score).toBeCloseTo(1);
   });
 
-  test("single lane normalizes its top hit to 1", () => {
-    const fused = fuseLanes({ visual: [{ assetId: "assets:a" as never, score: 0.4 }] });
-    expect(fused[0]!.score).toBeCloseTo(1);
+  test("a video is not marked down for having no pixels", () => {
+    const shared = lane("s", 20, 0.4, 0.002);
+    const text = [
+      { assetId: "assets:video" as never, score: 0.8, textOnly: true },
+      ...shared.map((hit, index) => ({ ...hit, score: 0.7 - index * 0.002 })),
+    ];
+    const blended = blendLanes({ visual: shared, text });
+    expect(blended[0]!.assetId).toBe("assets:video" as never);
+    expect(blended[0]).not.toHaveProperty("textOnly");
+    expect(blended[0]).not.toHaveProperty("visualScore");
+  });
+
+  test("a single lane keeps its order with its best hit at 1", () => {
+    const blended = blendLanes({ visual: lane("a", 3, 0.4, 0.05) });
+    expect(blended.map((hit) => hit.assetId)).toEqual(["assets:a0", "assets:a1", "assets:a2"] as never);
+    expect(blended[0]!.score).toBeCloseTo(1);
+    expect(blended[0]).toMatchObject({ visualScore: 0.4 });
+    expect(blendLanes({ text: [{ assetId: "assets:only" as never, score: 0.7 }] })[0]!.score).toBe(1);
   });
 });
 
@@ -157,7 +180,7 @@ describe("hybrid searchAssets", () => {
     runMutation: async () => null,
   });
 
-  test("hybrid queries both lanes and fuses them", async () => {
+  test("hybrid queries both lanes and blends them", async () => {
     const indexes: string[] = [];
     const results = await callAsOwner(searchAssets)(makeCtx(indexes) as never, {
       scope: "mine",
@@ -166,19 +189,17 @@ describe("hybrid searchAssets", () => {
       limit: 10,
     });
     expect(indexes.sort()).toEqual(["by_pixel_embedding", "by_text_embedding"]);
-    // b is in both lanes (visual 0.39 within 0.85 of 0.4; text 0.6 within 0.75
-    // of 0.8); c misses the visual cutoff, so it counts in one lane only.
-    expect(results[0]?._id).toBe("assets:b");
-    expect(results.map((asset) => asset._id)).toContain("assets:a");
+    // c is the text lane's clear best and the pixel lane found it too.
+    expect(results[0]).toMatchObject({ _id: "assets:c", visualScore: 0.2, textScore: 0.8 });
+    expect(results.map((asset) => asset._id).sort()).toEqual(["assets:a", "assets:b", "assets:c"]);
   });
 
   test("a video's prompt text never enters the pixel lane", async () => {
     // Query-text vs the video's prompt-text outscores every real cross-modal
-    // match. Left in the lane it would take the top slot and push the images
-    // under the relative cutoff.
+    // match. Left in the lane it would take the top slot from the pictures.
     const results = await callAsOwner(searchAssets)(
       makeCtx([], {
-        by_embedding: [
+        by_pixel_embedding: [
           { _id: "semanticDocuments:v", _score: 0.7 },
           { _id: "semanticDocuments:a", _score: 0.4 },
           { _id: "semanticDocuments:b", _score: 0.39 },
@@ -191,8 +212,8 @@ describe("hybrid searchAssets", () => {
       { scope: "mine", ownerUserId: "278674008", query: "rainy street", limit: 10 },
     );
     const ids = results.map((asset) => asset._id);
-    // b leads (both lanes); a survives the pixel cutoff; the video still
-    // ranks, through its words, and below b.
+    // b leads (both lanes); a is found by its look; the video still ranks,
+    // through its words, and below b.
     expect(ids[0]).toBe("assets:b");
     expect(ids).toContain("assets:a");
     expect(ids).toContain("assets:v");
@@ -210,7 +231,7 @@ describe("hybrid searchAssets", () => {
     expect(indexes).toEqual(["by_pixel_embedding"]);
   });
 
-  test("filters apply after fusion and switch the score cutoff off", async () => {
+  test("filters apply after the blend", async () => {
     const results = await callAsOwner(searchAssets)(makeCtx([]) as never, {
       scope: "mine",
       ownerUserId: "278674008",

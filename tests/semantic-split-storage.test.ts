@@ -152,7 +152,7 @@ const seedGallery = async () => {
 };
 
 describe("split search", () => {
-  test("hits are cut by score before mapping and no vector row is read", async () => {
+  test("one pass a lane at the ceiling, and no vector row is read", async () => {
     h.setStorage("split");
     const ids = await seedGallery();
     h.reset();
@@ -168,18 +168,19 @@ describe("split search", () => {
     });
     expect(results[0]?._id).toBe(ids["gothic city dusk"]);
     expect(h.vectorSearches).toEqual([
-      { table: "semanticPixelVectors", index: "by_embedding", limit: 32 },
-      { table: "semanticTextVectors", index: "by_embedding", limit: 32 },
+      { table: "semanticPixelVectors", index: "by_embedding", limit: 256 },
+      { table: "semanticTextVectors", index: "by_embedding", limit: 256 },
     ]);
-    // Six hits per lane come back; only those within the lane cutoff are mapped.
-    const mapped = h.callsNamed("semanticIndex:getSemanticEntriesByVectorIds")[0]!.args as {
-      pixelIds: string[]; textIds: string[];
-    };
-    expect(mapped.pixelIds.length).toBeLessThan(6);
-    expect(mapped.textIds.length).toBeLessThan(6);
-    // Unfiltered hydration reads about the limit, not a 60-asset chunk.
+    // Every hit is mapped once, through its slim entry: the blend needs the
+    // whole lane to tell whether the two lanes agree.
+    const mappings = h.callsNamed("semanticIndex:getSemanticEntriesByVectorIds");
+    expect(mappings).toHaveLength(1);
+    const mapped = mappings[0]!.args as { pixelIds: string[]; textIds: string[] };
+    expect(mapped.pixelIds).toHaveLength(6);
+    expect(mapped.textIds).toHaveLength(6);
+    // Unfiltered hydration reads the limit, not a 60-asset chunk.
     const hydrations = h.callsNamed("galleryAssetResults:listScoredGalleryAssetsByIds");
-    expect(hydrations.every((call) => (call.args.items as unknown[]).length <= 7)).toBe(true);
+    expect(hydrations.map((call) => (call.args.items as unknown[]).length)).toEqual([3]);
   });
 
   test("legacy and split storage rank the same gallery alike", async () => {
@@ -194,15 +195,14 @@ describe("split search", () => {
     expect(split).toEqual(legacy);
   });
 
-  test("similarity reads one lane row and excludes its source before the cutoff", async () => {
+  test("similarity reads one lane row and excludes its source", async () => {
     h.setStorage("split");
     const ids = await seedGallery();
     h.reset();
     const results = await callAsOwner(findSimilarAssets)(h.ctx, {
       ownerUserId: OWNER, scope: "mine", assetId: ids["gothic city dusk"],
     });
-    // The source scores 1 against itself. Left in, it would set the bar above
-    // every real neighbour; excluded first, the gothic cathedral survives.
+    // The source scores 1 against itself; it is taken out before ranking.
     expect(results.map((result) => result._id)).toContain(ids["gothic cathedral night"]);
     expect(results.map((result) => result._id)).not.toContain(ids["gothic city dusk"]);
     expect(h.vectorSearches.map((search) => search.table)).toEqual(["semanticPixelVectors"]);
@@ -211,7 +211,7 @@ describe("split search", () => {
     expect(h.callsNamed("semanticIndex:getSemanticDocumentForAsset")).toHaveLength(0);
   });
 
-  test("a filtered search widens to 256 only when the first pass cannot fill it", async () => {
+  test("a filtered search reads on through the ranking until the filter is filled", async () => {
     h.setStorage("split");
     const rare = await h.addTag("rare");
     for (let index = 0; index < 100; index += 1) {
@@ -229,11 +229,9 @@ describe("split search", () => {
     });
     expect(results.map((result) => result._id).every((id) => rareIds.includes(id))).toBe(true);
     expect(results).toHaveLength(3);
-    expect(h.vectorSearches.map((search) => search.limit)).toEqual([96, 96, 256, 256]);
-    // The second pass maps and hydrates only what the first did not.
-    const [first, second] = h.callsNamed("semanticIndex:getSemanticEntriesByVectorIds")
-      .map((call) => call.args as { pixelIds: string[]; textIds: string[] });
-    expect(second!.pixelIds.some((id) => first!.pixelIds.includes(id))).toBe(false);
+    // One vector pass; the 100 untagged pieces are stepped over at hydration.
+    expect(h.vectorSearches.map((search) => search.limit)).toEqual([256, 256]);
+    expect(h.callsNamed("semanticIndex:getSemanticEntriesByVectorIds")).toHaveLength(1);
     const hydrated = h.callsNamed("galleryAssetResults:listScoredGalleryAssetsByIds")
       .flatMap((call) => (call.args.items as Array<{ assetId: string }>).map((item) => item.assetId));
     expect(new Set(hydrated).size).toBe(hydrated.length);
@@ -359,12 +357,14 @@ describe("search evaluation", () => {
     const [before, tuned, split] = rows;
     expect(before!.results[0]!.assetId).toBe(ids["gothic city dusk"]);
     expect(split!.results[0]!.assetId).toBe(ids["gothic city dusk"]);
-    expect(tuned!.trace.hydratedAssets).toBeLessThanOrEqual(before!.trace.hydratedAssets);
-    expect(split!.trace.resolvedHits).toBeLessThanOrEqual(tuned!.trace.resolvedHits);
+    // `before` and `tuned` are the same search on legacy storage now.
+    expect(tuned!.results).toEqual(before!.results);
+    // The first run embedded the query; the second found it cached.
+    expect(tuned!.trace).toEqual({ ...before!.trace, providerCalls: 0 });
+    expect(split!.trace.hydratedAssets).toBe(before!.trace.hydratedAssets);
     expect(rows[5]!.trace.vectorRowReads).toBe(1);
     expect(rows[3]!.trace.legacyDocumentReads).toBe(1);
-    // limit 3: before asked each lane for 18, after for 32 (the floor).
-    expect(h.vectorSearches.slice(0, 2).map((search) => search.limit)).toEqual([18, 18]);
+    expect(h.vectorSearches.every((search) => search.limit === 256)).toBe(true);
 
     const sizes = await callAsOwner(measureSearchRowSizes)(h.ctx, { sample: 3 });
     expect(sizes.legacyDocument).toBeGreaterThan(50_000);

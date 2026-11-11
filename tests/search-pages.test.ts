@@ -6,8 +6,8 @@ import { callAsOwner } from "./helpers/call-as-owner";
 const OWNER = "278674008";
 const assetId = (index: number) => `assets:${String(index).padStart(3, "0")}`;
 
-// 150 images in the pixel lane, scores falling from 0.40. The first 20 sit
-// inside the 0.85 cutoff; the other 130 are weaker matches.
+// 150 images in the pixel lane, scores falling from 0.40: 20 close matches,
+// then 130 weaker ones.
 const makeCtx = (foreign = new Set<string>()) => {
   const vectorTakes: number[] = [];
   const hydratedCounts: number[] = [];
@@ -95,10 +95,12 @@ describe("paged grid search", () => {
     const oneShot = await callAsOwner(searchAssets)(makeCtx().ctx, {
       scope: "mine", ownerUserId: OWNER, query: "white car", mode: "visual", limit: 100,
     });
-    // The one-shot search stops at the cutoff: 20 pieces of the 150.
-    expect(oneShot).toHaveLength(20);
-    expect(page.results.slice(0, 20).map((asset) => asset._id))
-      .toEqual(oneShot.map((asset) => asset._id));
+    // The agents' search and the grid read the same ranking.
+    expect(oneShot).toHaveLength(100);
+    expect(oneShot.slice(0, 60).map((asset) => asset._id))
+      .toEqual(page.results.map((asset) => asset._id));
+    expect(oneShot.slice(0, 60).map((asset) => asset.score))
+      .toEqual(page.results.map((asset) => asset.score));
   });
 
   test("hits handed back by the caller are still checked against its scope", async () => {

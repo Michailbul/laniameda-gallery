@@ -142,7 +142,7 @@ describe("semantic search actions", () => {
     expect(results[0]?._id).toBe("assets:2");
   });
 
-  test("hybrid shares one unique identity lookup and preserves lane scores and rank fusion", async () => {
+  test("hybrid shares one unique identity lookup and preserves lane scores in the blend", async () => {
     const identityRequests: string[][] = [];
     const ctx = {
       vectorSearch: async (_table: string, index: string) => index === "by_pixel_embedding" ? [
@@ -182,11 +182,13 @@ describe("semantic search actions", () => {
       "semanticDocuments:duplicate-a", "semanticDocuments:deleted",
     ], ["semanticDocuments:deleted"]]);
     expect(result.map((row) => row._id)).toEqual(["assets:a", "assets:b", "assets:video"]);
-    expect(result[0]?.score).toBeCloseTo((1 + 61 / 62) / 2, 12);
-    expect(result[1]?.score).toBeCloseTo((1 + 61 / 62) / 2, 12);
+    // Strength = place between a lane's best and worst hit; the pixel lane
+    // weighs 0.75 when both its best hits are text hits too.
+    expect(result[0]?.score).toBeCloseTo((1 / 3 + 0.75) / 1.75, 9);
+    expect(result[1]?.score).toBeCloseTo(1 / 1.75, 9);
     expect(result[0]).toMatchObject({ visualScore: 0.9, textScore: 0.87 });
     expect(result[1]).toMatchObject({ visualScore: 0.85, textScore: 0.91 });
-    expect(result[2]?.score).toBeCloseTo(61 / 63, 12);
+    expect(result[2]?.score).toBeCloseTo(0, 9);
     expect(result[2]).not.toHaveProperty("visualScore");
     expect(global.fetch).not.toHaveBeenCalled();
   });
