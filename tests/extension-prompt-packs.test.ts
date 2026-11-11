@@ -46,7 +46,7 @@ describe("prompt pack data", () => {
       data().map((group) => group.packs.map((p) => p.label)),
     ).toEqual([
       ["Film 35mm", "3D", "Deco dark", "Deco bright"],
-      ["Lower city", "Middle districts", "Upper towers", "Beyond the walls"],
+      ["Lower city", "Middle districts", "Upper towers", "Far city", "Beyond the walls"],
       ["Street", "Bridge", "Low room", "Tower salon"],
       ["Golden", "Night", "Fog", "Flower lamp"],
       ["Close", "Wide", "Reverse"],

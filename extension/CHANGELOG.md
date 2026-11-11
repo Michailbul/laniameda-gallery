@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.34.1 (11 Nov 2026)
+
+- The writer sizes world details to the shot. Grow, quick edit and Make it
+  ours keep the picture's camera distance and add only what can be seen from
+  there: a far city behind a person gets skyline-size things (a cathedral,
+  colossal statues fused into it, spires, airships moored at masts), never
+  lamps or signs along streets nobody can see. Lamps, emblems and garment
+  detail stay for near shots.
+- Dear Annete's default world prompt is rewritten: mechanisms and a quiet
+  magic with cyberpunk at about one part in ten, no clocks, monsters and
+  vampires, world details listed by distance, and a second, corporate country
+  kept apart. The old default had "gilded clock faces, crystal-column lamps".
+  A saved prompt that is still exactly the old default switches to the new one
+  by itself; a prompt you edited stays yours (Reset brings the new default).
+- Prompt packs: new **Far city** pack; Upper towers drops the retired basalt.
+
 ## 0.34.0 (11 Nov 2026)
 
 - The writer reads the world's own files. Grow, quick edit (⌥E) and Make it

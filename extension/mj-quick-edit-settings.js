@@ -47,7 +47,7 @@
     return el;
   };
 
-  const promptFor = (key) => (typeof state.prompts[key] === "string" ? state.prompts[key] : defaults.byKey(key).prompt);
+  const promptFor = (key) => defaults.resolve(key, state.prompts[key]);
 
   function render() {
     worldSeg.replaceChildren(...defaults.WORLDS.map((world) => button(world.name, world.key === state.world, () => {
@@ -62,7 +62,7 @@
     })));
     worldName.textContent = defaults.byKey(state.world).name;
     if (document.activeElement !== text) text.value = promptFor(state.world);
-    const custom = typeof state.prompts[state.world] === "string" && state.prompts[state.world] !== defaults.byKey(state.world).prompt;
+    const custom = promptFor(state.world) !== defaults.byKey(state.world).prompt;
     reset.disabled = !custom;
     count.textContent = `${text.value.length} chars${custom ? " · edited" : " · default"}`;
   }

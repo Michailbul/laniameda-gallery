@@ -51,7 +51,8 @@
     const stored = await local([STORE.qePrompts]);
     const key = quickEditKeyFor(worldKey);
     const own = stored[STORE.qePrompts]?.[key];
-    return typeof own === "string" ? own : globalScope.SaveToGalleryQuickEditDefaults?.byKey(key)?.prompt || "";
+    const d = globalScope.SaveToGalleryQuickEditDefaults;
+    return d?.resolve ? d.resolve(key, own) : typeof own === "string" ? own : d?.byKey(key)?.prompt || "";
   }
 
   // ── Midjourney describes the extension caught (mj-describe.js writes them) ──

@@ -55,7 +55,13 @@
           id: "upper-towers",
           label: "Upper towers",
           phrase:
-            "the upper towers, cathedral towers of black basalt crowned with rings of bronze saints, giant robed saints carved into the tower faces, amber lancet windows.",
+            "the upper towers, Gothic needle spires of soot-dark sandstone with crockets and pinnacles, giant robed saints carved into the tower faces, amber lancet windows.",
+        },
+        {
+          id: "far-city",
+          label: "Far city",
+          phrase:
+            "the city seen from far away, rooftops and silhouettes only in the haze: a low town of steep dark slate roofs at the foot of an enormous Gothic cathedral, colossal human-like statues fused into its towers, airships moored at the spire masts.",
         },
         {
           id: "beyond-walls",

@@ -2,6 +2,8 @@
 // bar, ⌥E, say what to change). Client-safe helpers shared by the Convex
 // runner (convex/promptEditRunner.ts) and the extension route.
 
+import { SHOT_SCALE_RULES } from "./writer-scale";
+
 export const QUICK_EDIT_LIMITS = {
   prompt: 8000,
   instruction: 1200,
@@ -35,7 +37,10 @@ Rules:
 - Image links appear as [[IMG1]], [[IMG2]] …: keep each placeholder exactly where it is unless told to remove it.
 - Keep every Midjourney parameter (--ar, --sref, --profile, --stylize, --chaos, --raw, --v, --hd, --relax, --draft, --sw, --iw …) exactly as written unless the instruction is about it. Parameters stay at the end.
 - Midjourney reads plain visual description: subject, setting, light, materials, camera, film. Write it as concrete nouns and adjectives in full sentences. No instructions to the model ("make sure", "please"), no negatives ("no people"): say what is there instead ("the street is empty").
-- If you get a SELECTION and a FULL PROMPT, rewrite only the selection so it fits back into the full prompt in its place, and return only the new selection.`;
+- If you get a SELECTION and a FULL PROMPT, rewrite only the selection so it fits back into the full prompt in its place, and return only the new selection.
+- When the instruction asks you to add world details or move the prompt into a world, size what you add to the shot, as below.
+
+${SHOT_SCALE_RULES}`;
 
 /** Image URLs become [[IMGn]] so the model cannot drop or garble them. */
 export function protectUrls(text: string) {

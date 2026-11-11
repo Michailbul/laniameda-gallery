@@ -54,6 +54,8 @@ export const WRITER_BRIEF_RULES = [
   "- A character the files name is written with the look the files give them (hair, build, face, costume), in the same words each time. Never invent a new look for a named character.",
   "- People, wardrobe, vehicles, buildings and props come from this world's own materials and era as the files describe them. A trade, garment or object the files exclude stays out.",
   "- A story or a scene agrees with the bible's facts, relationships and tone.",
+  "- The files name places, objects and machines of every size. Bring one in only at a size this shot can show (the scale rule): a far city takes skyline-size markers, a street takes building-size ones, only a near shot takes lamps, signs or jewellery. A frame with no room for a marker gets none.",
+  "- When the files describe more than one city or country, a frame is in one of them. Never mix their architecture, technology or people.",
   "- The look stays the source prompt's own: its style words are kept exactly as your other rules say. A named style below is orientation; its name is never written into a prompt.",
   "- The files are reference only. Never copy a file name, an id, a code or a parameter from them into a prompt.",
   "- Before you answer, check each prompt against the never-rules and rewrite any that breaks one. Do not mention the check.",
