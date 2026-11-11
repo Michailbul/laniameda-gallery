@@ -273,15 +273,15 @@
     .thumb{flex:0 0 auto;width:54px;height:54px;border-radius:8px;object-fit:cover;background:#191919;border:1px solid var(--line)}
     .meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
     .top{display:flex;align-items:center;gap:6px}
-    .name{flex:1;font:800 11px/1 Inter,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;display:flex;align-items:center;gap:7px}
+    .name{flex:1 0 auto;font:800 11px/1 Inter,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;display:flex;align-items:center;gap:7px}
     .name i{width:6px;height:6px;border-radius:1px;background:var(--coral)}
-    select{max-width:150px;height:22px;padding:0 4px;border-radius:6px;border:1px solid var(--line);background:#191919;color:var(--ink);
+    select{max-width:150px;min-width:0;flex:0 1 auto;height:22px;padding:0 4px;border-radius:6px;border:1px solid var(--line);background:#191919;color:var(--ink);
       font:700 9.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.04em;text-transform:uppercase;outline:none;cursor:pointer}
     select:focus{border-color:var(--coral)}
-    .wr{height:22px;padding:0 7px;border:1px solid var(--line);border-radius:6px;background:#191919;color:var(--ink2);cursor:pointer;font:700 8.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
+    .wr{flex:none;height:22px;padding:0 7px;border:1px solid var(--line);border-radius:6px;background:#191919;color:var(--ink2);cursor:pointer;font:700 8.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
     .wr.mac{color:#79B791;border-color:rgba(121,183,145,.45)}
     .wr:hover{color:var(--ink)}
-    .x{width:22px;height:22px;border:1px solid var(--line);border-radius:6px;background:#191919;color:var(--ink2);cursor:pointer;font:600 12px/1 system-ui;padding:0}
+    .x{flex:none;width:22px;height:22px;border:1px solid var(--line);border-radius:6px;background:#191919;color:var(--ink2);cursor:pointer;font:600 12px/1 system-ui;padding:0}
     .src{font:400 11px/1.4 Inter,system-ui,sans-serif;color:var(--ink2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     .codes{display:flex;flex-wrap:wrap;gap:4px;padding:0 10px 8px}
     .code{height:19px;padding:0 6px;border-radius:5px;border:1px solid var(--line);color:var(--ink2);display:inline-flex;align-items:center;gap:5px;max-width:100%;
@@ -551,6 +551,7 @@
     writerButton.classList.toggle("mac", view.local);
     state.writer = status;
   };
+  paintWriter({ mode: "auto", model: "haiku", up: false });
   async function loadWriter(fresh = false) {
     const res = await ask("writer", { fresh });
     if (res?.ok) paintWriter(res);

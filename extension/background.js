@@ -1303,7 +1303,12 @@ async function writerCall(path, body, { cloudOnly = false } = {}) {
     return post(body);
   }
   const prepared = await post({ ...body, local: { stage: "messages" } });
-  if (!prepared?.ok) return prepared;
+  if (!prepared?.ok) {
+    // A gallery without the local stages refuses the extra field: use its providers.
+    if (settings.mode === "local") return prepared;
+    const cloud = await post(body);
+    return cloud?.ok ? cloud : { ...cloud, error: `${cloud?.error || "Could not write."} (local writer: ${prepared?.error || "the gallery refused the request"})` };
+  }
   if (!prepared.local?.messages) return post(body); // an older gallery: no local stages yet
   const written = await writerBridgeWrite(prepared.local.messages, prepared.local.maxTokens, settings.model);
   if (!written.ok) {
