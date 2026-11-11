@@ -947,6 +947,11 @@ video poster), `createdAt`. Written a minute after ingest and by the backfill
 `perceptualHash:backfillPerceptualHashes`; deleted with the asset. Indexes:
 asset, owner. Read by the grid's Similar view and `find_similar_groups`.
 
+`pictureJudgments` holds what the Decisions model answered when a search
+asked about a picture ("does this show a car?"): `assetId`, `phrase`,
+`probability`, `model`, `judgedAt`, one row per picture and phrase. Search
+reads it before asking again. Internal; no agent tool writes it.
+
 `assetClassifications` holds what the auto-tagger answered about a picture
 (Jev / TypeSafe at `version` 1, OpenAI Decisions `gpt-6-luna` from version 2,
 2 Nov 2026): `ownerUserId`, `assetId`, `model`, `version`, `status`

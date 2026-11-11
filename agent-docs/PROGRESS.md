@@ -8,6 +8,32 @@ Last updated: 2026-11-11
 
 ## ✔ Shipped
 
+### 2026-11-11 — "no cars" is checked against the pictures themselves (branch `feat/search-judge`, backend pushed 11 Nov 14:23)
+- Embeddings rank by likeness and never say "no": a street with a small car
+  nobody described still came back for "city street, no cars". For a search
+  that leaves something out, each picture on the page is now asked by a
+  decision model whether it shows the thing; more likely than not (0.5) and
+  it is dropped. A page is asked in one wave and may come back short; the
+  grid reads the next one by itself. `convex/searchJudge.ts` asks (a ~480 px
+  grid rendition of each picture), `pictureJudgments` keeps every answer, so
+  a picture is asked once per phrase.
+- Two models, in order: OpenAI Decisions (`gpt-6-luna`, the tagger's) and Jev
+  (TypeSafe, the shelf filer's). When the first cannot be used at all (no
+  credits, a refused key) one failed request moves the whole call to the
+  next. On 11 Nov the OpenAI account had no credits left ("insufficient_quota"),
+  so Jev answered; the auto-tagger uses the same key and fails the same way
+  until credits are added.
+- Live check with Jev: "city street, no cars" dropped 32 of the plain first
+  page's 48 (13 by description or tag, 19 by the picture check, among them
+  the street with a red car in the corner); "knight, no posters" returns no
+  poster. A page of 60 takes 2.5–5 s the first time and 0.25 s once its
+  answers are kept. Topping a page up in the same call took 13–20 s and was
+  dropped.
+- Only the owner's own searches ask (a visitor's "no cars" keeps the two
+  cheaper tests: by description and tags, and by look). Up to three phrases a
+  search. `SEARCH_JUDGE_ENABLED=false` turns it off. If no model can be
+  reached the page is returned unchecked.
+
 ### 2026-11-11 — A filter word alone searches, and the tagger's tags rule pieces out (branch `fix/search-filter-words`)
 - Bug: "animation" typed alone was read as a filter with nothing to search
   for, so nothing was ranked and the keyword filter rejected every piece: the

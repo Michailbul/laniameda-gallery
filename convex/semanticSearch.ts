@@ -1075,17 +1075,89 @@ const searchPageSize = (pageSize?: number) =>
   Math.min(Math.max(Math.floor(pageSize ?? SEARCH_PAGE_DEFAULT), 1), SEARCH_PAGE_MAX);
 
 // Read ranked hits in order until a page of them passes scope and filters.
+const getJudgmentsQueryRef = makeFunctionReference<"query">("pictureJudgments:getJudgments");
+const saveJudgmentsMutationRef = makeFunctionReference<"mutation">("pictureJudgments:saveJudgments");
+const judgePicturesActionRef = makeFunctionReference<"action">("searchJudge:judgePictures");
+// A picture more likely than not to show the thing is left out.
+const SHOWN_PROBABILITY = 0.5;
+// Phrases asked of each picture.
+const MAX_JUDGED_PHRASES = 3;
+// The picture shown to the model: a grid rendition of about this width is
+// enough to see a car in a corner and half the work of the full card thumb.
+const JUDGE_MIN_WIDTH = 400;
+
+// The picture check runs on the owner's own searches only: a visitor's
+// "no cars" must not spend the owner's model budget. It needs a key for one
+// of the two decision models (convex/searchJudge.ts);
+// SEARCH_JUDGE_ENABLED=false turns it off.
+const judgeEnabled = (scope: "mine" | "public") =>
+  scope === "mine" &&
+  Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.TYPESAFE_API_KEY?.trim()) &&
+  process.env.SEARCH_JUDGE_ENABLED?.trim().toLowerCase() !== "false";
+
+// Drop the pictures the Decisions model says show something the search leaves
+// out. Answers come from pictureJudgments when the question was asked before.
+// A picture that cannot be judged (no image, an API error) stays.
+const dropShown = async (ctx: ActionCtx, assets: ScoredAsset[], phrases: string[]) => {
+  const pictures = assets.flatMap((asset) => {
+    const imageUrl = asset.thumbVariants?.find((variant) => variant.width >= JUDGE_MIN_WIDTH)?.url ??
+      asset.thumbUrl ?? (asset.kind === "image" ? asset.url : undefined);
+    return imageUrl ? [{ assetId: asset._id, imageUrl }] : [];
+  });
+  if (pictures.length === 0) return assets;
+  try {
+    const known = await ctx.runQuery(getJudgmentsQueryRef, {
+      assetIds: pictures.map((picture) => picture.assetId), phrases,
+    }) as Array<{ assetId: Id<"assets">; phrase: string; probability: number }>;
+    const shown = new Map<string, number>(
+      known.map((row) => [`${row.assetId}|${row.phrase}`, row.probability]),
+    );
+    const unasked = pictures.filter((picture) =>
+      phrases.some((phrase) => !shown.has(`${picture.assetId}|${phrase}`)));
+    if (unasked.length > 0) {
+      const answer = await ctx.runAction(judgePicturesActionRef, { pictures: unasked, phrases }) as {
+        model?: string; judged: Array<{ assetId: Id<"assets">; probabilities: number[] }>;
+      };
+      const judgments = answer.judged.flatMap((picture) => phrases.map((phrase, index) => ({
+        assetId: picture.assetId, phrase, probability: picture.probabilities[index]!,
+      })));
+      for (const row of judgments) shown.set(`${row.assetId}|${row.phrase}`, row.probability);
+      if (judgments.length > 0 && answer.model) {
+        await ctx.runMutation(saveJudgmentsMutationRef, { model: answer.model, judgments });
+      }
+    }
+    return assets.filter((asset) =>
+      !phrases.some((phrase) => (shown.get(`${asset._id}|${phrase}`) ?? 0) >= SHOWN_PROBABILITY));
+  } catch (error) {
+    console.warn(`[semanticSearch] picture check unavailable: ${error instanceof Error ? error.message : error}`);
+    return assets;
+  }
+};
+
 const readSearchPage = async (ctx: ActionCtx, hits: FusedHit[], input: {
   spec: ScopeSpec;
   storage: Storage;
   filtered: boolean;
   keep: (asset: FilterableAsset) => boolean;
   pageSize: number;
+  // Things the search leaves out, for the picture check.
+  excluded?: string[];
 }) => {
+  const judged = judgeEnabled(input.spec.scope) ? (input.excluded ?? []).slice(0, MAX_JUDGED_PHRASES) : [];
+  if (judged.length === 0) {
+    const { results, consumed } = await hydrateFiltered(
+      ctx, hits, input.keep, input.pageSize, input.spec, input.filtered,
+    );
+    return { results, remaining: hits.slice(consumed) };
+  }
+  // Checked pictures can drop out, so a page may come back short (or empty
+  // with hits still to read). It is not topped up here: asking about more
+  // pictures would hold back the ones already cleared, and the grid reads the
+  // next page by itself when this one does not fill the screen.
   const { results, consumed } = await hydrateFiltered(
     ctx, hits, input.keep, input.pageSize, input.spec, input.filtered,
   );
-  return { results, remaining: hits.slice(consumed) };
+  return { results: await dropShown(ctx, results, judged), remaining: hits.slice(consumed) };
 };
 
 // First page of a grid search: by words (`query`) or by look
@@ -1187,6 +1259,7 @@ export const searchAssetsPage = ownerAction({
       spec,
       filtered: page.filtered || excluded.length > 0,
       keep: (asset) => keep(asset) && named(asset),
+      excluded,
     });
   },
 });
@@ -1222,6 +1295,7 @@ export const loadSearchHits = ownerAction({
       filtered: hasMetadataFilters(filters) || excluded.length > 0,
       keep: (asset) => asset._id !== args.similarToAssetId && keep(asset) && named(asset),
       pageSize: searchPageSize(args.pageSize),
+      excluded,
     });
   },
 });

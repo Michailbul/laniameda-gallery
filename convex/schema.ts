@@ -479,6 +479,16 @@ export default defineSchema({
   })
     .index("by_asset", ["assetId"])
     .index("by_owner", ["ownerUserId"]),
+  // What the Decisions model answered when a search asked about a picture
+  // ("does this show a car?"), one row per picture and phrase, so a question
+  // is paid for once. See convex/searchJudge.ts.
+  pictureJudgments: defineTable({
+    assetId: v.id("assets"),
+    phrase: v.string(),
+    probability: v.number(),
+    model: v.string(),
+    judgedAt: v.number(),
+  }).index("by_asset_phrase", ["assetId", "phrase"]),
   // What the auto-tagger (Jev at version 1, gpt-6-luna from version 2)
   // answered about a picture and the tags that added. One row per asset;
   // addedTagIds is exactly what undoClassificationTags takes back.
