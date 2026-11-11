@@ -5,6 +5,7 @@ import { getServerConvexClient } from "@/lib/server/convex";
 import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/server/extension-auth";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import { QUICK_EDIT_LIMITS, QUICK_EDIT_MODELS } from "@/lib/mj-quick-edit";
+import { LOCAL_WRITER_LIMITS } from "@/lib/local-writer";
 
 // Quick edit of a Midjourney prompt from the extension: the bar's prompt (and
 // the selected part), a few words of instruction, the world's system prompt
@@ -25,6 +26,12 @@ const bodySchema = z.object({
   instruction: z.string().min(1).max(QUICK_EDIT_LIMITS.instruction),
   system: z.string().max(QUICK_EDIT_LIMITS.system).optional(),
   model: z.enum(QUICK_EDIT_MODELS).default("haiku"),
+  local: z.object({
+    stage: z.enum(["messages", "finish"]),
+    raw: z.string().max(LOCAL_WRITER_LIMITS.raw).optional(),
+    model: z.string().max(60).optional(),
+    ms: z.number().nonnegative().optional(),
+  }).optional(),
 });
 
 export async function POST(request: Request) {

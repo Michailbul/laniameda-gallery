@@ -69,6 +69,25 @@ both); an item that carries one says so and leaves the flag out.
   pick a recent Midjourney describe, or right-click an image anywhere →
   *Describe to a prompt*. Same controls; works without Midjourney's Describe.
 
+## The writer on your own Mac (0.33)
+
+Grow, quick edit and Make it ours can write with Claude Code on the machine the
+browser runs on, instead of a paid provider.
+
+- Install once per Mac: `extension-writer/install.sh` (from the repo). It puts a
+  small service on `127.0.0.1:47615`, kept running by the LaunchAgent
+  `com.laniameda.writer`, which runs `claude -p` with no tools on Haiku 5.5 or
+  Sonnet 5.5 using the long-lived sign-ins in `~/.config/claude-tokens/`.
+- The switch on the Grow card (next to the world) shows where the writer runs:
+  **Haiku · Mac**, **Sonnet · Mac** or **Cloud**. Click to change. Quick edit and
+  Make it ours follow it; quick edit on DeepSeek always uses the gallery.
+- Default is automatic: the Mac when the bridge answers, the gallery's providers
+  when it does not.
+- The bridge answers only the extension (the store copy and the unpacked copies
+  found at install) and tools on the same Mac. It never opens Midjourney links:
+  the extension sends the picture's bytes.
+- Log: `~/Library/Logs/laniameda-writer.log`. Remove: `extension-writer/install.sh --remove`.
+
 ## Grow: one frame into a set (0.32)
 
 - Point at a generated picture on midjourney.com and press **⌥X** (or hold ⌥

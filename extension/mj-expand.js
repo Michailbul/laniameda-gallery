@@ -111,7 +111,30 @@
     return { images: parts.images, words: parts.words, srefs, profiles, rest: rest.join(" ") };
   }
 
-  globalScope.SaveToGalleryExpand = { MOVES, placeBeside, threadLabel, splitText, queueItemOf, codeLine };
+  // The writer switch: what the button shows for a status ({mode, model, up})
+  // and what one click changes it to. Haiku on this Mac, Sonnet on this Mac,
+  // then the gallery's providers; without the bridge there is only the cloud.
+  function writerView(status) {
+    const up = Boolean(status?.up);
+    const cloud = status?.mode === "cloud" || !up;
+    if (cloud) {
+      return {
+        label: "Cloud", local: false,
+        title: up ? "Writer: the gallery's providers. Click to write on this Mac instead."
+          : status?.mode === "local" ? "The local writer is not running on this Mac, so nothing can be written. Click to check again."
+            : "Writer: the gallery's providers (the local writer is not running on this Mac). Click to check again.",
+      };
+    }
+    const sonnet = status?.model === "sonnet";
+    return { label: sonnet ? "Sonnet · Mac" : "Haiku · Mac", local: true, title: `Writer: Claude ${sonnet ? "Sonnet" : "Haiku"} 5.5 on this Mac. Click to switch.` };
+  }
+  function nextWriter(status) {
+    if (!status?.up) return { mode: "auto" };
+    if (status.mode === "cloud") return { mode: "auto", model: "haiku" };
+    return status.model === "sonnet" ? { mode: "cloud" } : { mode: "auto", model: "sonnet" };
+  }
+
+  globalScope.SaveToGalleryExpand = { MOVES, placeBeside, threadLabel, splitText, queueItemOf, codeLine, writerView, nextWriter };
 
   if (typeof document === "undefined" || typeof location === "undefined" || !/(^|\.)midjourney\.com$/i.test(location.hostname)) return;
   if (globalScope.__saveToGalleryExpand) return;
@@ -250,12 +273,15 @@
     .thumb{flex:0 0 auto;width:54px;height:54px;border-radius:8px;object-fit:cover;background:#191919;border:1px solid var(--line)}
     .meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
     .top{display:flex;align-items:center;gap:6px}
-    .name{flex:1;font:800 11px/1 Inter,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;display:flex;align-items:center;gap:7px}
+    .name{flex:1 0 auto;font:800 11px/1 Inter,system-ui,sans-serif;letter-spacing:.14em;text-transform:uppercase;display:flex;align-items:center;gap:7px}
     .name i{width:6px;height:6px;border-radius:1px;background:var(--coral)}
-    select{max-width:150px;height:22px;padding:0 4px;border-radius:6px;border:1px solid var(--line);background:#191919;color:var(--ink);
+    select{max-width:150px;min-width:0;flex:0 1 auto;height:22px;padding:0 4px;border-radius:6px;border:1px solid var(--line);background:#191919;color:var(--ink);
       font:700 9.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.04em;text-transform:uppercase;outline:none;cursor:pointer}
     select:focus{border-color:var(--coral)}
-    .x{width:22px;height:22px;border:1px solid var(--line);border-radius:6px;background:#191919;color:var(--ink2);cursor:pointer;font:600 12px/1 system-ui;padding:0}
+    .wr{flex:none;height:22px;padding:0 7px;border:1px solid var(--line);border-radius:6px;background:#191919;color:var(--ink2);cursor:pointer;font:700 8.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
+    .wr.mac{color:#79B791;border-color:rgba(121,183,145,.45)}
+    .wr:hover{color:var(--ink)}
+    .x{flex:none;width:22px;height:22px;border:1px solid var(--line);border-radius:6px;background:#191919;color:var(--ink2);cursor:pointer;font:600 12px/1 system-ui;padding:0}
     .src{font:400 11px/1.4 Inter,system-ui,sans-serif;color:var(--ink2);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     .codes{display:flex;flex-wrap:wrap;gap:4px;padding:0 10px 8px}
     .code{height:19px;padding:0 6px;border-radius:5px;border:1px solid var(--line);color:var(--ink2);display:inline-flex;align-items:center;gap:5px;max-width:100%;
@@ -328,7 +354,7 @@
     <div class="head">
       <img class="thumb" alt="">
       <div class="meta">
-        <div class="top"><span class="name"><i></i>Grow</span><select title="World: its rules steer the writer, and queued prompts go to its threads."></select><button class="x" type="button" title="Close (Esc)">×</button></div>
+        <div class="top"><span class="name"><i></i>Grow</span><select title="World: its rules steer the writer, and queued prompts go to its threads."></select><button class="wr" type="button"></button><button class="x" type="button" title="Close (Esc)">×</button></div>
         <div class="src"></div>
       </div>
     </div>
@@ -350,6 +376,7 @@
   const srcEl = $(".src");
   const codesEl = $(".codes");
   const worldSelect = $("select");
+  const writerButton = $(".wr");
   const idea = $(".idea");
   const go = $(".go");
   const movesEl = $(".moves");
@@ -515,6 +542,25 @@
       paintWorlds();
     }
   }
+  // Where the writer runs: on this Mac (Haiku 5.5 or Sonnet 5.5 through the
+  // local bridge) or through the gallery's providers. Click to switch.
+  const paintWriter = (status) => {
+    const view = writerView(status);
+    writerButton.textContent = view.label;
+    writerButton.title = view.title;
+    writerButton.classList.toggle("mac", view.local);
+    state.writer = status;
+  };
+  paintWriter({ mode: "auto", model: "haiku", up: false });
+  async function loadWriter(fresh = false) {
+    const res = await ask("writer", { fresh });
+    if (res?.ok) paintWriter(res);
+  }
+  writerButton.addEventListener("click", async () => {
+    const next = nextWriter(state.writer);
+    const res = await ask("writer", { do: "set", ...next, fresh: true });
+    if (res?.ok) paintWriter(res);
+  });
   worldSelect.addEventListener("change", () => {
     state.world = worldSelect.value;
     setLocal({ [STORE.world]: state.world });
@@ -551,6 +597,7 @@
     paintMoves();
     renderResults();
     void loadWorlds();
+    void loadWriter(true);
     layout();
     idea.focus();
   }
