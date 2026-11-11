@@ -2,11 +2,42 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-11-10
+Last updated: 2026-11-11
 
 ---
 
 ## ✔ Shipped
+
+### 2026-11-11 — Search finds the right pieces, and takes instructions (branch `fix/search-relevance`, backend pushed 11 Nov 13:30)
+- Cause 1: imageless assets (455 videos) stored a text vector in the legacy
+  pixel lane. Against a text query those outscore every picture, so they
+  filled the lane's 256 hits: on 14 of 20 test queries the pixel lane returned
+  no picture at all. The indexer no longer writes that vector
+  (`clearEmbedding`), `semanticIndex:stripImagelessPixelVectors` removed the
+  stored ones (452 rows), and the vector index had to be dropped and re-added
+  before it stopped serving them (see `OBSERVATIONS.md`).
+- Cause 2: lanes were merged by position, half and half. For a name the pixel
+  model does not know ("dari", "cassandra") its 256 hits are noise, and half
+  of every page was noise. `blendLanes` now scores a hit by its place between
+  its lane's best and worst hit, lets words lead, and weighs the pixel lane by
+  how many of its best 40 hits the text lane also found (measured on 42 live
+  queries: names agree on 0–2, visible subjects on 7 or more). "dari": 30 of
+  the first 60 results were right, now 60 of 60.
+- Every search (`searchAssets`, `findSimilarAssets`, `searchAssetsPage`) takes
+  one 256-hit pass a lane and reads the same ranking. The per-lane cutoffs and
+  the two-pass widening are gone; `minRelativeScore` is a cutoff on the
+  blended score, off by default. `semanticSearch:inspectLanes` (internal)
+  shows every raw lane hit for a query.
+- Search by instructions (`lib/search-instructions.ts`): a search is a thread
+  of steps. "dear annete world" stays inside that world and its shelves (a
+  cue word is needed, so "cars" still searches everything), "interiors / city
+  street" finds either, "no cars" leaves out pieces described or tagged as
+  cars and pieces that clearly show them, "only videos", "locations", "liked",
+  "animation" filter. Enter keeps a step, chips show how each was read, a chip
+  can be removed, Backspace on an empty field steps back, and earlier
+  searches come back from the search box (kept in the browser).
+  Backend: `searchAssetsPage` takes `alternatives`, `exclude`, `textHint`;
+  `loadSearchHits` takes `exclude`.
 
 ### 2026-11-10 — Search keeps loading on scroll (branch `fix/search-load-more`, backend pushed 10 Nov 22:08)
 - Cause: the grid asked `semanticSearch:searchAssets` once (limit 120, capped

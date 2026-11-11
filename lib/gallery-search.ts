@@ -19,8 +19,16 @@ const SEARCH_WORD_SPLIT = /[^\p{L}\p{N}]+/u;
  * word of the query must be a word of the text, so "car" finds "car" and
  * "cars" but not "character" or "scarf". Plurals count in both directions.
  */
+// Words that carry no subject: "rainy street at night" asks for rainy,
+// street and night.
+const SEARCH_FILLER_WORDS = new Set([
+  "a", "an", "and", "at", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with",
+]);
+
 export const galleryWordMatcher = (query: string) => {
-  const terms = query.toLowerCase().split(SEARCH_WORD_SPLIT).filter(Boolean);
+  const all = query.toLowerCase().split(SEARCH_WORD_SPLIT).filter(Boolean);
+  const subject = all.filter((term) => !SEARCH_FILLER_WORDS.has(term));
+  const terms = subject.length > 0 ? subject : all;
   if (terms.length === 0) return () => false;
   return (text: string) => {
     const words = new Set(text.toLowerCase().split(SEARCH_WORD_SPLIT));

@@ -302,6 +302,7 @@ type LegacyUpsertArgs = Record<string, unknown> & {
   textEmbedding?: number[];
   textContentHash?: string;
   clearTextEmbedding?: boolean;
+  clearEmbedding?: boolean;
 };
 
 const LEGACY_UPSERT_FIELDS = [
@@ -319,6 +320,7 @@ const legacyUpsertChangesNothing = (
   if (!existing || args.embedding || args.textEmbedding) return false;
   const nextTextHash = args.clearTextEmbedding ? undefined : (args.textContentHash ?? existing.textContentHash);
   if (args.clearTextEmbedding && existing.textEmbedding) return false;
+  if (args.clearEmbedding && existing.embedding) return false;
   return nextTextHash === existing.textContentHash &&
     LEGACY_UPSERT_FIELDS.every((field) => existing[field] === args[field]);
 };
@@ -1314,6 +1316,8 @@ export const upsertSemanticDocument = internalMutation({
     textEmbedding: v.optional(v.array(v.float64())),
     textContentHash: v.optional(v.string()),
     clearTextEmbedding: v.optional(v.boolean()),
+    // Drop the pixel-lane vector: the asset has no picture to embed.
+    clearEmbedding: v.optional(v.boolean()),
     scopeKey: v.string(),
     scopePillarKey: v.optional(v.string()),
     publicScopeKey: v.optional(v.string()),
@@ -1345,7 +1349,7 @@ export const upsertSemanticDocument = internalMutation({
         contentHash: args.contentHash,
         embeddingModel: args.embeddingModel,
         embeddingDimensions: args.embeddingDimensions,
-        embedding: args.embedding ?? existing.embedding,
+        embedding: args.clearEmbedding ? undefined : (args.embedding ?? existing.embedding),
         textEmbedding: args.clearTextEmbedding
           ? undefined
           : (args.textEmbedding ?? existing.textEmbedding),
@@ -1365,7 +1369,8 @@ export const upsertSemanticDocument = internalMutation({
       return existing._id;
     }
 
-    if (!args.embedding && !args.textEmbedding) {
+    const newEmbedding = args.clearEmbedding ? undefined : args.embedding;
+    if (!newEmbedding && !args.textEmbedding) {
       throw new ConvexError("New semantic documents require an embedding in at least one lane.");
     }
 
@@ -1385,7 +1390,7 @@ export const upsertSemanticDocument = internalMutation({
       contentHash: args.contentHash,
       embeddingModel: args.embeddingModel,
       embeddingDimensions: args.embeddingDimensions,
-      embedding: args.embedding,
+      embedding: newEmbedding,
       textEmbedding: args.clearTextEmbedding ? undefined : args.textEmbedding,
       textContentHash: args.clearTextEmbedding ? undefined : args.textContentHash,
       scopeKey: args.scopeKey,
@@ -1400,6 +1405,54 @@ export const upsertSemanticDocument = internalMutation({
     const inserted = await ctx.db.get(id);
     if (inserted) await upsertSemanticIdentity(ctx, inserted);
     return id;
+  },
+});
+
+// One-off cleanup (11 Nov 2026). Imageless assets (videos) used to store a
+// text vector in the legacy pixel lane. Against a text query those outscore
+// every picture, so they filled the lane's 256 hits and pictures were no
+// longer found by their look. Walks the slim identity rows and drops that
+// vector from each imageless asset's row; its text lane is untouched.
+// Resumable: `bunx convex run semanticIndex:stripImagelessPixelVectors` with
+// the returned cursor until done. Each stripped row costs one ~56 KB read and
+// one ~28 KB write. `withoutText` rows are left with no vector: reindex them.
+export const stripImagelessPixelVectors = internalMutation({
+  args: {
+    cursor: v.optional(v.string()),
+    batchSize: v.optional(v.number()),
+    dryRun: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    scanned: v.number(),
+    imageless: v.number(),
+    stripped: v.number(),
+    withoutText: v.array(v.id("assets")),
+    nextCursor: v.optional(v.string()),
+    done: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const page = await ctx.db.query("semanticDocumentIdentities").paginate({
+      cursor: args.cursor ?? null,
+      numItems: Math.min(Math.max(Math.floor(args.batchSize ?? 200), 1), 400),
+      maximumBytesRead: MAX_BACKFILL_BYTES,
+    });
+    let imageless = 0;
+    let stripped = 0;
+    const withoutText: Id<"assets">[] = [];
+    for (const identity of page.page) {
+      if (identity.sourceType !== "asset" || identity.modality !== "text_only") continue;
+      imageless += 1;
+      if (args.dryRun) continue;
+      const row = await ctx.db.get(identity.semanticDocumentId);
+      if (!row?.embedding) continue;
+      await ctx.db.patch(row._id, { embedding: undefined, updatedAt: Date.now() });
+      stripped += 1;
+      if (!row.textEmbedding && row.assetId) withoutText.push(row.assetId);
+    }
+    return {
+      scanned: page.page.length, imageless, stripped, withoutText,
+      nextCursor: page.isDone ? undefined : page.continueCursor, done: page.isDone,
+    };
   },
 });
 
@@ -1616,8 +1669,10 @@ const reindexAssetSource = async (
   try {
     // Two lanes. The pixel lane (multimodal model) embeds image bytes only, so
     // cross-modal matching finds what a picture looks like; imageless assets
-    // (video) embed a short text there in legacy storage and have no pixel
-    // lane in split storage. The text lane (getTextEmbeddingModel) embeds the
+    // (video) have no pixel lane. Until 11 Nov 2026 legacy storage embedded a
+    // short text there: text scores far above any picture against a text
+    // query, so 256 of those filled the lane and no picture was found by its
+    // look. The text lane (getTextEmbeddingModel) embeds the
     // asset's words: agent description, caption, prompt, tags, source. The
     // text lane is written first and on its own quota, so a pixel-lane 429
     // never leaves an asset unsearchable.
@@ -1706,13 +1761,12 @@ const reindexAssetSource = async (
     let pixelValues = shouldUseMultimodal && shouldReuseEmbedding ? existing?.embedding : undefined;
     let embedding: number[] | undefined;
     let pixelError: string | undefined;
-    if (((writesLegacy && !shouldReuseEmbedding) || (splitNeedsPixel && !pixelValues)) && !textOnly) {
+    if (shouldUseMultimodal && source.storageUrl && !textOnly &&
+        ((writesLegacy && !shouldReuseEmbedding) || (splitNeedsPixel && !pixelValues))) {
       try {
-        const parts: Array<Record<string, unknown>> =
-          shouldUseMultimodal && source.storageUrl
-            ? [await fetchInlineImagePart(source.storageUrl, source.contentType)]
-            : [{ text: primaryText }];
-        pixelValues = (await embedWithGemini(parts)).values;
+        pixelValues = (await embedWithGemini([
+          await fetchInlineImagePart(source.storageUrl, source.contentType),
+        ])).values;
         if (writesLegacy) embedding = pixelValues;
       } catch (error) {
         pixelError =
@@ -1726,10 +1780,11 @@ const reindexAssetSource = async (
       splitPixel = { embedding: toStoredVector(pixelValues), hash: splitPixelHash };
     }
 
+    // An imageless asset keeps no pixel-lane vector, old or new.
+    const clearEmbedding = !shouldUseMultimodal;
     const legacyHasLane =
       Boolean(embedding) ||
-      shouldReuseEmbedding ||
-      Boolean(existing?.embedding) ||
+      (!clearEmbedding && (shouldReuseEmbedding || Boolean(existing?.embedding))) ||
       Boolean(textEmbedding) ||
       Boolean(existing?.textEmbedding && !clearTextEmbedding);
     const keepsLane = (write: LaneWrite | undefined, current?: string) =>
@@ -1739,6 +1794,11 @@ const reindexAssetSource = async (
     if (!(writesLegacy && legacyHasLane) && !(writesSplit && splitHasLane)) {
       if (writesSplit && entry) {
         await ctx.runMutation(deleteSemanticEntryMutationRef, { assetId });
+      }
+      // An imageless asset with no words keeps nothing: its old row held only
+      // the text vector that crowded the pixel lane.
+      if (writesLegacy && existing && clearEmbedding) {
+        await ctx.runMutation(deleteSemanticDocumentMutationRef, { sourceType: "asset", sourceId });
       }
       if (pixelError) throw new Error(pixelError);
       return { status: "skipped" as const, retryScheduled: false };
@@ -1767,6 +1827,7 @@ const reindexAssetSource = async (
         textEmbedding,
         textContentHash: clearTextEmbedding ? undefined : textContentHash,
         clearTextEmbedding,
+        clearEmbedding,
         scopeKey: scopeFields.scopeKey,
         scopePillarKey: scopeFields.scopePillarKey,
         publicScopeKey: scopeFields.publicScopeKey,

@@ -20,6 +20,7 @@ import {
 } from "./validators";
 import { ownerAction } from "./actor";
 import { skillCardValidator } from "./skills";
+import { galleryWordMatcher } from "../lib/gallery-search";
 import {
   SEMANTIC_VECTOR_DIMENSIONS,
   convexValueSize,
@@ -307,19 +308,10 @@ const getQueryEmbedding = async (
   return embedding;
 };
 
-// Drop results whose score is below this fraction of its lane's top score.
-// e.g. 0.85 means "keep results within 85% of the best match". Applied only
-// when no metadata filter narrows the search: with filters, the caller already
-// said what they want and the best in-filter matches should come back even
-// when they score lower than something the filter excludes.
-// Per lane: the pixel lane's cross-modal scores bunch tightly (≈0.3–0.4), so
-// it keeps a strict cutoff; text-to-text scores spread wider, so a good match
-// can sit well below the top one.
-const RELATIVE_SCORE_CUTOFF = { visual: 0.85, text: 0.75 } as const;
-// Reciprocal-rank fusion constant. The pixel lane (cross-modal) and the text
-// lane (text-to-text) score on different scales, so the lanes are merged by
-// rank rather than by raw score.
-const RRF_K = 60;
+// Convex returns at most 256 hits a lane, and every search asks for all of
+// them in one pass: the blend needs the whole lane to tell whether the two
+// lanes agree (blendLanes), and mapping a hit costs one slim row.
+const LANE_TAKE = 256;
 const HYDRATE_CHUNK = 60;
 
 type SearchMode = "hybrid" | "visual" | "text";
@@ -398,6 +390,31 @@ type FilterableAsset = {
   tagNames: string[];
   isLiked?: boolean;
   starredAt?: number;
+  agentDescription?: string;
+  description?: string;
+  promptText?: string;
+};
+
+// "no cars": a piece is out when what it is said to show names the thing.
+// The description and tags say what is in the picture. A prompt may say
+// "empty street, no cars", so it is read only when there is no description.
+const MAX_EXCLUDED_PHRASES = 6;
+const normalizeExcluded = (phrases?: string[]) => {
+  const cleaned = [...new Set((phrases ?? []).map((phrase) => phrase.trim().toLowerCase()).filter(Boolean))];
+  if (cleaned.length > MAX_EXCLUDED_PHRASES) {
+    throw new ConvexError(`A search takes at most ${MAX_EXCLUDED_PHRASES} things to leave out.`);
+  }
+  return cleaned;
+};
+
+export const buildExcludedWordsFilter = (phrases: string[]) => {
+  const matchers = phrases.map((phrase) => galleryWordMatcher(phrase));
+  if (matchers.length === 0) return () => true;
+  return (asset: FilterableAsset) => {
+    const said = asset.agentDescription ?? asset.description ?? asset.promptText ?? "";
+    const text = `${said}\n${asset.tagNames.join("\n")}`;
+    return !matchers.some((matches) => matches(text));
+  };
 };
 
 const toKeys = (names?: string[]) =>
@@ -464,30 +481,84 @@ export const buildAssetFilter = (filters: AssetFilters, scope: "mine" | "public"
   };
 };
 
-// Reciprocal-rank fusion over the lanes, normalized so a piece ranked first
-// in every lane it can appear in scores 1. A text-only piece is judged on the
-// text lane alone; it is never marked down for missing the pixel lane.
-export const fuseLanes = (lanes: Partial<Record<LaneName, LaneHit[]>>) => {
-  const active = (Object.entries(lanes) as Array<[LaneName, LaneHit[] | undefined]>)
-    .filter((entry): entry is [LaneName, LaneHit[]] => Array.isArray(entry[1]));
-  const visualActive = active.some(([lane]) => lane === "visual");
-  const fused = new Map<Id<"assets">, FusedHit & { textOnly?: boolean }>();
-  for (const [lane, hits] of active) {
-    hits.forEach((hit, index) => {
-      const entry = fused.get(hit.assetId) ?? { assetId: hit.assetId, score: 0 };
-      entry.score += 1 / (RRF_K + index + 1);
-      if (hit.textOnly) entry.textOnly = true;
-      if (lane === "visual") entry.visualScore = hit.score;
-      else entry.textScore = hit.score;
-      fused.set(hit.assetId, entry);
-    });
+// ── Blending the lanes ──────────────────────────────────────────────────
+// A hit's strength is where its score sits between its lane's best and worst
+// returned hit (1 to 0), so a match that stands clear of the rest stays on top
+// instead of being outvoted by pieces that are mediocre in both lanes, which
+// is what ranking by position did.
+//
+// The text lane leads: nearly every piece has a written description, and it
+// knows names ("Dari", "Cassandra") the pixel model has never seen. For such
+// a query the pixel lane still returns 256 pictures, all noise. The lanes'
+// agreement tells the two cases apart: when the pixel lane's best hits are
+// also text hits it found the same thing by look and gets its full weight;
+// when almost none are, it is dropped for that query. Measured on 42 live
+// queries with 256 hits a lane (11 Nov 2026): name queries agree on 0-2 of 40,
+// every query about something visible on 7 or more.
+const AGREEMENT_WINDOW = 40;
+const AGREEMENT_NONE = 0.05;
+const AGREEMENT_FULL = 0.25;
+const VISUAL_WEIGHT = 0.75;
+// A video has no pixels to match. It is credited part of its text strength in
+// the pixel lane, so it neither loses to every picture nor outranks them all.
+const IMAGELESS_VISUAL_SHARE = 0.6;
+
+const laneStrengths = (hits: LaneHit[]) => {
+  const top = hits[0]?.score ?? 0;
+  const span = top - (hits[hits.length - 1]?.score ?? 0);
+  return new Map(hits.map((hit) => [hit.assetId, span > 0 ? (hit.score - (top - span)) / span : 1]));
+};
+
+// How much the pixel lane counts for this query, 0 to 1. Lanes are sorted
+// best first.
+export const visualLaneWeight = (visual: LaneHit[], text: LaneHit[]) => {
+  const window = visual.slice(0, AGREEMENT_WINDOW);
+  if (window.length === 0 || text.length === 0) return 0;
+  const inText = new Set(text.map((hit) => hit.assetId));
+  const agreement = window.filter((hit) => inText.has(hit.assetId)).length / window.length;
+  return Math.min(Math.max((agreement - AGREEMENT_NONE) / (AGREEMENT_FULL - AGREEMENT_NONE), 0), 1);
+};
+
+export const blendLanes = (lanes: Partial<Record<LaneName, LaneHit[]>>): FusedHit[] => {
+  const visual = lanes.visual;
+  const text = lanes.text;
+  const single = !visual ? text : !text ? visual : undefined;
+  if (single || !visual || !text) {
+    const strengths = laneStrengths(single ?? []);
+    return (single ?? []).map((hit) => ({
+      assetId: hit.assetId,
+      score: strengths.get(hit.assetId) ?? 0,
+      ...(visual ? { visualScore: hit.score } : { textScore: hit.score }),
+    }));
   }
-  return Array.from(fused.values())
-    .map(({ textOnly, ...entry }) => {
-      const eligibleLanes = active.length - (textOnly && visualActive ? 1 : 0);
-      return { ...entry, score: entry.score / (eligibleLanes / (RRF_K + 1)) };
-    })
-    .sort((left, right) => right.score - left.score);
+
+  const weight = VISUAL_WEIGHT * visualLaneWeight(visual, text);
+  const visualStrength = laneStrengths(visual);
+  const textStrength = laneStrengths(text);
+  const visualScore = new Map(visual.map((hit) => [hit.assetId, hit.score]));
+  const blended: FusedHit[] = text.map((hit) => {
+    const words = textStrength.get(hit.assetId) ?? 0;
+    const look = hit.textOnly ? IMAGELESS_VISUAL_SHARE * words : (visualStrength.get(hit.assetId) ?? 0);
+    const seen = visualScore.get(hit.assetId);
+    return {
+      assetId: hit.assetId,
+      score: (words + weight * look) / (1 + weight),
+      textScore: hit.score,
+      ...(seen !== undefined ? { visualScore: seen } : {}),
+    };
+  });
+  if (weight > 0) {
+    const inText = new Set(text.map((hit) => hit.assetId));
+    for (const hit of visual) {
+      if (inText.has(hit.assetId)) continue;
+      blended.push({
+        assetId: hit.assetId,
+        score: (weight * (visualStrength.get(hit.assetId) ?? 0)) / (1 + weight),
+        visualScore: hit.score,
+      });
+    }
+  }
+  return blended.sort((left, right) => right.score - left.score);
 };
 
 const dedupeScoredAssets = (items: LaneHit[]) => {
@@ -509,9 +580,6 @@ const cutRelative = <T>(hits: T[], scoreOf: (hit: T) => number, cutoff: number) 
   const minScore = scoreOf(hits[0]!) * cutoff - 1e-9;
   return hits.filter((hit) => scoreOf(hit) >= minScore);
 };
-
-const applyRelativeCutoff = (hits: LaneHit[], cutoff: number) =>
-  cutRelative(hits, (hit) => hit.score, cutoff);
 
 type ScopeSpec = {
   scope: "mine" | "public";
@@ -633,68 +701,27 @@ const runLane = async (
   return hits;
 };
 
-// How a search spends reads. Each lane first asks for `firstTake` hits; when
-// that cannot fill `limit` and a lane came back full above its cutoff, the
-// lanes are asked again for `widenTake`, and only hits and assets not seen in
-// the first pass are read.
-type SearchPlan = {
-  storage: Storage;
-  firstTake: (limit: number, filtered: boolean) => number;
-  widenTake?: number;
-  // Cut each lane by score before mapping its hits. Safe only where a lane
-  // holds nothing but eligible rows: a legacy pixel lane also holds videos'
-  // text vectors, whose scores would set the bar.
-  cutoffBeforeResolve: boolean;
-  hydrateChunk: (remaining: number, filtered: boolean) => number;
-};
-
-// Unfiltered results come from the top of both lanes, so twice the request
-// covers them; filters reject an unknown share, so they start at the cap and
-// may widen to Convex's 256-hit maximum.
-const FIRST_TAKE_MIN = 32;
-const FIRST_TAKE_MAX = 96;
-const WIDEN_TAKE = 256;
-
-const productionPlan = (storage: Storage): SearchPlan => ({
-  storage,
-  firstTake: (limit, filtered) =>
-    filtered ? FIRST_TAKE_MAX : Math.min(Math.max(limit * 2, FIRST_TAKE_MIN), FIRST_TAKE_MAX),
-  widenTake: WIDEN_TAKE,
-  cutoffBeforeResolve: storage === "split",
-  // Without filters nearly every candidate is kept: read what the limit needs.
-  hydrateChunk: (remaining, filtered) =>
-    filtered ? HYDRATE_CHUNK : Math.min(HYDRATE_CHUNK, remaining + 4),
-});
-
-// The read pattern before 18 October 2026, kept for the eval's baseline.
-const previousPlan: SearchPlan = {
-  storage: "legacy",
-  firstTake: (limit, filtered) => (filtered ? 256 : Math.min(limit * 6, 256)),
-  cutoffBeforeResolve: false,
-  hydrateChunk: () => HYDRATE_CHUNK,
-};
-
 type ScoredAsset = Infer<typeof scoredGalleryAssetResultValidator>;
 
-// Hydrate fused hits in order, chunk by chunk, keeping only those that pass
-// the filters, until `limit` survive or the candidates run out. Assets read
-// by an earlier pass are reused with this pass's scores.
+// Hydrate ranked hits in order, chunk by chunk, keeping only those that pass
+// the filters, until `limit` survive or the candidates run out. Without
+// filters nearly every candidate is kept, so a chunk is what the limit still
+// needs; filters reject an unknown share, so they read full chunks.
 const hydrateFiltered = async (
   ctx: ActionCtx,
   fused: FusedHit[],
   keep: (asset: FilterableAsset) => boolean,
   limit: number,
   spec: ScopeSpec,
-  plan: SearchPlan,
   filtered: boolean,
-  cache: Map<Id<"assets">, ScoredAsset | null>,
   trace?: SearchTrace,
 ): Promise<{ results: ScoredAsset[]; consumed: number }> => {
   const results: ScoredAsset[] = [];
+  const cache = new Map<Id<"assets">, ScoredAsset | null>();
   let index = 0;
   while (index < fused.length && results.length < limit) {
     const chunk: FusedHit[] = [];
-    const chunkSize = plan.hydrateChunk(limit - results.length, filtered);
+    const chunkSize = filtered ? HYDRATE_CHUNK : Math.min(HYDRATE_CHUNK, limit - results.length);
     for (let scan = index; scan < fused.length && chunk.length < chunkSize; scan += 1) {
       if (!cache.has(fused[scan]!.assetId)) chunk.push(fused[scan]!);
     }
@@ -733,21 +760,6 @@ const hydrateFiltered = async (
   return { results, consumed: index };
 };
 
-type SearchInput = {
-  vectors: Partial<Record<LaneName, number[]>>;
-  spec: ScopeSpec;
-  limit: number;
-  filtered: boolean;
-  cutoffFor: (lane: LaneName) => number;
-  keep: (asset: FilterableAsset) => boolean;
-  // Hybrid search degrades to its text lane if the pixel lane fails.
-  optionalVisual?: boolean;
-  excludeAssetId?: Id<"assets">;
-  excludeHitIds?: Set<string>;
-  plan: SearchPlan;
-  trace?: SearchTrace;
-};
-
 // The pixel lane is for pixels. An imageless asset (a video) stores a short
 // text there in legacy storage, and query-text against that text outscores
 // every real cross-modal match, so it would crowd the images out of the
@@ -767,62 +779,58 @@ const eligibleLaneHits = (
   }];
 }));
 
-const runAssetSearch = async (ctx: ActionCtx, input: SearchInput): Promise<ScoredAsset[]> => {
+type RankInput = {
+  vectors: Partial<Record<LaneName, number[]>>;
+  spec: ScopeSpec;
+  storage: Storage;
+  // Keep hits within this fraction of the best blended score (0 = all).
+  minRelativeScore?: number;
+  // Hybrid search degrades to its text lane if the pixel lane fails.
+  optionalVisual?: boolean;
+  excludeAssetId?: Id<"assets">;
+  excludeHitIds?: Set<string>;
+  trace?: SearchTrace;
+};
+
+// Every candidate the lanes give, blended best first.
+const rankAllCandidates = async (ctx: ActionCtx, input: RankInput): Promise<FusedHit[]> => {
   const lanes = (["visual", "text"] as const).filter((lane) => input.vectors[lane]);
+  if (input.trace) input.trace.rounds += 1;
+  const raw = await Promise.all(lanes.map((lane) =>
+    runLane(ctx, input.storage, lane, input.vectors[lane]!, LANE_TAKE, input.spec, input.trace)
+      .catch((error: unknown) => {
+        if (lane !== "visual" || !input.optionalVisual) throw error;
+        console.warn(`[semanticSearch] pixel lane unavailable, text lane only: ${
+          error instanceof Error ? error.message : error
+        }`);
+        return undefined;
+      })));
+  const laneHits: Partial<Record<LaneName, VectorHit[]>> = {};
+  lanes.forEach((lane, index) => {
+    const hits = raw[index]?.filter((hit) => !input.excludeHitIds?.has(hit._id));
+    if (hits) laneHits[lane] = hits;
+  });
   const resolved = new Map<string, ResolvedHit | null>();
-  const hydrated = new Map<Id<"assets">, ScoredAsset | null>();
-  let take = input.plan.firstTake(input.limit, input.filtered);
-  for (;;) {
-    if (input.trace) input.trace.rounds += 1;
-    const raw = await Promise.all(lanes.map((lane) =>
-      runLane(ctx, input.plan.storage, lane, input.vectors[lane]!, take, input.spec, input.trace)
-        .catch((error: unknown) => {
-          if (lane !== "visual" || !input.optionalVisual) throw error;
-          console.warn(`[semanticSearch] pixel lane unavailable, text lane only: ${
-            error instanceof Error ? error.message : error
-          }`);
-          return undefined;
-        })));
-    const laneHits: Partial<Record<LaneName, VectorHit[]>> = {};
-    lanes.forEach((lane, index) => {
-      const hits = raw[index]?.filter((hit) => !input.excludeHitIds?.has(hit._id));
-      if (!hits) return;
-      laneHits[lane] = input.plan.cutoffBeforeResolve
-        ? cutRelative(hits, (hit) => hit._score, input.cutoffFor(lane))
-        : hits;
-    });
-    await resolveHits(ctx, input.plan.storage, laneHits, resolved, input.trace);
+  await resolveHits(ctx, input.storage, laneHits, resolved, input.trace);
 
-    const scored: Partial<Record<LaneName, LaneHit[]>> = {};
-    const laneTop: Partial<Record<LaneName, number>> = {};
-    for (const lane of lanes) {
-      const hits = laneHits[lane];
-      if (!hits) continue;
-      const eligible = eligibleLaneHits(lane, hits, resolved, input.excludeAssetId);
-      laneTop[lane] = eligible[0]?.score;
-      scored[lane] = input.plan.cutoffBeforeResolve
-        ? eligible
-        : applyRelativeCutoff(eligible, input.cutoffFor(lane));
-    }
-
-    const fused = fuseLanes(scored);
-    const results = fused.length === 0 ? [] : (await hydrateFiltered(
-      ctx, fused, input.keep, input.limit, input.spec, input.plan, input.filtered, hydrated, input.trace,
-    )).results;
-    // Deeper hits can only help when a lane returned all it was asked for and
-    // its last hit still cleared the cutoff.
-    const canWiden = lanes.some((lane, index) => {
-      const hits = raw[index];
-      if (!hits || hits.length < take) return false;
-      const top = laneTop[lane];
-      const cutoff = input.cutoffFor(lane);
-      return top === undefined || cutoff <= 0 || hits[hits.length - 1]!._score >= top * cutoff - 1e-9;
-    });
-    if (results.length >= input.limit || !input.plan.widenTake || take >= input.plan.widenTake || !canWiden) {
-      return results;
-    }
-    take = input.plan.widenTake;
+  const eligible: Partial<Record<LaneName, LaneHit[]>> = {};
+  for (const lane of lanes) {
+    const hits = laneHits[lane];
+    if (hits) eligible[lane] = eligibleLaneHits(lane, hits, resolved, input.excludeAssetId);
   }
+  return cutRelative(blendLanes(eligible), (hit) => hit.score, input.minRelativeScore ?? 0);
+};
+
+// The best `limit` candidates that pass scope and filters.
+const searchRanked = async (ctx: ActionCtx, input: RankInput & {
+  limit: number;
+  filtered: boolean;
+  keep: (asset: FilterableAsset) => boolean;
+}): Promise<ScoredAsset[]> => {
+  const ranked = await rankAllCandidates(ctx, input);
+  return (await hydrateFiltered(
+    ctx, ranked, input.keep, input.limit, input.spec, input.filtered, input.trace,
+  )).results;
 };
 
 const resolveScope = (
@@ -837,16 +845,14 @@ const resolveScope = (
   return ownerCandidates;
 };
 
-const cutoffForFilters = (filters: AssetFilters, minRelativeScore?: number) => {
-  const filtered = hasMetadataFilters(filters);
-  return (lane: LaneName) => minRelativeScore ?? (filtered ? 0 : RELATIVE_SCORE_CUTOFF[lane]);
-};
-
 // Each lane embeds the query with its own model. In hybrid mode a
 // rate-limited pixel model degrades the search to the text lane rather
 // than failing it.
 const embedQueryLanes = async (
   ctx: ActionCtx, query: string, mode: SearchMode, storage: Storage, trace?: SearchTrace,
+  // Words for the text lane only, such as the name of the world the search is
+  // limited to: descriptions and tags carry it, pictures do not.
+  textHint?: string,
 ): Promise<Partial<Record<LaneName, number[]>>> => {
   const [visual, text] = await Promise.all([
     mode === "text"
@@ -863,7 +869,7 @@ const embedQueryLanes = async (
           }),
     mode === "visual"
       ? undefined
-      : getQueryEmbedding(ctx, query, textQueryModel(), storage, trace),
+      : getQueryEmbedding(ctx, textHint ? `${query}, ${textHint}` : query, textQueryModel(), storage, trace),
   ]);
   return { visual, text };
 };
@@ -875,19 +881,19 @@ const searchByQuery = async (ctx: ActionCtx, input: {
   limit: number;
   filters: AssetFilters;
   minRelativeScore?: number;
-  plan: SearchPlan;
+  storage: Storage;
   trace?: SearchTrace;
 }): Promise<ScoredAsset[]> => {
-  const vectors = await embedQueryLanes(ctx, input.query, input.mode, input.plan.storage, input.trace);
-  return await runAssetSearch(ctx, {
+  const vectors = await embedQueryLanes(ctx, input.query, input.mode, input.storage, input.trace);
+  return await searchRanked(ctx, {
     vectors,
     spec: input.spec,
+    storage: input.storage,
     limit: input.limit,
     filtered: hasMetadataFilters(input.filters),
-    cutoffFor: cutoffForFilters(input.filters, input.minRelativeScore),
+    minRelativeScore: input.minRelativeScore,
     keep: buildAssetFilter(input.filters, input.spec.scope),
     optionalVisual: input.mode === "hybrid",
-    plan: input.plan,
     trace: input.trace,
   });
 };
@@ -902,8 +908,8 @@ export const searchAssets = ownerAction({
     // "text" the words only (agent description, description, prompt, tags).
     mode: searchModeValidator,
     ...assetFilterArgs,
-    // Override the relative score cutoff (0–1). Defaults to 0.85 without
-    // filters and 0 (off) with filters.
+    // Keep only hits within this fraction (0–1) of the best blended score.
+    // Off by default.
     minRelativeScore: v.optional(v.number()),
     limit: v.optional(v.number()),
   },
@@ -922,7 +928,7 @@ export const searchAssets = ownerAction({
       limit: Math.min(Math.max(args.limit ?? getDefaultLimit(), 1), 100),
       filters: args,
       minRelativeScore: args.minRelativeScore,
-      plan: productionPlan(readStorage()),
+      storage: readStorage(),
     });
   },
 });
@@ -998,10 +1004,10 @@ export const findSimilarAssets = ownerAction({
     }
 
     const ownerCandidates = resolveScope(args.scope, args.ownerUserId);
-    const plan = productionPlan(readStorage());
+    const storage = readStorage();
     const source = await loadSimilaritySource(ctx, {
       assetId: args.assetId, scope: args.scope, ownerCandidates,
-      mode: args.mode ?? "visual", storage: plan.storage,
+      mode: args.mode ?? "visual", storage,
     });
     if (!source) {
       return [];
@@ -1015,24 +1021,24 @@ export const findSimilarAssets = ownerAction({
 
     const filters: AssetFilters = args;
     const keep = buildAssetFilter(filters, args.scope);
-    return await runAssetSearch(ctx, {
+    return await searchRanked(ctx, {
       vectors: source.vectors,
       spec: { scope: args.scope, ownerCandidates, pillar: source.pillar },
+      storage,
       limit: Math.min(Math.max(args.limit ?? 12, 1), 100),
       filtered: hasMetadataFilters(filters),
-      cutoffFor: cutoffForFilters(filters, args.minRelativeScore),
+      minRelativeScore: args.minRelativeScore,
       keep: (asset) => asset._id !== args.assetId && keep(asset),
       excludeAssetId: args.assetId,
       excludeHitIds: source.hitIds,
-      plan,
     });
   },
 });
 
 // ── Paged search for the grid ───────────────────────────────────────────
 // searchAssets answers one request with at most 100 pieces. The grid instead
-// ranks every candidate once, shows the first page, and reads the next page
-// each time the scroll reaches the end, so a search is never cut short.
+// keeps the whole blended ranking, shows the first page, and reads the next
+// page each time the scroll reaches the end, so a search is never cut short.
 const rankedHitValidator = v.object({
   assetId: v.id("assets"),
   score: v.number(),
@@ -1046,58 +1052,27 @@ const searchPageValidator = v.object({
 });
 const SEARCH_PAGE_DEFAULT = 60;
 const SEARCH_PAGE_MAX = 120;
-// Two lanes of at most WIDEN_TAKE hits each.
-const RANKED_HITS_MAX = 2 * WIDEN_TAKE;
+// A search may be said in a few ways at once ("interiors / city street").
+const MAX_SEARCH_PHRASINGS = 3;
+// Two lanes of at most LANE_TAKE hits for each phrasing.
+const RANKED_HITS_MAX = MAX_SEARCH_PHRASINGS * 2 * LANE_TAKE;
+// A piece this strong for something the search leaves out ("no cars") is
+// dropped. On live data at least four in five pieces above it name the thing
+// in their description; the rest mostly show it without naming it.
+const EXCLUDED_STRENGTH = 0.4;
+
+// One ranking from several: a piece keeps its best score.
+const mergeBest = (lists: FusedHit[][]) => {
+  if (lists.length === 1) return lists[0]!;
+  const best = new Map<Id<"assets">, FusedHit>();
+  for (const hit of lists.flat()) {
+    const current = best.get(hit.assetId);
+    if (!current || hit.score > current.score) best.set(hit.assetId, hit);
+  }
+  return [...best.values()].sort((left, right) => right.score - left.score);
+};
 const searchPageSize = (pageSize?: number) =>
   Math.min(Math.max(Math.floor(pageSize ?? SEARCH_PAGE_DEFAULT), 1), SEARCH_PAGE_MAX);
-
-// Every candidate the lanes give in one pass (Convex returns at most 256 hits
-// a lane), best first: the hits inside each lane's cutoff in their fused
-// order, which is the head searchAssets returns, then the weaker ones.
-const rankAllCandidates = async (ctx: ActionCtx, input: {
-  vectors: Partial<Record<LaneName, number[]>>;
-  spec: ScopeSpec;
-  storage: Storage;
-  cutoffFor: (lane: LaneName) => number;
-  optionalVisual?: boolean;
-  excludeAssetId?: Id<"assets">;
-  excludeHitIds?: Set<string>;
-}): Promise<FusedHit[]> => {
-  const lanes = (["visual", "text"] as const).filter((lane) => input.vectors[lane]);
-  const raw = await Promise.all(lanes.map((lane) =>
-    runLane(ctx, input.storage, lane, input.vectors[lane]!, WIDEN_TAKE, input.spec)
-      .catch((error: unknown) => {
-        if (lane !== "visual" || !input.optionalVisual) throw error;
-        console.warn(`[semanticSearch] pixel lane unavailable, text lane only: ${
-          error instanceof Error ? error.message : error
-        }`);
-        return undefined;
-      })));
-  const laneHits: Partial<Record<LaneName, VectorHit[]>> = {};
-  lanes.forEach((lane, index) => {
-    const hits = raw[index]?.filter((hit) => !input.excludeHitIds?.has(hit._id));
-    if (hits) laneHits[lane] = hits;
-  });
-  const resolved = new Map<string, ResolvedHit | null>();
-  await resolveHits(ctx, input.storage, laneHits, resolved);
-
-  const every: Partial<Record<LaneName, LaneHit[]>> = {};
-  const strong: Partial<Record<LaneName, LaneHit[]>> = {};
-  for (const lane of lanes) {
-    const hits = laneHits[lane];
-    if (!hits) continue;
-    every[lane] = eligibleLaneHits(lane, hits, resolved, input.excludeAssetId);
-    strong[lane] = applyRelativeCutoff(every[lane]!, input.cutoffFor(lane));
-  }
-  const head = fuseLanes(strong);
-  const inHead = new Set(head.map((hit) => hit.assetId));
-  // Scores stay in reading order: a weaker hit never outscores the head.
-  const floor = head[head.length - 1]?.score ?? 1;
-  const tail = fuseLanes(every)
-    .filter((hit) => !inHead.has(hit.assetId))
-    .map((hit) => ({ ...hit, score: Math.min(hit.score, floor) }));
-  return [...head, ...tail];
-};
 
 // Read ranked hits in order until a page of them passes scope and filters.
 const readSearchPage = async (ctx: ActionCtx, hits: FusedHit[], input: {
@@ -1107,13 +1082,8 @@ const readSearchPage = async (ctx: ActionCtx, hits: FusedHit[], input: {
   keep: (asset: FilterableAsset) => boolean;
   pageSize: number;
 }) => {
-  const plan: SearchPlan = {
-    ...productionPlan(input.storage),
-    hydrateChunk: (remaining, filtered) =>
-      filtered ? HYDRATE_CHUNK : Math.min(HYDRATE_CHUNK, remaining),
-  };
   const { results, consumed } = await hydrateFiltered(
-    ctx, hits, input.keep, input.pageSize, input.spec, plan, input.filtered, new Map(),
+    ctx, hits, input.keep, input.pageSize, input.spec, input.filtered,
   );
   return { results, remaining: hits.slice(consumed) };
 };
@@ -1125,6 +1095,15 @@ export const searchAssetsPage = ownerAction({
     ownerUserId: v.optional(v.string()),
     scope: v.union(v.literal("mine"), v.literal("public")),
     query: v.optional(v.string()),
+    // Other ways to say what is wanted ("interiors / city street"): a piece
+    // that matches any of them is found. At most three phrasings in all.
+    alternatives: v.optional(v.array(v.string())),
+    // Things to leave out ("no cars"): pieces described or tagged with them,
+    // and pieces that clearly show them.
+    exclude: v.optional(v.array(v.string())),
+    // Words for the text lane only, such as the name of the world the search
+    // is limited to.
+    textHint: v.optional(v.string()),
     similarToAssetId: v.optional(v.id("assets")),
     pillar: optionalPillarValidator,
     // Defaults: "hybrid" for a query, "visual" for look-alikes.
@@ -1149,7 +1128,7 @@ export const searchAssetsPage = ownerAction({
       filtered: hasMetadataFilters(filters),
       pageSize: searchPageSize(args.pageSize),
     };
-    const cutoffFor = cutoffForFilters(filters, args.minRelativeScore);
+    const minRelativeScore = args.minRelativeScore;
 
     const sourceId = args.similarToAssetId;
     if (sourceId) {
@@ -1164,7 +1143,7 @@ export const searchAssetsPage = ownerAction({
       }
       const spec: ScopeSpec = { scope: args.scope, ownerCandidates, pillar: source.pillar };
       const ranked = await rankAllCandidates(ctx, {
-        vectors: source.vectors, spec, storage, cutoffFor,
+        vectors: source.vectors, spec, storage, minRelativeScore,
         excludeAssetId: sourceId, excludeHitIds: source.hitIds,
       });
       return await readSearchPage(ctx, ranked, {
@@ -1172,17 +1151,43 @@ export const searchAssetsPage = ownerAction({
       });
     }
 
-    const query = args.query?.trim();
-    if (!query) {
+    const phrasings = [...new Set(
+      [args.query, ...(args.alternatives ?? [])]
+        .map((phrasing) => phrasing?.trim())
+        .filter((phrasing): phrasing is string => Boolean(phrasing)),
+    )];
+    if (phrasings.length === 0) {
       return empty;
     }
+    if (phrasings.length > MAX_SEARCH_PHRASINGS) {
+      throw new ConvexError(`A search takes at most ${MAX_SEARCH_PHRASINGS} alternatives.`);
+    }
+    const excluded = normalizeExcluded(args.exclude);
+    const textHint = normalizeOptionalString(args.textHint);
     const mode: SearchMode = args.mode ?? "hybrid";
     const spec: ScopeSpec = { scope: args.scope, ownerCandidates, pillar: args.pillar };
-    const ranked = await rankAllCandidates(ctx, {
-      vectors: await embedQueryLanes(ctx, query, mode, storage),
-      spec, storage, cutoffFor, optionalVisual: mode === "hybrid",
+    const rank = async (text: string, hint?: string) => await rankAllCandidates(ctx, {
+      vectors: await embedQueryLanes(ctx, text, mode, storage, undefined, hint),
+      spec, storage, optionalVisual: mode === "hybrid",
     });
-    return await readSearchPage(ctx, ranked, { ...page, spec, keep });
+    const [wanted, unwanted] = await Promise.all([
+      Promise.all(phrasings.map((phrasing) => rank(phrasing, textHint))),
+      Promise.all(excluded.map((phrase) => rank(phrase))),
+    ]);
+    const shown = new Set(unwanted.flatMap((list) =>
+      list.filter((hit) => hit.score >= EXCLUDED_STRENGTH).map((hit) => hit.assetId)));
+    const ranked = cutRelative(
+      mergeBest(wanted).filter((hit) => !shown.has(hit.assetId)),
+      (hit) => hit.score,
+      minRelativeScore ?? 0,
+    );
+    const named = buildExcludedWordsFilter(excluded);
+    return await readSearchPage(ctx, ranked, {
+      ...page,
+      spec,
+      filtered: page.filtered || excluded.length > 0,
+      keep: (asset) => keep(asset) && named(asset),
+    });
   },
 });
 
@@ -1196,6 +1201,8 @@ export const loadSearchHits = ownerAction({
     hits: v.array(rankedHitValidator),
     // The look-alike source, so it never lists itself.
     similarToAssetId: v.optional(v.id("assets")),
+    // The same things the first page left out.
+    exclude: v.optional(v.array(v.string())),
     ...assetFilterArgs,
     pageSize: v.optional(v.number()),
   },
@@ -1207,11 +1214,13 @@ export const loadSearchHits = ownerAction({
     const ownerCandidates = resolveScope(args.scope, args.ownerUserId);
     const filters: AssetFilters = args;
     const keep = buildAssetFilter(filters, args.scope);
+    const excluded = normalizeExcluded(args.exclude);
+    const named = buildExcludedWordsFilter(excluded);
     return await readSearchPage(ctx, args.hits, {
       spec: { scope: args.scope, ownerCandidates },
       storage: readStorage(),
-      filtered: hasMetadataFilters(filters),
-      keep: (asset) => asset._id !== args.similarToAssetId && keep(asset),
+      filtered: hasMetadataFilters(filters) || excluded.length > 0,
+      keep: (asset) => asset._id !== args.similarToAssetId && keep(asset) && named(asset),
       pageSize: searchPageSize(args.pageSize),
     });
   },
@@ -1314,11 +1323,50 @@ export const searchSkills = ownerAction({
   },
 });
 
-const evalPlans = {
-  before: previousPlan,
-  tuned: productionPlan("legacy"),
-  split: productionPlan("split"),
-} as const;
+// What each lane returns for a query before anything is dropped: every raw
+// vector hit with its score and what it resolved to. For diagnosing a search
+// from a trusted machine (`bunx convex run semanticSearch:inspectLanes`);
+// reads slim identity rows only.
+export const inspectLanes = internalAction({
+  args: { ownerUserId: v.string(), query: v.string() },
+  returns: v.record(v.string(), v.array(v.object({
+    score: v.number(),
+    resolvedAs: v.string(),
+    assetId: v.optional(v.id("assets")),
+  }))),
+  handler: async (ctx, args) => {
+    const storage = readStorage();
+    const spec: ScopeSpec = { scope: "mine", ownerCandidates: resolveScope("mine", args.ownerUserId) };
+    const vectors = await embedQueryLanes(ctx, args.query.trim(), "hybrid", storage);
+    const resolved = new Map<string, ResolvedHit | null>();
+    const out: Record<string, Array<{ score: number; resolvedAs: string; assetId?: Id<"assets"> }>> = {};
+    for (const lane of ["visual", "text"] as const) {
+      const vector = vectors[lane];
+      if (!vector) continue;
+      const hits = await runLane(ctx, storage, lane, vector, LANE_TAKE, spec);
+      await resolveHits(ctx, storage, { [lane]: hits }, resolved);
+      out[lane] = hits.map((hit) => {
+        const doc = resolved.get(hit._id);
+        return {
+          score: hit._score,
+          resolvedAs: !doc ? "unresolved" : doc.assetId ? doc.modality : doc.skillId ? "skill" : "other",
+          ...(doc?.assetId ? { assetId: doc.assetId } : {}),
+        };
+      });
+    }
+    return out;
+  },
+});
+
+// `before` and `tuned` were two read patterns on legacy storage until
+// 11 Nov 2026, when every search moved to one 256-hit pass a lane. Both names
+// still run, as today's search on legacy storage, so the runbook's commands
+// and old reports keep working.
+const evalStorage: Record<"before" | "tuned" | "split", Storage> = {
+  before: "legacy",
+  tuned: "legacy",
+  split: "split",
+};
 
 const searchTraceValidator = v.object({
   rounds: v.number(),
@@ -1333,11 +1381,10 @@ const searchTraceValidator = v.object({
   hydrationCalls: v.number(),
 });
 
-// Runs the same queries (and "more like this" sources) through several read
-// plans, so a change in reads can be weighed against a change in results:
-//   before - the read pattern before 18 October 2026 (legacy storage)
-//   tuned  - current lane depths on legacy storage
-//   split  - current lane depths on split storage (needs the migration)
+// Runs the same queries (and "more like this" sources) on each storage
+// layout, so a change in reads can be weighed against a change in results:
+//   before, tuned - today's search on legacy storage (see evalStorage)
+//   split         - today's search on split storage (needs the migration)
 // Reads like ordinary searches and may add query-embedding cache rows; it
 // changes nothing else. Run it from a trusted machine with
 // scripts/semantic-search-eval.ts.
@@ -1363,30 +1410,29 @@ export const evaluateSearchPlans = internalAction({
     const ownerCandidates = resolveScope("mine", ownerUserId);
     const limit = Math.min(Math.max(rawLimit ?? getDefaultLimit(), 1), 100);
     const keep = buildAssetFilter(filters, "mine");
-    const runs: Array<{ query: string; run: (plan: SearchPlan, trace: SearchTrace) => Promise<ScoredAsset[]> }> = [
+    const runs: Array<{ query: string; run: (storage: Storage, trace: SearchTrace) => Promise<ScoredAsset[]> }> = [
       ...queries.map((query) => ({
         query,
-        run: (plan: SearchPlan, trace: SearchTrace) => searchByQuery(ctx, {
-          query, mode: mode ?? "hybrid", spec: { scope: "mine", ownerCandidates }, limit, filters, plan, trace,
+        run: (storage: Storage, trace: SearchTrace) => searchByQuery(ctx, {
+          query, mode: mode ?? "hybrid", spec: { scope: "mine", ownerCandidates }, limit, filters, storage, trace,
         }),
       })),
       ...(similarTo ?? []).map((assetId) => ({
         query: `similar:${assetId}`,
-        run: async (plan: SearchPlan, trace: SearchTrace) => {
+        run: async (storage: Storage, trace: SearchTrace) => {
           const source = await loadSimilaritySource(ctx, {
-            assetId, scope: "mine", ownerCandidates, mode: mode ?? "visual", storage: plan.storage, trace,
+            assetId, scope: "mine", ownerCandidates, mode: mode ?? "visual", storage, trace,
           });
           if (!source) return [];
-          return await runAssetSearch(ctx, {
+          return await searchRanked(ctx, {
             vectors: source.vectors,
             spec: { scope: "mine", ownerCandidates, pillar: source.pillar },
+            storage,
             limit,
             filtered: hasMetadataFilters(filters),
-            cutoffFor: cutoffForFilters(filters),
             keep: (asset) => asset._id !== assetId && keep(asset),
             excludeAssetId: assetId,
             excludeHitIds: source.hitIds,
-            plan,
             trace,
           });
         },
@@ -1397,7 +1443,7 @@ export const evaluateSearchPlans = internalAction({
       for (const name of plans) {
         const trace = newTrace();
         try {
-          const results = await run(evalPlans[name], trace);
+          const results = await run(evalStorage[name], trace);
           rows.push({
             query, plan: name, trace,
             results: results.map((result) => ({ assetId: result._id, score: result.score })),

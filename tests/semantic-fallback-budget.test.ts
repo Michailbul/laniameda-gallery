@@ -92,10 +92,12 @@ describe("semantic legacy fallback query budgets", () => {
     expect(fallbacks.every((read) => read.jsonBytes < 8 * MiB)).toBe(true);
     expect(fallbacks.flatMap((read) => read.ids)).toEqual(ids.slice(migrated));
     expect(fallbacks.reduce((total, read) => total + read.fullDocuments, 0)).toBe(count - migrated);
-    expect(new Set(hydratedIds).size).toBe(count); // Last candidate remains reachable.
+    // Every hit of both lanes is mapped. The lanes share no piece, so the blend
+    // drops the pixel lane and reads the text lane to its last candidate.
+    expect(new Set(hydratedIds).size).toBe(count - split);
     expect(results).toHaveLength(1);
     expect(results[0]?._id).toBe(`assets:${count - 1}`);
-    expect(results[0]?.score).toBeCloseTo(61 / (2 * (60 + count - split)), 12);
+    expect(results[0]?.score).toBeCloseTo(0, 12);
     expect(results[0]?.textScore).toBeCloseTo(0.9 - (count - split - 1) / 1000, 12);
     return { reads, fallbacks };
   }

@@ -1309,6 +1309,10 @@ export default defineSchema({
     .index("by_prompt", ["promptId"])
     .index("by_designInspiration", ["designInspirationId"])
     .searchIndex("search_text", { searchField: "searchText" })
+    // Rebuilt on 11 Nov 2026 (dropped and re-added by a push): until then it
+    // kept serving text vectors that had been removed from the rows. If a
+    // cleanup of stored vectors ever seems not to take, rename the index for
+    // one push to rebuild it.
     .vectorIndex("by_embedding", {
       vectorField: "embedding",
       dimensions: 3072,

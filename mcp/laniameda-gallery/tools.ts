@@ -937,7 +937,7 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         ...namedFilterShape,
         minRelativeScore: z
           .number()
-          .describe("0–1 cutoff vs. the best match. Default 0.85 unfiltered, off when filtered.")
+          .describe("Keep only hits within this fraction (0–1) of the best score. Off by default.")
           .optional(),
         limit: z.number().optional(),
       },

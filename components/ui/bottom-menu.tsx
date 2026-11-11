@@ -13,7 +13,9 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import useMeasure from "react-use-measure";
+import { SearchStepChips, searchThreadLine } from "@/components/gallery/search-trail";
 import { TelegramLoginButton } from "@/components/telegram-login-button";
+import type { SearchStepReading } from "@/lib/search-instructions";
 import { cn } from "@/lib/utils";
 
 type MenuView =
@@ -42,6 +44,14 @@ interface BottomMenuProps {
   onSearchClear?: () => void;
   searchPlaceholder?: string;
   searchLoading?: boolean;
+  /** The steps the search already holds; the field types the next one. */
+  searchSteps?: SearchStepReading[];
+  /** Enter: add what is typed to the search as its next step. */
+  onSearchSubmit?: () => void;
+  onSearchStepRemove?: (index: number) => void;
+  /** Earlier searches, newest first, each as its steps. */
+  searchHistory?: string[][];
+  onSearchRestore?: (steps: string[]) => void;
   notificationTypes?: string[];
   /** Extra controls inside the pill, after the nav buttons. */
   trailing?: ReactNode;
@@ -58,6 +68,8 @@ const MAIN_NAV = [
 }>;
 
 const DEFAULT_NOTIFICATIONS = ["Messages", "System Alerts"];
+const NO_STEPS: SearchStepReading[] = [];
+const NO_HISTORY: string[][] = [];
 
 export default function BottomMenu({
   className,
@@ -71,6 +83,11 @@ export default function BottomMenu({
   onSearchClear,
   searchPlaceholder = "Search...",
   searchLoading = false,
+  searchSteps = NO_STEPS,
+  onSearchSubmit,
+  onSearchStepRemove,
+  searchHistory = NO_HISTORY,
+  onSearchRestore,
   notificationTypes = DEFAULT_NOTIFICATIONS,
   trailing,
 }: BottomMenuProps) {
@@ -167,7 +184,10 @@ export default function BottomMenu({
 
       case "search": {
         const content = (
-          <div className="min-w-[270px] space-y-2 p-[8px] py-1">
+          <div className="w-[340px] max-w-[calc(100vw-32px)] space-y-2 p-[8px] py-1">
+            {searchSteps.length > 0 ? (
+              <SearchStepChips steps={searchSteps} onRemove={onSearchStepRemove} size="sm" />
+            ) : null}
             <div className="relative">
               <HugeiconsIcon
                 icon={Search01Icon}
@@ -178,7 +198,17 @@ export default function BottomMenu({
                 type="text"
                 value={searchValue}
                 onChange={(event) => onSearchChange?.(event.target.value)}
-                placeholder={searchPlaceholder}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && searchValue.trim()) {
+                    event.preventDefault();
+                    onSearchSubmit?.();
+                  } else if (event.key === "Backspace" && !searchValue && searchSteps.length > 0) {
+                    // An empty field steps the search back by one.
+                    event.preventDefault();
+                    onSearchStepRemove?.(searchSteps.length - 1);
+                  }
+                }}
+                placeholder={searchSteps.length > 0 ? "ADD TO THIS SEARCH..." : searchPlaceholder}
                 className="w-full rounded-[12px] py-[6px] pl-9 pr-3 text-[14px] focus:outline-none"
                 style={{
                   backgroundColor: "var(--lm-surface-2, rgba(32,23,16,0.04))",
@@ -188,6 +218,50 @@ export default function BottomMenu({
                 }}
               />
             </div>
+            <p
+              style={{
+                fontSize: "10px",
+                lineHeight: 1.5,
+                letterSpacing: "0.04em",
+                color: "var(--lm-text-tertiary, #8a7b6c)",
+                fontFamily: "var(--lm-font, inherit)",
+              }}
+            >
+              {searchSteps.length > 0
+                ? "Enter adds a step: “no cars”, “dark”, “only videos”. Backspace takes the last one off."
+                : "Enter keeps the search, then narrow it: “dear annete world”, “interiors / city street”, “no cars”."}
+            </p>
+            {searchHistory.length > 0 && !searchValue ? (
+              <div className="space-y-0.5">
+                <div
+                  style={{
+                    fontSize: "9px",
+                    fontWeight: 800,
+                    letterSpacing: "0.16em",
+                    color: "var(--lm-text-ghost, rgba(32,23,16,0.3))",
+                    fontFamily: "var(--lm-font, inherit)",
+                  }}
+                >
+                  EARLIER SEARCHES
+                </div>
+                {searchHistory.slice(0, 6).map((thread) => (
+                  <button
+                    key={thread.join("\n")}
+                    type="button"
+                    onClick={() => onSearchRestore?.(thread)}
+                    className="block w-full truncate rounded-[8px] px-2 py-1 text-left transition-colors hover:bg-[var(--lm-surface-2,rgba(32,23,16,0.04))]"
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--lm-text-secondary, #bfb0a0)",
+                      fontFamily: "var(--lm-font, inherit)",
+                    }}
+                    title={searchThreadLine(thread)}
+                  >
+                    {searchThreadLine(thread)}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             <div className="flex gap-1.5">
               <button
                 type="button"
@@ -229,7 +303,7 @@ export default function BottomMenu({
                   style={{ color: "var(--lm-text-ghost, rgba(32,23,16,0.3))" }}
                 />
                 <span className="transition-all duration-75">
-                  {searchLoading ? "Searching" : "Clear"}
+                  {searchLoading ? "Searching" : searchSteps.length > 0 ? "New search" : "Clear"}
                 </span>
               </button>
             </div>
@@ -358,10 +432,15 @@ export default function BottomMenu({
     onResetClick,
     onSearchChange,
     onSearchClear,
+    onSearchRestore,
+    onSearchStepRemove,
+    onSearchSubmit,
     onSignOut,
     profileName,
+    searchHistory,
     searchLoading,
     searchPlaceholder,
+    searchSteps,
     searchValue,
     sharedHover,
     user,

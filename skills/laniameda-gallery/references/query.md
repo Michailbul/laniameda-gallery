@@ -34,7 +34,7 @@ projections and are bounded. Reach for the filter before the list.
 | `list_collections` | whole tree (~220 rows) unless filtered | `_id` (the bare folderId), name, parentFolderId, group, sortOrder, kind, worldKey, isWorld, memberCount, description excerpt, slug, hidden, url; result has `count`, `total` | `world`, `parentFolderId`, `rootsOnly`, `kind`, `search` |
 | `list_tags` | 100 / 500 per page, `cursor` until `isDone`; most used first | slim: name, label (when it differs), category, description, usageCount, customized, archived; `fields: "full"` for ids, colour, sort order, times | `search`, `category`, `minUsage`, `includeArchived` |
 | `list_stories` | 200 / 500; `truncated` + `next.updatedBefore` | record without searchText, owner, creation time; `excerpt` (300 chars) + `bodyChars`; `includeBody: true` for the text | `world` / `folderId`, `kind`, `status`, `search`, `updatedBefore` |
-| `search_gallery`, `find_similar` | 24 / 96 (hybrid: per-lane cutoff, see below) | asset projection: ids, kind, size, url, thumbUrl, description, agentDescription, tagNames, folderIds, modelName, flags, `promptText` cut to 300 chars (`promptTruncated`, `promptChars`), score, visualScore, textScore | tags, pieceType, medium, liked, starred, folderId, `world` |
+| `search_gallery`, `find_similar` | 24 / 96 (hybrid: blended lanes, see below) | asset projection: ids, kind, size, url, thumbUrl, description, agentDescription, tagNames, folderIds, modelName, flags, `promptText` cut to 300 chars (`promptTruncated`, `promptChars`), score, visualScore, textScore | tags, pieceType, medium, liked, starred, folderId, `world` |
 | `list_assets`, `preview_assets` | bounded (24 / 48 for previews) | the same asset projection | the same filters plus `search` |
 | `list_assets_page` | 100 / 200 per page, `cursor` until `isDone` | full rows (inventory use) | the same filters |
 | `list_styles` | every style of the world's universe | id, name, line, family, status, world, frames, main recipe in names, 2 cover thumbs, url; `unrecordedShelves` | `universe: false` (one world), `covers: 0`, `includeArchived` |
@@ -137,16 +137,19 @@ all returns nothing.
 ### `search` modes
 
 `mode`: `hybrid` (default) runs the pixel lane and the text lane with a query
-embedding from each lane's model and merges them by rank; `visual` is pixels only (looks alike);
+embedding from each lane's model and blends them; `visual` is pixels only (looks alike);
 `text` is words only (agent description, caption, prompt, tags, source).
-Without filters each lane keeps results close to its best match (pixels
-within 85%, words within 75%); with filters the cutoff is off so the best
-in-filter matches come back. Override with `minRelativeScore` (0–1).
+Each lane returns its 256 best hits. A hit's strength is its place between
+its lane's best and worst hit, and `score` (0–1) blends the two: words lead,
+and the pixel lane counts in proportion to how many of its best hits the text
+lane also found. For a name the pixel model does not know (a character, a
+world) that share is near zero and the pixel lane is dropped, so names rank
+by their words alone. No cutoff by default; `minRelativeScore` (0–1) keeps
+only hits within that fraction of the best `score`.
 
 Videos have no pixels, so they live in the text lane only and rank by their
-words; a video at the top of the text lane scores 1, the same as an image at
-the top of both lanes. `mode: "visual"` therefore returns images only. To
-look at videos, pass `kind: "video"`.
+words. `mode: "visual"` therefore returns images only. To look at videos,
+pass `kind: "video"`.
 
 ### `similar`
 
