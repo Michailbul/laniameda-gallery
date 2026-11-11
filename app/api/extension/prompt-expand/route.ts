@@ -5,6 +5,7 @@ import { getServerConvexClient } from "@/lib/server/convex";
 import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/server/extension-auth";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import { EXPAND_LIMITS, EXPAND_PRESETS, EXPAND_PRESET_KEYS } from "@/lib/mj-expand";
+import { LOCAL_WRITER_LIMITS } from "@/lib/local-writer";
 
 // The extension's writer: one Midjourney frame (the picture and the command
 // that made it) grown into more prompts in the same look, by the quick-edit
@@ -32,6 +33,12 @@ const bodySchema = z.object({
   aspect: z.string().max(20).optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
+  local: z.object({
+    stage: z.enum(["messages", "finish"]),
+    raw: z.string().max(LOCAL_WRITER_LIMITS.raw).optional(),
+    model: z.string().max(60).optional(),
+    ms: z.number().nonnegative().optional(),
+  }).optional(),
 });
 
 export async function GET(request: Request) {

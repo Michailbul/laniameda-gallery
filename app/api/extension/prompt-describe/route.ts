@@ -5,6 +5,7 @@ import { getServerConvexClient } from "@/lib/server/convex";
 import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/server/extension-auth";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import { DESCRIBE_LIMITS, DESCRIBE_MODES } from "@/lib/mj-describe";
+import { LOCAL_WRITER_LIMITS } from "@/lib/local-writer";
 
 // The extension's describer: a picture (and Midjourney's Describe lines when
 // it caught them) into our Midjourney prompt, by the quick-edit agent
@@ -28,6 +29,12 @@ const bodySchema = z.object({
   style: z.string().max(120).optional(),
   system: z.string().max(DESCRIBE_LIMITS.system).optional(),
   note: z.string().max(DESCRIBE_LIMITS.note).optional(),
+  local: z.object({
+    stage: z.enum(["messages", "finish"]),
+    raw: z.string().max(LOCAL_WRITER_LIMITS.raw).optional(),
+    model: z.string().max(60).optional(),
+    ms: z.number().nonnegative().optional(),
+  }).optional(),
 });
 
 export async function POST(request: Request) {
