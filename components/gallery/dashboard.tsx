@@ -156,8 +156,8 @@ import { galleryWordMatcher } from "@/lib/gallery-search";
 import {
   readSearchInstructions,
   searchInstructionsKey,
+  searchPieceFilter,
   searchRequestFromKey,
-  searchWordsMatcher,
   splitSearchSteps,
 } from "@/lib/search-instructions";
 import { SearchStepChips } from "@/components/gallery/search-trail";
@@ -249,6 +249,8 @@ type SemanticPageArgs = {
   medium?: "animation" | "live-action";
   onlyLiked?: boolean;
   exclude?: string[];
+  // Tags that rule a piece out ("interiors" rules out exterior).
+  excludeTagNames?: string[];
   similarToAssetId?: Id<"assets">;
 };
 const NO_SEMANTIC_HITS: SemanticRankedHit[] = [];
@@ -442,9 +444,9 @@ export function GalleryDashboard({
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   // Menu-filter ids the user pushed to the NEGATIVE side (minus on the pill).
   const [excludedFilters, setExcludedFilters] = useState<string[]>([]);
-  const [likedOnly, setLikedOnly] = useState<boolean>(false);
+  const [likedOnlyPicked, setLikedOnly] = useState<boolean>(false);
   const [bookmarksOnly, setBookmarksOnly] = useState(false);
-  const [mediaKind, setMediaKind] = useState<"image" | "video" | null>(null);
+  const [mediaKindPicked, setMediaKind] = useState<"image" | "video" | null>(null);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(
     null,
   );
@@ -1418,6 +1420,12 @@ export function GalleryDashboard({
   // The same request keeps the same key, so a folder list that refreshes
   // does not run the search again.
   const searchKey = searchInstructionsKey(searchInstructions);
+  // "liked" and "only videos" said in the search reach the feed's own query,
+  // like the same filters picked in the bar: a search that only filters reads
+  // exactly those pieces instead of sifting every page for them.
+  const typedSearch = useMemo(() => searchRequestFromKey(searchKey), [searchKey]);
+  const likedOnly = likedOnlyPicked || typedSearch.onlyLiked === true;
+  const mediaKind = mediaKindPicked ?? typedSearch.kind ?? null;
   const searchStepReadings = useMemo(
     () => searchInstructions.steps.slice(0, searchSteps.length),
     [searchInstructions, searchSteps.length],
@@ -1429,7 +1437,8 @@ export function GalleryDashboard({
     searchSteps.length === 0 &&
     searchInstructions.steps.every((step) => step.kind === "words") &&
     searchInstructions.steps.length <= 1 &&
-    searchInstructions.phrasings.length <= 1;
+    searchInstructions.phrasings.length <= 1 &&
+    !searchInstructions.excludeTags;
   const commitSearchStep = useCallback(() => {
     const steps = splitSearchSteps(assetSearchQuery, searchFolders);
     if (steps.length === 0) return;
@@ -2517,6 +2526,7 @@ export function GalleryDashboard({
       medium: request.medium,
       onlyLiked: request.onlyLiked || undefined,
       exclude: request.exclude.length > 0 ? request.exclude : undefined,
+      excludeTagNames: request.excludeTags,
     };
     void searchAssetsPageAction({
       ...pageArgs,
@@ -2717,17 +2727,13 @@ export function GalleryDashboard({
   // of one phrasing, nothing it leaves out, inside the world it names.
   const searchKeywordFilter = useMemo(() => {
     if (searchIsPlain) return null;
-    const hasWords = searchWordsMatcher(searchInstructions);
-    const inFolders = searchInstructions.folderIds ? new Set(searchInstructions.folderIds) : null;
-    const { kind, onlyLiked, pieceType, medium } = searchInstructions;
-    // Type and medium live in tag spellings only the backend reads.
-    if (pieceType || medium) return () => false;
+    const keep = searchPieceFilter(searchRequestFromKey(searchKey));
     return (asset: (typeof baseGalleryAssets)[number]) =>
-      (!kind || asset.kind === kind) &&
-      (!onlyLiked || asset.isLiked === true) &&
-      (!inFolders || (asset.folderIds ?? []).some((id) => inFolders.has(String(id)))) &&
-      hasWords(buildAssetSearchHaystack(asset, folderNameById));
-  }, [folderNameById, searchInstructions, searchIsPlain]);
+      keep(
+        { kind: asset.kind, isLiked: asset.isLiked, folderIds: asset.folderIds, tagNames: asset.tagNames },
+        buildAssetSearchHaystack(asset, folderNameById),
+      );
+  }, [folderNameById, searchIsPlain, searchKey]);
 
   const lexicalFilteredAssets = useMemo(() => {
     const search = assetSearchQuery.trim().toLowerCase();
@@ -6204,10 +6210,10 @@ export function GalleryDashboard({
                   galleryScope === "mine" && canAccessMyGallery
                 }
                 ownerUserId={ownerUserId}
-                likedOnly={likedOnly}
+                likedOnly={likedOnlyPicked}
                 onLikedOnlyChange={handleLikedOnlyChange}
                 showLiked={canManageFoldersInCurrentView}
-                mediaKind={mediaKind}
+                mediaKind={mediaKindPicked}
                 onMediaKindChange={handleMediaKindChange}
                 sortOrder={sortOrder}
                 onSortOrderChange={changeSortOrder}
@@ -6234,8 +6240,8 @@ export function GalleryDashboard({
                           selectedFilterIds: selectedTags as Id<"menuFilters">[],
                           excludedFilterIds: excludedFilters as Id<"menuFilters">[],
                           folderId: (effectiveSelectedFolderId || undefined) as Id<"folders"> | undefined,
-                          mediaKind: mediaKind || undefined,
-                          onlyLiked: likedOnly,
+                          mediaKind: mediaKindPicked || undefined,
+                          onlyLiked: likedOnlyPicked,
                           includeSkills,
                           flattenStacks,
                           sortOrder,

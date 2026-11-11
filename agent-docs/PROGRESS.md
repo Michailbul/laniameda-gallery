@@ -8,6 +8,18 @@ Last updated: 2026-11-11
 
 ## ✔ Shipped
 
+### 2026-11-11 — A filter word alone searches, and the tagger's tags rule pieces out (branch `fix/search-filter-words`)
+- Bug: "animation" typed alone was read as a filter with nothing to search
+  for, so nothing was ranked and the keyword filter rejected every piece: the
+  grid paged the whole vault and showed only stray cards. A search that only
+  filters ("animation", "locations", "liked", "only videos") now browses the
+  pieces it marks (`searchOnlyFilters`, `searchPieceFilter` in
+  `lib/search-instructions.ts`); "liked" and kind go to the feed's own query.
+- Words the tagger answers for every picture (`lib/facet-tags.ts`: interior /
+  exterior, day / dusk / night / golden hour, close-up / wide shot / macro)
+  stay search words and rule out pieces tagged as the opposite
+  (`excludeTagNames`). About half the pictures carry a tag in each of those
+  slots, so a hard filter would hide the other half; ruling out keeps them.
 ### 2026-11-11 — Comments in place, no popup (branch `feat/like-hotkey-inline-comment`, no backend change)
 - Michael on the old dialog: "don't like that window, the comment should be on
   the gallery right in place to be left." C (and V, the scene idea) on a
