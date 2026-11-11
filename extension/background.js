@@ -24,6 +24,7 @@ const QUICK_EDIT_ROUTE_PATH = "/api/extension/prompt-edit";
 const DESCRIBE_ROUTE_PATH = "/api/extension/prompt-describe";
 const STYLES_ROUTE_PATH = "/api/extension/styles";
 const EXPAND_ROUTE_PATH = "/api/extension/prompt-expand";
+const WORLD_ROUTE_PATH = "/api/extension/prompt-world";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const X_POST_ROUTE_PATH = "/api/extension/x-post";
 const COMMENTS_ROUTE_PATH = "/api/extension/comments";
@@ -1340,6 +1341,10 @@ async function quickEditRequest(message) {
     instruction: String(message.instruction || ""),
     system: message.system ? String(message.system) : undefined,
     model: message.model === "deepseek" ? "deepseek" : "haiku",
+    // The gallery reads the world from the prompt's own codes and hands the
+    // writer that world's files; the world picked in the bar is the fallback.
+    world: "auto",
+    fallbackWorld: message.fallbackWorld && message.fallbackWorld !== "none" ? String(message.fallbackWorld) : undefined,
   };
   return writerCall(QUICK_EDIT_ROUTE_PATH, body, { cloudOnly: body.model === "deepseek" });
 }
@@ -1491,6 +1496,12 @@ async function expandRequest(message, sender) {
       return prepareDescribeImage(message);
     case "writer":
       return writerRequest(message);
+    case "worldOf":
+      // Only the flags matter for this: the codes say which world it is.
+      return describeFetchJson(WORLD_ROUTE_PATH, {
+        method: "POST",
+        body: JSON.stringify({ world: "auto", command: String(message.command || "").slice(0, 8000), frame: message.frame ? String(message.frame).slice(0, 600) : undefined }),
+      });
     case "run":
       return writerCall(EXPAND_ROUTE_PATH, {
         image: message.image,
@@ -1499,6 +1510,7 @@ async function expandRequest(message, sender) {
         idea: message.idea || undefined,
         count: message.count || undefined,
         world: message.world || undefined,
+        frame: message.frame ? String(message.frame).slice(0, 600) : undefined,
         system: message.system || undefined,
         keepImages: message.keepImages || undefined,
         srefUrl: message.srefUrl || undefined,

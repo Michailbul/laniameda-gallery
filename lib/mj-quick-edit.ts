@@ -61,8 +61,10 @@ export function cleanModelText(raw: string) {
   return text;
 }
 
-export function buildQuickEditMessages({ prompt, selection, instruction, system }: {
+export function buildQuickEditMessages({ prompt, selection, instruction, system, worldBrief }: {
   prompt: string; selection?: string; instruction: string; system?: string;
+  /** The world's files, already laid out (lib/writer-brief.ts composeBrief). */
+  worldBrief?: string;
 }) {
   const full = protectUrls(prompt);
   const part = selection ? protectUrls(selection) : null;
@@ -74,8 +76,11 @@ export function buildQuickEditMessages({ prompt, selection, instruction, system 
       if (at >= 0) selectionText = selectionText!.replace(`[[IMG${index + 1}]]`, `[[IMG${at + 1}]]`);
     });
   }
-  const systemText = [QUICK_EDIT_BASE_RULES, system?.trim() ? `Project context (what we like, what to avoid):\n${system.trim()}` : ""]
-    .filter(Boolean).join("\n\n");
+  const systemText = [
+    QUICK_EDIT_BASE_RULES,
+    worldBrief?.trim() ? `${worldBrief.trim()}\n\nThe edit stays inside this world. Still change only what the instruction asks, and still return the edited text and nothing else.` : "",
+    system?.trim() ? `Project context (what we like, what to avoid):\n${system.trim()}` : "",
+  ].filter(Boolean).join("\n\n");
   const user = selectionText
     ? `FULL PROMPT:\n${full.masked}\n\nSELECTION:\n${selectionText}\n\nINSTRUCTION: ${instruction.trim()}`
     : `PROMPT:\n${full.masked}\n\nINSTRUCTION: ${instruction.trim()}`;

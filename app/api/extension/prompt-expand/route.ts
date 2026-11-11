@@ -27,6 +27,9 @@ const bodySchema = z.object({
   idea: z.string().max(EXPAND_LIMITS.idea).optional(),
   count: z.number().int().min(1).max(EXPAND_LIMITS.maxCount).optional(),
   world: z.string().max(120).optional(),
+  fallbackWorld: z.string().max(120).optional(),
+  // The frame's Midjourney link: a frame already saved in a world names it.
+  frame: z.string().max(600).optional(),
   system: z.string().max(EXPAND_LIMITS.system).optional(),
   keepImages: z.boolean().optional(),
   srefUrl: z.string().url().max(2048).optional(),

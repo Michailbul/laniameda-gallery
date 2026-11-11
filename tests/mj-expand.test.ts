@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import {
   EXPAND_PRESETS, buildExpandMessages, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
 } from "../lib/mj-expand";
+import { composeBrief } from "../lib/writer-brief";
 
 type Made = { title?: string; words: string; prompt: string; text?: string; rest: string; profiles: string[]; srefs: Array<{ code?: string; url?: string; weight?: number }>; images: string[] };
 type ExpandApi = {
@@ -70,7 +71,11 @@ describe("mj-expand: the writer", () => {
     const source = splitCommand(COMMAND);
     const [system, user] = buildExpandMessages({
       image: "data:image/jpeg;base64,AAAA", sourceWords: source.words, lookNote: lookNoteOf(source), preset: expandPreset("story"),
-      idea: "she is late for a funeral", count: 6, system: "Never a real city.", worldName: "retro-cyberpunk", worldDoc: "Cars are hearses.", learnings: "He likes sodium light.",
+      idea: "she is late for a funeral", count: 6, system: "Never a real city.",
+      worldBrief: composeBrief("RETRO CYBERPUNK", [
+        { key: "rules", label: "rules", title: "WORLD.md", text: "Cars are hearses." },
+        { key: "learnings", label: "learnings", title: "LEARNINGS.md", text: "He likes sodium light." },
+      ]).text,
     });
     expect(system!.content).toContain("Copy them word for word");
     expect(system!.content).toContain("Cars are hearses.");

@@ -97,8 +97,17 @@ browser runs on, instead of a paid provider.
   with a logline), World kit (eight frames). Or type an idea and press Enter.
   **⌃1–⌃7** runs a move steered by the typed idea.
 - The gallery's writer (Haiku 5.5, `/api/extension/prompt-expand`) gets the
-  picture, the words of its prompt and, when a world is picked, that world's
-  WORLD.md and LEARNINGS.md. It writes words only. The source command's
+  picture, the words of its prompt and the world's own files: WORLD.md,
+  LEARNINGS.md, the named cast with costumes, the character directory, the
+  World Bible, the storybooks told so far and the world's notes on places and
+  vehicles (`convex/writerBrief.ts`, `lib/writer-brief.ts`; a world inside a
+  universe also reads the universe's bible and cast). The world menu starts on
+  **Auto**: the gallery reads the world from where the frame is saved, else
+  from its codes (moodboards, profiles, style codes), and shows it before
+  anything is written (`/api/extension/prompt-world`). Two unrelated worlds
+  level on codes are never guessed between. Quick edit gets the shorter brief
+  (rules, learnings, cast) for the world of the prompt in the bar; Make it
+  ours gets the files of its style's world. It writes words only. The source command's
   `--sref`, `--profile` and other params are put back on every result by the
   gallery, so the look cannot drift; `--seed` is dropped.
 - **↵** puts the selected prompt in the Imagine bar (never Enter), **Q**

@@ -124,17 +124,20 @@ export type DescribeInput = {
   style?: DescribeStyle;
   mode: DescribeMode;
   note?: string;
+  /** The files of the style's world, already laid out (lib/writer-brief.ts composeBrief). */
+  worldBrief?: string;
 };
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
-export function buildDescribeMessages({ image, descriptions, system, style, mode, note }: DescribeInput) {
+export function buildDescribeMessages({ image, descriptions, system, style, mode, note, worldBrief }: DescribeInput) {
   const wantKeep = mode === "keep" || mode === "both";
   const wantOurs = (mode === "ours" || mode === "both") && Boolean(style);
   const systemText = [
     DESCRIBE_BASE_RULES,
     wantKeep ? KEEP_RULES : "",
     wantOurs ? OURS_RULES : "",
+    wantOurs && worldBrief?.trim() ? `${worldBrief.trim()}\n\nThe world's files shape the OURS prompt only${wantKeep ? "; KEEP stays a plain recreation of the image" : ""}. The subject, framing and light still come from the picture.` : "",
     system?.trim() ? `Project rules (the world this is for):\n${system.trim()}` : "",
   ].filter(Boolean).join("\n\n");
 

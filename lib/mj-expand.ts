@@ -18,8 +18,6 @@ export const EXPAND_LIMITS = {
   command: 8000,
   idea: 800,
   system: 8000,
-  worldDoc: 5000,
-  learnings: 2500,
   maxCount: 8,
 } as const;
 
@@ -224,18 +222,16 @@ export type ExpandInput = {
   idea?: string;
   count: number;
   system?: string;
-  worldName?: string;
-  worldDoc?: string;
-  learnings?: string;
+  /** The world's files, already laid out (lib/writer-brief.ts composeBrief). */
+  worldBrief?: string;
 };
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
-export function buildExpandMessages({ image, sourceWords, lookNote, preset, idea, count, system, worldName, worldDoc, learnings }: ExpandInput) {
+export function buildExpandMessages({ image, sourceWords, lookNote, preset, idea, count, system, worldBrief }: ExpandInput) {
   const systemText = [
     EXPAND_BASE_RULES,
-    worldDoc?.trim() ? `THE WORLD THIS FRAME BELONGS TO${worldName ? ` (${worldName})` : ""}, from its own rule file. Its cast, places and never-rules bind you:\n${worldDoc.trim().slice(0, EXPAND_LIMITS.worldDoc)}` : "",
-    learnings?.trim() ? `What the art director picked and rejected in this world so far:\n${learnings.trim().slice(0, EXPAND_LIMITS.learnings)}` : "",
+    worldBrief?.trim() ?? "",
     system?.trim() ? `Project rules (his own notes for this world):\n${system.trim().slice(0, EXPAND_LIMITS.system)}` : "",
   ].filter(Boolean).join("\n\n");
 

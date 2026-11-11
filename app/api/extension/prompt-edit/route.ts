@@ -26,6 +26,10 @@ const bodySchema = z.object({
   instruction: z.string().min(1).max(QUICK_EDIT_LIMITS.instruction),
   system: z.string().max(QUICK_EDIT_LIMITS.system).optional(),
   model: z.enum(QUICK_EDIT_MODELS).default("haiku"),
+  // "auto" reads the world from the prompt's own codes; fallbackWorld is the
+  // world picked in the bar, used when the codes name none.
+  world: z.string().max(120).optional(),
+  fallbackWorld: z.string().max(120).optional(),
   local: z.object({
     stage: z.enum(["messages", "finish"]),
     raw: z.string().max(LOCAL_WRITER_LIMITS.raw).optional(),

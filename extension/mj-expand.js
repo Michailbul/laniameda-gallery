@@ -134,14 +134,28 @@
     return status.model === "sonnet" ? { mode: "cloud" } : { mode: "auto", model: "sonnet" };
   }
 
-  globalScope.SaveToGalleryExpand = { MOVES, placeBeside, threadLabel, splitText, queueItemOf, codeLine, writerView, nextWriter };
+  // The world picker's first option: the world read from the frame's own
+  // codes by the gallery (found = {world: {key, name}, tie: [names]}).
+  function autoWorldLabel(found) {
+    if (found?.world?.name) return `Auto · ${found.world.name}`;
+    if (found?.tie?.length) return "Auto · two worlds fit, pick one";
+    return found ? "Auto · no world in these codes" : "Auto";
+  }
+  // What the writer was given, for the status line: "DEAR ANNETE: rules, cast, bible".
+  function briefLine(res) {
+    if (res?.world) return `${String(res.world).toUpperCase()}${res.read?.length ? `: ${res.read.join(", ")}` : " rules"}`;
+    if (res?.worldTie?.length) return `no world read (${res.worldTie.join(" or ")}? pick one)`;
+    return "";
+  }
+
+  globalScope.SaveToGalleryExpand = { MOVES, placeBeside, threadLabel, splitText, queueItemOf, codeLine, writerView, nextWriter, autoWorldLabel, briefLine };
 
   if (typeof document === "undefined" || typeof location === "undefined" || !/(^|\.)midjourney\.com$/i.test(location.hostname)) return;
   if (globalScope.__saveToGalleryExpand) return;
   globalScope.__saveToGalleryExpand = true;
 
   const adapter = () => globalScope.SaveToGalleryMidjourney;
-  const STORE = { world: "mjExpandWorld", dockWorld: "stgMoodboardWorld", sref: "mjExpandSrefThis", qePrompts: "quickEditPrompts" };
+  const STORE = { world: "mjExpandWorldPick", dockWorld: "stgMoodboardWorld", sref: "mjExpandSrefThis", qePrompts: "quickEditPrompts" };
   const CARD_WIDTH = 384;
 
   const alive = () => { try { return Boolean(chrome.runtime && chrome.runtime.id); } catch { return false; } };
@@ -159,7 +173,8 @@
   const esc = (value) => String(value ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 
   // The quick edit's world notes cover Dear Annete and Andromeda worlds; every
-  // world's own WORLD.md is read by the gallery when the writer runs.
+  // world's own files (rules, learnings, cast, bible) are read by the gallery
+  // when the writer runs.
   const quickEditKeyFor = (worldKey) => (/^dear-annete/.test(worldKey || "") ? "dear-annete" : /^andromeda/.test(worldKey || "") ? "andromeda-anya" : "none");
   async function systemPromptFor(worldKey) {
     const stored = await local([STORE.qePrompts]);
@@ -394,7 +409,7 @@
 
   const state = {
     open: false, el: null, source: null, sourceReady: null, prepared: null,
-    worlds: [], world: "none", srefThis: false, keepImages: false,
+    worlds: [], world: "auto", found: null, srefThis: false, keepImages: false,
     busy: false, move: null, items: [], sel: 0, set: "", logline: "", editing: -1, thread: "", runId: "",
   };
   const cache = new Map(); // picture key → last results
@@ -516,8 +531,9 @@
 
   // ── Worlds ──
 
+  // "Auto" reads the world from the frame's codes; a named world overrides it.
   function paintWorlds() {
-    const options = [{ key: "none", name: "No world" }, ...state.worlds];
+    const options = [{ key: "auto", name: autoWorldLabel(state.found) }, { key: "none", name: "No world" }, ...state.worlds];
     worldSelect.replaceChildren(...options.map((world) => {
       const option = document.createElement("option");
       option.value = world.key;
@@ -525,22 +541,41 @@
       option.selected = world.key === state.world;
       return option;
     }));
+    worldSelect.title = state.world === "auto"
+      ? state.found?.world ? `${state.found.by === "frame" ? "This frame is saved in" : "This frame's codes point at"} ${state.found.world.name}. The writer reads its own files: ${(state.found.read || []).join(", ") || "its rule file"}.` : "The world is read from where the frame is saved, or from its codes. Pick one here to set it yourself."
+      : state.world === "none" ? "No world: the writer works from the picture and its prompt only." : "The writer reads this world's own files (rules, learnings, cast, bible).";
   }
-  const worldName = () => (state.world === "none" ? "" : state.worlds.find((world) => world.key === state.world)?.name || "");
+  // The world the writer will read for: the picked one, or the one found.
+  const worldKey = () => (state.world === "auto" ? state.found?.world?.key || "" : state.world === "none" ? "" : state.world);
+  const worldName = () => (state.world === "auto" ? state.found?.world?.name || "" : state.world === "none" ? "" : state.worlds.find((world) => world.key === state.world)?.name || "");
   let worldsLoaded = false;
   async function loadWorlds() {
     const stored = await local([STORE.world, STORE.dockWorld, STORE.sref]);
     state.srefThis = stored[STORE.sref] === true;
-    state.world = stored[STORE.world] || "none";
+    state.world = stored[STORE.world] || "auto";
     paintWorlds();
     if (worldsLoaded) return;
     const res = await ask("worlds");
     if (res?.ok) {
       worldsLoaded = true;
       state.worlds = res.worlds || [];
-      if (state.world !== "none" && !state.worlds.some((world) => world.key === state.world)) state.world = "none";
+      if (state.world !== "none" && state.world !== "auto" && !state.worlds.some((world) => world.key === state.world)) state.world = "auto";
       paintWorlds();
     }
+  }
+  // The frame's own Midjourney link: a frame already saved in a world names it.
+  const frameLink = (source) => (/^https:\/\/cdn\.midjourney\.com\//.test(source?.imageUrl || "") ? source.imageUrl : undefined);
+  // Ask the gallery which world this frame belongs to (where it is saved, or
+  // what its codes point at), so it is on screen before anything is written.
+  async function findWorld(source) {
+    state.found = null;
+    paintWorlds();
+    const frame = frameLink(source);
+    if (!source?.command && !frame) return;
+    const res = await ask("worldOf", { command: source.command || "", frame });
+    if (state.source !== source) return;
+    state.found = res?.ok ? { world: res.world || null, tie: res.tie || [], read: res.read || [], by: res.by } : null;
+    paintWorlds();
   }
   // Where the writer runs: on this Mac (Haiku 5.5 or Sonnet 5.5 through the
   // local bridge) or through the gallery's providers. Click to switch.
@@ -586,7 +621,7 @@
       state.editing = -1;
       const kept = cache.get(source.key);
       Object.assign(state, kept ? { ...kept } : { items: [], sel: 0, set: "", logline: "", move: null, thread: "", runId: "" });
-      state.sourceReady = readCommand(source).then((ready) => { ready.commandRead = true; if (state.source === ready) { paintSource(); scheduleLayout(); } return ready; });
+      state.sourceReady = readCommand(source).then((ready) => { ready.commandRead = true; if (state.source === ready) { paintSource(); scheduleLayout(); void findWorld(ready); } return ready; });
       setLine("");
       idea.value = "";
       idea.placeholder = state.items.length ? "Steer it again, or ↓ to pick" : "Say what you want next, or press 1–7";
@@ -651,7 +686,8 @@
         preset: move?.key,
         idea: steer || undefined,
         world: state.world === "none" ? undefined : state.world,
-        system: state.world === "none" ? undefined : await systemPromptFor(state.world),
+        frame: frameLink(source),
+        system: worldKey() ? await systemPromptFor(worldKey()) : undefined,
         keepImages: state.keepImages || undefined,
         srefUrl: state.srefThis && source.srefUrl ? source.srefUrl : undefined,
         width: state.prepared.width, height: state.prepared.height,
@@ -664,9 +700,11 @@
       state.set = res.set || move?.label || "";
       state.logline = res.logline || "";
       state.runId = Date.now().toString(36);
-      state.thread = threadLabel(worldName(), state.set, steer.split(/\s+/).slice(0, 5).join(" "));
+      if (state.world === "auto" && res.worldKey) { state.found = { world: { key: res.worldKey, name: res.world }, tie: [], read: res.read || [], by: res.worldBy }; paintWorlds(); }
+      state.thread = threadLabel(res.world || worldName(), state.set, steer.split(/\s+/).slice(0, 5).join(" "));
       renderResults();
-      setLine(`<span>${esc(res.model)} · ${(res.ms / 1000).toFixed(1)}s${res.world ? ` · ${esc(String(res.world).toUpperCase())} rules` : ""}${res.notes?.length ? ` · ${esc(res.notes[0])}` : ""}</span>`);
+      const brief = briefLine(res);
+      setLine(`<span>${esc(res.model)} · ${(res.ms / 1000).toFixed(1)}s${brief ? ` · ${esc(brief)}` : ""}${res.notes?.length ? ` · ${esc(res.notes[0])}` : ""}</span>`);
       idea.value = "";
       idea.placeholder = "Steer it again, or ↓ to pick";
       card.focus();
@@ -769,7 +807,7 @@
     if (!picked.length) return;
     const items = picked.map((index) => queueItemOf(state.items[index], { imageUrl: source.srefUrl || source.imageUrl, pageUrl: source.pageUrl, note: sourceNote() }, `grow:${source.key}:${state.runId}:${index}`));
     setLine(`<span class="spin"></span><span>Queueing ${picked.length}…</span>`);
-    const res = await ask("queue", { batch: state.thread, world: state.world === "none" ? undefined : state.world, items });
+    const res = await ask("queue", { batch: state.thread, world: worldKey() || undefined, items });
     if (!res?.ok) { setLine(esc(res?.error || "Could not queue."), "err"); return; }
     for (const index of picked) state.items[index].queued = true;
     renderResults();
