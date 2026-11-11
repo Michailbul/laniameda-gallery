@@ -6,6 +6,12 @@ type Profile = { name: string; code: string };
 type DockApi = {
   groupBoards: (boards: Board[]) => { label: string; boards: Board[] }[];
   orderProfiles: (profiles: Profile[], pins: string[]) => { main: Profile[]; more: Profile[] };
+  liveProfiles: (profiles: Profile[]) => Profile[];
+  groupOtherProfiles: (
+    profiles: (Profile & { worlds?: string[] })[],
+    worlds: { key: string; name: string }[],
+    currentKey: string,
+  ) => { key: string; name: string; profiles: Profile[] }[];
   DEFAULT_PROFILE_PINS: Record<string, string[]>;
   applyMoodboardToPrompt: (
     promptText: string,
@@ -273,5 +279,31 @@ describe("board families and main profiles", () => {
     const profiles = [{ name: "ANIM", code: "a" }, { name: "DARI", code: "d" }];
     expect(getApi().orderProfiles(profiles, [])).toEqual({ main: profiles, more: [] });
     expect(getApi().orderProfiles(profiles, ["nothing"])).toEqual({ main: profiles, more: [] });
+  });
+});
+
+describe("other worlds' profiles", () => {
+  test("deleted profiles never show", () => {
+    const list = [{ name: "CAS COAST (deleted in MJ)", code: "a" }, { name: "CAS Main 1", code: "b" }, { name: "x", code: "" }];
+    expect(getApi().liveProfiles(list)).toEqual([{ name: "CAS Main 1", code: "b" }]);
+  });
+
+  test("one line per other world in world order, unused profiles last, the current world left out", () => {
+    const worlds = [
+      { key: "dear-annete", name: "DEAR ANNETE" },
+      { key: "cassandra", name: "CASSANDRA" },
+      { key: "andromeda-anya", name: "ANDROMEDA" },
+    ];
+    const profiles = [
+      { name: "DA4", code: "d4", worlds: ["dear-annete"] },
+      { name: "CAS Main 1", code: "c1", worlds: ["cassandra"] },
+      { name: "GLOBAL", code: "g", worlds: [] },
+      { name: "CAS GIRL (deleted in MJ)", code: "dg", worlds: ["cassandra"] },
+    ];
+    const lines = getApi().groupOtherProfiles(profiles, worlds, "cassandra");
+    expect(lines.map((line) => [line.key, line.profiles.map((p) => p.name)])).toEqual([
+      ["dear-annete", ["DA4"]],
+      ["", ["GLOBAL"]],
+    ]);
   });
 });

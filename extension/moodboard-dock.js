@@ -5,6 +5,7 @@
   const STICKY_STORAGE_KEY = "stgMoodboardSticky";
   const PRESETS_STORAGE_PREFIX = "stgMjPresets:";
   const PINS_STORAGE_PREFIX = "stgMjProfilePins:";
+  const OTHERS_STORAGE_KEY = "stgMbOthersOpen";
   const DEFAULT_WORLD_KEY = "dear-annete";
   const REFRESH_INTERVAL_MS = 45000;
   const DOCK_GAP_PX = 6;
@@ -391,6 +392,27 @@
     "dear-annete": ["da4", "da5", "dav3", "dav82", "dearannette2", "cinematic", "locations"],
   };
 
+  // Profiles Midjourney no longer has ("CAS COAST (deleted in MJ)") never
+  // show in the dock (Michael, 11 Nov 2026).
+  const isDeletedProfile = (profile) => /\bdeleted\b/i.test(String((profile && profile.name) || ""));
+  const liveProfiles = (list) => (Array.isArray(list) ? list : []).filter((profile) => profile && profile.code && !isDeletedProfile(profile));
+
+  // The "Other worlds" panel: other worlds' profiles, one line per world in
+  // the dock's world order; a profile no world uses goes last under "More".
+  function groupOtherProfiles(profiles, worlds, currentKey) {
+    const list = liveProfiles(profiles);
+    const lines = [];
+    for (const world of Array.isArray(worlds) ? worlds : []) {
+      if (!world || world.key === currentKey) continue;
+      const own = list.filter((profile) => (profile.worlds || []).includes(world.key));
+      if (own.length) lines.push({ key: world.key, name: world.name || world.key, profiles: own });
+    }
+    const placed = new Set(lines.flatMap((line) => line.profiles));
+    const loose = list.filter((profile) => !placed.has(profile) && !(profile.worlds || []).includes(currentKey));
+    if (loose.length) lines.push({ key: "", name: "More", profiles: loose });
+    return lines;
+  }
+
   // Splits profiles into the pinned (in pin order) and the rest (in their
   // own order). With no pin matching, every profile is main.
   function orderProfiles(profiles, pins) {
@@ -408,6 +430,9 @@
   globalScope.SaveToGalleryMoodboardDock = {
     groupBoards,
     orderProfiles,
+    isDeletedProfile,
+    liveProfiles,
+    groupOtherProfiles,
     profileKey,
     DEFAULT_PROFILE_PINS,
     setProfileFlag,
@@ -437,6 +462,9 @@
     worldKey: "",
     moodboards: [],
     profiles: [],
+    // Every other world's profiles, for the "Other worlds" panel.
+    otherProfiles: [],
+    othersOpen: false,
     // The board and profiles picked last, per world: every new prompt gets them.
     sticky: {},
     signature: "",
@@ -469,6 +497,9 @@
   let profileStrip = null;
   let boardRow = null;
   let profileRow = null;
+  let othersBox = null;
+  // The last answer per world: a world switch shows it at once, then refreshes.
+  const worldCache = new Map();
   let statusLine = null;
   let packs = null;
   let presetBox = null;
@@ -835,18 +866,25 @@
     state.error = "";
     state.worlds = Array.isArray(res.worlds) ? res.worlds : state.worlds;
     state.worldKey = res.world?.key || key;
+    worldCache.set(state.worldKey, res);
+    applyResponse(res);
+  }
+
+  function applyResponse(res) {
     const next = Array.isArray(res.moodboards) ? res.moodboards : [];
-    const profiles = Array.isArray(res.profiles) ? res.profiles : [];
+    const profiles = liveProfiles(res.profiles);
+    const others = liveProfiles(res.otherProfiles);
     const galleryPresets = Array.isArray(res.galleryPresets) ? res.galleryPresets : [];
     if (JSON.stringify(galleryPresets) !== JSON.stringify(state.galleryPresets)) {
       state.galleryPresets = galleryPresets;
       renderPresets();
     }
-    const signature = JSON.stringify([state.worldKey, next, profiles]);
+    const signature = JSON.stringify([state.worldKey, next, profiles, others]);
     if (signature !== state.signature) {
       state.signature = signature;
       state.moodboards = next;
       state.profiles = profiles;
+      state.otherProfiles = others;
     }
     render();
   }
@@ -855,8 +893,10 @@
     if (Date.now() - state.fetchedAt > REFRESH_INTERVAL_MS) refresh();
   }
 
+  // The world's profiles and the other worlds' ones: a profile picked from
+  // another world is remembered for the next prompt like the world's own.
   function profileCodes() {
-    return state.profiles.map((profile) => profile.code);
+    return [...state.profiles, ...state.otherProfiles].map((profile) => profile.code);
   }
 
   // What every next prompt starts with: the board and profiles picked last,
@@ -970,7 +1010,7 @@
       chip.classList.toggle("stg-mb-chip--armed", !on && sticky.includes(chip.dataset.code));
       chip.setAttribute("aria-pressed", on ? "true" : "false");
     }
-    for (const chip of profileStrip.querySelectorAll(".stg-mb-pchip")) {
+    for (const chip of [...profileStrip.querySelectorAll(".stg-mb-pchip"), ...othersBox.querySelectorAll(".stg-mb-pchip")]) {
       const on = codes.includes(chip.dataset.code);
       chip.classList.toggle("stg-mb-pchip--on", on);
       chip.classList.toggle("stg-mb-pchip--armed", !on && sticky.includes(chip.dataset.code));
@@ -1433,13 +1473,20 @@
     } catch {
       // storage unavailable after an extension reload
     }
-    state.loading = true;
-    state.moodboards = [];
-    state.profiles = [];
-    state.signature = "";
     state.presets = [];
     state.pins = null;
-    render();
+    const cached = worldCache.get(key);
+    if (cached) {
+      state.loading = false;
+      applyResponse(cached);
+    } else {
+      state.loading = true;
+      state.moodboards = [];
+      state.profiles = [];
+      state.otherProfiles = [];
+      state.signature = "";
+      render();
+    }
     renderPresets();
     loadPresets();
     refresh();
@@ -1631,7 +1678,7 @@
     packs?.setEnabled(worldHasPacks(state.worldKey));
 
     const pins = pinsFor();
-    const signature = `${state.signature}|${pins.join(",")}`;
+    const signature = `${state.signature}|${pins.join(",")}|${state.othersOpen ? 1 : 0}|${state.worlds.map((world) => world.key).join(",")}`;
     if (strip.dataset.signature !== signature) {
       strip.dataset.signature = signature;
       strip.textContent = "";
@@ -1652,9 +1699,10 @@
         for (const profile of more) rest.appendChild(profileChip(profile, false, true));
         profileStrip.appendChild(rest);
       }
+      renderOthers();
     }
     boardRow.hidden = !message;
-    profileRow.hidden = !state.profiles.length;
+    profileRow.hidden = !state.profiles.length && !state.otherProfiles.length;
     syncActive();
     syncKeyBadges();
   }
@@ -1685,14 +1733,61 @@
     return chip;
   }
 
-  function profileChip(profile, pinned, quiet) {
+  // "Other worlds": a toggle at the end of the profile row opens one line per
+  // world with its profiles. A chip adds that profile to this prompt (the
+  // dock stays on its world); the world's name opens that world in the dock.
+  function renderOthers() {
+    othersBox.textContent = "";
+    const lines = groupOtherProfiles(state.otherProfiles, dockWorlds(), state.worldKey);
+    if (!lines.length) {
+      othersBox.hidden = true;
+      return;
+    }
+    const toggle = el("button", `stg-mb-others-toggle${state.othersOpen ? " stg-mb-others-toggle--open" : ""}`, state.othersOpen ? "Other worlds ▴" : `Other worlds ▾`);
+    toggle.type = "button";
+    toggle.title = "Profiles of the other worlds";
+    toggle.setAttribute("aria-expanded", state.othersOpen ? "true" : "false");
+    toggle.addEventListener("mousedown", (event) => event.preventDefault());
+    toggle.addEventListener("click", () => {
+      state.othersOpen = !state.othersOpen;
+      try {
+        chrome.storage.local.set({ [OTHERS_STORAGE_KEY]: state.othersOpen });
+      } catch {
+        // storage unavailable after an extension reload
+      }
+      render();
+      queueLayout();
+    });
+    profileStrip.appendChild(toggle);
+    othersBox.hidden = !state.othersOpen;
+    if (!state.othersOpen) return;
+    for (const line of lines) {
+      const row = el("div", "stg-mb-row stg-mb-row--others");
+      const label = el(line.key ? "button" : "span", line.key ? "stg-mb-label stg-mb-others-world" : "stg-mb-label", worldLabel(line.name));
+      if (line.key) {
+        label.type = "button";
+        label.title = `Open ${line.name} in the dock`;
+        label.addEventListener("mousedown", (event) => event.preventDefault());
+        label.addEventListener("click", () => {
+          setWorld(line.key);
+          showNote(line.name);
+        });
+      }
+      const chips = el("div", "stg-mb-chips");
+      for (const profile of line.profiles) chips.appendChild(profileChip(profile, false, false, true));
+      row.append(label, chips);
+      othersBox.appendChild(row);
+    }
+  }
+
+  function profileChip(profile, pinned, quiet, foreign) {
     const chip = el("button", quiet ? "stg-mb-pchip stg-mb-pchip--more" : "stg-mb-pchip", profile.name);
     chip.type = "button";
     chip.dataset.code = profile.code;
-    const hint = pinned ? "Shift-click: move to more" : quiet ? "Shift-click: move to main" : "Shift-click: pin first";
+    const hint = foreign ? "" : pinned ? "Shift-click: move to more" : quiet ? "Shift-click: move to main" : "Shift-click: pin first";
     chip.title = [profile.name, profile.role, profile.flag, hint].filter(Boolean).join("\n");
     chip.addEventListener("mousedown", (event) => event.preventDefault());
-    chip.addEventListener("click", (event) => (event.shiftKey ? togglePin(profile) : onProfileClick(profile)));
+    chip.addEventListener("click", (event) => (event.shiftKey && !foreign ? togglePin(profile) : onProfileClick(profile)));
     chip.addEventListener("mouseenter", () => showProfileCard(profile, chip));
     chip.addEventListener("focus", () => showProfileCard(profile, chip));
     chip.addEventListener("mouseleave", hideSnapshot);
@@ -1753,6 +1848,8 @@
     profileRow = el("div", "stg-mb-row stg-mb-row--profiles");
     profileRow.hidden = true;
     profileRow.append(el("span", "stg-mb-label", "Profiles"), profileStrip);
+    othersBox = el("div", "stg-mb-others");
+    othersBox.hidden = true;
 
     // Second line, smaller: world, presets, Save, the flag, Packs (closed).
     const meta = el("div", "stg-mb-row stg-mb-row--meta");
@@ -1791,7 +1888,7 @@
     snapshot.dataset.stgInstance = INSTANCE;
     snapshot.hidden = true;
     snapshot.setAttribute("role", "tooltip");
-    dock.append(boardRow, strip, profileRow, meta);
+    dock.append(boardRow, strip, profileRow, othersBox, meta);
     if (packs) dock.appendChild(packs.section);
     dock.appendChild(snapshot);
     dock.appendChild(worldMenu);
@@ -1905,8 +2002,9 @@
   function start() {
     hideOlderCopies();
     try {
-      chrome.storage.local.get([WORLD_STORAGE_KEY, STICKY_STORAGE_KEY], (stored) => {
+      chrome.storage.local.get([WORLD_STORAGE_KEY, STICKY_STORAGE_KEY, OTHERS_STORAGE_KEY], (stored) => {
         state.worldKey = String(stored?.[WORLD_STORAGE_KEY] || "");
+        state.othersOpen = stored?.[OTHERS_STORAGE_KEY] === true;
         const sticky = stored?.[STICKY_STORAGE_KEY];
         state.sticky = sticky && typeof sticky === "object" ? sticky : {};
         refresh().then(loadPresets);

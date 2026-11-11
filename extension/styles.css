@@ -2426,6 +2426,68 @@ html.stg-x-capturing .stg-badge {
   border-left: 0;
 }
 
+/* "Other worlds": the toggle ends the profile row; open, one line per world
+   with its profiles. The world's name opens that world in the dock. */
+.stg-mb-others-toggle {
+  flex: none;
+  height: 24px;
+  margin: 0 0 0 4px;
+  padding: 0 8px;
+  color: rgba(255, 244, 234, 0.6);
+  background: transparent;
+  border: 1px dashed rgba(255, 244, 234, 0.2);
+  border-radius: 6px;
+  font: 600 10px/22px "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.stg-mb-others-toggle:hover,
+.stg-mb-others-toggle--open {
+  color: #fff4ea;
+  border-color: rgba(121, 183, 145, 0.55);
+}
+
+.stg-mb-others {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 2px 0 0;
+}
+
+.stg-mb-others[hidden] {
+  display: none;
+}
+
+.stg-mb-row--others {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.stg-mb-row--others > .stg-mb-label {
+  flex: 0 0 78px;
+  line-height: 24px;
+}
+
+.stg-mb-others-world {
+  margin: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.stg-mb-others-world:hover {
+  color: #f26157;
+  background: rgba(242, 97, 87, 0.08);
+}
+
 .stg-mb-worldbox {
   display: flex;
   flex: none;
