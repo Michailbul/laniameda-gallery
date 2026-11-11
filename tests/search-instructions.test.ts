@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import {
   readSearchInstructions,
   searchInstructionsKey,
+  searchOnlyFilters,
+  searchPieceFilter,
   searchRequestFromKey,
   searchWordsMatcher,
   splitSearchSteps,
@@ -72,6 +74,46 @@ describe("a thread of steps", () => {
       phrasings: ["female characters in armor"],
     });
     expect(readSearchInstructions(["female characters in armor"], FOLDERS).pieceType).toBeUndefined();
+  });
+
+  test("a filter word alone browses everything it marks", () => {
+    const read = readSearchInstructions(["animation"], FOLDERS);
+    expect(read).toMatchObject({ phrasings: [], medium: "animation" });
+    expect(read.steps).toEqual([{ kind: "filter", label: "Animation" }]);
+    const { steps: _steps, ...request } = read;
+    expect(searchOnlyFilters(request)).toBeTrue();
+    const keep = searchPieceFilter(request);
+    // No word of its own: any text passes, the tag decides.
+    expect(keep({ kind: "image", tagNames: ["Animation", "scene"] }, "a painted street")).toBeTrue();
+    expect(keep({ kind: "image", tagNames: ["live-action"] }, "a post about animation")).toBeFalse();
+    expect(keep({ kind: "image", tagNames: [] }, "an X post about animation")).toBeFalse();
+    const { steps: _plain, ...plain } = readSearchInstructions(["knight"], FOLDERS);
+    expect(searchOnlyFilters(plain)).toBeFalse();
+  });
+
+  test("a word the tagger answers rules out what it marked as the opposite", () => {
+    expect(readSearchInstructions(["dark interiors"], FOLDERS)).toMatchObject({
+      phrasings: ["dark interiors"], excludeTags: ["exterior"],
+    });
+    expect(readSearchInstructions(["city street at night", "close up"], FOLDERS)).toMatchObject({
+      phrasings: ["city street at night, close up"], excludeTags: ["day", "golden-hour", "wide-shot"],
+    });
+    // Either of two things: nothing is ruled out.
+    expect(readSearchInstructions(["interiors / city street"], FOLDERS).excludeTags).toBeUndefined();
+    // Left out by name: the tag goes too.
+    expect(readSearchInstructions(["street", "no interiors"], FOLDERS)).toMatchObject({
+      exclude: ["interiors"], excludeTags: ["interior"],
+    });
+    const { steps: _steps, ...request } = readSearchInstructions(["interiors", "locations", "liked"], FOLDERS);
+    const keep = searchPieceFilter(request);
+    const text = "A brass-lit interior hall";
+    expect(keep({ kind: "image", isLiked: true, tagNames: ["location", "interior"] }, text)).toBeTrue();
+    // The tagger could not judge inside or out: the piece stays.
+    expect(keep({ kind: "image", isLiked: true, tagNames: ["Locations"] }, text)).toBeTrue();
+    expect(keep({ kind: "image", isLiked: true, tagNames: ["location", "exterior"] }, text)).toBeFalse();
+    expect(keep({ kind: "image", isLiked: false, tagNames: ["location"] }, text)).toBeFalse();
+    expect(keep({ kind: "image", isLiked: true, tagNames: ["character"] }, text)).toBeFalse();
+    expect(keep({ kind: "image", isLiked: true, tagNames: ["location"] }, "A garden")).toBeFalse();
   });
 
   test("leaving out several things, in any wording", () => {

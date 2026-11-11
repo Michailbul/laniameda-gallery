@@ -27,6 +27,9 @@ export type SearchInstructions = {
   pieceType?: SearchPieceType;
   medium?: "animation" | "live-action";
   onlyLiked?: boolean;
+  // Tags that rule a piece out. "interiors" rules out what the tagger marked
+  // exterior; a piece it could not judge stays in and ranks by its words.
+  excludeTags?: string[];
   // One reading per step, in order.
   steps: SearchStepReading[];
 };
@@ -64,6 +67,26 @@ const NEGATED_FILTERS: Array<{ phrases: string[]; filter: Filter; label: string 
   { phrases: ["animation", "animated"], filter: { medium: "live-action" }, label: "Live action" },
   { phrases: ["live action"], filter: { medium: "animation" }, label: "Animation" },
 ];
+
+// Words the gallery's tagger answers for every picture (lib/facet-tags.ts):
+// inside or out, the light, how close the camera is. About half the pictures
+// carry a tag in each of these slots, so the word stays a search word and the
+// tags only rule out pieces known to be something else.
+const FACET_WORDS: Array<{ phrases: string[]; tag: string; ruledOut: string[] }> = [
+  { phrases: ["interior", "interiors", "indoor", "indoors"], tag: "interior", ruledOut: ["exterior"] },
+  { phrases: ["exterior", "exteriors", "outdoor", "outdoors", "outside"], tag: "exterior", ruledOut: ["interior"] },
+  { phrases: ["night", "nighttime", "at night"], tag: "night", ruledOut: ["day", "golden-hour"] },
+  { phrases: ["daytime", "daylight"], tag: "day", ruledOut: ["night", "dusk"] },
+  { phrases: ["dusk", "twilight", "blue hour"], tag: "dusk", ruledOut: ["day"] },
+  { phrases: ["golden hour", "sunset", "sunrise"], tag: "golden-hour", ruledOut: ["night"] },
+  { phrases: ["close up", "closeup", "closeups", "close ups"], tag: "close-up", ruledOut: ["wide-shot"] },
+  { phrases: ["wide shot", "wide shots", "establishing shot"], tag: "wide-shot", ruledOut: ["close-up", "macro"] },
+  { phrases: ["macro"], tag: "macro", ruledOut: ["wide-shot"] },
+];
+const facetsIn = (tokens: string[]) => {
+  const text = ` ${tokens.join(" ")} `;
+  return FACET_WORDS.filter((facet) => facet.phrases.some((phrase) => text.includes(` ${phrase} `)));
+};
 
 const findFilter = (table: typeof FILTER_PHRASES, tokens: string[]) => {
   const phrase = tokens.filter((token) => !FILLER.has(token)).join(" ");
@@ -156,6 +179,7 @@ export const readSearchInstructions = (
   const aliases = folderAliases(folders);
   const readings: SearchStepReading[] = [];
   const exclude: string[] = [];
+  const excludeTags = new Set<string>();
   const filter: Filter = {};
   // Plain words every phrasing carries, and the newest "a / b" choice.
   const words: Array<{ text: string } | { choice: string[] }> = [];
@@ -177,6 +201,8 @@ export const readSearchInstructions = (
         } else {
           exclude.push(phrase.toLowerCase());
           labels.push(`no ${phrase.toLowerCase()}`);
+          // "no interiors": the tag itself is out, not only the word.
+          for (const facet of facetsIn(tokensOf(phrase))) excludeTags.add(facet.tag);
         }
       }
       readings.push({
@@ -202,6 +228,10 @@ export const readSearchInstructions = (
     }
 
     const choice = clause.split(ALTERNATIVES).map((part) => part.trim()).filter(Boolean);
+    // "interiors / city street" asks for either, so it rules nothing out.
+    if (choice.length === 1) {
+      for (const facet of facetsIn(tokens)) facet.ruledOut.forEach((tag) => excludeTags.add(tag));
+    }
     words.push(choice.length > 1 ? { choice } : { text: clause });
     readings.push({ kind: "words", label: choice.length > 1 ? choice.join(" / ") : clause });
   }
@@ -226,6 +256,7 @@ export const readSearchInstructions = (
     exclude: [...new Set(exclude)].slice(0, MAX_SEARCH_EXCLUDED),
     ...(folderIds ? { folderIds, folderName: place!.name } : {}),
     ...filter,
+    ...(excludeTags.size > 0 ? { excludeTags: [...excludeTags] } : {}),
     steps: readings,
   };
 };
@@ -244,6 +275,7 @@ export const searchInstructionsKey = (instructions: SearchInstructions) => {
     pieceType: instructions.pieceType ?? null,
     medium: instructions.medium ?? null,
     onlyLiked: instructions.onlyLiked ?? null,
+    excludeTags: instructions.excludeTags ?? null,
   };
   return JSON.stringify(request);
 };
@@ -258,11 +290,63 @@ export const searchRequestFromKey = (key: string): SearchRequest => {
 
 /**
  * Keyword test for the pieces that follow the ranked results: the text holds
- * every word of one phrasing and names nothing the search leaves out.
+ * every word of one phrasing and names nothing the search leaves out. A
+ * search with no words of its own ("only videos") lets every text through.
  */
 export const searchWordsMatcher = (instructions: Pick<SearchInstructions, "phrasings" | "exclude">) => {
   const wanted = instructions.phrasings.map((phrasing) => galleryWordMatcher(phrasing));
   const unwanted = instructions.exclude.map((phrase) => galleryWordMatcher(phrase));
   return (text: string) =>
-    wanted.some((matches) => matches(text)) && !unwanted.some((matches) => matches(text));
+    (wanted.length === 0 || wanted.some((matches) => matches(text))) &&
+    !unwanted.some((matches) => matches(text));
 };
+
+// The same folding the backend uses for tag names (convex/helpers.ts).
+const tagKey = (name: string) =>
+  name.trim().toLowerCase().replace(/^#+/, "").replace(/[_-]+/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+// convex/tagFilters.ts: plural and "still" spellings count.
+const PIECE_TYPE_TAGS: Record<SearchPieceType, string[]> = {
+  character: ["character", "characters"],
+  location: ["location", "locations"],
+  scene: ["scene", "scenes", "still", "stills"],
+  inspiration: ["inspiration", "inspirations"],
+};
+
+export type SearchablePiece = {
+  kind: "image" | "video";
+  isLiked?: boolean;
+  folderIds?: string[];
+  tagNames?: string[];
+};
+
+/**
+ * The whole request as a test on one loaded piece and its searchable text:
+ * the filters the backend applies, plus the keyword test. The grid uses it
+ * for the pieces it reads past the ranked results, and for a search that only
+ * filters.
+ */
+export const searchPieceFilter = (instructions: SearchRequest) => {
+  const hasWords = searchWordsMatcher(instructions);
+  const folders = instructions.folderIds ? new Set(instructions.folderIds) : null;
+  const pieceTags = instructions.pieceType ? PIECE_TYPE_TAGS[instructions.pieceType] : null;
+  const ruledOut = (instructions.excludeTags ?? []).map(tagKey);
+  return (piece: SearchablePiece, text: string) => {
+    if (instructions.kind && piece.kind !== instructions.kind) return false;
+    if (instructions.onlyLiked && piece.isLiked !== true) return false;
+    if (folders && !(piece.folderIds ?? []).some((id) => folders.has(String(id)))) return false;
+    const tags = new Set((piece.tagNames ?? []).map(tagKey));
+    if (pieceTags && !pieceTags.some((tag) => tags.has(tag))) return false;
+    if (instructions.medium && (instructions.medium === "animation") !== tags.has("animation")) return false;
+    if (ruledOut.some((tag) => tags.has(tag))) return false;
+    return hasWords(text);
+  };
+};
+
+/** True when the search only filters: nothing to rank, so the grid browses. */
+export const searchOnlyFilters = (instructions: SearchRequest) =>
+  instructions.phrasings.length === 0 &&
+  Boolean(
+    instructions.kind || instructions.pieceType || instructions.medium || instructions.onlyLiked ||
+    instructions.exclude.length > 0 || instructions.excludeTags?.length,
+  );
