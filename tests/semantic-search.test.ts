@@ -145,7 +145,7 @@ describe("semantic search actions", () => {
   test("hybrid shares one unique identity lookup and preserves lane scores and rank fusion", async () => {
     const identityRequests: string[][] = [];
     const ctx = {
-      vectorSearch: async (_table: string, index: string) => index === "by_embedding" ? [
+      vectorSearch: async (_table: string, index: string) => index === "by_pixel_embedding" ? [
         { _id: "semanticDocuments:video", _score: 0.99 },
         { _id: "semanticDocuments:a", _score: 0.9 },
         { _id: "semanticDocuments:b", _score: 0.85 },

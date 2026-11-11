@@ -14,7 +14,7 @@ const makeCtx = (foreign = new Set<string>()) => {
   const ctx = {
     vectorSearch: async (_table: string, index: string, options: { limit: number }) => {
       vectorTakes.push(options.limit);
-      if (index !== "by_embedding") return [];
+      if (index !== "by_pixel_embedding") return [];
       return Array.from({ length: 150 }, (_, i) => ({
         _id: assetId(i).replace("assets:", "semanticDocuments:"),
         _score: i < 20 ? 0.4 - i * 0.001 : 0.3 - i * 0.001,

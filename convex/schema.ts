@@ -1309,7 +1309,9 @@ export default defineSchema({
     .index("by_prompt", ["promptId"])
     .index("by_designInspiration", ["designInspirationId"])
     .searchIndex("search_text", { searchField: "searchText" })
-    .vectorIndex("by_embedding", {
+    // Named by_embedding until 11 Nov 2026. The rename rebuilt the index: the
+    // old one kept serving text vectors that had been removed from the rows.
+    .vectorIndex("by_pixel_embedding", {
       vectorField: "embedding",
       dimensions: 3072,
       filterFields: [

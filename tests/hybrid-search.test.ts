@@ -117,12 +117,12 @@ describe("hybrid searchAssets", () => {
 
   const makeCtx = (
     indexes: string[],
-    lanes: Partial<Record<"by_embedding" | "by_text_embedding", Array<{ _id: string; _score: number }>>> = {},
+    lanes: Partial<Record<"by_pixel_embedding" | "by_text_embedding", Array<{ _id: string; _score: number }>>> = {},
   ) => ({
-    vectorSearch: async (_table: string, index: "by_embedding" | "by_text_embedding") => {
+    vectorSearch: async (_table: string, index: "by_pixel_embedding" | "by_text_embedding") => {
       indexes.push(index);
       if (lanes[index]) return lanes[index];
-      return index === "by_embedding"
+      return index === "by_pixel_embedding"
         ? [
             { _id: "semanticDocuments:a", _score: 0.4 },
             { _id: "semanticDocuments:b", _score: 0.39 },
@@ -165,7 +165,7 @@ describe("hybrid searchAssets", () => {
       query: "clay character",
       limit: 10,
     });
-    expect(indexes.sort()).toEqual(["by_embedding", "by_text_embedding"]);
+    expect(indexes.sort()).toEqual(["by_pixel_embedding", "by_text_embedding"]);
     // b is in both lanes (visual 0.39 within 0.85 of 0.4; text 0.6 within 0.75
     // of 0.8); c misses the visual cutoff, so it counts in one lane only.
     expect(results[0]?._id).toBe("assets:b");
@@ -207,7 +207,7 @@ describe("hybrid searchAssets", () => {
       query: "clay character",
       mode: "visual",
     });
-    expect(indexes).toEqual(["by_embedding"]);
+    expect(indexes).toEqual(["by_pixel_embedding"]);
   });
 
   test("filters apply after fusion and switch the score cutoff off", async () => {

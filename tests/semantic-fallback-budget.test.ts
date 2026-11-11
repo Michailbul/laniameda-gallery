@@ -47,8 +47,8 @@ describe("semantic legacy fallback query budgets", () => {
     const split = Math.ceil(count / 2);
     const ctx = {
       vectorSearch: async (_table: string, lane: string) => (
-        lane === "by_embedding" ? ids.slice(0, split) : ids.slice(split)
-      ).map((_id, index) => ({ _id, _score: (lane === "by_embedding" ? 0.99 : 0.9) - index / 1000 })),
+        lane === "by_pixel_embedding" ? ids.slice(0, split) : ids.slice(split)
+      ).map((_id, index) => ({ _id, _score: (lane === "by_pixel_embedding" ? 0.99 : 0.9) - index / 1000 })),
       runQuery: async (ref: Parameters<typeof getFunctionName>[0], args: {
         ids?: string[]; metadataOnly?: boolean; queryHash?: string;
         items?: Array<{ assetId: string; score: number }>;

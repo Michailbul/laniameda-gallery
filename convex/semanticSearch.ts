@@ -628,7 +628,7 @@ const runLane = async (
   const options = { vector, limit: take, filter: filter as never };
   const hits = storage === "split"
     ? await ctx.vectorSearch(lane === "visual" ? "semanticPixelVectors" : "semanticTextVectors", "by_embedding", options)
-    : await ctx.vectorSearch("semanticDocuments", lane === "visual" ? "by_embedding" : "by_text_embedding", options);
+    : await ctx.vectorSearch("semanticDocuments", lane === "visual" ? "by_pixel_embedding" : "by_text_embedding", options);
   if (trace) trace.vectorHits += hits.length;
   return hits;
 };
@@ -1311,6 +1311,41 @@ export const searchSkills = ownerAction({
       }
     }
     return results.slice(0, limit);
+  },
+});
+
+// What each lane returns for a query before anything is dropped: every raw
+// vector hit with its score and what it resolved to. For diagnosing a search
+// from a trusted machine (`bunx convex run semanticSearch:inspectLanes`);
+// reads slim identity rows only.
+export const inspectLanes = internalAction({
+  args: { ownerUserId: v.string(), query: v.string() },
+  returns: v.record(v.string(), v.array(v.object({
+    score: v.number(),
+    resolvedAs: v.string(),
+    assetId: v.optional(v.id("assets")),
+  }))),
+  handler: async (ctx, args) => {
+    const storage = readStorage();
+    const spec: ScopeSpec = { scope: "mine", ownerCandidates: resolveScope("mine", args.ownerUserId) };
+    const vectors = await embedQueryLanes(ctx, args.query.trim(), "hybrid", storage);
+    const resolved = new Map<string, ResolvedHit | null>();
+    const out: Record<string, Array<{ score: number; resolvedAs: string; assetId?: Id<"assets"> }>> = {};
+    for (const lane of ["visual", "text"] as const) {
+      const vector = vectors[lane];
+      if (!vector) continue;
+      const hits = await runLane(ctx, storage, lane, vector, WIDEN_TAKE, spec);
+      await resolveHits(ctx, storage, { [lane]: hits }, resolved);
+      out[lane] = hits.map((hit) => {
+        const doc = resolved.get(hit._id);
+        return {
+          score: hit._score,
+          resolvedAs: !doc ? "unresolved" : doc.assetId ? doc.modality : doc.skillId ? "skill" : "other",
+          ...(doc?.assetId ? { assetId: doc.assetId } : {}),
+        };
+      });
+    }
+    return out;
   },
 });
 
