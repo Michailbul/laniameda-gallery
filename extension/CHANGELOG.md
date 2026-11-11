@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.33.1 (11 Nov 2026)
+
+- MJ Queue: your own clicks are never held back. Next · Send and the card
+  Send buttons no longer stop at 30 jobs in the last hour or wait while two
+  jobs are still running. Those limits are for agents and scripts that send
+  by themselves. The counter still shows the account's jobs in the last hour,
+  and from 150 on it shows a heads-up without blocking.
+
 ## 0.33.0 (11 Nov 2026)
 
 - The writer can run on your own Mac. Grow, quick edit (⌥E) and Make it ours
