@@ -8,6 +8,17 @@ Last updated: 2026-11-11
 
 ## ✔ Shipped
 
+### 2026-11-11 — Shuffle is random, and draws from the whole vault (branch `fix/shuffle-with-filters`, backend pushed 11 Nov 14:41)
+- The shuffle seed counted up from 1 on every page load, so each visit
+  replayed the same orders (first press always the same grid, second press
+  the same second grid), which read as "shuffle does not reshuffle". Each
+  press now takes a random seed.
+- Every deal also mixed the same window: the newest 600 pieces that match.
+  `assets:listGalleryAssets` takes `sampleAt` (0–1): the window starts that
+  far back in the owner's timeline and carries on from the newest piece when
+  it runs out. The grid sends a new value on each SHUFFLE press. Ignored
+  inside a collection, where the whole collection is read anyway.
+
 ### 2026-11-11 — "no cars" is checked against the pictures themselves (branch `feat/search-judge`, backend pushed 11 Nov 14:23)
 - Embeddings rank by likeness and never say "no": a street with a small car
   nobody described still came back for "city street, no cars". For a search

@@ -2318,6 +2318,12 @@ export const listGalleryAssets = ownerQuery({
     // gallery. Ignored when folderId is set — opening a hidden collection
     // still shows it. Agents leave it off and see everything.
     skipHiddenCollections: v.optional(v.boolean()),
+    // 0–1: start the newest-first window this far back in the owner's
+    // timeline (0 = now, 1 = the first piece saved). The grid's SHUFFLE sends
+    // a new value each deal, so it draws from the whole vault and not always
+    // from the newest pieces. A window that runs out before `limit` carries
+    // on from the newest piece. Ignored inside a collection.
+    sampleAt: v.optional(v.number()),
     limit: v.optional(v.number()),
   },
   returns: v.array(galleryAssetResultValidator),
@@ -2505,9 +2511,25 @@ export const listGalleryAssets = ownerQuery({
       budget.spend(fetched);
       return { rows: assets, full: false, nextBefore: 0 };
     };
+    // Where a sampled window starts: `sampleAt` of the way back from now to
+    // the owner's first piece.
+    const sampleStart = async () => {
+      const fraction = Math.min(Math.max(args.sampleAt ?? 0, 0), 1);
+      if (fraction === 0 || args.folderId) return null;
+      budget.spend(ownerUserIds.length);
+      const firstPieces = await Promise.all(ownerUserIds.map((ownerCandidate) =>
+        ctx.db.query("assets")
+          .withIndex("by_owner_createdAt", (q) => q.eq("ownerUserId", ownerCandidate).gte("createdAt", 0))
+          .order("asc")
+          .first()));
+      const oldest = Math.min(...firstPieces.flatMap((asset) => (asset ? [asset.createdAt] : [])));
+      const now = Date.now();
+      return Number.isFinite(oldest) && oldest < now ? Math.round(now - fraction * (now - oldest)) : null;
+    };
+    const sampledFrom = await sampleStart();
     const firstBatch = args.folderId
       ? await readFolderBatch(args.folderId)
-      : await readOwnerBatch(Number.MAX_SAFE_INTEGER);
+      : await readOwnerBatch(sampledFrom ?? Number.MAX_SAFE_INTEGER);
 
     const seenAssetIds = new Set<Id<"assets">>();
     // Dedupe, order and filter one batch; returns candidates in grid order.
@@ -2571,35 +2593,42 @@ export const listGalleryAssets = ownerQuery({
     const scanOlderBatches = Boolean(
       hiddenFolderIds || (!scopedToSet && hasPostQueryFilters),
     );
-    let batch = firstBatch;
     let scanned = 0;
     let selectedAssets: Doc<"assets">[] = [];
-    for (;;) {
-      scanned += batch.rows.length;
-      const candidates = await selectFromBatch(batch.rows);
-      selectedAssets.push(
-        ...(await dropHiddenCollectionMembers(
-          ctx,
-          candidates,
-          hiddenFolderIds,
-          limit - selectedAssets.length,
-          budget.admit,
-        )),
-      );
-      if (
-        !scanOlderBatches ||
-        selectedAssets.length >= limit ||
-        !batch.full ||
-        scanned >= HIDDEN_SCAN_BUDGET ||
-        budget.exhausted()
-      ) {
-        break;
+    const scanFrom = async (first: typeof firstBatch) => {
+      let batch = first;
+      for (;;) {
+        scanned += batch.rows.length;
+        const candidates = await selectFromBatch(batch.rows);
+        selectedAssets.push(
+          ...(await dropHiddenCollectionMembers(
+            ctx,
+            candidates,
+            hiddenFolderIds,
+            limit - selectedAssets.length,
+            budget.admit,
+          )),
+        );
+        if (
+          !scanOlderBatches ||
+          selectedAssets.length >= limit ||
+          !batch.full ||
+          scanned >= HIDDEN_SCAN_BUDGET ||
+          budget.exhausted()
+        ) {
+          return;
+        }
+        const next = await readOwnerBatch(batch.nextBefore);
+        if (next.rows.every((asset) => seenAssetIds.has(asset._id))) {
+          return;
+        }
+        batch = next;
       }
-      const next = await readOwnerBatch(batch.nextBefore);
-      if (next.rows.every((asset) => seenAssetIds.has(asset._id))) {
-        break;
-      }
-      batch = next;
+    };
+    await scanFrom(firstBatch);
+    // A sampled window that ran out of older pieces carries on from the top.
+    if (sampledFrom !== null && selectedAssets.length < limit && !budget.exhausted()) {
+      await scanFrom(await readOwnerBatch(Number.MAX_SAFE_INTEGER));
     }
     // The pieces shown are hydrated; what the budget cannot pay for is left
     // out, newest pieces first.
