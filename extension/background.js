@@ -1241,10 +1241,94 @@ async function mjQueueRequest(message) {
   return data;
 }
 
+// ── The local writer ──
+// Every writer call (quick edit, Make it ours, Grow) can run on this Mac
+// instead of a paid provider: the laniameda writer bridge (extension-writer/
+// in the repo, a LaunchAgent on 127.0.0.1) runs `claude -p` on Haiku 5.5 or
+// Sonnet 5.5. The gallery still builds the messages and reads the answer:
+// stage "messages" fetches them, the bridge writes, stage "finish" hands the
+// raw answer back. Mode "auto" (default) uses the bridge when it answers and
+// the gallery's providers when it does not.
+const WRITER_BRIDGE = "http://127.0.0.1:47615";
+const WRITER_KEYS = { mode: "writerMode", model: "writerModel" };
+let writerSeen = { at: 0, up: false };
+
+async function writerSettings() {
+  const stored = await chrome.storage.sync.get([WRITER_KEYS.mode, WRITER_KEYS.model]).catch(() => ({}));
+  return {
+    mode: ["local", "cloud"].includes(stored?.[WRITER_KEYS.mode]) ? stored[WRITER_KEYS.mode] : "auto",
+    model: stored?.[WRITER_KEYS.model] === "sonnet" ? "sonnet" : "haiku",
+  };
+}
+
+async function writerBridgeUp(fresh = false) {
+  if (!fresh && Date.now() - writerSeen.at < 20_000) return writerSeen.up;
+  let up = false;
+  try {
+    const response = await fetch(`${WRITER_BRIDGE}/health`, { signal: AbortSignal.timeout(900), cache: "no-store" });
+    up = response.ok && Boolean((await response.json().catch(() => null))?.ok);
+  } catch {
+    up = false;
+  }
+  writerSeen = { at: Date.now(), up };
+  return up;
+}
+
+async function writerBridgeWrite(messages, maxTokens, model) {
+  try {
+    const response = await fetch(`${WRITER_BRIDGE}/v1/write`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages, maxTokens, model }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.ok) return { ok: false, error: data?.error || `the bridge answered ${response.status}` };
+    return data;
+  } catch (err) {
+    writerSeen = { at: 0, up: false };
+    return { ok: false, error: err?.name === "TimeoutError" ? "it took too long" : "the bridge is not answering" };
+  }
+}
+
+// One writer call: on this Mac when the bridge is up (or the mode says local),
+// else through the gallery's providers. `cloudOnly` keeps a call off the bridge
+// (quick edit on DeepSeek).
+async function writerCall(path, body, { cloudOnly = false } = {}) {
+  const post = (payload) => describeFetchJson(path, { method: "POST", body: JSON.stringify(payload) });
+  const settings = await writerSettings();
+  if (cloudOnly || settings.mode === "cloud") return post(body);
+  if (!(await writerBridgeUp())) {
+    if (settings.mode === "local") return { ok: false, error: "The local writer is not running on this Mac." };
+    return post(body);
+  }
+  const prepared = await post({ ...body, local: { stage: "messages" } });
+  if (!prepared?.ok) return prepared;
+  if (!prepared.local?.messages) return post(body); // an older gallery: no local stages yet
+  const written = await writerBridgeWrite(prepared.local.messages, prepared.local.maxTokens, settings.model);
+  if (!written.ok) {
+    if (settings.mode === "local") return { ok: false, error: `The local writer failed: ${written.error}.` };
+    const cloud = await post(body);
+    return cloud?.ok ? { ...cloud, notes: [...(cloud.notes || []), `local writer: ${written.error}`] } : { ...cloud, error: `${cloud?.error || "Could not write."} (local writer: ${written.error})` };
+  }
+  return post({ ...body, local: { stage: "finish", raw: written.text, model: written.model, ms: written.ms } });
+}
+
+// What the cards show and switch: where the writer runs and on which model.
+async function writerRequest(message) {
+  if (message.do === "set") {
+    const next = {};
+    if (["auto", "local", "cloud"].includes(message.mode)) next[WRITER_KEYS.mode] = message.mode;
+    if (["haiku", "sonnet"].includes(message.model)) next[WRITER_KEYS.model] = message.model;
+    await chrome.storage.sync.set(next).catch(() => {});
+  }
+  const [settings, up] = await Promise.all([writerSettings(), writerBridgeUp(Boolean(message.fresh))]);
+  return { ok: true, ...settings, up, local: settings.mode !== "cloud" && up };
+}
+
 // Quick edit of a Midjourney prompt (mj-quick-edit.js): the gallery runs one
 // short call on Haiku 5.5 or DeepSeek V4.1 (fal, then Pika) and returns the text.
 async function quickEditRequest(message) {
-  const config = await getConfig();
   const body = {
     prompt: String(message.prompt || ""),
     selection: message.selection ? String(message.selection) : undefined,
@@ -1252,19 +1336,7 @@ async function quickEditRequest(message) {
     system: message.system ? String(message.system) : undefined,
     model: message.model === "deepseek" ? "deepseek" : "haiku",
   };
-  let response;
-  try {
-    response = await fetch(normalizeRouteUrl(config.apiUrl, QUICK_EDIT_ROUTE_PATH), {
-      method: "POST",
-      headers: apiHeaders(config),
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    return { ok: false, error: `Network error: ${err.message}` };
-  }
-  const data = await response.json().catch(() => null);
-  if (!response.ok || !data?.ok) return { ok: false, status: response.status, error: data?.error || `HTTP ${response.status}` };
-  return data;
+  return writerCall(QUICK_EDIT_ROUTE_PATH, body, { cloudOnly: body.model === "deepseek" });
 }
 
 // ── Describer (mj-describe-core.js): a picture into our Midjourney prompt ──
@@ -1367,19 +1439,16 @@ async function describeRequest(message) {
     case "prepare":
       return prepareDescribeImage(message);
     case "run":
-      return describeFetchJson(DESCRIBE_ROUTE_PATH, {
-        method: "POST",
-        body: JSON.stringify({
-          image: message.image,
-          descriptions: Array.isArray(message.descriptions) ? message.descriptions.slice(0, 4) : undefined,
-          aspect: message.aspect || undefined,
-          width: message.width || undefined,
-          height: message.height || undefined,
-          mode: message.mode,
-          style: message.style || undefined,
-          system: message.system || undefined,
-          note: message.note || undefined,
-        }),
+      return writerCall(DESCRIBE_ROUTE_PATH, {
+        image: message.image,
+        descriptions: Array.isArray(message.descriptions) ? message.descriptions.slice(0, 4) : undefined,
+        aspect: message.aspect || undefined,
+        width: message.width || undefined,
+        height: message.height || undefined,
+        mode: message.mode,
+        style: message.style || undefined,
+        system: message.system || undefined,
+        note: message.note || undefined,
       });
     case "queue":
       return describeFetchJson(MJ_QUEUE_ROUTE_PATH, {
@@ -1415,22 +1484,21 @@ async function expandRequest(message, sender) {
     }
     case "prepare":
       return prepareDescribeImage(message);
+    case "writer":
+      return writerRequest(message);
     case "run":
-      return describeFetchJson(EXPAND_ROUTE_PATH, {
-        method: "POST",
-        body: JSON.stringify({
-          image: message.image,
-          command: message.command || undefined,
-          preset: message.preset || undefined,
-          idea: message.idea || undefined,
-          count: message.count || undefined,
-          world: message.world || undefined,
-          system: message.system || undefined,
-          keepImages: message.keepImages || undefined,
-          srefUrl: message.srefUrl || undefined,
-          width: message.width || undefined,
-          height: message.height || undefined,
-        }),
+      return writerCall(EXPAND_ROUTE_PATH, {
+        image: message.image,
+        command: message.command || undefined,
+        preset: message.preset || undefined,
+        idea: message.idea || undefined,
+        count: message.count || undefined,
+        world: message.world || undefined,
+        system: message.system || undefined,
+        keepImages: message.keepImages || undefined,
+        srefUrl: message.srefUrl || undefined,
+        width: message.width || undefined,
+        height: message.height || undefined,
       });
     case "queue":
       return describeFetchJson(MJ_QUEUE_ROUTE_PATH, {

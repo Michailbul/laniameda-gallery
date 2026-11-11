@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.33.0 (11 Nov 2026)
+
+- The writer can run on your own Mac. Grow, quick edit (⌥E) and Make it ours
+  now write through the laniameda writer bridge when it is running: a small
+  local service that runs Claude Code (`claude -p`) on Haiku 5.5 or Sonnet 5.5
+  with your Claude sign-in, so no fal or Pika credit is needed. A picture and
+  its prompt come back in about three seconds.
+- The Grow card has a switch next to the world: Haiku · Mac, Sonnet · Mac or
+  Cloud. One click changes it, and quick edit and Make it ours follow the same
+  choice. Quick edit on DeepSeek still goes through the gallery.
+- With no bridge on the machine nothing changes: the writer goes through the
+  gallery's providers as before.
+- The gallery still builds the writer's instructions and reads its answer, so
+  the Midjourney rules, the world's rule file and the kept codes are the same
+  on either path. Install the bridge once per Mac: `extension-writer/install.sh`.
+
 ## 0.32.0 (10 Nov 2026)
 
 - Grow. Point at any generated picture on midjourney.com and press ⌥X: a

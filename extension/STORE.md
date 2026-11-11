@@ -35,6 +35,7 @@ Nothing is sent anywhere except your own gallery.
 - **contextMenus:** the right-click "Save to Gallery" entries.
 - **sidePanel:** the upload desk and the Midjourney queue live in the side panel.
 - **Host permission `<all_urls>`:** the user saves media from any site they browse (references come from everywhere), and the content scripts add the save control and read prompt metadata on Midjourney, X, Pinterest, Krea, Higgsfield and ShotDeck. Data is sent only to the user's gallery.
+- **Local writer (0.33):** when the user has installed the optional laniameda writer bridge, the extension sends the writer's request (the prompt text and the chosen picture) to that service on the user's own computer at `http://127.0.0.1:47615`, covered by the host permission. Nothing is installed by the extension, and without the bridge it is never contacted beyond a health check.
 - **Remote code:** none. All scripts are in the package.
 
 ## Data disclosure (privacy tab)

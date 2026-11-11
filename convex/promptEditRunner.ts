@@ -13,6 +13,7 @@ import {
 import {
   EXPAND_LIMITS, buildExpandMessages, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
 } from "../lib/mj-expand";
+import { LOCAL_WRITER_LIMITS, localAnswer } from "../lib/local-writer";
 
 // Quick edit of a Midjourney prompt from the extension (select text in the
 // Imagine bar, ⌥E, a few words). One short chat call on a fast model: fal
@@ -51,6 +52,24 @@ async function chat(provider: "fal" | "pika", key: string, model: string, messag
   return text;
 }
 
+// The local writer (lib/local-writer.ts): stage "messages" returns what the
+// writer would be sent, and stage "finish" takes the raw answer of a run on the
+// user's own Mac in place of a provider call.
+const localArg = v.optional(v.object({
+  stage: v.union(v.literal("messages"), v.literal("finish")),
+  raw: v.optional(v.string()),
+  model: v.optional(v.string()),
+  ms: v.optional(v.number()),
+}));
+const localMessages = v.object({ local: v.object({ messages: v.any(), maxTokens: v.number() }) });
+type LocalArg = { stage: "messages" | "finish"; raw?: string; model?: string; ms?: number } | undefined;
+type LocalMessages = { local: { messages: Message[]; maxTokens: number } };
+const finishLocally = (local: LocalArg) => {
+  if (local?.stage !== "finish") return null;
+  if ((local.raw ?? "").length > LOCAL_WRITER_LIMITS.raw) throw new ConvexError("The local answer is too long.");
+  try { return localAnswer(local); } catch (error) { throw new ConvexError(error instanceof Error ? error.message : "The local writer returned nothing."); }
+};
+
 export const rewrite = ownerAction({
   args: {
     ownerUserId: v.string(),
@@ -59,15 +78,16 @@ export const rewrite = ownerAction({
     instruction: v.string(),
     system: v.optional(v.string()),
     model: v.union(v.literal("haiku"), v.literal("deepseek")),
+    local: localArg,
   },
-  returns: v.object({
+  returns: v.union(v.object({
     text: v.string(),
     model: v.string(),
     provider: v.string(),
     ms: v.number(),
     notes: v.array(v.string()),
-  }),
-  handler: async (ctx, args) => {
+  }), localMessages),
+  handler: async (ctx, args): Promise<{ text: string; model: string; provider: string; ms: number; notes: string[] } | LocalMessages> => {
     const prompt = args.prompt.trim();
     const instruction = args.instruction.trim();
     const selection = args.selection?.trim() || undefined;
@@ -78,7 +98,8 @@ export const rewrite = ownerAction({
     const system = args.system?.slice(0, QUICK_EDIT_LIMITS.system);
 
     const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system });
-    const answer = await runRoutes(ctx, args.ownerUserId, args.model as QuickEditModel, messages, "Could not edit");
+    if (args.local?.stage === "messages") return { local: { messages, maxTokens: 1500 } };
+    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, args.model as QuickEditModel, messages, "Could not edit");
     const { raw, ...meta } = answer;
     return { ...meta, text: restoreUrls(cleanModelText(raw), urls) };
   },
@@ -141,8 +162,9 @@ export const describe = ownerAction({
     style: v.optional(v.string()),
     system: v.optional(v.string()),
     note: v.optional(v.string()),
+    local: localArg,
   },
-  returns: v.object({
+  returns: v.union(v.object({
     title: v.optional(v.string()),
     keep: v.optional(v.object(describeFields)),
     ours: v.optional(v.object({ ...describeFields, style: v.string() })),
@@ -150,8 +172,8 @@ export const describe = ownerAction({
     provider: v.string(),
     ms: v.number(),
     notes: v.array(v.string()),
-  }),
-  handler: async (ctx, args): Promise<DescribeResult> => {
+  }), localMessages),
+  handler: async (ctx, args): Promise<DescribeResult | LocalMessages> => {
     const image = args.image.trim();
     if (!/^(https:\/\/|data:image\/(png|jpe?g|webp|gif);base64,)/i.test(image)) throw new ConvexError("Send the picture as an https link or a data URL.");
     if (image.length > DESCRIBE_LIMITS.image) throw new ConvexError("The picture is too large: send it at 1024 px.");
@@ -168,7 +190,8 @@ export const describe = ownerAction({
       system: args.system?.slice(0, DESCRIBE_LIMITS.system), note: args.note?.slice(0, DESCRIBE_LIMITS.note),
     }) as Message[];
     // Haiku reads images; DeepSeek does not, so the describer always runs on Haiku.
-    const answer = await runRoutes(ctx, args.ownerUserId, "haiku", messages, "Could not describe", 2000);
+    if (args.local?.stage === "messages") return { local: { messages, maxTokens: 2000 } };
+    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, "haiku", messages, "Could not describe", 2000);
     const parsed = parseDescribeAnswer(answer.raw);
     const aspect = aspectOf(args.aspect, args.width, args.height);
     const finish = (words: string, mode: "keep" | "ours"): Made => {
@@ -213,8 +236,9 @@ export const expand = ownerAction({
     aspect: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
+    local: localArg,
   },
-  returns: v.object({
+  returns: v.union(v.object({
     set: v.optional(v.string()),
     logline: v.optional(v.string()),
     items: v.array(v.object({
@@ -227,8 +251,8 @@ export const expand = ownerAction({
     provider: v.string(),
     ms: v.number(),
     notes: v.array(v.string()),
-  }),
-  handler: async (ctx, args): Promise<ExpandResult> => {
+  }), localMessages),
+  handler: async (ctx, args): Promise<ExpandResult | LocalMessages> => {
     const image = args.image.trim();
     if (!/^(https:\/\/|data:image\/(png|jpe?g|webp|gif);base64,)/i.test(image)) throw new ConvexError("Send the picture as an https link or a data URL.");
     if (image.length > EXPAND_LIMITS.image) throw new ConvexError("The picture is too large: send it at 1024 px.");
@@ -260,7 +284,9 @@ export const expand = ownerAction({
       image, sourceWords: source.words, lookNote: lookNoteOf(source), preset, idea, count,
       system: args.system?.slice(0, EXPAND_LIMITS.system), worldName, worldDoc, learnings,
     }) as Message[];
-    const answer = await runRoutes(ctx, args.ownerUserId, "haiku", messages, "Could not write the prompts", 600 + count * 520);
+    const maxTokens = 600 + count * 520;
+    if (args.local?.stage === "messages") return { local: { messages, maxTokens } };
+    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, "haiku", messages, "Could not write the prompts", maxTokens);
     const parsed = parseExpandAnswer(answer.raw);
     if (!parsed.items.length) throw new ConvexError(`${answer.model} answered without a prompt. Try again.`);
     const options = {
