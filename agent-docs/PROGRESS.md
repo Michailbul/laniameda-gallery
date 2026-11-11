@@ -8,6 +8,22 @@ Last updated: 2026-11-11
 
 ## ✔ Shipped
 
+### 2026-11-11 — "no cars" is checked against the pictures themselves (branch `feat/search-judge`)
+- Embeddings rank by likeness and never say "no": a street with a small car
+  nobody described still came back for "city street, no cars". For a search
+  that leaves something out, each picture on the page is now asked by OpenAI
+  Decisions (`gpt-6-luna`, the tagger's model) whether it shows the thing;
+  more likely than not (0.5) and it is dropped, and the page is topped up
+  from the hits that follow (three rounds at most). `convex/searchJudge.ts`
+  asks, `pictureJudgments` keeps every answer, so a picture is asked once per
+  phrase. About 0.6 s and $0.0004 a picture: a first page of 60 costs about
+  2 cents and 2–3 seconds, a repeat costs nothing.
+- Only the owner's own searches ask (a visitor's "no cars" keeps the two
+  cheaper tests: by description and tags, and by look). Up to three phrases a
+  search. On with the tagger's switch (`TAG_CLASSIFY_ENABLED` and
+  `OPENAI_API_KEY`); `SEARCH_JUDGE_ENABLED=false` turns only this off. If the
+  model cannot be reached the page is returned unchecked.
+
 ### 2026-11-11 — A filter word alone searches, and the tagger's tags rule pieces out (branch `fix/search-filter-words`)
 - Bug: "animation" typed alone was read as a filter with nothing to search
   for, so nothing was ranked and the keyword filter rejected every piece: the

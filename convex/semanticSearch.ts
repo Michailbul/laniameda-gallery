@@ -1075,17 +1075,92 @@ const searchPageSize = (pageSize?: number) =>
   Math.min(Math.max(Math.floor(pageSize ?? SEARCH_PAGE_DEFAULT), 1), SEARCH_PAGE_MAX);
 
 // Read ranked hits in order until a page of them passes scope and filters.
+const getJudgmentsQueryRef = makeFunctionReference<"query">("pictureJudgments:getJudgments");
+const saveJudgmentsMutationRef = makeFunctionReference<"mutation">("pictureJudgments:saveJudgments");
+const judgePicturesActionRef = makeFunctionReference<"action">("searchJudge:judgePictures");
+// lib/facet-tags.ts FACET_MODEL; named here because that file's action is Node-only.
+const JUDGE_MODEL = "gpt-6-luna";
+// A picture more likely than not to show the thing is left out.
+const SHOWN_PROBABILITY = 0.5;
+// Phrases asked of each picture, and how often a page is topped up after
+// pictures were dropped.
+const MAX_JUDGED_PHRASES = 3;
+const MAX_JUDGE_ROUNDS = 3;
+
+// The picture check runs on the owner's own searches only: a visitor's
+// "no cars" must not spend the owner's model budget. Same switch as the
+// auto-tagger; SEARCH_JUDGE_ENABLED=false turns only this off.
+const judgeEnabled = (scope: "mine" | "public") =>
+  scope === "mine" &&
+  process.env.TAG_CLASSIFY_ENABLED?.trim().toLowerCase() === "true" &&
+  Boolean(process.env.OPENAI_API_KEY?.trim()) &&
+  process.env.SEARCH_JUDGE_ENABLED?.trim().toLowerCase() !== "false";
+
+// Drop the pictures the Decisions model says show something the search leaves
+// out. Answers come from pictureJudgments when the question was asked before.
+// A picture that cannot be judged (no image, an API error) stays.
+const dropShown = async (ctx: ActionCtx, assets: ScoredAsset[], phrases: string[]) => {
+  const pictures = assets.flatMap((asset) => {
+    const imageUrl = asset.thumbUrl ?? (asset.kind === "image" ? asset.url : undefined);
+    return imageUrl ? [{ assetId: asset._id, imageUrl }] : [];
+  });
+  if (pictures.length === 0) return assets;
+  try {
+    const known = await ctx.runQuery(getJudgmentsQueryRef, {
+      assetIds: pictures.map((picture) => picture.assetId), phrases,
+    }) as Array<{ assetId: Id<"assets">; phrase: string; probability: number }>;
+    const shown = new Map<string, number>(
+      known.map((row) => [`${row.assetId}|${row.phrase}`, row.probability]),
+    );
+    const unasked = pictures.filter((picture) =>
+      phrases.some((phrase) => !shown.has(`${picture.assetId}|${phrase}`)));
+    if (unasked.length > 0) {
+      const answers = await ctx.runAction(judgePicturesActionRef, { pictures: unasked, phrases }) as
+        Array<{ assetId: Id<"assets">; probabilities: number[] }>;
+      const judgments = answers.flatMap((answer) => phrases.map((phrase, index) => ({
+        assetId: answer.assetId, phrase, probability: answer.probabilities[index]!,
+      })));
+      for (const row of judgments) shown.set(`${row.assetId}|${row.phrase}`, row.probability);
+      if (judgments.length > 0) {
+        await ctx.runMutation(saveJudgmentsMutationRef, { model: JUDGE_MODEL, judgments });
+      }
+    }
+    return assets.filter((asset) =>
+      !phrases.some((phrase) => (shown.get(`${asset._id}|${phrase}`) ?? 0) >= SHOWN_PROBABILITY));
+  } catch (error) {
+    console.warn(`[semanticSearch] picture check unavailable: ${error instanceof Error ? error.message : error}`);
+    return assets;
+  }
+};
+
 const readSearchPage = async (ctx: ActionCtx, hits: FusedHit[], input: {
   spec: ScopeSpec;
   storage: Storage;
   filtered: boolean;
   keep: (asset: FilterableAsset) => boolean;
   pageSize: number;
+  // Things the search leaves out, for the picture check.
+  excluded?: string[];
 }) => {
-  const { results, consumed } = await hydrateFiltered(
-    ctx, hits, input.keep, input.pageSize, input.spec, input.filtered,
-  );
-  return { results, remaining: hits.slice(consumed) };
+  const judged = judgeEnabled(input.spec.scope) ? (input.excluded ?? []).slice(0, MAX_JUDGED_PHRASES) : [];
+  if (judged.length === 0) {
+    const { results, consumed } = await hydrateFiltered(
+      ctx, hits, input.keep, input.pageSize, input.spec, input.filtered,
+    );
+    return { results, remaining: hits.slice(consumed) };
+  }
+  // Checked pictures can drop out, so the page is topped up from the hits
+  // that follow, a few times at most.
+  const results: ScoredAsset[] = [];
+  let remaining = hits;
+  for (let round = 0; round < MAX_JUDGE_ROUNDS && results.length < input.pageSize && remaining.length > 0; round += 1) {
+    const page = await hydrateFiltered(
+      ctx, remaining, input.keep, input.pageSize - results.length, input.spec, input.filtered,
+    );
+    remaining = remaining.slice(page.consumed);
+    results.push(...await dropShown(ctx, page.results, judged));
+  }
+  return { results, remaining };
 };
 
 // First page of a grid search: by words (`query`) or by look
@@ -1187,6 +1262,7 @@ export const searchAssetsPage = ownerAction({
       spec,
       filtered: page.filtered || excluded.length > 0,
       keep: (asset) => keep(asset) && named(asset),
+      excluded,
     });
   },
 });
@@ -1222,6 +1298,7 @@ export const loadSearchHits = ownerAction({
       filtered: hasMetadataFilters(filters) || excluded.length > 0,
       keep: (asset) => asset._id !== args.similarToAssetId && keep(asset) && named(asset),
       pageSize: searchPageSize(args.pageSize),
+      excluded,
     });
   },
 });

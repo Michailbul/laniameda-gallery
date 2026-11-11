@@ -229,6 +229,99 @@ describe("a search said in steps", () => {
     expect(embedded).toHaveLength(2);
   });
 
+  describe("with the picture check on", () => {
+    beforeEach(() => {
+      process.env.TAG_CLASSIFY_ENABLED = "true";
+      process.env.OPENAI_API_KEY = "test-openai-key";
+    });
+    afterEach(() => {
+      delete process.env.TAG_CLASSIFY_ENABLED;
+      delete process.env.OPENAI_API_KEY;
+    });
+
+    // The model sees a car in piece 9 that no description or tag mentions.
+    const makeJudgeCtx = (known: Array<{ assetId: string; phrase: string; probability: number }> = []) => {
+      const asked: Array<{ pictures: Array<{ assetId: string; imageUrl: string }>; phrases: string[] }> = [];
+      const saved: Array<{ assetId: string; phrase: string; probability: number }> = [];
+      const base = makeStepCtx() as unknown as {
+        runQuery: (ref: unknown, args: unknown) => Promise<unknown>;
+      };
+      const ctx = {
+        ...base,
+        runQuery: async (ref: unknown, args: unknown) => {
+          const payload = args as { assetIds?: string[]; phrases?: string[]; items?: Array<{ assetId: string }> };
+          if (payload.assetIds) return known.filter((row) => payload.assetIds!.includes(row.assetId));
+          const rows = await base.runQuery(ref, args);
+          return payload.items
+            ? (rows as Array<{ _id: string }>).map((row) => ({ ...row, thumbUrl: `https://img.example/${row._id}.webp` }))
+            : rows;
+        },
+        runAction: async (_ref: unknown, args: unknown) => {
+          const call = args as (typeof asked)[number];
+          asked.push(call);
+          return call.pictures.map((picture) => ({
+            assetId: picture.assetId, probabilities: [picture.assetId === assetId(9) ? 0.93 : 0.04],
+          }));
+        },
+        runMutation: async (_ref: unknown, args: unknown) => {
+          const payload = args as { judgments?: typeof saved };
+          if (payload.judgments) saved.push(...payload.judgments);
+          return null;
+        },
+      };
+      return { ctx: ctx as never, asked, saved };
+    };
+
+    test("a picture the model says shows the thing is dropped, and the answer is kept", async () => {
+      const { ctx, asked, saved } = makeJudgeCtx();
+      const page = await callAsOwner(searchAssetsPage)(ctx, {
+        scope: "mine", ownerUserId: OWNER, mode: "visual", query: "interiors", exclude: ["cars"], pageSize: 60,
+      });
+      const ids = page.results.map((asset) => asset._id as string);
+      // 0 and 1 go by look, 7 by its description, 9 by the picture check.
+      expect(ids).toEqual([2, 3, 4, 5, 6, 8].map(assetId));
+      // Only pieces that passed the cheaper tests are shown to the model.
+      expect(asked).toHaveLength(1);
+      expect(asked[0]!.phrases).toEqual(["cars"]);
+      expect(asked[0]!.pictures.map((picture) => picture.assetId)).toEqual([2, 3, 4, 5, 6, 8, 9].map(assetId));
+      expect(saved).toHaveLength(7);
+      expect(saved.find((row) => row.assetId === assetId(9))).toMatchObject({ phrase: "cars", probability: 0.93 });
+    });
+
+    test("a question already answered is not asked again", async () => {
+      const known = [2, 3, 4, 5, 6, 8, 9].map((index) => ({
+        assetId: assetId(index), phrase: "cars", probability: index === 9 ? 0.93 : 0.04,
+      }));
+      const { ctx, asked, saved } = makeJudgeCtx(known);
+      const page = await callAsOwner(loadSearchHits)(ctx, {
+        scope: "mine", ownerUserId: OWNER, exclude: ["cars"],
+        hits: [8, 9].map((index) => ({ assetId: assetId(index) as never, score: 0.5 })),
+      });
+      expect(page.results.map((asset) => asset._id as string)).toEqual([assetId(8)]);
+      expect(asked).toHaveLength(0);
+      expect(saved).toHaveLength(0);
+    });
+
+    test("a visitor's search never asks the model", async () => {
+      const { ctx, asked } = makeJudgeCtx();
+      const base = ctx as unknown as { runQuery: (ref: unknown, args: unknown) => Promise<unknown> };
+      const publicCtx = {
+        ...(ctx as object),
+        runQuery: async (ref: unknown, args: unknown) => {
+          const rows = await base.runQuery(ref, args);
+          return (args as { items?: unknown }).items
+            ? (rows as object[]).map((row) => ({ ...row, isPublic: true }))
+            : rows;
+        },
+      };
+      const page = await callAsOwner(searchAssetsPage)(publicCtx as never, {
+        scope: "public", mode: "visual", query: "interiors", exclude: ["cars"], pageSize: 60,
+      });
+      expect(page.results.map((asset) => asset._id as string)).toContain(assetId(9));
+      expect(asked).toHaveLength(0);
+    });
+  });
+
   test("more than three phrasings are refused", async () => {
     await expect(callAsOwner(searchAssetsPage)(makeStepCtx(), {
       scope: "mine", ownerUserId: OWNER, query: "a", alternatives: ["b", "c", "d"],
