@@ -3,8 +3,8 @@
 // copyable id thr-xxxxxxxx). Here Michael picks a thread and sends it:
 // "Next · Send" puts the next queued prompt in the Imagine bar of the
 // Midjourney tab and presses Enter once, so a thread goes out by clicking one
-// button again and again. One job per click, never a timer or a loop. It
-// stops at 30 jobs in the account's last hour (the Midjourney pacing rule). "Put in bar" stays for
+// button again and again. One job per click, never a timer or a loop. Nothing
+// caps his own clicks; the counter shows the account's last hour. "Put in bar" stays for
 // when he wants to edit first. The Midjourney page side (mj-queue.js) does the
 // bar work and reads the account's pace.
 //
@@ -222,8 +222,8 @@
   function paintPace() {
     const now = gate();
     for (const node of root.querySelectorAll("[data-pace-count]")) {
-      node.textContent = state.rate ? `${state.rate.lastHour} / ${H().PACING.hourCap}` : state.rateError ? "? / 30" : "… / 30";
-      node.classList.toggle("mjq-pace--hot", Boolean(state.rate && state.rate.lastHour >= H().PACING.hourCap - 5));
+      node.textContent = state.rate ? `${state.rate.lastHour}` : state.rateError ? "?" : "…";
+      node.classList.toggle("mjq-pace--hot", Boolean(state.rate && state.rate.lastHour >= H().PACING.hourNote));
       node.title = state.rateError || "Jobs on this Midjourney account in the last hour (finished and running), from its own history.";
     }
     for (const node of root.querySelectorAll("[data-next-send]")) {

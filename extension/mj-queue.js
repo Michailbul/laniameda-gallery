@@ -157,24 +157,23 @@
     });
   }
 
-  // ── Pacing for "Next · Send" (CLAUDE.md, Midjourney pacing) ──
-  // At most 30 jobs in any hour for the whole account (its own history:
-  // finished jobs plus the ones in flight), and two in flight. No wait between
-  // sends: each one is Michael's own click (he dropped the 20 s gap, 9 Nov 2026).
-  const PACING = { gapMs: 0, hourCap: 30, maxInFlight: 2 };
+  // ── Pacing for "Next · Send" ──
+  // Every send here is Michael's own click, so nothing blocks it (he lifted the
+  // 30-an-hour stop and the two-in-flight hold, 11 Nov 2026: the CLAUDE.md caps
+  // are for agents and scripts that submit by themselves). The counter shows
+  // the account's jobs in the last hour from its own history; past hourNote it
+  // shows a heads-up only. Midjourney's own queue still refuses when it is full.
+  const PACING = { gapMs: 0, hourNote: 150 };
 
   // rate: { lastHour, inFlight, newestJobAt } from the account; lastSendAt: this panel's last send.
   function pacing({ rate, lastSendAt, now = Date.now() }) {
     const last = Math.max(lastSendAt || 0, (rate && rate.newestJobAt) || 0);
     const waitMs = last ? Math.max(0, last + PACING.gapMs - now) : 0;
     const lastHour = rate ? rate.lastHour : null;
-    if (lastHour != null && lastHour >= PACING.hourCap) {
-      return { ok: false, waitMs, lastHour, reason: `${lastHour} jobs in the last hour: Midjourney's limit for the account is ${PACING.hourCap}. Wait for the oldest to drop out.` };
-    }
-    if (rate && rate.inFlight >= PACING.maxInFlight) {
-      return { ok: false, waitMs, lastHour, reason: `${rate.inFlight} jobs are still running. Send the next one when one finishes.` };
-    }
-    return { ok: waitMs === 0, waitMs, lastHour, reason: waitMs ? "" : "" };
+    const reason = lastHour != null && lastHour >= PACING.hourNote
+      ? `${lastHour} jobs in the last hour. Sending still works; Midjourney may slow the account down.`
+      : "";
+    return { ok: waitMs === 0, waitMs, lastHour, reason };
   }
 
   // Jobs in the last hour from Midjourney's own history rows (enqueue_time).

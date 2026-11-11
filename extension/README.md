@@ -39,9 +39,9 @@ midjourney.com a QUEUE pill sits bottom-right with the number left to send.
 - The tab follows the gallery live: new prompts from agents show within a
   few seconds while it is open.
 - **Next · Send** (⌥⇧S, 0.31) puts the next queued prompt in the bar and
-  presses Enter once: one job per click. It stops at 30 jobs in the
-  account's last hour (read from
-  Midjourney's own history, shown as N / 30). **Put next in bar** (⌥⇧N)
+  presses Enter once: one job per click. Your clicks are never capped; the
+  counter shows the account's jobs in the last hour (read from Midjourney's
+  own history), with a heads-up from 150 on. **Put next in bar** (⌥⇧N)
   only fills the bar, to edit first.
 - Threads are grouped by world under collapsible headers; pin a world or a
   thread to keep it on top (synced across your Chromes). A wide side panel
