@@ -28,7 +28,7 @@ export const conceptVector = (text: string) => {
 };
 
 const VECTOR_FIELDS: Record<string, Record<string, string>> = {
-  semanticDocuments: { by_pixel_embedding: "embedding", by_text_embedding: "textEmbedding" },
+  semanticDocuments: { by_embedding: "embedding", by_text_embedding: "textEmbedding" },
   semanticPixelVectors: { by_embedding: "embedding" },
   semanticTextVectors: { by_embedding: "embedding" },
 };

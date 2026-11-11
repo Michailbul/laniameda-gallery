@@ -140,12 +140,12 @@ describe("hybrid searchAssets", () => {
 
   const makeCtx = (
     indexes: string[],
-    lanes: Partial<Record<"by_pixel_embedding" | "by_text_embedding", Array<{ _id: string; _score: number }>>> = {},
+    lanes: Partial<Record<"by_embedding" | "by_text_embedding", Array<{ _id: string; _score: number }>>> = {},
   ) => ({
-    vectorSearch: async (_table: string, index: "by_pixel_embedding" | "by_text_embedding") => {
+    vectorSearch: async (_table: string, index: "by_embedding" | "by_text_embedding") => {
       indexes.push(index);
       if (lanes[index]) return lanes[index];
-      return index === "by_pixel_embedding"
+      return index === "by_embedding"
         ? [
             { _id: "semanticDocuments:a", _score: 0.4 },
             { _id: "semanticDocuments:b", _score: 0.39 },
@@ -188,7 +188,7 @@ describe("hybrid searchAssets", () => {
       query: "clay character",
       limit: 10,
     });
-    expect(indexes.sort()).toEqual(["by_pixel_embedding", "by_text_embedding"]);
+    expect(indexes.sort()).toEqual(["by_embedding", "by_text_embedding"]);
     // c is the text lane's clear best and the pixel lane found it too.
     expect(results[0]).toMatchObject({ _id: "assets:c", visualScore: 0.2, textScore: 0.8 });
     expect(results.map((asset) => asset._id).sort()).toEqual(["assets:a", "assets:b", "assets:c"]);
@@ -199,7 +199,7 @@ describe("hybrid searchAssets", () => {
     // match. Left in the lane it would take the top slot from the pictures.
     const results = await callAsOwner(searchAssets)(
       makeCtx([], {
-        by_pixel_embedding: [
+        by_embedding: [
           { _id: "semanticDocuments:v", _score: 0.7 },
           { _id: "semanticDocuments:a", _score: 0.4 },
           { _id: "semanticDocuments:b", _score: 0.39 },
@@ -228,7 +228,7 @@ describe("hybrid searchAssets", () => {
       query: "clay character",
       mode: "visual",
     });
-    expect(indexes).toEqual(["by_pixel_embedding"]);
+    expect(indexes).toEqual(["by_embedding"]);
   });
 
   test("filters apply after the blend", async () => {

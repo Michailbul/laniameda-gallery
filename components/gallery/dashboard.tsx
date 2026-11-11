@@ -154,6 +154,14 @@ import {
 import type { BookmarkPost } from "@/lib/bookmarks";
 import { galleryWordMatcher } from "@/lib/gallery-search";
 import {
+  readSearchInstructions,
+  searchInstructionsKey,
+  searchRequestFromKey,
+  searchWordsMatcher,
+  splitSearchSteps,
+} from "@/lib/search-instructions";
+import { SearchStepChips } from "@/components/gallery/search-trail";
+import {
   MoodboardsView,
   type MoodboardAssetSummary,
   type MoodboardPickTarget,
@@ -233,11 +241,31 @@ type SemanticPageArgs = {
   ownerUserId?: string;
   scope: "mine" | "public";
   folderId?: Id<"folders">;
+  // A world named in the search: its root and shelves.
+  folderIds?: Id<"folders">[];
   modelName?: string;
+  kind?: "image" | "video";
+  pieceType?: "character" | "location" | "scene" | "inspiration";
+  medium?: "animation" | "live-action";
+  onlyLiked?: boolean;
+  exclude?: string[];
   similarToAssetId?: Id<"assets">;
 };
 const NO_SEMANTIC_HITS: SemanticRankedHit[] = [];
 const SEARCH_PAGE_SIZE = 60;
+const SEARCH_HISTORY_KEY = "laniameda-search-history";
+const SEARCH_HISTORY_MAX = 12;
+const readSearchHistory = (): string[][] => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) ?? "[]") as unknown;
+    return Array.isArray(stored)
+      ? stored.filter((thread): thread is string[] =>
+          Array.isArray(thread) && thread.length > 0 && thread.every((step) => typeof step === "string"))
+      : [];
+  } catch {
+    return [];
+  }
+};
 
 type SemanticMode =
   | { kind: "query"; query: string }
@@ -733,6 +761,30 @@ export function GalleryDashboard({
   const [assetSearchQuery, setAssetSearchQuery] = useState("");
   const [debouncedAssetSearchQuery, setDebouncedAssetSearchQuery] =
     useState("");
+  // A search is a thread: each step kept with Enter narrows the ones before
+  // it ("dear annete world", "interiors", "no cars"). The field above holds
+  // the step being typed.
+  const [searchSteps, setSearchSteps] = useState<string[]>([]);
+  const [searchHistory, setSearchHistory] = useState<string[][]>([]);
+  useEffect(() => {
+    setSearchHistory(readSearchHistory());
+  }, []);
+  // A thread replaces its own earlier, shorter versions in the list.
+  const rememberSearch = useCallback((thread: string[]) => {
+    if (thread.length === 0) return;
+    setSearchHistory((current) => {
+      const isPrefixOfThread = (other: string[]) =>
+        other.length <= thread.length && other.every((step, index) => step === thread[index]);
+      const next = [thread, ...current.filter((other) => !isPrefixOfThread(other))]
+        .slice(0, SEARCH_HISTORY_MAX);
+      try {
+        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        // Private windows: the list lives for this visit only.
+      }
+      return next;
+    });
+  }, []);
   const [semanticMode, setSemanticMode] = useState<SemanticMode>(null);
   const [semanticResults, setSemanticResults] = useState<
     SemanticGalleryAsset[] | null
@@ -1343,6 +1395,59 @@ export function GalleryDashboard({
       ),
     [folders],
   );
+  // Worlds and collections a search can name ("dear annete world").
+  const searchFolders = useMemo(
+    () =>
+      galleryScope === "mine"
+        ? (folders ?? []).map((folder) => ({
+            id: String(folder._id),
+            name: folder.name,
+            parentId: folder.parentFolderId ? String(folder.parentFolderId) : undefined,
+          }))
+        : [],
+    [folders, galleryScope],
+  );
+  const searchInstructions = useMemo(
+    () =>
+      readSearchInstructions(
+        [...searchSteps, ...splitSearchSteps(debouncedAssetSearchQuery, searchFolders)],
+        searchFolders,
+      ),
+    [debouncedAssetSearchQuery, searchFolders, searchSteps],
+  );
+  // The same request keeps the same key, so a folder list that refreshes
+  // does not run the search again.
+  const searchKey = searchInstructionsKey(searchInstructions);
+  const searchStepReadings = useMemo(
+    () => searchInstructions.steps.slice(0, searchSteps.length),
+    [searchInstructions, searchSteps.length],
+  );
+  // Everything the search holds, kept steps and the one being typed.
+  const searchThreadText = [...searchSteps, assetSearchQuery.trim()].filter(Boolean).join(", ");
+  // One plain phrase is searched as before; anything more is read as instructions.
+  const searchIsPlain =
+    searchSteps.length === 0 &&
+    searchInstructions.steps.every((step) => step.kind === "words") &&
+    searchInstructions.steps.length <= 1 &&
+    searchInstructions.phrasings.length <= 1;
+  const commitSearchStep = useCallback(() => {
+    const steps = splitSearchSteps(assetSearchQuery, searchFolders);
+    if (steps.length === 0) return;
+    const thread = [...searchSteps, ...steps];
+    setSearchSteps(thread);
+    rememberSearch(thread);
+    setAssetSearchQuery("");
+    setDebouncedAssetSearchQuery("");
+  }, [assetSearchQuery, rememberSearch, searchFolders, searchSteps]);
+  const removeSearchStep = useCallback((index: number) => {
+    setSearchSteps((current) => current.filter((_, position) => position !== index));
+  }, []);
+  const restoreSearch = useCallback((thread: string[]) => {
+    setSearchSteps(thread);
+    setAssetSearchQuery("");
+    setDebouncedAssetSearchQuery("");
+    setSemanticError(undefined);
+  }, []);
   const folderCountById = useMemo(
     () =>
       new Map<string, number>(
@@ -2117,7 +2222,7 @@ export function GalleryDashboard({
     !likedOnly &&
     !menuFilterActive &&
     !semanticMode &&
-    !assetSearchQuery.trim();
+    !searchThreadText;
 
   const folderPaginationActive =
     !srefsCollectionView &&
@@ -2378,23 +2483,9 @@ export function GalleryDashboard({
       return;
     }
 
-    if (!debouncedAssetSearchQuery) {
-      setSemanticMode(null);
-      setSemanticResults(null);
-      setSemanticError(undefined);
-      setSemanticLoading(false);
-      return;
-    }
-
-    if (debouncedAssetSearchQuery.length < 3) {
-      setSemanticMode(null);
-      setSemanticResults(null);
-      setSemanticError(undefined);
-      setSemanticLoading(false);
-      return;
-    }
-
-    if (galleryScope === "mine" && !ownerUserId) {
+    const request = searchRequestFromKey(searchKey);
+    const wanted = request.phrasings.join(" / ");
+    if (wanted.length < 3 || (galleryScope === "mine" && !ownerUserId)) {
       setSemanticMode(null);
       setSemanticResults(null);
       setSemanticError(undefined);
@@ -2416,11 +2507,22 @@ export function GalleryDashboard({
         !activeSmartCollectionFilter
           ? (effectiveSelectedFolderId as Id<"folders">)
           : undefined,
+      folderIds:
+        galleryScope === "mine" && request.folderIds
+          ? (request.folderIds as Id<"folders">[])
+          : undefined,
       modelName: selectedModelName ?? undefined,
+      kind: request.kind,
+      pieceType: request.pieceType,
+      medium: request.medium,
+      onlyLiked: request.onlyLiked || undefined,
+      exclude: request.exclude.length > 0 ? request.exclude : undefined,
     };
     void searchAssetsPageAction({
       ...pageArgs,
-      query: debouncedAssetSearchQuery,
+      query: request.phrasings[0],
+      alternatives: request.phrasings.length > 1 ? request.phrasings.slice(1) : undefined,
+      textHint: request.folderName,
       pageSize: SEARCH_PAGE_SIZE,
     })
       .then(({ results, remaining }) => {
@@ -2437,7 +2539,7 @@ export function GalleryDashboard({
 
         setSemanticMode({
           kind: "query",
-          query: debouncedAssetSearchQuery,
+          query: wanted,
         });
         setSemanticResults(results);
         setSemanticMore({ shown: results, hits: remaining, args: pageArgs });
@@ -2458,11 +2560,11 @@ export function GalleryDashboard({
       });
   }, [
     activeSmartCollectionFilter,
-    debouncedAssetSearchQuery,
     effectiveSelectedFolderId,
     galleryScope,
     isSimilarMode,
     ownerUserId,
+    searchKey,
     selectedModelName,
     searchAssetsPageAction,
   ]);
@@ -2600,6 +2702,7 @@ export function GalleryDashboard({
     setLikedOnly(next);
   }, []);
   const clearSemanticMode = useCallback(() => {
+    setSearchSteps([]);
     setAssetSearchQuery("");
     setDebouncedAssetSearchQuery("");
     setSemanticMode(null);
@@ -2608,18 +2711,38 @@ export function GalleryDashboard({
     setSemanticLoading(false);
   }, []);
 
+  // Keyword matching for the loaded pieces. One plain phrase keeps the two
+  // older behaviours (substring while nothing is ranked, whole words after the
+  // ranked results); a search read as instructions follows them: every word
+  // of one phrasing, nothing it leaves out, inside the world it names.
+  const searchKeywordFilter = useMemo(() => {
+    if (searchIsPlain) return null;
+    const hasWords = searchWordsMatcher(searchInstructions);
+    const inFolders = searchInstructions.folderIds ? new Set(searchInstructions.folderIds) : null;
+    const { kind, onlyLiked, pieceType, medium } = searchInstructions;
+    // Type and medium live in tag spellings only the backend reads.
+    if (pieceType || medium) return () => false;
+    return (asset: (typeof baseGalleryAssets)[number]) =>
+      (!kind || asset.kind === kind) &&
+      (!onlyLiked || asset.isLiked === true) &&
+      (!inFolders || (asset.folderIds ?? []).some((id) => inFolders.has(String(id)))) &&
+      hasWords(buildAssetSearchHaystack(asset, folderNameById));
+  }, [folderNameById, searchInstructions, searchIsPlain]);
+
   const lexicalFilteredAssets = useMemo(() => {
     const search = assetSearchQuery.trim().toLowerCase();
     let result = bookmarksOnly
       ? baseGalleryAssets.filter((asset) => Boolean(asset.bookmark))
       : baseGalleryAssets;
-    if (search) {
+    if (searchKeywordFilter) {
+      result = result.filter(searchKeywordFilter);
+    } else if (search) {
       result = result.filter((asset) =>
         buildAssetSearchHaystack(asset, folderNameById).includes(search),
       );
     }
     return result;
-  }, [assetSearchQuery, baseGalleryAssets, bookmarksOnly, folderNameById]);
+  }, [assetSearchQuery, baseGalleryAssets, bookmarksOnly, folderNameById, searchKeywordFilter]);
 
   const filteredSemanticResults = useMemo(() => {
     if (!semanticResults) {
@@ -2710,7 +2833,9 @@ export function GalleryDashboard({
       (asset) =>
         !ranked.has(asset._id) &&
         (!bookmarksOnly || Boolean(asset.bookmark)) &&
-        hasWords(buildAssetSearchHaystack(asset, folderNameById)),
+        (searchKeywordFilter
+          ? searchKeywordFilter(asset)
+          : hasWords(buildAssetSearchHaystack(asset, folderNameById))),
     );
     return tail.length > 0
       ? [...filteredSemanticResults, ...tail]
@@ -2722,6 +2847,7 @@ export function GalleryDashboard({
     filteredSemanticResults,
     folderNameById,
     lexicalFilteredAssets,
+    searchKeywordFilter,
     semanticResults,
     semanticTailActive,
   ]);
@@ -2788,7 +2914,7 @@ export function GalleryDashboard({
     !likedOnly &&
     !menuFilterActive &&
     !semanticMode &&
-    !assetSearchQuery.trim();
+    !searchThreadText;
 
   // Skills filed in the collection being browsed sit among its pieces.
   const folderSkills = useQuery(
@@ -2811,7 +2937,7 @@ export function GalleryDashboard({
     !likedOnly &&
     !menuFilterActive &&
     !semanticMode &&
-    !assetSearchQuery.trim();
+    !searchThreadText;
 
   const skillIds = useMemo(
     () =>
@@ -3078,7 +3204,7 @@ export function GalleryDashboard({
       ? JSON.stringify([
           ownerUserId, galleryScope, effectiveSelectedFolderId, sortOrder,
           selectedModelName, mediaKind, likedOnly, includeSkills, flattenStacks,
-          assetSearchQuery, showChildCollectionStacks,
+          searchThreadText, showChildCollectionStacks,
           selectedTagIdGroups, excludedTagIds, excludedFolderIds, bookmarksOnly,
           styleShelfFilterId,
         ])
@@ -4840,6 +4966,7 @@ export function GalleryDashboard({
       const requestId = semanticRequestIdRef.current + 1;
       semanticRequestIdRef.current = requestId;
 
+      setSearchSteps([]);
       setAssetSearchQuery("");
       setDebouncedAssetSearchQuery("");
       setSemanticMode({
@@ -5104,7 +5231,7 @@ export function GalleryDashboard({
     likedOnly ||
     effectiveSelectedFolderId !== null ||
     selectedModelName !== null ||
-    assetSearchQuery.trim().length > 0 ||
+    searchThreadText.length > 0 ||
     semanticMode?.kind === "similar";
   const hasImages = images.length > 0;
   // Grouped child collections render under their group headings above the
@@ -6118,7 +6245,7 @@ export function GalleryDashboard({
                           setSelectedFolderId(filters.folderId ?? null); setMediaKind(filters.mediaKind ?? null);
                           setLikedOnly(filters.onlyLiked); setIncludeSkills(filters.includeSkills);
                           setFlattenStacks(filters.flattenStacks); changeSortOrder(filters.sortOrder);
-                          setSelectedModelName(null); setAssetSearchQuery(""); setSemanticMode(null);
+                          setSelectedModelName(null); setSearchSteps([]); setAssetSearchQuery(""); setSemanticMode(null);
                         },
                       }
                     : undefined
@@ -6144,7 +6271,7 @@ export function GalleryDashboard({
               !effectiveSelectedFolderId &&
               selectedTags.length === 0 &&
               excludedFilters.length === 0 &&
-              !assetSearchQuery &&
+              !searchThreadText &&
               !likedOnly &&
               shelfBooks.length > 0 && (
                 <StorybookShelf
@@ -6189,6 +6316,44 @@ export function GalleryDashboard({
                 >
                   OK
                 </button>
+              </div>
+            )}
+
+            {!storybooksView && !bookmarksView && !extraTabView && searchSteps.length > 0 && (
+              <div className="px-4 pb-2">
+                <div
+                  className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
+                  style={{
+                    backgroundColor: "var(--lm-surface-1)",
+                    border: "2px solid var(--lm-border-strong)",
+                  }}
+                >
+                  <div className="flex min-w-0 flex-col gap-2 md:flex-row md:items-center md:gap-3">
+                    <div
+                      className="shrink-0"
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 800,
+                        letterSpacing: "0.16em",
+                        textTransform: "uppercase",
+                        color: "var(--lm-text-primary)",
+                      }}
+                    >
+                      Search
+                    </div>
+                    <SearchStepChips steps={searchStepReadings} onRemove={removeSearchStep} />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearSemanticMode}
+                    className="lm-btn-ghost shrink-0 self-start md:self-auto"
+                    style={{
+                      border: "2px solid var(--lm-border-strong)",
+                    }}
+                  >
+                    New search
+                  </button>
+                </div>
               </div>
             )}
 
@@ -6991,6 +7156,7 @@ export function GalleryDashboard({
           inboxCountByWorld={inboxCountByWorld}
           onSearchPieces={(query) => {
             applyLocation({ route: { kind: "home" } }, "click");
+            setSearchSteps([]);
             setAssetSearchQuery(query);
             setSemanticError(undefined);
             if (semanticMode?.kind === "similar") {
@@ -7413,6 +7579,11 @@ export function GalleryDashboard({
             onSearchClear={clearSemanticMode}
             searchPlaceholder="SEARCH VAULT..."
             searchLoading={semanticLoading}
+            searchSteps={searchStepReadings}
+            onSearchSubmit={commitSearchStep}
+            onSearchStepRemove={removeSearchStep}
+            searchHistory={searchHistory}
+            onSearchRestore={restoreSearch}
             trailing={<ReviewDockHints />}
           />
         </div>

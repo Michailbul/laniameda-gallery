@@ -20,6 +20,7 @@ import {
 } from "./validators";
 import { ownerAction } from "./actor";
 import { skillCardValidator } from "./skills";
+import { galleryWordMatcher } from "../lib/gallery-search";
 import {
   SEMANTIC_VECTOR_DIMENSIONS,
   convexValueSize,
@@ -389,6 +390,31 @@ type FilterableAsset = {
   tagNames: string[];
   isLiked?: boolean;
   starredAt?: number;
+  agentDescription?: string;
+  description?: string;
+  promptText?: string;
+};
+
+// "no cars": a piece is out when what it is said to show names the thing.
+// The description and tags say what is in the picture. A prompt may say
+// "empty street, no cars", so it is read only when there is no description.
+const MAX_EXCLUDED_PHRASES = 6;
+const normalizeExcluded = (phrases?: string[]) => {
+  const cleaned = [...new Set((phrases ?? []).map((phrase) => phrase.trim().toLowerCase()).filter(Boolean))];
+  if (cleaned.length > MAX_EXCLUDED_PHRASES) {
+    throw new ConvexError(`A search takes at most ${MAX_EXCLUDED_PHRASES} things to leave out.`);
+  }
+  return cleaned;
+};
+
+export const buildExcludedWordsFilter = (phrases: string[]) => {
+  const matchers = phrases.map((phrase) => galleryWordMatcher(phrase));
+  if (matchers.length === 0) return () => true;
+  return (asset: FilterableAsset) => {
+    const said = asset.agentDescription ?? asset.description ?? asset.promptText ?? "";
+    const text = `${said}\n${asset.tagNames.join("\n")}`;
+    return !matchers.some((matches) => matches(text));
+  };
 };
 
 const toKeys = (names?: string[]) =>
@@ -670,7 +696,7 @@ const runLane = async (
   const options = { vector, limit: take, filter: filter as never };
   const hits = storage === "split"
     ? await ctx.vectorSearch(lane === "visual" ? "semanticPixelVectors" : "semanticTextVectors", "by_embedding", options)
-    : await ctx.vectorSearch("semanticDocuments", lane === "visual" ? "by_pixel_embedding" : "by_text_embedding", options);
+    : await ctx.vectorSearch("semanticDocuments", lane === "visual" ? "by_embedding" : "by_text_embedding", options);
   if (trace) trace.vectorHits += hits.length;
   return hits;
 };
@@ -824,6 +850,9 @@ const resolveScope = (
 // than failing it.
 const embedQueryLanes = async (
   ctx: ActionCtx, query: string, mode: SearchMode, storage: Storage, trace?: SearchTrace,
+  // Words for the text lane only, such as the name of the world the search is
+  // limited to: descriptions and tags carry it, pictures do not.
+  textHint?: string,
 ): Promise<Partial<Record<LaneName, number[]>>> => {
   const [visual, text] = await Promise.all([
     mode === "text"
@@ -840,7 +869,7 @@ const embedQueryLanes = async (
           }),
     mode === "visual"
       ? undefined
-      : getQueryEmbedding(ctx, query, textQueryModel(), storage, trace),
+      : getQueryEmbedding(ctx, textHint ? `${query}, ${textHint}` : query, textQueryModel(), storage, trace),
   ]);
   return { visual, text };
 };
@@ -1023,8 +1052,25 @@ const searchPageValidator = v.object({
 });
 const SEARCH_PAGE_DEFAULT = 60;
 const SEARCH_PAGE_MAX = 120;
-// Two lanes of at most LANE_TAKE hits each.
-const RANKED_HITS_MAX = 2 * LANE_TAKE;
+// A search may be said in a few ways at once ("interiors / city street").
+const MAX_SEARCH_PHRASINGS = 3;
+// Two lanes of at most LANE_TAKE hits for each phrasing.
+const RANKED_HITS_MAX = MAX_SEARCH_PHRASINGS * 2 * LANE_TAKE;
+// A piece this strong for something the search leaves out ("no cars") is
+// dropped. On live data at least four in five pieces above it name the thing
+// in their description; the rest mostly show it without naming it.
+const EXCLUDED_STRENGTH = 0.4;
+
+// One ranking from several: a piece keeps its best score.
+const mergeBest = (lists: FusedHit[][]) => {
+  if (lists.length === 1) return lists[0]!;
+  const best = new Map<Id<"assets">, FusedHit>();
+  for (const hit of lists.flat()) {
+    const current = best.get(hit.assetId);
+    if (!current || hit.score > current.score) best.set(hit.assetId, hit);
+  }
+  return [...best.values()].sort((left, right) => right.score - left.score);
+};
 const searchPageSize = (pageSize?: number) =>
   Math.min(Math.max(Math.floor(pageSize ?? SEARCH_PAGE_DEFAULT), 1), SEARCH_PAGE_MAX);
 
@@ -1049,6 +1095,15 @@ export const searchAssetsPage = ownerAction({
     ownerUserId: v.optional(v.string()),
     scope: v.union(v.literal("mine"), v.literal("public")),
     query: v.optional(v.string()),
+    // Other ways to say what is wanted ("interiors / city street"): a piece
+    // that matches any of them is found. At most three phrasings in all.
+    alternatives: v.optional(v.array(v.string())),
+    // Things to leave out ("no cars"): pieces described or tagged with them,
+    // and pieces that clearly show them.
+    exclude: v.optional(v.array(v.string())),
+    // Words for the text lane only, such as the name of the world the search
+    // is limited to.
+    textHint: v.optional(v.string()),
     similarToAssetId: v.optional(v.id("assets")),
     pillar: optionalPillarValidator,
     // Defaults: "hybrid" for a query, "visual" for look-alikes.
@@ -1096,17 +1151,43 @@ export const searchAssetsPage = ownerAction({
       });
     }
 
-    const query = args.query?.trim();
-    if (!query) {
+    const phrasings = [...new Set(
+      [args.query, ...(args.alternatives ?? [])]
+        .map((phrasing) => phrasing?.trim())
+        .filter((phrasing): phrasing is string => Boolean(phrasing)),
+    )];
+    if (phrasings.length === 0) {
       return empty;
     }
+    if (phrasings.length > MAX_SEARCH_PHRASINGS) {
+      throw new ConvexError(`A search takes at most ${MAX_SEARCH_PHRASINGS} alternatives.`);
+    }
+    const excluded = normalizeExcluded(args.exclude);
+    const textHint = normalizeOptionalString(args.textHint);
     const mode: SearchMode = args.mode ?? "hybrid";
     const spec: ScopeSpec = { scope: args.scope, ownerCandidates, pillar: args.pillar };
-    const ranked = await rankAllCandidates(ctx, {
-      vectors: await embedQueryLanes(ctx, query, mode, storage),
-      spec, storage, minRelativeScore, optionalVisual: mode === "hybrid",
+    const rank = async (text: string, hint?: string) => await rankAllCandidates(ctx, {
+      vectors: await embedQueryLanes(ctx, text, mode, storage, undefined, hint),
+      spec, storage, optionalVisual: mode === "hybrid",
     });
-    return await readSearchPage(ctx, ranked, { ...page, spec, keep });
+    const [wanted, unwanted] = await Promise.all([
+      Promise.all(phrasings.map((phrasing) => rank(phrasing, textHint))),
+      Promise.all(excluded.map((phrase) => rank(phrase))),
+    ]);
+    const shown = new Set(unwanted.flatMap((list) =>
+      list.filter((hit) => hit.score >= EXCLUDED_STRENGTH).map((hit) => hit.assetId)));
+    const ranked = cutRelative(
+      mergeBest(wanted).filter((hit) => !shown.has(hit.assetId)),
+      (hit) => hit.score,
+      minRelativeScore ?? 0,
+    );
+    const named = buildExcludedWordsFilter(excluded);
+    return await readSearchPage(ctx, ranked, {
+      ...page,
+      spec,
+      filtered: page.filtered || excluded.length > 0,
+      keep: (asset) => keep(asset) && named(asset),
+    });
   },
 });
 
@@ -1120,6 +1201,8 @@ export const loadSearchHits = ownerAction({
     hits: v.array(rankedHitValidator),
     // The look-alike source, so it never lists itself.
     similarToAssetId: v.optional(v.id("assets")),
+    // The same things the first page left out.
+    exclude: v.optional(v.array(v.string())),
     ...assetFilterArgs,
     pageSize: v.optional(v.number()),
   },
@@ -1131,11 +1214,13 @@ export const loadSearchHits = ownerAction({
     const ownerCandidates = resolveScope(args.scope, args.ownerUserId);
     const filters: AssetFilters = args;
     const keep = buildAssetFilter(filters, args.scope);
+    const excluded = normalizeExcluded(args.exclude);
+    const named = buildExcludedWordsFilter(excluded);
     return await readSearchPage(ctx, args.hits, {
       spec: { scope: args.scope, ownerCandidates },
       storage: readStorage(),
-      filtered: hasMetadataFilters(filters),
-      keep: (asset) => asset._id !== args.similarToAssetId && keep(asset),
+      filtered: hasMetadataFilters(filters) || excluded.length > 0,
+      keep: (asset) => asset._id !== args.similarToAssetId && keep(asset) && named(asset),
       pageSize: searchPageSize(args.pageSize),
     });
   },

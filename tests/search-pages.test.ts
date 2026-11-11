@@ -14,7 +14,7 @@ const makeCtx = (foreign = new Set<string>()) => {
   const ctx = {
     vectorSearch: async (_table: string, index: string, options: { limit: number }) => {
       vectorTakes.push(options.limit);
-      if (index !== "by_pixel_embedding") return [];
+      if (index !== "by_embedding") return [];
       return Array.from({ length: 150 }, (_, i) => ({
         _id: assetId(i).replace("assets:", "semanticDocuments:"),
         _score: i < 20 ? 0.4 - i * 0.001 : 0.3 - i * 0.001,
@@ -115,12 +115,124 @@ describe("paged grid search", () => {
   });
 
   test("a request with more hits than a search can rank is refused", async () => {
-    const hits = Array.from({ length: 513 }, (_, index) => ({
+    // Three phrasings of two 256-hit lanes each is the most a search ranks.
+    const hits = Array.from({ length: 1537 }, (_, index) => ({
       assetId: assetId(index) as never, score: 0.1,
     }));
     await expect(callAsOwner(loadSearchHits)(makeCtx().ctx, {
       scope: "mine", ownerUserId: OWNER, hits,
     })).rejects.toThrow("Too many search hits");
+  });
+});
+
+// Each phrase embeds to its own code, so the mock lanes can tell them apart.
+const PHRASES: Record<string, number> = {
+  interiors: 1, "city street": 2, cars: 3, "interiors, DEAR ANNETE": 4,
+};
+const lane = (from: number, count: number, top: number, step: number) =>
+  Array.from({ length: count }, (_, i) => ({
+    _id: assetId(from + i).replace("assets:", "semanticDocuments:"), _score: top - i * step,
+  }));
+const LANES: Record<number, Array<{ _id: string; _score: number }>> = {
+  1: lane(0, 10, 0.4, 0.005),
+  2: lane(5, 10, 0.41, 0.005),
+  // Pieces 0 and 1 clearly show cars; twenty others barely register.
+  3: [...lane(0, 2, 0.45, 0.01), ...lane(20, 20, 0.31, 0.001)],
+  4: lane(0, 10, 0.7, 0.005),
+};
+const DESCRIBED: Record<string, Record<string, unknown>> = {
+  [assetId(7)]: { agentDescription: "A vintage car parked on a wet street." },
+  [assetId(8)]: { agentDescription: "An empty street at dawn.", promptText: "empty street, no cars, soft light" },
+};
+
+describe("a search said in steps", () => {
+  const embedded: Array<{ model: string; text: string }> = [];
+  const originalFetch = global.fetch;
+  beforeEach(() => {
+    process.env.SEMANTIC_EMBEDDINGS_ENABLED = "true";
+    process.env.SEMANTIC_EMBEDDING_DIMENSIONS = "3";
+    process.env.GEMINI_API_KEY = "test-semantic-key";
+    embedded.length = 0;
+    global.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const text = (JSON.parse(String(init?.body)) as { content: { parts: Array<{ text: string }> } })
+        .content.parts[0]!.text;
+      embedded.push({ model: String(input).match(/models\/([^:]+):/)![1]!, text });
+      return new Response(JSON.stringify({ embedding: { values: [PHRASES[text] ?? 0, 0, 0] } }), {
+        headers: { "content-type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+  });
+  afterEach(() => {
+    global.fetch = originalFetch;
+    delete process.env.SEMANTIC_EMBEDDINGS_ENABLED;
+    delete process.env.SEMANTIC_EMBEDDING_DIMENSIONS;
+    delete process.env.GEMINI_API_KEY;
+  });
+
+  const makeStepCtx = () => ({
+    vectorSearch: async (_table: string, index: string, options: { vector: number[] }) => {
+      const code = options.vector[0]!;
+      // Code 4 is a text-lane query; the others are asked of the pixel lane.
+      return (index === "by_embedding") === (code !== 4) ? LANES[code] ?? [] : [];
+    },
+    runQuery: async (_ref: unknown, args: unknown) => {
+      const payload = args as { queryHash?: string; ids?: string[]; items?: Array<{ assetId: string }> };
+      if (payload.queryHash) return null;
+      if (payload.ids) {
+        return payload.ids.map((id) => ({
+          _id: id, assetId: id.replace("semanticDocuments:", "assets:"), modality: "multimodal_image",
+        }));
+      }
+      return (payload.items ?? []).map((item) => ({
+        _id: item.assetId, kind: "image", tagIds: [], tagNames: [], folderIds: [], createdAt: 1,
+        ownerUserId: OWNER, ...DESCRIBED[item.assetId], ...item,
+      }));
+    },
+    runMutation: async () => null,
+  }) as never;
+
+  test("either phrasing finds a piece; what the search leaves out is dropped by look and by name", async () => {
+    const page = await callAsOwner(searchAssetsPage)(makeStepCtx(), {
+      scope: "mine", ownerUserId: OWNER, mode: "visual",
+      query: "interiors", alternatives: ["city street"], exclude: ["cars"], pageSize: 60,
+    });
+    const ids = page.results.map((asset) => asset._id as string);
+    // 0-9 answer "interiors", 5-14 "city street".
+    expect(ids).toContain(assetId(3));
+    expect(ids).toContain(assetId(12));
+    expect(new Set(ids).size).toBe(ids.length);
+    // 0 and 1 clearly show cars; 7 is described as one.
+    expect(ids).not.toContain(assetId(0));
+    expect(ids).not.toContain(assetId(1));
+    expect(ids).not.toContain(assetId(7));
+    // A prompt saying "no cars" does not make its picture a car.
+    expect(ids).toContain(assetId(8));
+    expect(ids).toHaveLength(12);
+    expect(embedded.map((call) => call.text).sort()).toEqual(["cars", "city street", "interiors"]);
+  });
+
+  test("later pages leave out the same things", async () => {
+    const page = await callAsOwner(loadSearchHits)(makeStepCtx(), {
+      scope: "mine", ownerUserId: OWNER, exclude: ["cars"],
+      hits: [6, 7, 8].map((index) => ({ assetId: assetId(index) as never, score: 0.5 })),
+    });
+    expect(page.results.map((asset) => asset._id as string)).toEqual([assetId(6), assetId(8)]);
+  });
+
+  test("the name of the world goes to the text lane only", async () => {
+    const page = await callAsOwner(searchAssetsPage)(makeStepCtx(), {
+      scope: "mine", ownerUserId: OWNER, query: "interiors", textHint: "DEAR ANNETE", pageSize: 5,
+    });
+    expect(page.results).toHaveLength(5);
+    expect(embedded).toContainEqual({ model: "gemini-embedding-2-preview", text: "interiors" });
+    expect(embedded).toContainEqual({ model: "gemini-embedding-001", text: "interiors, DEAR ANNETE" });
+    expect(embedded).toHaveLength(2);
+  });
+
+  test("more than three phrasings are refused", async () => {
+    await expect(callAsOwner(searchAssetsPage)(makeStepCtx(), {
+      scope: "mine", ownerUserId: OWNER, query: "a", alternatives: ["b", "c", "d"],
+    })).rejects.toThrow("at most 3 alternatives");
   });
 });
 
