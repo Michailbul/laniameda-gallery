@@ -119,6 +119,7 @@ import {
   WorldTasksTab,
   WorldQueueTab,
   usePreloadDashboardChunks,
+  WorldPitchLink,
 } from "./lazy-dashboard";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { MobileBrowseSheet, type BrowseSheetSection } from "./mobile-browse-sheet";
@@ -6430,6 +6431,12 @@ export function GalleryDashboard({
               {!storybooksView && !bookmarksView && !extraTabView && breadcrumbSegments.length > 0 && (
                 <BrowseBreadcrumb
                   segments={breadcrumbSegments}
+                  after={
+                    // A world with a public page: the signed-in owner's /w/<slug> is this vault.
+                    canManageFoldersInCurrentView && activeWorldRoot?.slug && activeWorldRoot.showcased ? (
+                      <WorldPitchLink path={`/w/${encodeURIComponent(activeWorldRoot.slug)}`} />
+                    ) : null
+                  }
                   trailing={
                     activeCollectionFolder ? (
                       <span className="flex flex-wrap items-center justify-end gap-x-4 gap-y-2">

@@ -8,6 +8,20 @@ Last updated: 2026-11-11
 
 ## ✔ Shipped
 
+### 2026-11-11 — The pitch page is one click from the world's vault view (branch `feat/pitch-link`, no backend change)
+- Michael opened /w/dear-annete signed in, saw the vault (proxy.ts sends the
+  owner to `/w/<slug>/owner-view`) and thought the pitch page was missing. The
+  routing stays. Beside the world's name in the vault there is now a dark
+  "Pitch page ↗" link (opens `/w/<slug>?public=1`) with "Copy pitch link" on
+  its other half, which copies the clean address to send (`/w/<slug>`).
+- Shown on the world root and every collection inside it, when the world has
+  a public page (a showcased root with a slug) and the owner is looking.
+  `components/gallery/world-pitch-link.tsx`, in the breadcrumb's new `after`
+  slot. The pitch page already links back (Admin · Vault in its key bar).
+- Loaded as its own small chunk when the owner opens a world: 86 bytes on the
+  public home's first load (424 when bundled). Numbers for all three frame-key
+  changes: `agent-docs/perf/frame-keys-2026-11-11.json`.
+
 ### 2026-11-11 — Like with 1, super like with 1 twice; agents pull the ready images (branch `feat/like-hotkey`, backend pushed)
 - Michael: "make a feature of the Like button hotkey, by pressing 1. also has
   to be super like (double 1). super likes are already ready images to use."
