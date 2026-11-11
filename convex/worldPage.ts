@@ -55,6 +55,8 @@ const tileValidator = v.object({
    * leave the server.
    */
   off: v.optional(v.union(v.literal("hidden"), v.literal("private"), v.literal("letterboxed"))),
+  /** Admin view only: the owner's private like, so key 1 starts from the truth. */
+  liked: v.optional(v.boolean()),
 });
 export type WorldTile = Infer<typeof tileValidator>;
 
@@ -249,6 +251,7 @@ const toTile = async (
       ? { group: (asset.assetPackId ?? asset.promptId) as string }
       : {}),
     ...(off ? { off } : {}),
+    ...(world.admin && asset.isLiked ? { liked: true } : {}),
   };
 };
 

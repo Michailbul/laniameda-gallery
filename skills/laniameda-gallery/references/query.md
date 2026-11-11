@@ -127,6 +127,7 @@ Example:
 | `pieceType` | `character` / `location` / `scene` / `inspiration` (plural and `still` spellings count) |
 | `medium` | `animation` (tagged animation) or `live-action` (everything else) |
 | `onlyLiked` | `isLiked` pieces only |
+| `onlySuperLiked` | pieces Michael super liked: **ready to use**. The set to pull when he asks for his ready or approved images. Owner reads only. |
 | `onlyStarred` | starred pieces; Michael's curator stars are public/featured |
 | `folderId` | one collection; `list` also takes `includeDescendants` |
 
@@ -443,7 +444,9 @@ all_assets with filters (or {"live":true}) does the same. Read
 references/web-access.md for current usage and schema discovery.
 
 The cursor order is owner-candidate-createdAt-desc, not a global chronological
-merge. Default inventory includes hidden collection members but not Skill
+merge. With `onlySuperLiked` the page runs newest super like first
+(owner-candidate-superLikedAt-desc) and reads only those frames, so one or
+two pages return every ready image. Default inventory includes hidden collection members but not Skill
 step media, which belongs to its Skill. includeSkillExamples:true adds those
 step assets; assetRole can explicitly select them. Semantic search follows the
 same rule. Only immediate child collections are included by

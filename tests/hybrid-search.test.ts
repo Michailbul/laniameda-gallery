@@ -109,6 +109,10 @@ describe("asset filters", () => {
     expect(buildAssetFilter({ onlyLiked: true }, "mine")(asset([], { isLiked: true }))).toBeTrue();
     expect(buildAssetFilter({ onlyLiked: true }, "mine")(asset([]))).toBeFalse();
     expect(buildAssetFilter({ onlyStarred: true }, "mine")(asset([], { starredAt: 5 }))).toBeTrue();
+    // Super liked = ready to use: the owner's own search only.
+    expect(buildAssetFilter({ onlySuperLiked: true }, "mine")(asset([], { isLiked: true, superLikedAt: 9 }))).toBeTrue();
+    expect(buildAssetFilter({ onlySuperLiked: true }, "mine")(asset([], { isLiked: true }))).toBeFalse();
+    expect(buildAssetFilter({ onlySuperLiked: true }, "public")(asset([], { isLiked: true, superLikedAt: 9 }))).toBeFalse();
     expect(
       buildAssetFilter({ folderId: "folders:1" as never }, "mine")(
         asset([], { folderIds: ["folders:1"] }),

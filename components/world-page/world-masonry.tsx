@@ -1,9 +1,10 @@
 "use client";
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { LikeLevel } from "@/lib/asset-hotkeys";
 import type { WorldTile } from "./types";
 import { layoutWall, type WallBox } from "./wall-layout";
-import { InsertFrames, OFF_LABEL, useNearVisible } from "./world-insert";
+import { InsertFrames, OFF_LABEL, OwnerMarkChips, useNearVisible } from "./world-insert";
 import { claimPlayback, lowData } from "./playback";
 
 // The wall. Every box is computed from aspect ratios (wall-layout.ts), but
@@ -23,6 +24,10 @@ export type WallOwnerState = {
   hero: (id: string) => boolean;
   /** Why the frame is off the public page (admin), with the owner's 2 key applied. */
   off: (id: string) => WorldTile["off"];
+  /** The owner's private like on the frame (key 1): none, like or super. */
+  like: (id: string) => LikeLevel;
+  /** The frame carries a comment. */
+  noted: (id: string) => boolean;
   flashId: string | null;
 };
 
@@ -191,6 +196,8 @@ export const WorldMasonry = memo(function WorldMasonry({
             archived={owner?.archived(tile.id) ?? false}
             hero={owner?.hero(tile.id) ?? false}
             off={owner?.off(tile.id)}
+            like={owner?.like(tile.id) ?? "none"}
+            noted={owner?.noted(tile.id) ?? false}
             flash={owner?.flashId === tile.id}
             onRestore={onRestore}
           />
@@ -280,6 +287,8 @@ const Tile = memo(function Tile({
   archived,
   hero,
   off,
+  like,
+  noted,
   flash,
   onRestore,
 }: {
@@ -294,6 +303,8 @@ const Tile = memo(function Tile({
   archived: boolean;
   hero: boolean;
   off: WorldTile["off"];
+  like: LikeLevel;
+  noted: boolean;
   flash: boolean;
   onRestore?: (id: string) => void;
 }) {
@@ -388,10 +399,11 @@ const Tile = memo(function Tile({
           onPlaying={() => setPlaying(true)}
         />
       )}
-      {(hero || off) && (
+      {(hero || off || like !== "none" || noted) && (
         <span className="wp-chips">
           {hero && <span className="wp-chip wp-chip-hero">Hero</span>}
           {off && <span className="wp-chip">{OFF_LABEL[off]}</span>}
+          <OwnerMarkChips like={like} noted={noted} />
         </span>
       )}
       {archived && (

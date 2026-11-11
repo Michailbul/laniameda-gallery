@@ -24,7 +24,7 @@ import type { BookmarkPost } from "@/lib/bookmarks";
 import type { GalleryEntryPreview } from "@/lib/gallery-entries";
 import { VideoScrubPreview, useVideoScrub } from "@/components/video-scrub-preview";
 import { isTileHiddenTag } from "@/lib/tag-hygiene";
-import { ArchivedChip, useArchiveStore, useArchivedAt, useIsHero, useStarOverride } from "@/components/gallery/asset-review-controls";
+import { ArchivedChip, FrameMarkChips, useArchiveStore, useArchivedAt, useIsHero, useIsNoted, useLikeLevel, useStarOverride } from "@/components/gallery/asset-review-controls";
 
 const CINEMA_PILLAR = "cinema-inspiration";
 
@@ -314,6 +314,9 @@ export const ImageCard = memo(function ImageCard({
   const displayedAssetId = isPackDeck ? activePreview.id : image.id;
   const starOverride = useStarOverride(displayedAssetId);
   const isHero = useIsHero(displayedAssetId);
+  // The owner's private marks (key 1, C): none of them on a public surface.
+  const likeLevel = useLikeLevel(starrable ? displayedAssetId : undefined, displayedMember.isLiked);
+  const isNoted = useIsNoted(starrable ? displayedAssetId : undefined);
   const archivedAt = useArchivedAt(
     image.galleryItemType === undefined || image.galleryItemType === "asset" || image.galleryItemType === "pack"
       ? displayedAssetId
@@ -909,6 +912,8 @@ export const ImageCard = memo(function ImageCard({
       data-review-name={displayLabel}
       data-review-archived={isArchived || undefined}
       data-review-starred={isStarred ? "true" : undefined}
+      data-review-liked={displayedMember.isLiked ? "true" : undefined}
+      data-review-like={likeLevel === "none" ? undefined : likeLevel}
       data-review-disabled={image.galleryItemType && !["asset", "pack"].includes(image.galleryItemType) ? "true" : undefined}
       onDoubleClick={event => { if (isArchived) { event.preventDefault(); event.stopPropagation(); review.restore(displayedAssetId); } }}
       onClickCapture={event => {
@@ -1314,6 +1319,7 @@ export const ImageCard = memo(function ImageCard({
             promptOpen ? "opacity-0" : starNote ? "opacity-0 group-hover:opacity-100" : ""
           }`}
         >
+          <FrameMarkChips level={likeLevel} noted={isNoted} />
           {isVideo && <span className="v">Video</span>}
           {!isPackDeck &&
             image.packMemberCount !== undefined &&

@@ -192,9 +192,19 @@ to him, and never creates or reorders them unless asked.
 - **`isPublic`** exposes a piece on public surfaces. Showcasing a collection
   publishes the set, never its private members.
 - **`isLiked`** is a separate private flag with its own mutation.
-- **`superLikedAt`** is Michael's super like (styles page, key ⇧1): private,
-  implies `isLiked`, never publishes or features. `setAssetLikeLevel {assetId,
-  level: none | like | super}` sets both together.
+- **`superLikedAt`** is Michael's super like: **the image is ready to use**
+  (his words, 11 Nov 2026: "super likes are already ready images to use").
+  He sets it with key 1 pressed twice on a frame (vault, open view, world
+  page; ⇧1 on the styles page); one press of 1 is a plain like, and 1 on a
+  liked or super-liked frame takes both off. Private, implies `isLiked`,
+  never publishes or features. `setAssetLikeLevel {assetId, level: none |
+  like | super}` sets both together; unliking (`setAssetLiked false`) clears
+  it. Index `by_owner_superLikedAt`. Read the ready images with
+  `onlySuperLiked: true` on `list_assets_page` (complete, newest super like
+  first), `list_assets`, `search_gallery`, `find_similar` and
+  `preview_assets`; owner results carry `superLikedAt` on those frames.
+  `frameMarks:listFrameMarks` gives the app the super-liked ids and the ids
+  of frames with a comment, for the marks on every grid.
 - **`tasteCollection`**: at most one collection per owner carries this. The
   public home's inspiration grid shows exactly its members.
 - **`worldPageHidden`** (+ `worldPageHiddenReason`) keeps a piece off public

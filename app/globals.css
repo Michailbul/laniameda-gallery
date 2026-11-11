@@ -1544,6 +1544,39 @@
     color: #0a0805;
     background: var(--lm-ember, #ff8c42);
   }
+  /* The owner's private marks lead the line: liked (key 1) is a quiet coral
+     outline, super liked (1 twice, "ready to use") a filled coral-to-ember
+     chip with two pips, a comment a linen outline. */
+  .lm-chips .lk {
+    color: var(--lm-coral, #f26157);
+    font-weight: 700;
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--lm-coral, #f26157) 60%, transparent);
+  }
+  .lm-chips .sl {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: #0a0805;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    background: linear-gradient(100deg, var(--lm-coral, #f26157), var(--lm-ember, #ff8c42));
+  }
+  .lm-chips .sl::before {
+    content: "";
+    width: 9px;
+    height: 4px;
+    background: radial-gradient(circle at 2px 2px, #0a0805 1.6px, transparent 1.9px) 0 0 / 5px 4px repeat-x;
+  }
+  .lm-chips .nt {
+    color: rgba(255, 244, 234, 0.86);
+    box-shadow: inset 0 0 0 1px rgba(255, 244, 234, 0.3);
+  }
+  /* On the frame open large: a touch bigger, no fade (nothing follows it). */
+  .lm-chips-open {
+    font-size: 10px;
+    mask-image: none;
+    -webkit-mask-image: none;
+  }
   .lm-chips .t {
     display: none;
     align-items: center;

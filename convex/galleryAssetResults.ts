@@ -54,6 +54,9 @@ export const galleryAssetResultValidator = v.object({
   isPublic: v.optional(v.boolean()),
   isFeatured: v.optional(v.boolean()),
   isLiked: v.optional(v.boolean()),
+  // The owner's super like ("ready to use"). Owner reads only: public
+  // results never carry it.
+  superLikedAt: v.optional(v.number()),
   starredAt: v.optional(v.number()),
   starNote: v.optional(v.string()),
   curatedByUserId: v.optional(v.string()),
@@ -193,7 +196,11 @@ const resolveFolderIdsMap = async (ctx: QueryCtx, assets: Doc<"assets">[]) => {
 export const hydrateGalleryAssetResults = async (
   ctx: QueryCtx,
   assets: Doc<"assets">[],
-  options: { folderIdsByAssetId?: Map<Id<"assets">, Id<"folders">[]> } = {},
+  options: {
+    folderIdsByAssetId?: Map<Id<"assets">, Id<"folders">[]>;
+    /** The owner is reading: include the private marks (superLikedAt). */
+    ownerMarks?: boolean;
+  } = {},
 ) => {
   if (assets.length === 0) {
     return [];
@@ -269,6 +276,7 @@ export const hydrateGalleryAssetResults = async (
         isPublic: asset.isPublic,
         isFeatured: asset.isFeatured,
         isLiked: asset.isLiked,
+        ...(options.ownerMarks && asset.superLikedAt ? { superLikedAt: asset.superLikedAt } : {}),
         starredAt: asset.starredAt,
         starNote: asset.starNote,
         curatedByUserId: asset.curatedByUserId,
@@ -299,6 +307,8 @@ export const listScoredGalleryAssetsByIds = internalQuery({
         textScore: v.optional(v.number()),
       }),
     ),
+    // The owner's own search: results carry the private marks.
+    ownerMarks: v.optional(v.boolean()),
   },
   returns: v.array(scoredGalleryAssetResultValidator),
   handler: async (ctx, args) => {
@@ -317,7 +327,7 @@ export const listScoredGalleryAssetsByIds = internalQuery({
       .map((assetId) => assetById.get(assetId))
       .filter((asset): asset is Doc<"assets"> => Boolean(asset));
 
-    const hydrated = await hydrateGalleryAssetResults(ctx, orderedAssets);
+    const hydrated = await hydrateGalleryAssetResults(ctx, orderedAssets, { ownerMarks: args.ownerMarks === true });
     const itemById = new Map(args.items.map((item) => [item.assetId, item] as const));
 
     return hydrated

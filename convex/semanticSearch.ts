@@ -361,6 +361,8 @@ const assetFilterArgs = {
   // "animation" = tagged animation; "live-action" = everything else.
   medium: mediumValidator,
   onlyLiked: v.optional(v.boolean()),
+  // Super liked = the owner marked it ready to use. Owner searches only.
+  onlySuperLiked: v.optional(v.boolean()),
   // Starred = featured on the public reel.
   onlyStarred: v.optional(v.boolean()),
 };
@@ -377,6 +379,7 @@ type AssetFilters = {
   pieceType?: "character" | "location" | "scene" | "inspiration";
   medium?: "animation" | "live-action";
   onlyLiked?: boolean;
+  onlySuperLiked?: boolean;
   onlyStarred?: boolean;
 };
 
@@ -389,6 +392,7 @@ type FilterableAsset = {
   kind: "image" | "video";
   tagNames: string[];
   isLiked?: boolean;
+  superLikedAt?: number;
   starredAt?: number;
   agentDescription?: string;
   description?: string;
@@ -433,6 +437,7 @@ const hasMetadataFilters = (filters: AssetFilters) =>
       filters.pieceType ||
       filters.medium ||
       filters.onlyLiked ||
+      filters.onlySuperLiked ||
       filters.onlyStarred,
   );
 
@@ -466,6 +471,9 @@ export const buildAssetFilter = (filters: AssetFilters, scope: "mine" | "public"
     if (filters.assetRole && asset.assetRole !== filters.assetRole && !(["workflow_asset", "skill_example"].includes(filters.assetRole) && ["workflow_asset", "skill_example"].includes(asset.assetRole ?? ""))) return false;
     if (filters.kind && asset.kind !== filters.kind) return false;
     if (filters.onlyLiked && asset.isLiked !== true) return false;
+    // A private mark: only the owner's own search carries it, so a public
+    // search asked for it finds nothing.
+    if (filters.onlySuperLiked && (scope !== "mine" || !asset.superLikedAt)) return false;
     if (filters.onlyStarred && !asset.starredAt) return false;
 
     const keys = new Set(asset.tagNames.map((name) => canonicalTagKey(name)));
@@ -728,6 +736,7 @@ const hydrateFiltered = async (
     if (chunk.length > 0) {
       const hydrated = (await ctx.runQuery(listScoredGalleryAssetsByIdsQueryRef, {
         items: chunk,
+        ...(spec.scope === "mine" ? { ownerMarks: true } : {}),
       })) as ScoredAsset[];
       if (trace) {
         trace.hydrationCalls += 1;

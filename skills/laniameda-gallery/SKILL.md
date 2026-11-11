@@ -239,6 +239,8 @@ handoffs do not override a newer rule.
 - Preserve public, featured and liked flags when filing. Michael's curator star
   publishes/features an asset; never star, publish, feature or set the public taste
   collection unless requested. Non-curator stars are private; isLiked is separate.
+  A super like (`superLikedAt`) is his "ready to use" mark: read those frames
+  with `onlySuperLiked: true`; never set or clear it for him.
 - Save a generation prompt with its actual result media. If that requested media
   is unavailable, report it and ask before a prompt-only fallback. Native textual
   Stories and explicitly requested text recipes need no placeholder media.

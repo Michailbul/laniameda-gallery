@@ -8,6 +8,8 @@ import { buildMenuFilterPredicate, isHiddenSkillExample, isSkillExampleRole, mat
 import { galleryAssetSearchText } from "../lib/gallery-search";
 
 const ORDER = "owner-candidate-createdAt-desc" as const;
+// onlySuperLiked reads the ready images through their own index.
+const SUPER_ORDER = "owner-candidate-superLikedAt-desc" as const;
 type Cursor = { v: 1; key: string; owner: number; cursor: string | null };
 
 export const listAssetsPage = signedOwnerQuery({
@@ -22,8 +24,10 @@ export const listAssetsPage = signedOwnerQuery({
     pieceType: v.optional(v.union(v.literal("character"), v.literal("location"), v.literal("scene"), v.literal("inspiration"))),
     medium: v.optional(v.union(v.literal("animation"), v.literal("live-action"))),
     onlyLiked: v.optional(v.boolean()), onlyStarred: v.optional(v.boolean()), search: v.optional(v.string()),
+    // The frames Michael super liked: ready to use. Newest super like first.
+    onlySuperLiked: v.optional(v.boolean()),
   },
-  returns: v.object({ assets: v.array(galleryAssetResultValidator), cursor: v.union(v.string(), v.null()), isDone: v.boolean(), scannedCount: v.number(), order: v.literal(ORDER), includesSkillExamples: v.boolean(), includesWorkflowAssets: v.boolean() }),
+  returns: v.object({ assets: v.array(galleryAssetResultValidator), cursor: v.union(v.string(), v.null()), isDone: v.boolean(), scannedCount: v.number(), order: v.union(v.literal(ORDER), v.literal(SUPER_ORDER)), includesSkillExamples: v.boolean(), includesWorkflowAssets: v.boolean() }),
   handler: async (ctx, input) => {
     const { cursor: rawCursor, pageSize: rawSize, ...filters } = input;
     const pageSize = rawSize ?? 100;
@@ -41,7 +45,8 @@ export const listAssetsPage = signedOwnerQuery({
     // Skill examples belong to their Skill; list them only on request.
     const includesWorkflowAssets = (input.includeSkillExamples ?? input.includeWorkflowAssets) === true;
     const args = await resolveNamedTagFilters(ctx, input);
-    if (!args) return { assets: [], cursor: null, isDone: true, scannedCount: 0, order: ORDER, includesSkillExamples: includesWorkflowAssets, includesWorkflowAssets };
+    const order = input.onlySuperLiked ? SUPER_ORDER : ORDER;
+    if (!args) return { assets: [], cursor: null, isDone: true, scannedCount: 0, order, includesSkillExamples: includesWorkflowAssets, includesWorkflowAssets };
     let folders: Set<Id<"folders">> | undefined;
     if (args.folderId) {
       const folder = await ctx.db.get(args.folderId);
@@ -54,7 +59,9 @@ export const listAssetsPage = signedOwnerQuery({
     }
     const owner = owners[state.owner];
     const assetRole = args.assetRole === "workflow_asset" ? "skill_example" : args.assetRole;
-    const query = args.onlyLiked
+    const query = args.onlySuperLiked
+      ? ctx.db.query("assets").withIndex("by_owner_superLikedAt", q => q.eq("ownerUserId", owner).gt("superLikedAt", 0))
+      : args.onlyLiked
       ? ctx.db.query("assets").withIndex("by_owner_isLiked_createdAt", q => q.eq("ownerUserId", owner).eq("isLiked", true))
       : args.modelName
         ? ctx.db.query("assets").withIndex("by_owner_modelName_createdAt", q => q.eq("ownerUserId", owner).eq("modelName", args.modelName!))
@@ -73,14 +80,15 @@ export const listAssetsPage = signedOwnerQuery({
       (includesWorkflowAssets || !isHiddenSkillExample(asset, args.assetRole)) &&
       matchesMenuFilters(predicate, asset) && (!args.kind || asset.kind === args.kind) &&
       matchesAssetRole(asset.assetRole, args.assetRole) && (!args.modelName || asset.modelName === args.modelName) &&
-      (!args.onlyLiked || asset.isLiked === true) && (!args.onlyStarred || Boolean(asset.starredAt)),
+      (!args.onlyLiked || asset.isLiked === true) && (!args.onlySuperLiked || Boolean(asset.superLikedAt)) &&
+      (!args.onlyStarred || Boolean(asset.starredAt)),
     );
-    const hydrated = await hydrateGalleryAssetResults(ctx, rows);
+    const hydrated = await hydrateGalleryAssetResults(ctx, rows, { ownerMarks: true });
     const search = args.search?.trim().toLowerCase();
     const excludedFolders = new Set(args.excludeFolderIds ?? []);
     const assets = hydrated.filter(asset => (!folders || asset.folderIds.some(id => folders.has(id))) && !asset.folderIds.some(id => excludedFolders.has(id)) && (!search || galleryAssetSearchText(asset).includes(search)));
     const isDone = batch.isDone && state.owner === owners.length - 1;
     const next: Cursor = batch.isDone ? { v: 1, key, owner: state.owner + 1, cursor: null } : { ...state, cursor: batch.continueCursor };
-    return { assets, cursor: isDone ? null : JSON.stringify(next), isDone, scannedCount: batch.page.length, order: ORDER, includesSkillExamples: includesWorkflowAssets, includesWorkflowAssets };
+    return { assets, cursor: isDone ? null : JSON.stringify(next), isDone, scannedCount: batch.page.length, order, includesSkillExamples: includesWorkflowAssets, includesWorkflowAssets };
   },
 });

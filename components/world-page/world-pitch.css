@@ -424,6 +424,15 @@
   box-shadow: inset 0 0 0 1px var(--wp-ivory-3);
 }
 .wp-chip-hero { color: var(--wp-accent); box-shadow: inset 0 0 0 1px var(--wp-accent); }
+/* The owner's like (key 1): a quiet coral outline; a super like ("ready to
+   use", 1 twice) is filled, coral to ember. */
+.wp-chip-like { color: #f26157; box-shadow: inset 0 0 0 1px rgba(242, 97, 87, 0.6); }
+.wp-chip-super {
+  color: #0a0805;
+  font-weight: 800;
+  background: linear-gradient(100deg, #f26157, #ff8c42);
+  box-shadow: none;
+}
 .wp-tile-veil {
   position: absolute;
   inset: auto 0 0;

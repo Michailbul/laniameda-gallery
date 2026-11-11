@@ -52,6 +52,7 @@ interface NamedFilters {
   pieceType?: PieceType;
   medium?: Medium;
   onlyLiked?: boolean;
+  onlySuperLiked?: boolean;
   onlyStarred?: boolean;
 }
 
@@ -452,6 +453,7 @@ const namedFilterArgs = (params: NamedFilters) => ({
   pieceType: params.pieceType,
   medium: params.medium,
   onlyLiked: params.onlyLiked,
+  onlySuperLiked: params.onlySuperLiked,
   onlyStarred: params.onlyStarred,
 });
 

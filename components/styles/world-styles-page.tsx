@@ -53,6 +53,10 @@ const TEAL = "#79B791";
 const CRIMSON = "#E05A5A";
 const TONE: Record<Tone, string> = { coral: "var(--lm-coral)", ember: EMBER, teal: TEAL, crimson: CRIMSON, ink: "var(--lm-text-primary)" };
 
+// A second 1 within this many ms is a super like. Same value as LIKE_DOUBLE_MS
+// in lib/asset-hotkeys.ts; kept local so this page shares no extra chunk with
+// the vault (the import split one out of the home page's first load).
+const LIKE_DOUBLE_MS = 350;
 const SANS: CSSProperties = { fontFamily: "var(--font-geist-sans), system-ui, sans-serif" };
 
 const aspectOf = (frame: Frame) => (frame.width && frame.height ? frame.width / frame.height : 4 / 5);
@@ -176,6 +180,7 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
 
   const levelFor = useCallback((frame: Frame) => levels[frame.assetId] ?? levelOf(frame), [levels]);
 
+  const lastOne = useRef<{ id: string; at: number } | null>(null);
   const like = useCallback(async (frame: Frame, superLike: boolean) => {
     const current = levelFor(frame);
     const next: Level = superLike ? (current === "super" ? "like" : "super") : current === "none" ? "like" : "none";
@@ -275,7 +280,14 @@ function StylesScreen({ ownerUserId, world, styleRef }: { ownerUserId: string; w
         return handled();
       }
       if (event.code === "Digit1" && event.shiftKey) { void like(frame, true); return handled(); }
-      if (key === "1") { void like(frame, false); return handled(); }
+      if (key === "1") {
+        // 1 twice quickly is a super like, as on every owner surface (lib/asset-hotkeys.ts).
+        const now = performance.now();
+        const double = lastOne.current?.id === frame.assetId && now - lastOne.current.at <= LIKE_DOUBLE_MS;
+        lastOne.current = double ? null : { id: frame.assetId, at: now };
+        void like(frame, double);
+        return handled();
+      }
       if (key === "2") { void drop(frame); return handled(); }
       if (key === "s") { setPalette({ kind: "style", frame }); return handled(); }
       if (key === "m") { setPalette({ kind: "collection", frame }); return handled(); }
