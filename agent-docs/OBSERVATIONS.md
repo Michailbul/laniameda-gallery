@@ -77,6 +77,25 @@ Technical notes and lessons learned. Update this when you hit a quirk.
   { "moodboardItems.by_moodboard_position": ["moodboardId", "position"] } })`.
   `withSearchIndex` matches any query term as a substring.
 
+- Never store vectors of two kinds in one vector index (11 Nov 2026). Videos
+  kept a text vector in the pixel lane; text scores ~0.5–0.8 against a text
+  query, pictures ~0.3–0.45, so a few hundred of them took all 256 hits and
+  hid every picture. `semanticSearch:inspectLanes` shows what a lane returns.
+- A Convex vector index can keep serving vectors after the field is removed
+  from the row, and even after the row is deleted (seen 11 Nov 2026 on rows
+  older than about three weeks; newer rows left at once). Hits then resolve
+  to rows without the vector, or to nothing. A rename of the index in
+  `schema.ts` for one push rebuilds it from the current rows (15,600 rows of
+  3,072 values took 1.4 minutes; search stayed up).
+- A Convex push replaces every function with the pushing branch's. Two
+  sessions pushing from different branches undo each other (11 Nov 2026: a
+  push from another branch removed the search functions and renamed the index
+  back). Merge to main quickly, and merge origin/main before every push.
+- Lane blending is tuned on real queries, not on synthetic scores: dump lanes
+  with `inspectLanes`, judge contact sheets by eye. Position-based fusion
+  (RRF) buried a lone strong match under pieces that were mediocre in both
+  lanes, and gave a noise lane half of every page.
+
 - Similarity for grouping comes from `assetHashes` (dHash), not embeddings:
   with legacy semantic storage every vector read costs a ~56 KB row. Hash rows
   are ~100 bytes; the grid loads all of an owner's hashes in one query.
