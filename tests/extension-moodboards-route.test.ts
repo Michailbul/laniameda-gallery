@@ -14,7 +14,7 @@ mock.module("@/lib/server/convex", () => ({
     query: async (_reference: unknown, payload: Record<string, unknown>) => {
       state.queryCalls.push(payload);
       if ("includeRetired" in payload) {
-        return [
+        const rows = [
           {
             id: "profile1",
             name: "DARI",
@@ -27,7 +27,12 @@ mock.module("@/lib/server/convex", () => ({
           },
           { id: "profile2", name: "OLD", code: "zzzzzzz", status: "retired", uses: [] },
           { id: "profile3", name: "NO CODE", code: " ", status: "active", uses: [] },
+          { id: "profile4", name: "CAS COAST (deleted in MJ)", code: "hb43kol", status: "active", uses: [{ world: "dear-annete" }, { world: "cassandra" }] },
+          { id: "profile5", name: "CAS Main 1", code: "2k7kjkp", status: "active", uses: [{ world: "cassandra", role: "Cassandra's own taste." }] },
+          { id: "profile6", name: "GLOBAL", code: "37vd7r6", status: "active", uses: [] },
         ];
+        const world = payload.world;
+        return world ? rows.filter((row) => row.uses.some((use) => use.world === world)) : rows;
       }
       if ("world" in payload) {
         return {
@@ -157,6 +162,20 @@ describe("GET /api/extension/moodboards", () => {
     ]);
     const profileQuery = state.queryCalls.find((call) => "includeRetired" in call);
     expect(profileQuery).toMatchObject({ world: "dear-annete", includeRetired: false });
+  });
+
+  test("never returns a profile deleted in Midjourney", async () => {
+    const body = await (await getMoodboards("?world=dear-annete")).json();
+    const names = [...body.profiles, ...body.otherProfiles].map((profile: { name: string }) => profile.name);
+    expect(names).not.toContain("CAS COAST (deleted in MJ)");
+  });
+
+  test("returns the other worlds' profiles with the worlds that use them", async () => {
+    const body = await (await getMoodboards("?world=dear-annete")).json();
+    expect(body.otherProfiles).toEqual([
+      { id: "profile5", name: "CAS Main 1", code: "2k7kjkp", flag: "-p 2k7kjkp", role: "Cassandra's own taste.", styleTag: null, worlds: ["cassandra"] },
+      { id: "profile6", name: "GLOBAL", code: "37vd7r6", flag: "-p 37vd7r6", role: "", styleTag: null, worlds: [] },
+    ]);
   });
 
   test("asks for child boards with six previews each", async () => {

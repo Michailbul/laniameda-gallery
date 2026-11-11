@@ -91,12 +91,16 @@ const toMoodboardDtos = (rows: unknown) =>
       };
     });
 
+// A profile Midjourney no longer has ("CAS COAST (deleted in MJ)") never
+// reaches the dock (Michael, 11 Nov 2026).
+const isDeletedProfile = (profile: ProfileRow) => /\bdeleted\b/i.test(profile.name ?? "");
+
 // The world's Midjourney taste profiles: one chip each in the dock, toggled
 // in the prompt's profile flag beside the moodboard code. The role is the
 // world's own use of the profile, shown on hover.
 const toProfileDtos = (rows: unknown, worldKey: string) =>
   (Array.isArray(rows) ? (rows as ProfileRow[]) : [])
-    .filter((profile) => typeof profile.code === "string" && profile.code.trim() && profile.status !== "retired")
+    .filter((profile) => typeof profile.code === "string" && profile.code.trim() && profile.status !== "retired" && !isDeletedProfile(profile))
     .map((profile) => {
       const code = String(profile.code).trim();
       const use = (profile.uses ?? []).find((entry) => entry.world === worldKey) ?? profile.uses?.[0];
@@ -155,6 +159,22 @@ export async function GET(request: Request) {
     } catch {
       profiles = [];
     }
+    // Every other live profile, with the worlds that use it, for the dock's
+    // "Other worlds" panel: a profile of another world in one click.
+    let otherProfiles: Array<ReturnType<typeof toProfileDtos>[number] & { worlds: string[] }> = [];
+    try {
+      const here = new Set(profiles.map((profile) => profile.code));
+      const all = (await client.query(listProfilesQuery, { ownerUserId, includeRetired: false })) as ProfileRow[];
+      otherProfiles = toProfileDtos(all, resolved.key)
+        .filter((profile) => !here.has(profile.code))
+        .map((profile) => {
+          const row = all.find((entry) => String(entry.id) === profile.id);
+          const worlds = [...new Set((row?.uses ?? []).map((use) => use.world).filter((key): key is string => Boolean(key)))];
+          return { ...profile, worlds };
+        });
+    } catch {
+      otherProfiles = [];
+    }
     // Gallery style presets a dock chip can set: codes and settings only (an
     // sref or an opening sentence runs from the queue). Dock-made ones are
     // already in the dock.
@@ -178,6 +198,7 @@ export async function GET(request: Request) {
       world: toWorldDto(resolved),
       moodboards: toMoodboardDtos(rows),
       profiles,
+      otherProfiles,
       galleryPresets,
     });
   } catch (error) {
