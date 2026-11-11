@@ -45,6 +45,7 @@ import type * as editRunner from "../editRunner.js";
 import type * as files from "../files.js";
 import type * as folderHelpers from "../folderHelpers.js";
 import type * as folders from "../folders.js";
+import type * as frameMarks from "../frameMarks.js";
 import type * as galleryAssetResults from "../galleryAssetResults.js";
 import type * as galleryPresets from "../galleryPresets.js";
 import type * as generationLineage from "../generationLineage.js";
@@ -173,6 +174,7 @@ declare const fullApi: ApiFromModules<{
   files: typeof files;
   folderHelpers: typeof folderHelpers;
   folders: typeof folders;
+  frameMarks: typeof frameMarks;
   galleryAssetResults: typeof galleryAssetResults;
   galleryPresets: typeof galleryPresets;
   generationLineage: typeof generationLineage;

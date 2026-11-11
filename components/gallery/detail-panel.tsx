@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ReviewHeaderHints, useArchiveStore, useArchivedAt } from "./asset-review-controls";
+import { FrameMarkChips, ReviewHeaderHints, useArchiveStore, useArchivedAt, useIsNoted, useLikeLevel } from "./asset-review-controls";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   X,
@@ -109,6 +109,7 @@ interface GalleryDetailPanelProps {
     folderIds?: string[];
     isPublic?: boolean;
     isFeatured?: boolean;
+    isLiked?: boolean;
     starredAt?: number;
     starNote?: string;
     isDesignInspiration?: boolean;
@@ -445,6 +446,12 @@ export function GalleryDetailPanel({
   const currentAssetId = currentSlide.id ?? image.id;
   const review = useArchiveStore();
   const isArchived = useArchivedAt(isDesignView ? undefined : currentAssetId) !== undefined;
+  // The owner's private marks (key 1, C) on the frame in view. A pack's other
+  // frames carry no like of their own here; the super like still shows.
+  const marksAssetId = onToggleStar && !isDesignView ? currentAssetId : undefined;
+  const framePayloadLiked = currentAssetId === image.id && image.isLiked === true;
+  const likeLevel = useLikeLevel(marksAssetId, framePayloadLiked);
+  const isNoted = useIsNoted(marksAssetId);
   const tagDatalistId = `asset-tag-suggestions-${currentAssetId}`;
   // A landed in-place edit wiped against its source on the stage.
   const [compare, setCompare] = useState<EditCompare | null>(null);
@@ -679,6 +686,8 @@ export function GalleryDetailPanel({
       data-review-src={currentSlide.thumbSrc}
       data-review-name="Scene"
       data-review-archived={isArchived || undefined}
+      data-review-liked={framePayloadLiked ? "true" : undefined}
+      data-review-like={likeLevel === "none" ? undefined : likeLevel}
       onDoubleClick={() => { if (isArchived) review.restore(currentAssetId); }}
       tabIndex={-1}
       className={`flex h-full flex-col ${isModal ? "" : "lm-animate-slide-right"}`}
@@ -812,6 +821,11 @@ export function GalleryDetailPanel({
                 }
           }
         >
+          {(likeLevel !== "none" || isNoted) && (
+            <div className="lm-chips lm-chips-open pointer-events-none absolute bottom-2 left-2 z-20">
+              <FrameMarkChips level={likeLevel} noted={isNoted} />
+            </div>
+          )}
           {isWebBookmark && designView?.sourceUrl ? (
             <>
               {/* Screenshot underneath — shows through if the iframe is blocked

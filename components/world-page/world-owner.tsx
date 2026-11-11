@@ -7,15 +7,17 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCurrentUser } from "@/lib/use-current-user";
-import { ASSET_HOTKEYS, assetHotkeyOf } from "@/lib/asset-hotkeys";
+import { ASSET_HOTKEYS, LIKE_DOUBLE_MS, assetHotkeyOf, likeLevelOf, type LikeLevel } from "@/lib/asset-hotkeys";
 import { heroNotice } from "@/lib/world-hero-inserts";
+import { useFrameMarks } from "@/lib/use-frame-marks";
 import type { WorldTile } from "./types";
 import type { WallOwnerState } from "./world-masonry";
 
 // The owner's keys on the world page and its admin view, on the hovered frame
 // (or the one open large). Every key paints before the server answers:
-//   F feature · H hero (Shift+H pairs into the previous insert) · C comment ·
-//   2 drop from the page · D delete (ten minutes to undo) · O open.
+//   1 like (twice quickly: super like, "ready to use") · F feature · H hero
+//   (Shift+H pairs into the previous insert) · C comment · 2 drop from the
+//   page · D delete (ten minutes to undo) · O open.
 
 declare global {
   interface Window {
@@ -75,6 +77,9 @@ export function useWorldOwner({
   const setHidden = useMutation(api.worldPage.setWorldPageHidden);
   const setHeroInsert = useMutation(api.worldPage.setHeroInsert);
   const addComment = useMutation(api.assetComments.addAssetComment);
+  const setLikeLevel = useMutation(api.assets.setAssetLikeLevel);
+  // The owner's private marks: super-liked frames and frames with a comment.
+  const marks = useFrameMarks(active ? ownerUserId : undefined);
   const heroRows = useQuery(
     api.worldPage.listHeroAssetIds,
     active && ownerUserId ? { ownerUserId } : "skip",
@@ -84,6 +89,8 @@ export function useWorldOwner({
   const [heroes, setHeroes] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const [drops, setDrops] = useState<ReadonlyMap<string, boolean>>(() => new Map());
   const [archivedIds, setArchivedIds] = useState<ReadonlySet<string>>(() => new Set());
+  // Key 1 on a frame in this visit; it stands over what the page was sent.
+  const [likes, setLikes] = useState<ReadonlyMap<string, LikeLevel>>(() => new Map());
   const [flashId, setFlashId] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [composer, setComposer] = useState<Composer | null>(null);
@@ -92,24 +99,58 @@ export function useWorldOwner({
     () => new Set((heroRows ?? []).map((row) => row.assetId as string)),
     [heroRows],
   );
+  const superIds = useMemo(() => new Set<string>(marks?.superLiked ?? []), [marks]);
+  const notedIds = useMemo(() => new Set<string>(marks?.noted ?? []), [marks]);
+  // The page's own read knows a plain like only in the admin view; a super
+  // like is known everywhere.
+  const likeOf = useCallback(
+    (id: string): LikeLevel =>
+      likes.get(id) ?? likeLevelOf(findTile(id)?.liked, superIds.has(id)),
+    [likes, findTile, superIds],
+  );
 
   // Refs mirror state for the key handler, which is bound once.
-  const live = useRef({ featured, heroes, drops, archivedIds, heroIds, composer });
+  const live = useRef({ featured, heroes, drops, archivedIds, heroIds, composer, likeOf });
   useEffect(() => {
-    live.current = { featured, heroes, drops, archivedIds, heroIds, composer };
-  }, [featured, heroes, drops, archivedIds, heroIds, composer]);
+    live.current = { featured, heroes, drops, archivedIds, heroIds, composer, likeOf };
+  }, [featured, heroes, drops, archivedIds, heroIds, composer, likeOf]);
   const lookup = useRef({ findTile, openId, onOpenId });
   useEffect(() => {
     lookup.current = { findTile, openId, onOpenId };
   }, [findTile, openId, onOpenId]);
 
   const ownerKit = useRef<OwnerKit | null>(null);
+  // Key 1: the mark paints on the press; the save follows once a double press
+  // can no longer come, and whatever still waits is sent on the way out.
+  const likePresses = useRef<ReturnType<OwnerKit["createLikePresses"]> | null>(null);
   useEffect(() => {
-    if (!active) return;
+    if (!active || !ownerUserId) return;
+    let gone = false;
+    const flush = () => likePresses.current?.flush();
     void loadOwnerKit().then((kit) => {
+      if (gone) return;
       ownerKit.current = kit;
+      likePresses.current = kit.createLikePresses({
+        doubleMs: LIKE_DOUBLE_MS,
+        save: (assetId, level) => setLikeLevel({ ownerUserId, assetId: assetId as Id<"assets">, level }),
+        onError: (assetId) => {
+          setLikes((current) => {
+            const copy = new Map(current);
+            copy.delete(assetId);
+            return copy;
+          });
+          setNotice("Could not save the like");
+        },
+      });
     });
-  }, [active]);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      gone = true;
+      window.removeEventListener("pagehide", flush);
+      flush();
+      likePresses.current = null;
+    };
+  }, [active, ownerUserId, setLikeLevel]);
 
   useEffect(() => {
     if (!notice) return;
@@ -145,9 +186,11 @@ export function useWorldOwner({
       archived: (id) => archivedIds.has(id),
       hero: (id) => heroes.get(id) ?? heroIds.has(id),
       off: offOf,
+      like: likeOf,
+      noted: (id) => notedIds.has(id),
       flashId,
     };
-  }, [featured, archivedIds, heroes, heroIds, drops, flashId, findTile]);
+  }, [featured, archivedIds, heroes, heroIds, drops, flashId, findTile, likeOf, notedIds]);
 
   useEffect(() => {
     if (!active || !ownerUserId) return;
@@ -175,11 +218,23 @@ export function useWorldOwner({
       const tile = lookup.current.findTile(id);
       event.preventDefault();
       event.stopImmediatePropagation();
-      setFlashId(id);
-      window.setTimeout(() => setFlashId((current) => (current === id ? null : current)), 650);
+      // The like paints its own confirmation, in its own colour.
+      if (key !== ASSET_HOTKEYS.like) {
+        setFlashId(id);
+        window.setTimeout(() => setFlashId((current) => (current === id ? null : current)), 650);
+      }
       const now = live.current;
 
-      if (key === ASSET_HOTKEYS.open) {
+      if (key === ASSET_HOTKEYS.like) {
+        const kit = ownerKit.current;
+        const presses = likePresses.current;
+        if (!kit || !presses) return;
+        const next = presses.press(id, now.likeOf(id));
+        setLikes((current) => new Map(current).set(id, next));
+        markPaint(startedAt);
+        const said = kit.likeFlash(next);
+        kit.flashFrame(frameNodeOf(id, "box"), said.label, said.tone);
+      } else if (key === ASSET_HOTKEYS.open) {
         lookup.current.onOpenId(id);
       } else if (key === ASSET_HOTKEYS.comment) {
         // A note already holding words keeps them: the key goes back to it.
@@ -294,6 +349,8 @@ export function useWorldOwner({
   const layer = active ? (
     <>
       <div className="wp-keys" aria-label="Owner keys">
+        <span title="1: like · 1 again takes it off"><kbd>1</kbd>Like</span>
+        <span title="1 twice, quickly: super like. The image is ready to use."><kbd>1 1</kbd>Super like</span>
         <span><kbd>F</kbd>Feature</span>
         <span><kbd>H</kbd>Hero</span>
         <span><kbd>⇧H</kbd>Pair</span>

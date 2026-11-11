@@ -4,6 +4,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import type { WorldTile } from "./types";
 import type { WallOwnerState } from "./world-masonry";
 import { claimPlayback, lowData } from "./playback";
+import type { LikeLevel } from "@/lib/asset-hotkeys";
 
 // The frames of one hero insert: one full bleed, two side by side, three tall
 // panels. Used by the opening hero and by every cut in the wall. A film plays
@@ -107,6 +108,8 @@ function InsertFrame({
 
   const hero = owner?.hero(tile.id) ?? false;
   const off = owner?.off(tile.id);
+  const like = owner?.like(tile.id) ?? "none";
+  const noted = owner?.noted(tile.id) ?? false;
   return (
     <div className="wp-frame" data-wp-id={tile.id} data-off={off || undefined}>
       {/* eslint-disable-next-line @next/next/no-img-element -- R2 thumbs with their own srcset; next/image would re-encode them. */}
@@ -144,14 +147,29 @@ function InsertFrame({
           onPlaying={() => setPlaying(true)}
         />
       )}
-      {owner && (hero || off) && (
+      {owner && (hero || off || like !== "none" || noted) && (
         <span className="wp-chips">
           {hero && <span className="wp-chip wp-chip-hero">Hero</span>}
           {off && <span className="wp-chip">{OFF_LABEL[off]}</span>}
+          <OwnerMarkChips like={like} noted={noted} />
         </span>
       )}
       {owner?.flashId === tile.id && <span className="wp-flash" aria-hidden />}
     </div>
+  );
+}
+
+/** The owner's private marks on a frame: liked or super liked (key 1), and a comment (C). */
+export function OwnerMarkChips({ like, noted }: { like: LikeLevel; noted: boolean }) {
+  return (
+    <>
+      {like === "super" ? (
+        <span className="wp-chip wp-chip-super">Super liked</span>
+      ) : like === "like" ? (
+        <span className="wp-chip wp-chip-like">Liked</span>
+      ) : null}
+      {noted && <span className="wp-chip">Comment</span>}
+    </>
   );
 }
 

@@ -946,9 +946,11 @@ export default defineSchema({
     // Optional owner note on why this one is starred. Only surfaced while the
     // asset is starred; kept on unstar so an accidental toggle loses nothing.
     starNote: v.optional(v.string()),
-    // Owner's SUPER LIKE (styles page, key ⇧1): a stronger like that stays
-    // private. Unlike the curator's star it never publishes or features the
-    // piece. Super liking also sets isLiked. Unset = not super liked.
+    // Owner's SUPER LIKE (1 pressed twice on a frame; ⇧1 on the styles page):
+    // "this image is ready to use". A stronger like that stays private:
+    // unlike the curator's star it never publishes or features the piece.
+    // Super liking also sets isLiked; unliking clears it. Unset = not super
+    // liked. Agents pull the ready images with onlySuperLiked.
     superLikedAt: v.optional(v.number()),
     curatedByUserId: v.optional(v.string()),
     curatedAt: v.optional(v.number()),
@@ -989,6 +991,8 @@ export default defineSchema({
     // mj-<job>-<index>.png and other saved file names (worldStyles.findAssets).
     .index("by_owner_fileName", ["ownerUserId", "fileName"])
     .index("by_owner_isLiked_createdAt", ["ownerUserId", "isLiked", "createdAt"])
+    // The ready images: a small set read on its own (superLikedAt > 0).
+    .index("by_owner_superLikedAt", ["ownerUserId", "superLikedAt"])
     // Backs the starred-first prepend: a small set read on its own so a starred
     // asset leads the grid even when its natural page hasn't streamed in yet.
     .index("by_owner_starredAt", ["ownerUserId", "starredAt"])

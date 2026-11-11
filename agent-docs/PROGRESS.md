@@ -8,6 +8,40 @@ Last updated: 2026-11-11
 
 ## ✔ Shipped
 
+### 2026-11-11 — Like with 1, super like with 1 twice; agents pull the ready images (branch `feat/like-hotkey`, backend pushed)
+- Michael: "make a feature of the Like button hotkey, by pressing 1. also has
+  to be super like (double 1). super likes are already ready images to use."
+- Key 1 on the hovered frame or the one open large, on every owner surface
+  through `lib/asset-hotkeys.ts` (vault grid, open view, world page and its
+  admin view): one press likes, a second press within 350 ms makes it a super
+  like. 1 on a liked or super-liked frame takes both off; 1 twice on a liked
+  frame upgrades it. The styles page takes 1 twice as well (it keeps ⇧1).
+- No lag: the mark and a confirmation paint on the first press. The save
+  waits out the double-press window, so a double writes once (`super`), and
+  is flushed when the page is left (`lib/like-presses.ts`).
+- On the frame: a LIKED chip (coral outline) or a SUPER LIKED chip (filled,
+  coral to ember, two pips) at the start of the tile's label line and on the
+  picture in the open view; a COMMENT chip where the frame carries a comment.
+  The key is in the pinned hint (1 Like · 1 1 Super). The hint bar now
+  centres left of the Feedback pill below 1700px and drops its labels below
+  1420px, so the two no longer overlap.
+- In the open view an in-place edit take under the pointer still owns 1
+  (approve the take).
+- Backend: index `assets.by_owner_superLikedAt`; `frameMarks:listFrameMarks`
+  (owner only: super-liked ids and ids of frames with a comment, read through
+  their own indexes, so no grid payload changed and a frame reads the same on
+  every surface); `setAssetLiked false` now clears the super like too; admin
+  world tiles carry `liked`.
+- Agents: `onlySuperLiked` on `list_assets_page` (reads only those frames,
+  newest super like first), `list_assets`, `search_gallery`, `find_similar`
+  and `preview_assets`; owner results carry `superLikedAt`. Public results
+  never do. Skill: `references/data-model.md`, `references/query.md`.
+- Known limit: the world page's public preview learns a plain like only from
+  this visit (its read is the public one); super likes show everywhere.
+- First load, production build against a local backend, main before #222 →
+  now: home signed out 412.1 → 412.6 KB (JS + CSS, +0.1%), world pitch signed
+  out unchanged within 0.5 KB. The like logic, the note box and the
+  confirmation are one owner-only chunk fetched after first paint.
 ### 2026-11-11 — Shuffle is random, and draws from the whole vault (branch `fix/shuffle-with-filters`, backend pushed 11 Nov 14:41)
 - The shuffle seed counted up from 1 on every page load, so each visit
   replayed the same orders (first press always the same grid, second press

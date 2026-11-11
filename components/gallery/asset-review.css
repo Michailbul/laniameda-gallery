@@ -22,7 +22,7 @@
 .asset-review-dock-keys {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   padding: 0 8px 0 4px;
 }
 .asset-review-dock-keys > span {
@@ -69,8 +69,9 @@
   font-variant-numeric: tabular-nums;
   background: var(--lm-surface-2, rgba(32, 23, 16, 0.06));
 }
-/* Narrow content column: keys only, labels in the title tooltip. */
-@media (max-width: 1100px) {
+/* Narrow content column: keys only, labels in the title tooltip. Eight keys
+   with their labels need about 960px beside the sidebar and the Feedback pill. */
+@media (max-width: 1420px) {
   .asset-review-dock-label {
     display: none;
   }
@@ -126,10 +127,6 @@
   text-transform: uppercase;
   white-space: nowrap;
   animation: asset-review-in 0.18s ease-out;
-}
-.asset-review-chip-time {
-  color: rgba(255, 244, 234, 0.55);
-  font-variant-numeric: tabular-nums;
 }
 .asset-review-chip button {
   height: 18px;
@@ -230,16 +227,13 @@
     translate: 0 0;
   }
 }
-/* Narrow tiles: the chip drops its label, then its timer; Restore stays. */
+/* Narrow tiles: the chip drops its label; Restore stays. */
 @container (max-width: 220px) {
   .asset-review-card-chip .asset-review-chip-label {
     display: none;
   }
 }
 @container (max-width: 130px) {
-  .asset-review-card-chip .asset-review-chip-time {
-    display: none;
-  }
   .asset-review-card-chip .asset-review-chip {
     padding-left: 4px;
   }

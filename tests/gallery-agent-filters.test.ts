@@ -122,6 +122,25 @@ describe("listGalleryAssets named filters", () => {
     expect(await run({ onlyStarred: true })).toEqual([ids.liveCharacter]);
     expect(await run({ excludeTagNames: ["x"] })).toEqual([ids.liveCharacter]);
   });
+
+  test("onlySuperLiked returns the ready frames, newest piece first, and narrows with other filters", async () => {
+    const frame = async (createdAt: number, extra: Record<string, unknown>) =>
+      await harness.db.insert("assets", {
+        ownerUserId: OWNER,
+        kind: "image",
+        sourceUrl: `https://example.com/${createdAt}.jpg`,
+        tagIds: [],
+        isPublic: false,
+        createdAt,
+        ...extra,
+      });
+    const ready = await frame(50, { isLiked: true, superLikedAt: 900 });
+    const readyClip = await frame(40, { isLiked: true, superLikedAt: 950, kind: "video" });
+    const liked = await frame(30, { isLiked: true });
+    expect(await run({ onlySuperLiked: true })).toEqual([ready, readyClip]);
+    expect(await run({ onlySuperLiked: true, kind: "video" })).toEqual([readyClip]);
+    expect(await run({ onlyLiked: true })).toEqual([ready, readyClip, liked]);
+  });
 });
 
 describe("ingest script: agent fields", () => {

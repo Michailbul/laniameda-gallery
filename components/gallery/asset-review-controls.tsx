@@ -16,7 +16,16 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useCoralToastSafe } from "@/components/ui/coral-toast";
-import { ASSET_HOTKEYS, assetHotkeyOf, promoteHotkeyOf } from "@/lib/asset-hotkeys";
+import {
+  ASSET_HOTKEYS,
+  LIKE_DOUBLE_MS,
+  assetHotkeyOf,
+  likeLevelOf,
+  promoteHotkeyOf,
+  type LikeLevel,
+} from "@/lib/asset-hotkeys";
+import { handleEditTakeKey } from "@/lib/edit-take-keys";
+import { useFrameMarks } from "@/lib/use-frame-marks";
 import { MOODBOARD_KEYS, moodboardKeysActive, useMoodboardKeysActive } from "@/components/gallery/moodboard-frame-keys";
 import type { PromoteFrame } from "@/components/review-promote/promote-model";
 import { useReviewPromote } from "@/components/review-promote/use-review-promote";
@@ -50,6 +59,18 @@ export type ArchiveStore = {
   /** F pressed on a frame, before the server answers: starred or not. */
   starOverride: (assetId: string) => boolean | undefined;
   setStarOverride: (assetId: string, starred: boolean | undefined) => void;
+  /**
+   * The like level a frame shows (key 1): what 1 just set on it, else its own
+   * like plus the owner's super likes. `liked` is the frame's like as its
+   * grid query has it.
+   */
+  likeLevel: (assetId: string, liked: boolean) => LikeLevel;
+  /** 1 pressed on a frame whose query said `liked`; undefined clears it. */
+  setLikeOverride: (assetId: string, level: LikeLevel | undefined, liked?: boolean) => void;
+  /** Whether the frame carries a comment. */
+  isNoted: (assetId: string) => boolean;
+  /** The owner's marks for every grid: super-liked frames and frames with a comment. */
+  setMarks: (superLiked: ReadonlySet<string>, noted: ReadonlySet<string>) => void;
   /** A hero frame on its world page (H), with H's answer applied before the query lands. */
   isHero: (assetId: string) => boolean;
   setHeroIds: (ids: ReadonlySet<string>) => void;
@@ -91,6 +112,9 @@ export function createArchiveStore(): ArchiveStore {
   const stars = new Map<string, boolean>();
   let heroIds: ReadonlySet<string> = new Set();
   const heroes = new Map<string, boolean>();
+  const likes = new Map<string, { level: LikeLevel; liked: boolean }>();
+  let superLiked: ReadonlySet<string> = NO_IDS;
+  let noted: ReadonlySet<string> = NO_IDS;
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((listener) => listener());
   return {
@@ -125,6 +149,27 @@ export function createArchiveStore(): ArchiveStore {
       if (stars.get(assetId) === starred) return;
       if (starred === undefined) stars.delete(assetId);
       else stars.set(assetId, starred);
+      emit();
+    },
+    likeLevel: (assetId, liked) => {
+      // The press stands until the frame's own query moves: then the server
+      // has spoken since, and it wins.
+      const pressed = likes.get(assetId);
+      if (pressed && pressed.liked === liked) return pressed.level;
+      return likeLevelOf(liked, superLiked.has(assetId));
+    },
+    setLikeOverride: (assetId, level, liked = false) => {
+      if (level === undefined) {
+        if (!likes.delete(assetId)) return;
+      } else {
+        likes.set(assetId, { level, liked });
+      }
+      emit();
+    },
+    isNoted: (assetId) => noted.has(assetId),
+    setMarks: (nextSuperLiked, nextNoted) => {
+      superLiked = nextSuperLiked;
+      noted = nextNoted;
       emit();
     },
     hiddenIds: () => hidden,
@@ -175,6 +220,43 @@ export function useStarOverride(assetId: string | undefined) {
     store.subscribe,
     () => (assetId ? store.starOverride(assetId) : undefined),
     () => undefined,
+  );
+}
+
+/** The like level this frame shows: none, like or super (key 1). */
+export function useLikeLevel(assetId: string | undefined, liked: boolean | undefined): LikeLevel {
+  const store = useArchiveStore();
+  return useSyncExternalStore(
+    store.subscribe,
+    () => (assetId ? store.likeLevel(assetId, liked === true) : "none"),
+    () => "none",
+  );
+}
+
+/** Whether this frame carries a comment (the COMMENT chip). */
+export function useIsNoted(assetId: string | undefined) {
+  const store = useArchiveStore();
+  return useSyncExternalStore(
+    store.subscribe,
+    () => (assetId ? store.isNoted(assetId) : false),
+    () => false,
+  );
+}
+
+/**
+ * The owner's private marks on a frame, as chips for the tile's label line
+ * (.lm-chips): liked or super liked, and whether it carries a comment.
+ */
+export function FrameMarkChips({ level, noted }: { level: LikeLevel; noted: boolean }) {
+  return (
+    <>
+      {level === "super" ? (
+        <span className="sl" title="Super liked: ready to use (1 takes it off)">Super liked</span>
+      ) : level === "like" ? (
+        <span className="lk" title="Liked (1 takes it off, 1 twice makes it a super like)">Liked</span>
+      ) : null}
+      {noted && <span className="nt" title="Has a comment (C opens it)">Comment</span>}
+    </>
   );
 }
 
@@ -247,6 +329,8 @@ export function ArchivedChip({
 }
 
 const KEYS = [
+  { key: "1", label: "Like" },
+  { key: "1 1", label: "Super" },
   { key: "F", label: "Feature" },
   { key: "D", label: "Archive" },
   { key: "H", label: "Hero" },
@@ -281,7 +365,11 @@ export function ReviewDockHints() {
             title={
               key === "R"
                 ? "R: promote the hovered frame (or the selection) to the director review · Shift+R: to the last place"
-                : `${key}: ${label} the hovered frame`
+                : key === "1"
+                  ? "1: like the hovered frame · 1 again takes the like off"
+                  : key === "1 1"
+                    ? "1 twice, quickly: super like. The image is ready to use."
+                    : `${key}: ${label} the hovered frame`
             }
           >
             <kbd>{key}</kbd>
@@ -515,6 +603,7 @@ export function AssetReviewControls({
     api.worldPage.listHeroAssetIds,
     active ? { ownerUserId: ownerUserId! } : "skip",
   );
+  const marks = useFrameMarks(active ? ownerUserId : undefined);
   const coral = useCoralToastSafe();
   const notify = useCallback(
     (title: string, warning = false) =>
@@ -527,12 +616,35 @@ export function AssetReviewControls({
     key: string;
   } | null>(null);
   const ownerKit = useRef<OwnerKit | null>(null);
+  // Key 1: the mark paints on the press; the save follows once a double press
+  // can no longer come, and whatever still waits is sent on the way out.
+  const likePresses = useRef<ReturnType<OwnerKit["createLikePresses"]> | null>(null);
+  const setLikeLevel = useMutation(api.assets.setAssetLikeLevel);
   useEffect(() => {
     if (!active) return;
+    let gone = false;
+    const flush = () => likePresses.current?.flush();
     void loadOwnerKit().then((kit) => {
+      if (gone) return;
       ownerKit.current = kit;
+      likePresses.current = kit.createLikePresses({
+        doubleMs: LIKE_DOUBLE_MS,
+        save: (assetId, level) =>
+          setLikeLevel({ ownerUserId: ownerUserId!, assetId: assetId as Id<"assets">, level }),
+        onError: (assetId, message) => {
+          store.setLikeOverride(assetId, undefined);
+          notify(message, true);
+        },
+      });
     });
-  }, [active]);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      gone = true;
+      window.removeEventListener("pagehide", flush);
+      flush();
+      likePresses.current = null;
+    };
+  }, [active, ownerUserId, setLikeLevel, store, notify]);
   // The tile C or V was pressed on, so the note opens on that very frame.
   const editorTile = useRef<HTMLElement | null>(null);
   const inFlight = useRef(new Set<string>());
@@ -556,6 +668,11 @@ export function AssetReviewControls({
   useEffect(() => {
     store.setHeroIds(new Set((heroRows ?? []).map((row) => row.assetId as string)));
   }, [store, heroRows]);
+
+  useEffect(() => {
+    if (marks) store.setMarks(new Set<string>(marks.superLiked), new Set<string>(marks.noted));
+  }, [store, marks]);
+
 
   const restore = useCallback(
     async (id: string) => {
@@ -595,6 +712,11 @@ export function AssetReviewControls({
       // The key set and the typing guard live in lib/asset-hotkeys.ts.
       const promoteKey = promoteHotkeyOf(event);
       const key = promoteKey ? null : assetHotkeyOf(event);
+      // An edit take under the pointer (or in the wipe) owns 1: it approves the take.
+      if (key === ASSET_HOTKEYS.like && handleEditTakeKey(event)) {
+        event.stopImmediatePropagation();
+        return;
+      }
       // 2 and O belong to the world page.
       if (!promoteKey && (!key || key === ASSET_HOTKEYS.drop || key === ASSET_HOTKEYS.open)) return;
       // On a moodboard (or an image opened from one), D takes the image off
@@ -665,7 +787,16 @@ export function AssetReviewControls({
         src: frame.dataset.reviewSrc ?? "",
         name: frame.dataset.reviewName ?? "Scene",
       };
-      if (key === ASSET_HOTKEYS.hero) {
+      if (key === ASSET_HOTKEYS.like) {
+        const kit = ownerKit.current;
+        const presses = likePresses.current;
+        if (!kit || !presses) return;
+        const liked = frame.dataset.reviewLiked === "true";
+        const next = presses.press(target.id, store.likeLevel(target.id, liked));
+        store.setLikeOverride(target.id, next, liked);
+        const said = kit.likeFlash(next);
+        kit.flashFrame(frameNodeOf(target.id, frame), said.label, said.tone);
+      } else if (key === ASSET_HOTKEYS.hero) {
         const was = store.isHero(target.id);
         const pair = event.shiftKey;
         if (!pair) store.setHeroOverride(target.id, !was);

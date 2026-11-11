@@ -1063,14 +1063,17 @@ export const setAssetLiked = ownerMutation({
       throw new ConvexError("Asset does not belong to this user.");
     }
 
-    await ctx.db.patch(args.assetId, { isLiked: args.isLiked });
+    // A super like is a stronger like: unliking takes it off too, so a frame
+    // is never "ready" without being liked.
+    await ctx.db.patch(args.assetId, args.isLiked ? { isLiked: true } : { isLiked: false, superLikedAt: undefined });
 
     return { assetId: args.assetId, isLiked: args.isLiked };
   },
 });
 
 // Like and super like as one level, so a frame is never super liked without
-// being liked (styles page keys 1 and ⇧1). Private: nothing here publishes.
+// being liked (key 1, and 1 twice, on any owner surface; ⇧1 on the styles
+// page). A super like means "ready to use". Private: nothing here publishes.
 export const setAssetLikeLevel = ownerMutation({
   args: {
     ownerUserId: v.string(),
@@ -2313,6 +2316,8 @@ export const listGalleryAssets = ownerQuery({
     ),
     medium: v.optional(v.union(v.literal("animation"), v.literal("live-action"))),
     onlyStarred: v.optional(v.boolean()),
+    // The frames the owner super liked: ready to use.
+    onlySuperLiked: v.optional(v.boolean()),
     search: v.optional(v.string()),
     // The owner's main grid: drop members of collections hidden from the
     // gallery. Ignored when folderId is set — opening a hidden collection
@@ -2339,6 +2344,7 @@ export const listGalleryAssets = ownerQuery({
     }
 
     const onlyLiked = args.onlyLiked === true;
+    const onlySuperLiked = args.onlySuperLiked === true;
     const limit = Math.min(args.limit ?? 100, 2000);
     const scopedToSet = args.folderId;
     const hiddenFolderIds =
@@ -2355,6 +2361,7 @@ export const listGalleryAssets = ownerQuery({
         // `onlyLiked` post-filters whenever it isn't served by its own index
         // (i.e. when combined with a set query), so widen the take then too.
         (onlyLiked && scopedToSet) ||
+        onlySuperLiked ||
         args.onlyStarred ||
         args.search,
     );
@@ -2368,6 +2375,7 @@ export const listGalleryAssets = ownerQuery({
         rawArgs.excludeTagNames?.length ||
         rawArgs.pieceType ||
         rawArgs.medium ||
+        rawArgs.onlySuperLiked ||
         rawArgs.onlyStarred,
     );
     const queryTake = namedFilterRequested
@@ -2392,6 +2400,20 @@ export const listGalleryAssets = ownerQuery({
       budget.spend(ownerUserIds.length);
       const perCandidate = await Promise.all(
         ownerUserIds.map(async (ownerCandidate) => {
+          if (onlySuperLiked) {
+            // A small set with its own index; handed on newest piece first
+            // like every other window.
+            const superLiked = await ctx.db
+              .query("assets")
+              .withIndex("by_owner_superLikedAt", (q) =>
+                q.eq("ownerUserId", ownerCandidate).gt("superLikedAt", 0),
+              )
+              .order("desc")
+              .take(queryTake);
+            return superLiked
+              .filter((asset) => asset.createdAt <= before)
+              .sort((left, right) => right.createdAt - left.createdAt);
+          }
           if (onlyLiked) {
             return await ctx.db
               .query("assets")
@@ -2562,6 +2584,9 @@ export const listGalleryAssets = ownerQuery({
         if (onlyLiked && asset.isLiked !== true) {
           return false;
         }
+        if (onlySuperLiked && !asset.superLikedAt) {
+          return false;
+        }
         return true;
       });
       if (filteredAssets.length === 0) {
@@ -2637,7 +2662,8 @@ export const listGalleryAssets = ownerQuery({
       return [];
     }
 
-    return await hydrateGalleryAssetResults(ctx, selectedAssets);
+    // An owner read: results say which frames are super liked.
+    return await hydrateGalleryAssetResults(ctx, selectedAssets, { ownerMarks: true });
   },
 });
 

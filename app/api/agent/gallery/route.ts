@@ -59,6 +59,7 @@ const namedFilters = (data: Record<string, unknown>) => ({
   ),
   medium: enumValue<"animation" | "live-action">(data.medium, MEDIUMS),
   onlyLiked: booleanValue(data.onlyLiked),
+  onlySuperLiked: booleanValue(data.onlySuperLiked),
   onlyStarred: booleanValue(data.onlyStarred),
 });
 

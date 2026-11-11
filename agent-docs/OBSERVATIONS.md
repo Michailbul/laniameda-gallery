@@ -1,6 +1,6 @@
 # Observations
 
-Last updated: 2026-11-05
+Last updated: 2026-11-11
 
 Technical notes and lessons learned. Update this when you hit a quirk.
 
@@ -115,6 +115,27 @@ Technical notes and lessons learned. Update this when you hit a quirk.
   gives fixture outputs real pictures.
 
 ## Gallery / UI
+
+- Owner-only frame code goes in `components/frame-composer/owner-kit.ts`
+  (the note box, the like key's press logic, the on-frame confirmation and
+  their CSS): `asset-review-controls.tsx` and `world-owner.tsx` are in every
+  visitor's first load, so anything imported there statically is paid by the
+  public pages. Measured 11 Nov 2026 with a production build and
+  `performance` byte counts per route.
+- A new import can move modules into a shared chunk: importing one constant
+  from `lib/asset-hotkeys` into the styles page split `review-promote` out of
+  the home page's chunk (+1.7 KB and one more request on `/`). Compare the
+  per-file script list of `/` before and after, not only the total.
+- A Convex function the page cannot live without must not be read with
+  `useQuery` when it is new: until the backend push lands (or after a push
+  from an older branch) the read throws and takes the page down. Support
+  reads go through `useQueries`, which hands back the Error
+  (`lib/use-frame-marks.ts`).
+- `/api/auth/dev-login` answers 403 on a production build. To measure a
+  signed-in production build locally, sign in on the dev server (same
+  SESSION_SECRET) and reuse its `tg_session` cookie: cookies on localhost are
+  shared across ports. In `next dev` with the bypass on, a fresh browser
+  context signs itself in, so "signed out" checks need the production build.
 
 - A grid item defaults to `min-width: auto`: a horizontal snap strip inside a
   one-column grid widened the whole phone page to 961px. Use

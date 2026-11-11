@@ -8,8 +8,15 @@
 // screen), E/C/0 drive the inbox zoom viewer, S saves the world doc editor.
 // 2 (drop from the world page) and O (open) are world-page keys; the vault
 // ignores them.
-// The styles page (components/styles) has its own map; R means the same there.
+// The styles page (components/styles) has its own map; 1 and R mean the same
+// there (it also takes ⇧1 for a super like).
 export const ASSET_HOTKEYS = {
+  /**
+   * Like. Pressed twice quickly (LIKE_DOUBLE_MS) it is a super like: "this
+   * image is ready to use". On a liked or super-liked frame one press takes
+   * the like off. Private: it never publishes.
+   */
+  like: "1",
   /** Archive: recoverable for ten minutes, then the normal delete cascade. */
   archive: "d",
   /** Feature / unfeature: the curator star. Featured pieces lead public pages. */
@@ -72,8 +79,9 @@ export const assetHotkeyOf = (event: KeyboardEvent): AssetHotkey | null => {
     target?.closest?.("input, textarea, select, [role=textbox]")
   )
     return null;
-  // event.code keeps the 2 key a 2 on layouts where it types something else.
-  const key = event.code === "Digit2" && !event.shiftKey ? "2" : event.key.toLowerCase();
+  // event.code keeps the 1 and 2 keys digits on layouts where they type something else.
+  const digit = !event.shiftKey && /^Digit[12]$/.test(event.code) ? event.code.slice(5) : null;
+  const key = digit ?? event.key.toLowerCase();
   if (!ALL_KEYS.has(key)) return null;
   if (event.shiftKey && !SHIFT_KEYS.has(key)) return null;
   return key as AssetHotkey;
@@ -85,3 +93,13 @@ export const promoteHotkeyOf = (event: KeyboardEvent): PromoteHotkey | null => {
   if (belongsElsewhere(event, true)) return null;
   return event.shiftKey ? "last" : "open";
 };
+
+// --- Like and super like (key 1) ---------------------------------------------
+
+export type LikeLevel = "none" | "like" | "super";
+
+/** A second 1 on the same frame within this many ms makes the like a super like. */
+export const LIKE_DOUBLE_MS = 350;
+
+export const likeLevelOf = (liked?: boolean, superLiked?: boolean | number): LikeLevel =>
+  superLiked ? "super" : liked ? "like" : "none";

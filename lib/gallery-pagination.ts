@@ -16,5 +16,5 @@ export const galleryAssetPageInputSchema = z.object({
   tagIdGroups: z.array(ids).max(50).optional(), excludeTagIds: ids.optional(), excludeFolderIds: ids.optional(),
   pieceType: z.enum(["character", "location", "scene", "inspiration"]).optional(),
   medium: z.enum(["animation", "live-action"]).optional(),
-  onlyLiked: z.boolean().optional(), onlyStarred: z.boolean().optional(), search: z.string().max(4000).optional(),
+  onlyLiked: z.boolean().optional(), onlySuperLiked: z.boolean().optional(), onlyStarred: z.boolean().optional(), search: z.string().max(4000).optional(),
 }).strict();

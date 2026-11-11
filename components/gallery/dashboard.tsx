@@ -7556,7 +7556,9 @@ export function GalleryDashboard({
       {/* Desktop bottom dock — centered to content area */}
       {mountDesktop && (
       <div
-        className="fixed bottom-6 z-50 hidden md:flex justify-center pointer-events-none"
+        // Below 1700px the bar centres in the room left of the Feedback pill
+        // (bottom right, 152px with its margin), so the two never overlap.
+        className="fixed bottom-6 z-50 hidden md:flex justify-center pointer-events-none pr-[152px] min-[1700px]:pr-0"
         style={{
           left: sidebarCollapsed
             ? "var(--lm-sidebar-collapsed)"
