@@ -790,6 +790,7 @@ export function GalleryDetailPanel({
         {/* Image — boxless: shown in its native aspect ratio, no frame */}
         <div
           key={isCarousel ? currentSlide.id : undefined}
+          data-review-media
           onClick={isModal ? (event) => event.stopPropagation() : undefined}
           className={`${isModal ? "relative mx-auto overflow-hidden" : "relative overflow-hidden"}${
             isCarousel ? " lm-carousel-slide" : ""

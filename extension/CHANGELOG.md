@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.33.2 (11 Nov 2026)
+
+- Midjourney bar: **Other worlds** at the end of the profile row opens one
+  line per world with that world's profiles (and a last line of profiles no
+  world uses, such as GLOBAL). A click adds the profile to this prompt while
+  the dock stays on its world; the world's name on the left opens that world
+  in the dock. Open or closed is remembered.
+- Switching worlds is instant for any world opened before in the tab: the
+  dock shows what it had and refreshes behind it.
+- Profiles deleted in Midjourney ("… (deleted in MJ)") no longer show.
+
+## 0.33.1 (11 Nov 2026)
+
+- MJ Queue: your own clicks are never held back. Next · Send and the card
+  Send buttons no longer stop at 30 jobs in the last hour or wait while two
+  jobs are still running. Those limits are for agents and scripts that send
+  by themselves. The counter still shows the account's jobs in the last hour,
+  and from 150 on it shows a heads-up without blocking.
+
 ## 0.33.0 (11 Nov 2026)
 
 - The writer can run on your own Mac. Grow, quick edit (⌥E) and Make it ours

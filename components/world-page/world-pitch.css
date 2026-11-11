@@ -496,55 +496,6 @@
 }
 @keyframes wp-toast { from { opacity: 0; transform: translate(-50%, 6px); } }
 
-.wp-composer {
-  position: fixed;
-  left: 50%;
-  bottom: 64px;
-  z-index: 55;
-  transform: translateX(-50%);
-  width: min(560px, calc(100vw - 32px));
-  display: grid;
-  grid-template-columns: 72px 1fr;
-  gap: 12px;
-  padding: 12px;
-  background: rgba(12, 12, 14, 0.96);
-  box-shadow: inset 0 0 0 1px rgba(242, 236, 225, 0.18), 0 20px 60px rgba(0, 0, 0, 0.6);
-}
-.wp-composer > img { width: 72px; height: 72px; object-fit: cover; }
-.wp-composer textarea {
-  resize: none;
-  min-height: 72px;
-  padding: 8px 10px;
-  border: 0;
-  outline: none;
-  background: rgba(242, 236, 225, 0.05);
-  color: var(--wp-ivory);
-  font: 400 14px/1.45 var(--font-geist-sans), system-ui, sans-serif;
-}
-.wp-composer-actions {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  font: 500 10px/1 var(--wp-mono);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--wp-ivory-3);
-}
-.wp-composer-actions span { margin-right: auto; }
-.wp-composer-actions button {
-  background: none;
-  border: 0;
-  padding: 8px 4px;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  color: var(--wp-ivory-2);
-  cursor: pointer;
-}
-.wp-composer-actions button[data-primary] { color: var(--wp-accent); }
-.wp-composer-actions button:disabled { opacity: 0.4; cursor: default; }
-
 /* -------------------------------------------------------------- the end */
 
 .wp-end {

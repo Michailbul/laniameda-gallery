@@ -20,6 +20,30 @@ Last updated: 2026-11-11
   stay search words and rule out pieces tagged as the opposite
   (`excludeTagNames`). About half the pictures carry a tag in each of those
   slots, so a hard filter would hide the other half; ruling out keeps them.
+### 2026-11-11 — Comments in place, no popup (branch `feat/like-hotkey-inline-comment`, no backend change)
+- Michael on the old dialog: "don't like that window, the comment should be on
+  the gallery right in place to be left." C (and V, the scene idea) on a
+  hovered frame now opens a small box on that frame: the vault grid, the open
+  view and the world page. No backdrop; the gallery scrolls behind it and the
+  box follows its frame. Earlier comments on the frame show above the field
+  (one `listAssetComments` read for that frame, only while the box is open).
+- Enter saves a comment (Shift+Enter breaks the line), ⌘/Ctrl+Enter saves
+  either kind, Esc closes the box first and leaves the view under it open. A
+  click elsewhere puts an empty box away and keeps one with words. Frame keys
+  and the large view's arrows do not fire while typing. A save paints a short
+  confirmation on the frame (`lib/frame-flash.ts`).
+- One component for every surface: `components/frame-composer`
+  (`owner-kit.ts` is the owner-only chunk: the box, the confirmation and
+  their styles, fetched once the owner is known). The world page's pinned
+  `wp-composer` and the vault's `asset-review-editor` dialog are gone.
+- In the open view's Details tab, C still goes to the side panel's "Note for
+  the reviewer" (3 Nov); on any other tab the box sits on the picture.
+- V was broken since #140 (the save was refused because the text did not
+  name its frame); the idea now ends with `Frame: asset:<id>`.
+- First load, production build against a local backend, before → after:
+  home signed out 355.0 → 354.8 KB JS, 47.4 → 47.1 KB CSS; world pitch signed
+  out 185.1 → 185.0 KB JS, 47.8 → 47.5 KB CSS. The owner fetches the kit after
+  first paint (+2.4 KB JS, +1.7 KB CSS).
 
 ### 2026-11-11 — Search finds the right pieces, and takes instructions (branch `fix/search-relevance`, backend pushed 11 Nov 13:30)
 - Cause 1: imageless assets (455 videos) stored a text vector in the legacy
