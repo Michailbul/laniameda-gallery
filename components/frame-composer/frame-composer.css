@@ -1,0 +1,184 @@
+/* The note box on a frame (frame-composer.tsx). Dark glass over the picture in
+   every theme, so it reads on any image. The world page skin squares it off
+   and takes that page's accent. */
+.fc {
+  --fc-accent: var(--lm-coral, #f26157);
+  --fc-text: #fff4ea;
+  --fc-radius: 12px;
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1200;
+  width: 360px;
+  color: var(--fc-text);
+  font-family: var(--font-geist-sans, var(--lm-font, system-ui)), system-ui, sans-serif;
+  will-change: transform;
+}
+.fc[data-skin="world"] {
+  --fc-accent: var(--wp-accent, #e3263f);
+  --fc-text: var(--wp-ivory, #f2ece1);
+  --fc-radius: 2px;
+  /* Above the frame open large (z 100). */
+  z-index: 120;
+}
+.fc-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 10px 8px;
+  border-radius: var(--fc-radius);
+  background: rgba(10, 8, 5, 0.9);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--fc-text) 16%, transparent),
+    0 18px 48px rgba(0, 0, 0, 0.55);
+  transform-origin: 16px 100%;
+  animation: fc-in 0.16s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+@keyframes fc-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+}
+.fc-head,
+.fc-foot,
+.fc-who,
+.fc-more {
+  font: 600 9.5px/1 var(--font-geist-mono, ui-monospace, monospace);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--fc-text) 50%, transparent);
+}
+.fc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px;
+}
+.fc-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 800;
+  color: var(--fc-text);
+}
+.fc-label::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fc-accent);
+  box-shadow: 0 0 10px var(--fc-accent);
+}
+.fc-head kbd {
+  margin-left: auto;
+  padding: 3px 5px 2px;
+  border-radius: 3px;
+  font: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fc-text) 22%, transparent);
+}
+.fc-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 150px;
+  margin: 0;
+  padding: 0 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  list-style: none;
+}
+.fc-thread li[data-author] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-left: 9px;
+  border-left: 2px solid var(--fc-accent);
+}
+.fc-thread li[data-author="agent"] {
+  border-left-color: color-mix(in srgb, var(--fc-text) 30%, transparent);
+}
+.fc-said {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: color-mix(in srgb, var(--fc-text) 86%, transparent);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.fc-field {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  max-height: 180px;
+  margin: 0;
+  padding: 9px 10px;
+  resize: none;
+  border: 0;
+  border-radius: calc(var(--fc-radius) * 0.6);
+  outline: none;
+  background: color-mix(in srgb, var(--fc-text) 6%, transparent);
+  box-shadow: inset 0 0 0 1px transparent;
+  color: var(--fc-text);
+  font: 400 14px/1.45 var(--font-geist-sans, var(--lm-font, system-ui)), system-ui, sans-serif;
+  transition: box-shadow 0.15s;
+}
+.fc .fc-field:focus,
+.fc .fc-field:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fc-accent) 70%, transparent);
+}
+.fc-field::placeholder {
+  color: color-mix(in srgb, var(--fc-text) 38%, transparent);
+}
+.fc-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px;
+}
+.fc-foot span {
+  margin-right: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fc-save {
+  height: 24px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--fc-accent);
+  color: #0a0805;
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s, filter 0.15s;
+}
+.fc[data-skin="world"] .fc-save {
+  border-radius: 2px;
+  color: #fff;
+}
+.fc-save:hover { filter: brightness(1.08); }
+.fc-save:disabled {
+  opacity: 0.35;
+  cursor: default;
+  filter: none;
+}
+/* The frame being written about keeps a ring while the box is open. */
+[data-fc-frame] {
+  outline: 2px solid var(--lm-coral, #f26157);
+  outline-offset: -2px;
+}
+.wp [data-fc-frame] { outline-color: var(--wp-accent, #e3263f); }
+/* Open large, the picture is the only one on screen and sits letterboxed
+   inside its element: no ring there. */
+.wpl-media[data-fc-frame],
+[data-review-media][data-fc-frame] { outline: none; }
+@media (prefers-reduced-motion: reduce) {
+  .fc-panel { animation: none; }
+}

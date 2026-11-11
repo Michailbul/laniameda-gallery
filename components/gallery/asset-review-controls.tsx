@@ -10,7 +10,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { createPortal } from "react-dom";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -451,6 +451,28 @@ export function ArchiveTray({ ownerUserId }: { ownerUserId?: string } = {}) {
   );
 }
 
+// Owner only (the note box and the on-frame confirmation): fetched once the
+// owner is known, never in a visitor's first load.
+type OwnerKit = typeof import("@/components/frame-composer/owner-kit");
+const loadOwnerKit = () => import("@/components/frame-composer/owner-kit");
+const FrameComposer = dynamic(() => loadOwnerKit().then((kit) => kit.FrameComposer), { ssr: false });
+
+const visibleNode = (node: HTMLElement) => node.getClientRects().length > 0;
+
+/**
+ * Where a frame is on screen right now: the picture in the open view when
+ * that view shows it, else its tile in the grid.
+ */
+function frameNodeOf(id: string, hint?: HTMLElement | null): HTMLElement | null {
+  const key = CSS.escape(id);
+  const detail = Array.from(
+    document.querySelectorAll<HTMLElement>(`[data-review-detail][data-review-id="${key}"]`),
+  ).find(visibleNode);
+  if (detail) return detail.querySelector<HTMLElement>("[data-review-media]") ?? detail;
+  if (hint?.isConnected && !hint.hasAttribute("data-review-detail")) return hint;
+  return document.querySelector<HTMLElement>(`[data-review-id="${key}"]:not([data-review-detail])`);
+}
+
 /** A frame for the promote palette, read off its tile when it is on screen. */
 function frameOf(id: string, node?: HTMLElement | null): PromoteFrame {
   const tile =
@@ -504,13 +526,17 @@ export function AssetReviewControls({
     kind: "comment" | "scene";
     key: string;
   } | null>(null);
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
+  const ownerKit = useRef<OwnerKit | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    void loadOwnerKit().then((kit) => {
+      ownerKit.current = kit;
+    });
+  }, [active]);
+  // The tile C or V was pressed on, so the note opens on that very frame.
+  const editorTile = useRef<HTMLElement | null>(null);
   const inFlight = useRef(new Set<string>());
   const pointer = useRef<{ x: number; y: number } | null>(null);
-  const previousFocus = useRef<HTMLElement | null>(null);
-  const dialog = useRef<HTMLDivElement>(null);
-  const textarea = useRef<HTMLTextAreaElement>(null);
   const {
     open: openPromote,
     sendToLast: promoteToLast,
@@ -560,19 +586,12 @@ export function AssetReviewControls({
   }, [store, restore]);
 
   useEffect(() => {
-    if (!editor) return;
-    previousFocus.current = document.activeElement as HTMLElement | null;
-    textarea.current?.focus();
-    return () => previousFocus.current?.focus();
-  }, [editor]);
-
-  useEffect(() => {
     if (!active) return;
     const move = (event: PointerEvent) => {
       pointer.current = { x: event.clientX, y: event.clientY };
     };
     const keydown = (event: KeyboardEvent) => {
-      if (editor || promoteOpen) return;
+      if (promoteOpen) return;
       // The key set and the typing guard live in lib/asset-hotkeys.ts.
       const promoteKey = promoteHotkeyOf(event);
       const key = promoteKey ? null : assetHotkeyOf(event);
@@ -582,7 +601,7 @@ export function AssetReviewControls({
       // that board instead: components/gallery/moodboard-frame-keys.tsx.
       if (key === ASSET_HOTKEYS.archive && (moodboardKeysActive() || document.querySelector("[data-mb-open]"))) return;
       // Other open dialogs own their keys. The gallery detail view is allowed.
-      const visible = (node: HTMLElement) => node.getClientRects().length > 0;
+      const visible = visibleNode;
       if (
         Array.from(
           document.querySelectorAll<HTMLElement>(
@@ -697,7 +716,13 @@ export function AssetReviewControls({
           )
           .finally(() => inFlight.current.delete(target.id));
       } else {
-        setText("");
+        // A note already holding words keeps them: the key goes back to it.
+        const open = document.querySelector<HTMLTextAreaElement>(".fc textarea");
+        if (open?.value.trim()) {
+          open.focus({ preventScroll: true });
+          return;
+        }
+        editorTile.current = frame;
         setEditor({
           target,
           kind: key === ASSET_HOTKEYS.comment ? "comment" : "scene",
@@ -711,44 +736,50 @@ export function AssetReviewControls({
       window.removeEventListener("pointermove", move);
       window.removeEventListener("keydown", keydown, true);
     };
-  }, [active, ownerUserId, archive, restore, notify, store, editor, setStarred, setHeroInsert, promoteOpen, openPromote, promoteToLast]);
+  }, [active, ownerUserId, archive, restore, notify, store, setStarred, setHeroInsert, promoteOpen, openPromote, promoteToLast]);
 
-  async function save() {
-    if (!editor || !text.trim() || busy) return;
-    setBusy(true);
+  const editorFrame = useCallback(
+    () => (editor ? frameNodeOf(editor.target.id, editorTile.current) : null),
+    [editor],
+  );
+
+  async function save(body: string) {
+    if (!editor) return false;
     try {
       if (editor.kind === "comment") {
         await addComment({
           ownerUserId: ownerUserId!,
           assetId: editor.target.id as Id<"assets">,
-          body: text.trim(),
+          body,
           context: "Gallery hotkey comment on the displayed frame.",
         });
       } else {
         await saveStory({
           ownerUserId: ownerUserId!,
           ingestKey: editor.key,
-          title: text.trim().split("\n")[0].slice(0, 200),
-          body: text.trim(),
+          title: body.split("\n")[0].slice(0, 200),
+          // Stories link a picture only where the text names it (convex/stories.ts).
+          body: `${body}\n\nFrame: asset:${editor.target.id}`,
           kind: "idea",
           status: "idea",
           tagNames: ["scene-note", "agent-review"],
           assetIds: [editor.target.id as Id<"assets">],
         });
       }
+      ownerKit.current?.flashFrame(editorFrame(), editor.kind === "comment" ? "Comment saved" : "Idea saved", "coral");
       setEditor(null);
       notify(
         editor.kind === "comment"
           ? "Comment saved · queued for your agent"
           : "Saved in Stories / Scripts · ready for agent review",
       );
+      return true;
     } catch (error) {
       notify(
         error instanceof Error ? error.message : "Could not save note",
         true,
       );
-    } finally {
-      setBusy(false);
+      return false;
     }
   }
 
@@ -757,111 +788,17 @@ export function AssetReviewControls({
       {children}
       {active && <ArchiveTray ownerUserId={ownerUserId} />}
       {promoteElement}
-      {active &&
-        editor &&
-        createPortal(
-          <div
-            className="asset-review-backdrop"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div
-              ref={dialog}
-              className="asset-review-editor"
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="asset-note-title"
-              onKeyDown={(event) => {
-                event.stopPropagation();
-                if (event.key === "Escape" && !busy) {
-                  event.preventDefault();
-                  setEditor(null);
-                }
-                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                  event.preventDefault();
-                  void save();
-                }
-                if (event.key === "Tab") {
-                  const nodes = dialog.current?.querySelectorAll<HTMLElement>(
-                    "textarea, button:not(:disabled)",
-                  );
-                  if (!nodes?.length) return;
-                  const first = nodes[0],
-                    last = nodes[nodes.length - 1];
-                  if (event.shiftKey && document.activeElement === first) {
-                    event.preventDefault();
-                    last.focus();
-                  }
-                  if (!event.shiftKey && document.activeElement === last) {
-                    event.preventDefault();
-                    first.focus();
-                  }
-                }
-              }}
-            >
-              {editor.target.src && (
-                <Image
-                  className="asset-review-note-image"
-                  src={editor.target.src}
-                  alt="Source scene"
-                  width={440}
-                  height={620}
-                  unoptimized
-                />
-              )}
-              <div className="asset-review-note-body">
-                <header>
-                  <h2 id="asset-note-title">
-                    {editor.kind === "comment"
-                      ? "ASSET COMMENT"
-                      : "SCENE / BEAT IDEA"}
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() => setEditor(null)}
-                    disabled={busy}
-                    aria-label="Close note"
-                  >
-                    ×
-                  </button>
-                </header>
-                <p>
-                  Saved with this frame. Your agent can pick it up on the next
-                  routine.
-                </p>
-                <textarea
-                  ref={textarea}
-                  aria-label={
-                    editor.kind === "comment"
-                      ? "Asset comment"
-                      : "Scene or beat idea"
-                  }
-                  placeholder={
-                    editor.kind === "comment"
-                      ? "What should the agent know?"
-                      : "What happens in this scene?"
-                  }
-                  value={text}
-                  onChange={(event) => setText(event.target.value)}
-                  disabled={busy}
-                  maxLength={editor.kind === "comment" ? 4000 : 200000}
-                />
-                <footer>
-                  <span>⌘ / Ctrl + Enter to save</span>
-                  <button
-                    type="button"
-                    disabled={busy || !text.trim()}
-                    onClick={() => {
-                      void save();
-                    }}
-                  >
-                    {busy ? "Saving…" : "Save note"}
-                  </button>
-                </footer>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+      {active && editor && (
+        <FrameComposer
+          key={editor.key}
+          frame={editorFrame}
+          assetId={editor.target.id}
+          ownerUserId={ownerUserId!}
+          kind={editor.kind}
+          onSave={save}
+          onClose={() => setEditor(null)}
+        />
+      )}
     </ArchiveStoreContext.Provider>
   );
 }

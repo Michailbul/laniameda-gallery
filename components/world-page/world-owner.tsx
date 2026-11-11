@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
@@ -23,7 +24,28 @@ declare global {
   }
 }
 
-type Composer = { id: string; src: string };
+type Composer = { id: string };
+
+// The note box on a frame and the on-frame confirmation, shared with the
+// vault. Owner only, so they stay out of the public page's first load; the
+// chunk is fetched as soon as the owner is known.
+type OwnerKit = typeof import("@/components/frame-composer/owner-kit");
+const loadOwnerKit = () => import("@/components/frame-composer/owner-kit");
+const FrameComposer = dynamic(() => loadOwnerKit().then((kit) => kit.FrameComposer), { ssr: false });
+
+/**
+ * Where a frame is on screen: open large, else its tile on the page. `part`
+ * picks the picture itself (the note box sits on it) or the box around it
+ * (a confirmation is painted into it; an <img> cannot hold one).
+ */
+const frameNodeOf = (id: string, part: "picture" | "box" = "picture"): HTMLElement | null => {
+  const key = CSS.escape(id);
+  return (
+    document.querySelector<HTMLElement>(
+      `[data-wp-lightbox="${key}"] ${part === "picture" ? ".wpl-media" : ".wpl-stage"}`,
+    ) ?? document.querySelector<HTMLElement>(`[data-wp-id="${key}"]`)
+  );
+};
 
 export function useWorldOwner({
   slug,
@@ -81,6 +103,14 @@ export function useWorldOwner({
     lookup.current = { findTile, openId, onOpenId };
   }, [findTile, openId, onOpenId]);
 
+  const ownerKit = useRef<OwnerKit | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    void loadOwnerKit().then((kit) => {
+      ownerKit.current = kit;
+    });
+  }, [active]);
+
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(""), 2800);
@@ -131,7 +161,6 @@ export function useWorldOwner({
         (window.__worldPageKeyMs ??= []).push(Math.round(ms * 10) / 10);
       });
     const keydown = (event: KeyboardEvent) => {
-      if (live.current.composer) return;
       const key = assetHotkeyOf(event);
       if (!key || key === ASSET_HOTKEYS.scene) return;
       const startedAt = performance.now();
@@ -153,7 +182,10 @@ export function useWorldOwner({
       if (key === ASSET_HOTKEYS.open) {
         lookup.current.onOpenId(id);
       } else if (key === ASSET_HOTKEYS.comment) {
-        setComposer({ id, src: tile?.src ?? "" });
+        // A note already holding words keeps them: the key goes back to it.
+        const open = document.querySelector<HTMLTextAreaElement>(".fc textarea");
+        if (open?.value.trim()) open.focus({ preventScroll: true });
+        else setComposer({ id });
       } else if (key === ASSET_HOTKEYS.feature) {
         const was = now.featured.get(id) ?? tile?.featured ?? false;
         const next = !was;
@@ -242,6 +274,7 @@ export function useWorldOwner({
           body,
           context: `Comment on the hovered frame of the world page /w/${slug}${admin ? "/admin" : ""}.`,
         });
+        ownerKit.current?.flashFrame(frameNodeOf(composer.id, "box"), "Comment saved", "crimson");
         setComposer(null);
         setNotice("Comment saved · your agent picks it up");
         return true;
@@ -277,12 +310,16 @@ export function useWorldOwner({
           <Link href={`/w/${slug}`}>Vault</Link>
         </span>
       </div>
-      {composer && (
-        <CommentComposer
+      {composer && ownerUserId && (
+        <FrameComposer
           key={composer.id}
-          src={composer.src}
-          onCancel={() => setComposer(null)}
+          frame={() => frameNodeOf(composer.id)}
+          assetId={composer.id}
+          ownerUserId={ownerUserId}
+          skin="world"
+          portal={false}
           onSave={saveComment}
+          onClose={() => setComposer(null)}
         />
       )}
       {notice && <div className="wp-toast" role="status">{notice}</div>}
@@ -290,55 +327,4 @@ export function useWorldOwner({
   ) : null;
 
   return { active, state, archivedIds, droppedIds, restore, layer };
-}
-
-function CommentComposer({
-  src,
-  onCancel,
-  onSave,
-}: {
-  src: string;
-  onCancel: () => void;
-  onSave: (body: string) => Promise<boolean>;
-}) {
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const field = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null;
-    field.current?.focus();
-    return () => previous?.focus?.();
-  }, []);
-  const submit = async () => {
-    if (!text.trim() || busy) return;
-    setBusy(true);
-    if (!(await onSave(text.trim()))) setBusy(false);
-  };
-  return (
-    <div className="wp-composer" role="dialog" aria-label="Comment on this frame">
-      {/* eslint-disable-next-line @next/next/no-img-element -- the frame's own thumb, already cached */}
-      {src && <img src={src} alt="" />}
-      <textarea
-        ref={field}
-        value={text}
-        placeholder="What should change?"
-        rows={3}
-        onChange={(event) => setText(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onCancel();
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            void submit();
-          }
-        }}
-      />
-      <div className="wp-composer-actions">
-        <span>Enter saves · Esc closes</span>
-        <button type="button" onClick={onCancel}>Cancel</button>
-        <button type="button" data-primary disabled={!text.trim() || busy} onClick={() => void submit()}>
-          {busy ? "Saving" : "Save"}
-        </button>
-      </div>
-    </div>
-  );
 }
