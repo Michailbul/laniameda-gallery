@@ -40,6 +40,23 @@ describe("scoped complete asset paging", () => {
     expect(first.isDone).toBe(false);
     expect(await all({ search: "moonlit" })).toEqual([wanted]);
   });
+  test("a sampled window starts back in the timeline and carries on from the newest piece", async () => {
+    const now = Date.now();
+    const day = 86_400_000;
+    // Ten pieces, one a day, the first saved ten days ago.
+    const ids: string[] = [];
+    for (let age = 10; age >= 1; age--) ids.push(await asset({ createdAt: now - age * day }));
+    const list = async (sampleAt?: number, limit = 4) =>
+      (await callAsOwner(listGalleryAssets)(harness.ctx, { ownerUserId: OWNER, limit, sampleAt })).map((row) => row._id);
+    // Unsampled: the four newest.
+    expect(await list()).toEqual([ids[9], ids[8], ids[7], ids[6]]);
+    // Halfway back: the four newest pieces at least five days old.
+    expect(await list(0.5)).toEqual([ids[5], ids[4], ids[3], ids[2]]);
+    // At the far end only the first piece is older, so the window carries on from the top.
+    expect(await list(1)).toEqual([ids[0], ids[9], ids[8], ids[7]]);
+    // No piece is listed twice when the wrap meets the sampled part.
+    expect(new Set(await list(0.5, 10)).size).toBe(10);
+  });
   test("retrieves captions, agent descriptions, prompts, tags and bookmark prose", async () => {
     const promptId = await harness.db.insert("prompts", { text: "prompt needle" });
     const tagId = await harness.db.insert("tags", { name: "Tag needle" });

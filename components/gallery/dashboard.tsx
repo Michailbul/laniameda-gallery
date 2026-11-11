@@ -538,12 +538,17 @@ export function GalleryDashboard({
     string | null
   >(null);
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
-  // Each SHUFFLE click (including re-clicks while active) deals a new seed;
-  // between deals the arrangement is stable across re-renders.
+  // Each SHUFFLE click (including re-clicks while active) deals a new random
+  // seed and a new place in the vault to draw from; between deals the
+  // arrangement is stable across re-renders. The seed used to count up from 1,
+  // so every visit replayed the same orders, and every deal mixed the same
+  // newest 600 pieces.
   const [shuffleSeed, setShuffleSeed] = useState(1);
+  const [shuffleSampleAt, setShuffleSampleAt] = useState(0);
   const changeSortOrder = useCallback((order: SortOrder) => {
     if (order === "shuffle") {
-      setShuffleSeed((seed) => (seed + 1) % 0xffffffff);
+      setShuffleSeed(Math.floor(Math.random() * 0xffffffff) + 1);
+      setShuffleSampleAt(Math.random());
     }
     setSortOrder(order);
   }, []);
@@ -2356,6 +2361,8 @@ export function GalleryDashboard({
           modelName: selectedModelName ?? undefined,
           kind: mediaKind ?? undefined,
           onlyLiked: likedOnly || undefined,
+          // SHUFFLE draws its window from a different stretch of the vault each deal.
+          sampleAt: sortOrder === "shuffle" && shuffleSampleAt > 0 ? shuffleSampleAt : undefined,
           // Only global featured/shuffle sorts use the legacy one-shot window.
           // Newest flattened worlds now traverse pages without this cap.
           limit: collectionAssetsExpanded || styleBranchStacksActive ? 2000 : 600,
