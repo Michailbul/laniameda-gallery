@@ -12,6 +12,7 @@
 //   both  the two, side by side.
 
 import { composeRecipe, parseFlags } from "./mj-recipe";
+import { SHOT_SCALE_RULES } from "./writer-scale";
 
 export const DESCRIBE_MODES = ["keep", "ours", "both"] as const;
 export type DescribeMode = (typeof DESCRIBE_MODES)[number];
@@ -51,11 +52,13 @@ House format:
 - No filler ("stunning", "masterpiece", "8k", "highly detailed", "trending"), no instructions to the model.
 - Write no parameters (--ar, --v, --sref, --profile …): they are added for you.
 
-Midjourney's Describe lines, when given, are vocabulary: use the words that match what you see, correct what they get wrong, and drop their artist and place names.`;
+Midjourney's Describe lines, when given, are vocabulary: use the words that match what you see, correct what they get wrong, and drop their artist and place names.
+
+${SHOT_SCALE_RULES}`;
 
 const KEEP_RULES = `KEEP: recreate the image's own look. The first sentence describes the image's medium and style in concrete words (film stock or render, paint, grain, palette, lens character), so the prompt rebuilds the reference.`;
 
-const OURS_RULES = `OURS: the same subject, framing and light, in our locked style. Leave out every style word of the image itself (its medium, rendering, film stock, palette words, artist-like terms). Open with the style's opening sentence from the STYLE LOCK below, word for word when it gives one; otherwise write one from the style's line. If a STYLE TEMPLATE has [subject], write the subject where [subject] is and keep the template's style words. Follow the style's raises and lowers.`;
+const OURS_RULES = `OURS: the same subject, framing, camera distance and light, in our locked style. Leave out every style word of the image itself (its medium, rendering, film stock, palette words, artist-like terms). Open with the style's opening sentence from the STYLE LOCK below, word for word when it gives one; otherwise write one from the style's line. If a STYLE TEMPLATE has [subject], write the subject where [subject] is and keep the template's style words. Follow the style's raises and lowers. World details you bring in are sized to the picture's own distances (the scale rule above): a far city behind a person gets skyline-size markers only.`;
 
 /** "16:9" from Midjourney's [w, h], a "w:h" string, or pixel sizes; reduced. */
 export function aspectOf(input?: string | number[] | null, width?: number, height?: number) {

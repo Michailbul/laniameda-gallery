@@ -11,6 +11,7 @@
 
 import { parseFlags } from "./mj-recipe";
 import { wordsOnly } from "./mj-describe";
+import { SHOT_SCALE_RULES } from "./writer-scale";
 
 export const EXPAND_LIMITS = {
   // A data URL of a 1024 px JPEG is about 300 KB; 3 MB leaves room for PNGs.
@@ -96,7 +97,9 @@ Traps we have hit:
 - Every lit sign grows fake letters: signs are unlit emblems with a shape, or out of frame. No lettering unless a title in quotes is the point.
 - "Film still" on a very wide frame can add black bars or a caption strip: on wide frames say "photograph" or keep the source's own wording.
 - Vague big shapes drift to famous ones ("cathedral towers", "a long black boat under a bridge"): give invented shapes concrete form.
-- A bare "mechanical hand" or similar can come out as an instrument: describe joints, rods and wires.`;
+- A bare "mechanical hand" or similar can come out as an instrument: describe joints, rods and wires.
+
+${SHOT_SCALE_RULES}`;
 
 const ANSWER_FORM = (count: number, withLogline: boolean) => [
   "Answer in exactly this form and nothing else (no markdown, no notes):",

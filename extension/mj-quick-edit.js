@@ -36,7 +36,8 @@
 
   const systemPrompt = () => {
     const own = settings.prompts?.[settings.world];
-    return typeof own === "string" ? own : defaults()?.byKey(settings.world)?.prompt || "";
+    const d = defaults();
+    return d?.resolve ? d.resolve(settings.world, own) : typeof own === "string" ? own : d?.byKey(settings.world)?.prompt || "";
   };
 
   // ── The bar ──
