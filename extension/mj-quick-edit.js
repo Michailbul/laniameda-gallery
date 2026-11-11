@@ -296,13 +296,15 @@
     go.disabled = true;
     const label = defaults()?.MODELS.find((entry) => entry.key === settings.model)?.name || "AI";
     setLine(`<span class="spin"></span><span>${esc(label)}…</span>`);
-    const res = await ask({ prompt, selection, instruction: instruction.trim(), model: settings.model, system: systemPrompt() });
+    const res = await ask({ prompt, selection, instruction: instruction.trim(), model: settings.model, system: systemPrompt(), fallbackWorld: settings.world });
     busy = false;
     go.disabled = false;
     if (!res?.ok) { setLine(esc(res?.error || "Could not edit."), "err"); return; }
 
     const text = String(res.text || "");
-    const meta = `${esc(res.model)} · ${(res.ms / 1000).toFixed(1)}s${res.notes?.length ? ` · ${esc(res.notes[0])}` : ""}`;
+    // Which world's files the writer was given (read from the prompt's codes, else the chip's world).
+    const world = res.world ? ` · ${esc(String(res.world).toUpperCase())}${res.read?.length ? `: ${esc(res.read.join(", "))}` : ""}` : "";
+    const meta = `${esc(res.model)} · ${(res.ms / 1000).toFixed(1)}s${world}${res.notes?.length ? ` · ${esc(res.notes[0])}` : ""}`;
     if (target.kind === "page") {
       try { await navigator.clipboard.writeText(text); } catch { /* clipboard refused */ }
       target = { ...target, text };

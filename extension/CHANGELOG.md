@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.34.0 (11 Nov 2026)
+
+- The writer reads the world's own files. Grow, quick edit (⌥E) and Make it
+  ours are now given the rule file, the learnings, the named cast with their
+  costumes, the character directory, the World Bible, the storybooks already
+  told and the world's notes on places and vehicles, straight from the
+  gallery. Before, Grow got a cut-off copy of the rule file and nothing else.
+  A named character keeps their canonical look, wardrobe stays inside the
+  world, and a story agrees with the bible.
+- The world is found by itself. The Grow card's world menu starts on **Auto**
+  and shows the world it read from the frame's codes (its moodboards, profiles
+  and style codes), for example "Auto · DEAR ANNETE". Pick a world to set it
+  yourself, or "No world" to write from the picture alone. When two unrelated
+  worlds fit the codes equally, nothing is guessed: the menu says so.
+- After writing, the status line says what was read: "DEAR ANNETE: rules,
+  style, learnings, cast, bible, stories, world notes".
+- Quick edit reads the world from the prompt in the bar and falls back to the
+  world on its chip. It gets the shorter brief (rules, learnings, cast) so it
+  stays fast.
+- Make it ours reads the files of the world its chosen style belongs to.
+
 ## 0.33.2 (11 Nov 2026)
 
 - Midjourney bar: **Other worlds** at the end of the profile row opens one

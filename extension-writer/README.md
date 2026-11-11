@@ -22,7 +22,10 @@ Needs: `~/.local/bin/claude` (Claude Code) and a long-lived sign-in from
 2. It posts them to `http://127.0.0.1:47615/v1/write` with the model, `haiku` or `sonnet`.
 3. The bridge runs `claude -p --model claude-haiku-5-5` (or `claude-sonnet-5-5`)
    with no tools, no MCP servers, an empty settings folder and the pictures inline.
-   A picture and a prompt take about three seconds.
+   It runs at `--effort low` with room for the model's own thinking on top of
+   the answer, so a brief that carries a whole world bible (about 75,000
+   characters) still returns a set of prompts in about ten seconds. Set
+   `"effort": "medium"` in `config.json` to trade speed for care.
 4. The extension hands the raw answer back to the gallery (`local.stage = "finish"`),
    which reads it exactly as it reads a provider's answer.
 

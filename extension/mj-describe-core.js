@@ -326,7 +326,7 @@
         if (res.ours) made.push({ kind: "ours", label: `In ${res.ours.style || styleName || "our style"}`, ...res.ours });
         state.results = made;
         renderResults();
-        setLine(`<span>${esc(res.model)} · ${(res.ms / 1000).toFixed(1)}s${source.descriptions?.length ? " · with Midjourney's describe" : ""}${res.notes?.length ? ` · ${esc(res.notes[0])}` : ""}</span>`);
+        setLine(`<span>${esc(res.model)} · ${(res.ms / 1000).toFixed(1)}s${source.descriptions?.length ? " · with Midjourney's describe" : ""}${res.world ? ` · ${esc(String(res.world).toUpperCase())}${res.read?.length ? `: ${esc(res.read.join(", "))}` : ""}` : ""}${res.notes?.length ? ` · ${esc(res.notes[0])}` : ""}</span>`);
       } catch (err) {
         setLine(esc(err?.message || err), "err");
       } finally {

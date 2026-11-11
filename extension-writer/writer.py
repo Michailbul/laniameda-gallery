@@ -17,7 +17,7 @@ Python 3.9, standard library only.
 import base64, json, os, re, subprocess, sys, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 HOME = os.path.expanduser("~")
 CONF_DIR = os.path.join(HOME, ".config", "laniameda", "writer")
 MODELS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5"}
@@ -31,7 +31,16 @@ DEFAULTS = {
     # Picture links the bridge may download itself. Midjourney's CDN is never fetched here: the extension sends the bytes.
     "imageHosts": ["pub-ad6ed85f12d147539181afa324bead00.r2.dev", "gallery.laniameda.space"],
     "timeoutSeconds": 90,
+    # How hard the model thinks before it writes. Low keeps a set of prompts
+    # under ten seconds even with a whole world bible in the brief.
+    "effort": "low",
 }
+# Room for the model's own thinking on top of the answer's length. Without it
+# a long brief (a world's bible) uses the whole budget before the answer is
+# written, and the run is cut and retried.
+THINKING_ROOM = 3000
+MAX_OUTPUT = 12000
+EFFORTS = ("low", "medium", "high")
 MAX_BODY = 12_000_000
 MAX_IMAGE = 5_000_000
 RUNNING = threading.Semaphore(2)
@@ -95,6 +104,7 @@ def run_claude(conf, system, blocks, model, max_tokens):
     args = [conf["claude"], "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
             "--model", MODELS[model], "--tools", "", "--strict-mcp-config", "--no-session-persistence",
             "--disable-slash-commands", "--setting-sources", "",
+            "--effort", conf["effort"] if conf.get("effort") in EFFORTS else "low",
             "--system-prompt", system or "You are a careful writing assistant. Answer with the text asked for and nothing else."]
     home = os.path.join(CONF_DIR, "claude-home")
     cwd = os.path.join(CONF_DIR, "cwd")
@@ -108,7 +118,7 @@ def run_claude(conf, system, blocks, model, max_tokens):
         if not token:
             continue
         env = {key: value for key, value in os.environ.items() if not key.startswith(("ANTHROPIC_", "CLAUDE"))}
-        env.update({"CLAUDE_CODE_OAUTH_TOKEN": token, "CLAUDE_CONFIG_DIR": home, "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(max(256, min(8000, int(max_tokens))))})
+        env.update({"CLAUDE_CODE_OAUTH_TOKEN": token, "CLAUDE_CONFIG_DIR": home, "CLAUDE_CODE_MAX_OUTPUT_TOKENS": str(max(256, min(MAX_OUTPUT, int(max_tokens) + THINKING_ROOM)))})
         try:
             done = subprocess.run(args, input=turn, capture_output=True, text=True, env=env, cwd=cwd, timeout=conf["timeoutSeconds"])
         except subprocess.TimeoutExpired:
@@ -122,7 +132,9 @@ def run_claude(conf, system, blocks, model, max_tokens):
                 continue
             if event.get("type") == "result":
                 result = event
-        if result and result.get("subtype") == "success" and not result.get("is_error") and str(result.get("result") or "").strip():
+        text = str((result or {}).get("result") or "").strip()
+        # A cut answer comes back as text that ends in an API error line: that is a failure, not a result.
+        if result and result.get("subtype") == "success" and not result.get("is_error") and text and "API Error:" not in text:
             return str(result["result"]), os.path.basename(path).replace(".token", "")
         last = str((result or {}).get("result") or done.stderr.strip()[-300:] or "Claude returned nothing.")
         log("account %s failed: %s" % (os.path.basename(path), last[:160].replace("\n", " ")))

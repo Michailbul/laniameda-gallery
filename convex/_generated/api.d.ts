@@ -129,6 +129,7 @@ import type * as worldPage from "../worldPage.js";
 import type * as worldStyleValidators from "../worldStyleValidators.js";
 import type * as worldStyles from "../worldStyles.js";
 import type * as worlds from "../worlds.js";
+import type * as writerBrief from "../writerBrief.js";
 
 import type {
   ApiFromModules,
@@ -258,6 +259,7 @@ declare const fullApi: ApiFromModules<{
   worldStyleValidators: typeof worldStyleValidators;
   worldStyles: typeof worldStyles;
   worlds: typeof worlds;
+  writerBrief: typeof writerBrief;
 }>;
 
 /**

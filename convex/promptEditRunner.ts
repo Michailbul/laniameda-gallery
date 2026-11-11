@@ -2,7 +2,8 @@
 
 import { ConvexError, v } from "convex/values";
 import { signedOwnerAction as ownerAction } from "./actor";
-import { api, internal } from "./_generated/api";
+import { internal } from "./_generated/api";
+import type { ActionCtx } from "./_generated/server";
 import { resolveProviderKey } from "./providerVault";
 import {
   QUICK_EDIT_LIMITS, QUICK_EDIT_ROUTES, buildQuickEditMessages, cleanModelText, restoreUrls, type QuickEditModel,
@@ -14,6 +15,7 @@ import {
   EXPAND_LIMITS, buildExpandMessages, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
 } from "../lib/mj-expand";
 import { LOCAL_WRITER_LIMITS, localAnswer } from "../lib/local-writer";
+import type { BriefTier } from "../lib/writer-brief";
 
 // Quick edit of a Midjourney prompt from the extension (select text in the
 // Imagine bar, ⌥E, a few words). One short chat call on a fast model: fal
@@ -70,6 +72,31 @@ const finishLocally = (local: LocalArg) => {
   try { return localAnswer(local); } catch (error) { throw new ConvexError(error instanceof Error ? error.message : "The local writer returned nothing."); }
 };
 
+// The world's own files for the writer (convex/writerBrief.ts): the rule
+// file, learnings, cast, bible and stories of the world the work belongs to.
+// A world that cannot be read costs the brief, never the prompt.
+type WorldBrief = { world: { key: string; name: string } | null; auto: boolean; by?: "frame" | "codes"; tie: string[]; style?: string; read: string[]; chars: number; text: string };
+const briefFields = {
+  world: v.optional(v.string()),
+  worldKey: v.optional(v.string()),
+  worldAuto: v.optional(v.boolean()),
+  worldBy: v.optional(v.string()),
+  worldTie: v.optional(v.array(v.string())),
+  worldStyle: v.optional(v.string()),
+  read: v.optional(v.array(v.string())),
+};
+type BriefMeta = { world?: string; worldKey?: string; worldAuto?: boolean; worldBy?: string; worldTie?: string[]; worldStyle?: string; read?: string[] };
+const briefMeta = (brief: WorldBrief | null): BriefMeta => (brief?.world
+  ? { world: brief.world.name, worldKey: brief.world.key, worldAuto: brief.auto, worldBy: brief.by, worldStyle: brief.style, read: brief.read }
+  : brief?.tie.length ? { worldTie: brief.tie } : {});
+async function worldBriefOf(
+  ctx: Pick<ActionCtx, "runQuery">,
+  args: { ownerUserId: string; world?: string; fallbackWorld?: string; command?: string; frame?: string; style?: string; tier: BriefTier },
+): Promise<WorldBrief | null> {
+  if (!args.style && (!args.world?.trim() || args.world.trim() === "none")) return null;
+  try { return await ctx.runQuery(internal.writerBrief.forWriter, args); } catch { return null; }
+}
+
 export const rewrite = ownerAction({
   args: {
     ownerUserId: v.string(),
@@ -78,6 +105,8 @@ export const rewrite = ownerAction({
     instruction: v.string(),
     system: v.optional(v.string()),
     model: v.union(v.literal("haiku"), v.literal("deepseek")),
+    world: v.optional(v.string()),
+    fallbackWorld: v.optional(v.string()),
     local: localArg,
   },
   returns: v.union(v.object({
@@ -86,8 +115,9 @@ export const rewrite = ownerAction({
     provider: v.string(),
     ms: v.number(),
     notes: v.array(v.string()),
+    ...briefFields,
   }), localMessages),
-  handler: async (ctx, args): Promise<{ text: string; model: string; provider: string; ms: number; notes: string[] } | LocalMessages> => {
+  handler: async (ctx, args): Promise<({ text: string; model: string; provider: string; ms: number; notes: string[] } & BriefMeta) | LocalMessages> => {
     const prompt = args.prompt.trim();
     const instruction = args.instruction.trim();
     const selection = args.selection?.trim() || undefined;
@@ -97,11 +127,15 @@ export const rewrite = ownerAction({
     if (instruction.length > QUICK_EDIT_LIMITS.instruction) throw new ConvexError("Keep the instruction short.");
     const system = args.system?.slice(0, QUICK_EDIT_LIMITS.system);
 
-    const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system });
+    // The prompt in the bar carries the codes that say which world it is.
+    const brief = await worldBriefOf(ctx, {
+      ownerUserId: args.ownerUserId, world: args.world, fallbackWorld: args.fallbackWorld, command: prompt, tier: "short",
+    });
+    const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system, worldBrief: brief?.text });
     if (args.local?.stage === "messages") return { local: { messages, maxTokens: 1500 } };
     const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, args.model as QuickEditModel, messages, "Could not edit");
     const { raw, ...meta } = answer;
-    return { ...meta, text: restoreUrls(cleanModelText(raw), urls) };
+    return { ...meta, text: restoreUrls(cleanModelText(raw), urls), ...briefMeta(brief) };
   },
 });
 
@@ -142,7 +176,7 @@ type DescribeResult = {
   keep?: Made;
   ours?: Made & { style: string };
   model: string; provider: string; ms: number; notes: string[];
-};
+} & BriefMeta;
 
 /**
  * A picture into our Midjourney prompt: the quick-edit agent with the image
@@ -172,6 +206,7 @@ export const describe = ownerAction({
     provider: v.string(),
     ms: v.number(),
     notes: v.array(v.string()),
+    ...briefFields,
   }), localMessages),
   handler: async (ctx, args): Promise<DescribeResult | LocalMessages> => {
     const image = args.image.trim();
@@ -185,9 +220,12 @@ export const describe = ownerAction({
       if (!found) throw new ConvexError("That style is not in the gallery any more. Pick another.");
       style = found;
     }
+    // The chosen style belongs to a world: its files shape the "ours" prompt.
+    const brief = style && args.style ? await worldBriefOf(ctx, { ownerUserId: args.ownerUserId, style: args.style, tier: "full" }) : null;
     const messages = buildDescribeMessages({
       image, descriptions, style, mode: args.mode,
       system: args.system?.slice(0, DESCRIBE_LIMITS.system), note: args.note?.slice(0, DESCRIBE_LIMITS.note),
+      worldBrief: brief?.text,
     }) as Message[];
     // Haiku reads images; DeepSeek does not, so the describer always runs on Haiku.
     if (args.local?.stage === "messages") return { local: { messages, maxTokens: 2000 } };
@@ -201,7 +239,7 @@ export const describe = ownerAction({
     const keep = args.mode !== "ours" && parsed.keep ? finish(parsed.keep, "keep") : undefined;
     const ours = args.mode !== "keep" && parsed.ours && style ? { ...finish(parsed.ours, "ours"), style: style.name } : undefined;
     if (!keep && !ours) throw new ConvexError(`${answer.model} answered without a prompt. Try again.`);
-    return { title: parsed.title, keep, ours, model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes };
+    return { title: parsed.title, keep, ours, model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes, ...briefMeta(brief) };
   },
 });
 
@@ -210,14 +248,14 @@ type ExpandResult = {
   set?: string; logline?: string;
   items: Array<{ title: string; words: string; prompt: string; rest: string; profiles: string[]; srefs: Array<{ code?: string; url?: string; weight?: number }>; images: string[] }>;
   source: { words: string; params: string; hadImages: number };
-  world?: string;
   model: string; provider: string; ms: number; notes: string[];
-};
+} & BriefMeta;
 
 /**
  * Grow one Midjourney frame into more prompts (extension: ⌥X on an image).
  * The writer (Haiku) sees the picture and the words that made it, plus the
- * world's own rule file when a world is chosen. It writes words only: the
+ * world's own files (rules, learnings, cast, bible) when a world is chosen or
+ * the frame's codes name one. It writes words only: the
  * source command's codes and params are put back on every result here, so the
  * look that is working cannot drift. Nothing goes to Midjourney.
  */
@@ -230,6 +268,8 @@ export const expand = ownerAction({
     idea: v.optional(v.string()),
     count: v.optional(v.number()),
     world: v.optional(v.string()),
+    fallbackWorld: v.optional(v.string()),
+    frame: v.optional(v.string()),
     system: v.optional(v.string()),
     keepImages: v.optional(v.boolean()),
     srefUrl: v.optional(v.string()),
@@ -246,7 +286,7 @@ export const expand = ownerAction({
       profiles: v.array(v.string()), srefs: v.array(expandRef), images: v.array(v.string()),
     })),
     source: v.object({ words: v.string(), params: v.string(), hadImages: v.number() }),
-    world: v.optional(v.string()),
+    ...briefFields,
     model: v.string(),
     provider: v.string(),
     ms: v.number(),
@@ -264,25 +304,15 @@ export const expand = ownerAction({
     const count = Math.min(EXPAND_LIMITS.maxCount, Math.max(1, Math.round(args.count ?? preset?.count ?? 3)));
     if (args.srefUrl && !/^https:\/\/\S+$/.test(args.srefUrl)) throw new ConvexError("The style reference must be an https link.");
 
-    // The world's own rule file and learnings, when a world is chosen.
-    let worldName: string | undefined;
-    let worldDoc: string | undefined;
-    let learnings: string | undefined;
-    const worldKey = args.world?.trim();
-    if (worldKey && worldKey !== "none") {
-      const read = async (path: string): Promise<{ world: string; body: string } | null> => {
-        try { return await ctx.runQuery(api.worlds.readWorldDoc, { ownerUserId: args.ownerUserId, world: worldKey, path }); } catch { return null; }
-      };
-      const [main, learned] = await Promise.all([read("WORLD.md"), read("LEARNINGS.md")]);
-      worldName = main?.world ?? learned?.world;
-      worldDoc = main?.body;
-      learnings = learned?.body;
-    }
+    // The world's own files, when a world is chosen or its codes name one.
+    const brief = await worldBriefOf(ctx, {
+      ownerUserId: args.ownerUserId, world: args.world, fallbackWorld: args.fallbackWorld, command, frame: args.frame, tier: "full",
+    });
 
     const source = splitCommand(command);
     const messages = buildExpandMessages({
       image, sourceWords: source.words, lookNote: lookNoteOf(source), preset, idea, count,
-      system: args.system?.slice(0, EXPAND_LIMITS.system), worldName, worldDoc, learnings,
+      system: args.system?.slice(0, EXPAND_LIMITS.system), worldBrief: brief?.text,
     }) as Message[];
     const maxTokens = 600 + count * 520;
     if (args.local?.stage === "messages") return { local: { messages, maxTokens } };
@@ -297,7 +327,7 @@ export const expand = ownerAction({
       set: parsed.set, logline: parsed.logline,
       items: parsed.items.slice(0, EXPAND_LIMITS.maxCount).map((item) => composeExpanded(item.title, item.words, source, options)),
       source: { words: source.words, params: composeExpanded("", "", source, options).prompt, hadImages: source.images.length },
-      world: worldName,
+      ...briefMeta(brief),
       model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes,
     };
   },
