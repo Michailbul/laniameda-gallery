@@ -231,12 +231,10 @@ describe("a search said in steps", () => {
 
   describe("with the picture check on", () => {
     beforeEach(() => {
-      process.env.TAG_CLASSIFY_ENABLED = "true";
-      process.env.OPENAI_API_KEY = "test-openai-key";
+      process.env.TYPESAFE_API_KEY = "test-typesafe-key";
     });
     afterEach(() => {
-      delete process.env.TAG_CLASSIFY_ENABLED;
-      delete process.env.OPENAI_API_KEY;
+      delete process.env.TYPESAFE_API_KEY;
     });
 
     // The model sees a car in piece 9 that no description or tag mentions.
@@ -259,9 +257,12 @@ describe("a search said in steps", () => {
         runAction: async (_ref: unknown, args: unknown) => {
           const call = args as (typeof asked)[number];
           asked.push(call);
-          return call.pictures.map((picture) => ({
-            assetId: picture.assetId, probabilities: [picture.assetId === assetId(9) ? 0.93 : 0.04],
-          }));
+          return {
+            model: "jev-latest",
+            judged: call.pictures.map((picture) => ({
+              assetId: picture.assetId, probabilities: [picture.assetId === assetId(9) ? 0.93 : 0.04],
+            })),
+          };
         },
         runMutation: async (_ref: unknown, args: unknown) => {
           const payload = args as { judgments?: typeof saved };

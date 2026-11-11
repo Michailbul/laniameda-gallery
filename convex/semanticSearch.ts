@@ -1078,22 +1078,21 @@ const searchPageSize = (pageSize?: number) =>
 const getJudgmentsQueryRef = makeFunctionReference<"query">("pictureJudgments:getJudgments");
 const saveJudgmentsMutationRef = makeFunctionReference<"mutation">("pictureJudgments:saveJudgments");
 const judgePicturesActionRef = makeFunctionReference<"action">("searchJudge:judgePictures");
-// lib/facet-tags.ts FACET_MODEL; named here because that file's action is Node-only.
-const JUDGE_MODEL = "gpt-6-luna";
 // A picture more likely than not to show the thing is left out.
 const SHOWN_PROBABILITY = 0.5;
-// Phrases asked of each picture, and how often a page is topped up after
-// pictures were dropped.
+// Phrases asked of each picture.
 const MAX_JUDGED_PHRASES = 3;
-const MAX_JUDGE_ROUNDS = 3;
+// The picture shown to the model: a grid rendition of about this width is
+// enough to see a car in a corner and half the work of the full card thumb.
+const JUDGE_MIN_WIDTH = 400;
 
 // The picture check runs on the owner's own searches only: a visitor's
-// "no cars" must not spend the owner's model budget. Same switch as the
-// auto-tagger; SEARCH_JUDGE_ENABLED=false turns only this off.
+// "no cars" must not spend the owner's model budget. It needs a key for one
+// of the two decision models (convex/searchJudge.ts);
+// SEARCH_JUDGE_ENABLED=false turns it off.
 const judgeEnabled = (scope: "mine" | "public") =>
   scope === "mine" &&
-  process.env.TAG_CLASSIFY_ENABLED?.trim().toLowerCase() === "true" &&
-  Boolean(process.env.OPENAI_API_KEY?.trim()) &&
+  Boolean(process.env.OPENAI_API_KEY?.trim() || process.env.TYPESAFE_API_KEY?.trim()) &&
   process.env.SEARCH_JUDGE_ENABLED?.trim().toLowerCase() !== "false";
 
 // Drop the pictures the Decisions model says show something the search leaves
@@ -1101,7 +1100,8 @@ const judgeEnabled = (scope: "mine" | "public") =>
 // A picture that cannot be judged (no image, an API error) stays.
 const dropShown = async (ctx: ActionCtx, assets: ScoredAsset[], phrases: string[]) => {
   const pictures = assets.flatMap((asset) => {
-    const imageUrl = asset.thumbUrl ?? (asset.kind === "image" ? asset.url : undefined);
+    const imageUrl = asset.thumbVariants?.find((variant) => variant.width >= JUDGE_MIN_WIDTH)?.url ??
+      asset.thumbUrl ?? (asset.kind === "image" ? asset.url : undefined);
     return imageUrl ? [{ assetId: asset._id, imageUrl }] : [];
   });
   if (pictures.length === 0) return assets;
@@ -1115,14 +1115,15 @@ const dropShown = async (ctx: ActionCtx, assets: ScoredAsset[], phrases: string[
     const unasked = pictures.filter((picture) =>
       phrases.some((phrase) => !shown.has(`${picture.assetId}|${phrase}`)));
     if (unasked.length > 0) {
-      const answers = await ctx.runAction(judgePicturesActionRef, { pictures: unasked, phrases }) as
-        Array<{ assetId: Id<"assets">; probabilities: number[] }>;
-      const judgments = answers.flatMap((answer) => phrases.map((phrase, index) => ({
-        assetId: answer.assetId, phrase, probability: answer.probabilities[index]!,
+      const answer = await ctx.runAction(judgePicturesActionRef, { pictures: unasked, phrases }) as {
+        model?: string; judged: Array<{ assetId: Id<"assets">; probabilities: number[] }>;
+      };
+      const judgments = answer.judged.flatMap((picture) => phrases.map((phrase, index) => ({
+        assetId: picture.assetId, phrase, probability: picture.probabilities[index]!,
       })));
       for (const row of judgments) shown.set(`${row.assetId}|${row.phrase}`, row.probability);
-      if (judgments.length > 0) {
-        await ctx.runMutation(saveJudgmentsMutationRef, { model: JUDGE_MODEL, judgments });
+      if (judgments.length > 0 && answer.model) {
+        await ctx.runMutation(saveJudgmentsMutationRef, { model: answer.model, judgments });
       }
     }
     return assets.filter((asset) =>
@@ -1149,18 +1150,14 @@ const readSearchPage = async (ctx: ActionCtx, hits: FusedHit[], input: {
     );
     return { results, remaining: hits.slice(consumed) };
   }
-  // Checked pictures can drop out, so the page is topped up from the hits
-  // that follow, a few times at most.
-  const results: ScoredAsset[] = [];
-  let remaining = hits;
-  for (let round = 0; round < MAX_JUDGE_ROUNDS && results.length < input.pageSize && remaining.length > 0; round += 1) {
-    const page = await hydrateFiltered(
-      ctx, remaining, input.keep, input.pageSize - results.length, input.spec, input.filtered,
-    );
-    remaining = remaining.slice(page.consumed);
-    results.push(...await dropShown(ctx, page.results, judged));
-  }
-  return { results, remaining };
+  // Checked pictures can drop out, so a page may come back short (or empty
+  // with hits still to read). It is not topped up here: asking about more
+  // pictures would hold back the ones already cleared, and the grid reads the
+  // next page by itself when this one does not fill the screen.
+  const { results, consumed } = await hydrateFiltered(
+    ctx, hits, input.keep, input.pageSize, input.spec, input.filtered,
+  );
+  return { results: await dropShown(ctx, results, judged), remaining: hits.slice(consumed) };
 };
 
 // First page of a grid search: by words (`query`) or by look
