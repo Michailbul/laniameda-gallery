@@ -15,9 +15,12 @@ export interface BreadcrumbSegment {
  */
 export function BrowseBreadcrumb({
   segments,
+  after,
   trailing,
 }: {
   segments: BreadcrumbSegment[];
+  /** Sits right after the current location's name (e.g. a world's pitch page link). */
+  after?: React.ReactNode;
   /** Right-aligned controls for the current location (e.g. its thumbnail). */
   trailing?: React.ReactNode;
 }) {
@@ -74,6 +77,7 @@ export function BrowseBreadcrumb({
           </span>
         );
       })}
+      {after}
       {trailing && (
         <span className="ml-auto flex min-w-0 items-center pl-3">{trailing}</span>
       )}

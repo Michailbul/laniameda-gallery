@@ -13,4 +13,8 @@ Speed measurements for the gallery (rule: speed is rule one, see CLAUDE.md).
   frames via CDP), `lazyprobe.mjs` (which mounted tiles downloaded), `compact.py`, `build_report.py`
   (expects its inputs in /tmp/gperf; adjust the paths to rebuild).
 
+- `frame-keys-2026-11-11.json`: first-load bytes before and after the frame keys (#222, #228 and the
+  pitch link), measured on production builds against a local backend; `tools/firstload.mjs` lists a
+  route's scripts and styles per file.
+
 Re-measure the same way before merging anything that touches `/`, `/w`, `/inbox` or `/tasks`.

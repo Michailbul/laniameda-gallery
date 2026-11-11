@@ -15,6 +15,8 @@ function ViewSkeleton() {
 }
 
 export const GalleryDetailPanel = lazyComponent(() => import("./detail-panel").then((m) => m.GalleryDetailPanel));
+// Owner only, inside a world: the way out to its pitch page.
+export const WorldPitchLink = lazyComponent(() => import("./world-pitch-link").then((m) => m.WorldPitchLink));
 export const UploadModal = lazyComponent(() => import("@/components/upload-modal").then((m) => m.UploadModal));
 export const CinemaModal = lazyComponent(() => import("./cinema-modal").then((m) => m.CinemaModal));
 export const SkillModal = lazyComponent(() => import("./skill-modal").then((m) => m.SkillModal));

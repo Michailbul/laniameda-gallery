@@ -1,0 +1,83 @@
+{
+ "date": "2026-11-11",
+ "what": "Frame keys: comments in place (#222), like / super like (#228), pitch page link (this PR)",
+ "method": "Production builds (next build --webpack, next start) against an isolated local Convex backend with 28 fixture frames; transferred bytes of scripts and styles until 7 s after load, headless Chromium, 1440x900. tools/firstload.mjs for the per-file list. Signed-in rows reuse the dev server's session cookie.",
+ "homeSignedOutBytes": {
+  "mainBefore222": 412094,
+  "after222and228": 412579,
+  "mainBeforePitchLink": 413274,
+  "afterPitchLink": 413360
+ },
+ "kB": {
+  "homeSignedOut": {
+   "js": [
+    355.0,
+    354.8,
+    356.7
+   ],
+   "css": [
+    47.4,
+    47.1,
+    47.3
+   ],
+   "columns": [
+    "main before #222",
+    "after #222",
+    "after #228 (before the chunk fix: +1.7 KB came from a split shared chunk, removed)"
+   ]
+  },
+  "worldPitchSignedOut": {
+   "js": [
+    185.1,
+    185.0,
+    185.6
+   ],
+   "css": [
+    47.8,
+    47.5,
+    47.7
+   ]
+  },
+  "vaultSignedIn": {
+   "js": [
+    654.7,
+    657.1,
+    659.4
+   ],
+   "css": [
+    47.4,
+    49.1,
+    49.3
+   ],
+   "note": "the owner kit (note box, like presses, confirmation, their CSS) arrives after first paint"
+  }
+ },
+ "keyToPaintMs": {
+  "worldPage": [
+   6.5,
+   8.3,
+   8.9,
+   15.6,
+   17.8,
+   20.6,
+   22.6,
+   24.2,
+   25.4,
+   27.0,
+   27.9,
+   31.0,
+   32.7,
+   62.9
+  ],
+  "note": "window.__worldPageKeyMs on the dev build, key 1"
+ },
+ "convex": {
+  "gridPayload": "unchanged (no field added to any grid query)",
+  "newSubscription": "frameMarks:listFrameMarks, owner only: two id lists; 0.2 KB on the fixture backend, about 35 bytes per marked frame"
+ },
+ "decisions": [
+  "Owner-only frame code ships in components/frame-composer/owner-kit.ts",
+  "The world pitch link is a lazy chunk (bundled it cost 424 bytes on the public home; lazy 86)",
+  "The styles page keeps its own LIKE_DOUBLE_MS: importing it from lib/asset-hotkeys split review-promote into a new shared chunk on /"
+ ]
+}
