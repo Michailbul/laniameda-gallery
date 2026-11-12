@@ -57,9 +57,11 @@ the sky" (8 of 18 kept).
 
 ## Live check after the push (12 Nov 2026, Jev answering)
 Seven held-out searches through `semanticSearch:searchAssetsVerified` on the
-live gallery. Of the matches graders had already labelled, 74 of 87 right and
-none wrong. First search 3–7.5 s with whole waves checked at once (20–37 s
-before that change); the same search again 0.5–0.7 s. Without `mustShow`,
+live gallery. Of the matches graders had already labelled, 78 of 94 right
+(83%) and none wrong. A first search took 13–17 s through the agents' tool
+for one wave of 96 (Jev re-encodes pictures one core at a time: 96 in one
+action took 8–10 s, 20 took 2 s), so a wave is now split across actions of
+16 that run side by side; the same search again 3 s. Without `mustShow`,
 "silhouette against a sunset" got 16 of 22 right (with parts offline: 16 of
 19): agents should always pass the parts.
 

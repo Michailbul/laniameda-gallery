@@ -137,9 +137,10 @@ describe("verified search for agents", () => {
     expect(found.summary).toMatchObject({ mode: "verified", candidates: 40, checked: 40, matched: 9, near: 6, unchecked: 0 });
     // Gemini has no credit: one refused call, then Jev answered the wave.
     expect(geminiCalls).toBe(1);
+    // The wave of 40 goes to Jev as three actions side by side.
     const jev = calls.filter((call) => call.name === "searchVerifyJev:judgeRelevance");
-    expect(jev).toHaveLength(1);
-    expect(jev[0]!.args.parts).toEqual(parts);
+    expect(jev.map((call) => (call.args.pieces as unknown[]).length)).toEqual([16, 16, 8]);
+    expect(jev.every((call) => JSON.stringify(call.args.parts) === JSON.stringify(parts))).toBeTrue();
     expect(saved).toHaveLength(80);
   });
 

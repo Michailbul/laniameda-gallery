@@ -163,17 +163,30 @@ const askGemini = async (pieces: VerifiablePiece[], request: string, parts: stri
   return { judged: answers.filter((answer): answer is Judged => answer !== null), unavailable };
 };
 
+// Jev needs JPEG bytes, and one Node action re-encodes pictures one core at a
+// time: 96 pictures took 8-10 s in one action, 20 took 2 s. So a wave is split
+// across actions that run side by side.
+const JEV_PIECES_PER_ACTION = 16;
+
 const askJev = async (ctx: ActionCtx, pieces: VerifiablePiece[], request: string, parts: string[]) => {
-  const answer = (await ctx.runAction(judgeRelevanceJevRef, {
-    request,
-    parts,
-    pieces: pieces.map((piece) => ({
-      assetId: piece._id,
-      words: pieceWords(piece),
-      ...(piecePicture(piece) ? { imageUrl: piecePicture(piece) } : {}),
-    })),
-  })) as { judged: Judged[]; unavailable?: string };
-  return answer;
+  const chunks: VerifiablePiece[][] = [];
+  for (let start = 0; start < pieces.length; start += JEV_PIECES_PER_ACTION) {
+    chunks.push(pieces.slice(start, start + JEV_PIECES_PER_ACTION));
+  }
+  const answers = (await Promise.all(chunks.map((chunk) =>
+    ctx.runAction(judgeRelevanceJevRef, {
+      request,
+      parts,
+      pieces: chunk.map((piece) => ({
+        assetId: piece._id,
+        words: pieceWords(piece),
+        ...(piecePicture(piece) ? { imageUrl: piecePicture(piece) } : {}),
+      })),
+    })))) as Array<{ judged: Judged[]; unavailable?: string }>;
+  return {
+    judged: answers.flatMap((answer) => answer.judged),
+    unavailable: answers.find((answer) => answer.unavailable)?.unavailable,
+  };
 };
 
 /** The models that can answer here, in order of preference. */
