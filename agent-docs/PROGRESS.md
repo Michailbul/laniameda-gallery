@@ -2,11 +2,28 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-11-11
+Last updated: 2026-11-12
 
 ---
 
 ## ✔ Shipped
+
+### 2026-11-12 — The agents' search checks every result (branch `feat/agent-search-verified`)
+- `search_gallery` now calls `semanticSearch:searchAssetsVerified`: candidates
+  in ranked order, 60–120 a wave, each asked by a decision model whether it
+  is a good result for the whole request and whether each `mustShow`
+  statement holds (`convex/searchVerify.ts`; Gemini Decision by URL in
+  `convex/decisionGemini.ts`, Jev in `convex/searchVerifyJev.ts`, the first
+  that can answer). Kept when whole x weakest part >= 0.7; `includeNear` adds
+  whole >= 0.5. Answers are kept in `pictureJudgments`. The reply carries a
+  `summary` (mode, candidates, checked, matched, near, unchecked, note).
+- Measured with independent graders (agent-docs/SEARCH_EVAL.md): on 12
+  held-out searches 91% of returned pieces right and none wrong, against 58%
+  for the unchecked top 24; 80% of the right pieces kept as matches.
+- When the embedding provider refuses (no credit, bad key) the query errors
+  name it (`SEARCH_BY_MEANING_PAUSED`) and the agents' search falls back to
+  keyword candidates, still checked.
+- Owner searches only; a visitor's search never calls a model.
 
 ### 2026-11-11 — The pitch page is one click from the world's vault view (branch `feat/pitch-link`, no backend change)
 - Michael opened /w/dear-annete signed in, saw the vault (proxy.ts sends the

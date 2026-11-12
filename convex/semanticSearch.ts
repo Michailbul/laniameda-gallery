@@ -21,6 +21,8 @@ import {
 import { ownerAction } from "./actor";
 import { skillCardValidator } from "./skills";
 import { galleryWordMatcher } from "../lib/gallery-search";
+import { MAX_PARTS, relevanceProviders, verifyPieces, type Relevance } from "./searchVerify";
+import { relevanceTier } from "../lib/search-relevance";
 import {
   SEMANTIC_VECTOR_DIMENSIONS,
   convexValueSize,
@@ -105,6 +107,10 @@ const normalizeQueryForCache = (query: string) =>
 // (or a running backfill) trips 429s. Retry short transient failures before
 // giving up so a single throttled request doesn't surface to visitors.
 const RETRYABLE_EMBED_STATUSES = new Set([429, 500, 503]);
+export const SEARCH_BY_MEANING_PAUSED =
+  "Search by meaning is paused: the embedding provider's credit ran out or its key was refused. Keyword matches still work.";
+const isSearchPaused = (error: unknown) =>
+  error instanceof ConvexError && error.data === SEARCH_BY_MEANING_PAUSED;
 const EMBED_RETRY_DELAYS_MS = [1000, 2500];
 
 const sleep = (ms: number) =>
@@ -184,6 +190,11 @@ const embedQuery = async (query: string, target: QueryModel) => {
         throw new ConvexError(
           "Search is briefly rate-limited. Try again in a minute.",
         );
+      }
+      // The provider refuses the key or the account has no credit left: no
+      // retry will help, and the caller can fall back to keyword matching.
+      if (status === 401 || status === 402 || status === 403) {
+        throw new ConvexError(SEARCH_BY_MEANING_PAUSED);
       }
       throw error;
     }
@@ -939,6 +950,252 @@ export const searchAssets = ownerAction({
       minRelativeScore: args.minRelativeScore,
       storage: readStorage(),
     });
+  },
+});
+
+// ── Verified search for agents ──────────────────────────────────────────
+// searchAssets returns the nearest pieces whether 4 or 400 of them answer the
+// request. An agent sourcing references needs the pieces that do answer it,
+// and to know when more exist. So each candidate, in ranked order, is asked
+// by a decision model whether it is a good result (convex/searchVerify.ts);
+// only those that are come back, best first, with what was and was not
+// checked.
+//
+// Thresholds and what they were measured to do: lib/search-relevance.ts.
+// Candidates asked in one wave, and how many a search may ask in all unless
+// the caller wants every candidate checked.
+const VERIFY_WAVE_MIN = 60;
+const VERIFY_WAVE_MAX = 120;
+const VERIFY_CHECK_DEFAULT = 240;
+// Keyword candidates read when search by meaning is unavailable.
+const KEYWORD_POOL = 200;
+
+const verifiedAssetValidator = v.object({
+  ...scoredGalleryAssetResultValidator.fields,
+  // Probability that the piece is a good result for the request (checked pieces only).
+  match: v.optional(v.number()),
+  // "match": answers the request. "near": its main subject, a detail doubtful.
+  tier: v.optional(v.union(v.literal("match"), v.literal("near"))),
+});
+const verifiedSearchValidator = v.object({
+  results: v.array(verifiedAssetValidator),
+  summary: v.object({
+    // verified: results were checked one by one. ranked: nearest pieces,
+    // unchecked. keyword: search by meaning was unavailable.
+    mode: v.union(v.literal("verified"), v.literal("ranked"), v.literal("keyword")),
+    candidates: v.number(),
+    checked: v.number(),
+    matched: v.number(),
+    near: v.number(),
+    // Candidates not checked: asking for more, or exhaustive, reaches them.
+    unchecked: v.number(),
+    note: v.optional(v.string()),
+  }),
+});
+type VerifiedAsset = Infer<typeof verifiedAssetValidator>;
+
+const listGalleryAssetsQueryRef = makeFunctionReference<"query">("assets:listGalleryAssets");
+const KEYWORD_FILLER = new Set(["a", "an", "and", "at", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with", "without", "no", "not"]);
+
+// With search by meaning unavailable: pieces whose words hold the request's
+// most telling word, those holding every word first.
+const keywordFallback = async (ctx: ActionCtx, input: {
+  ownerUserId: string;
+  query: string;
+  limit: number;
+  filters: AssetFilters;
+}): Promise<ScoredAsset[]> => {
+  const words = input.query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word && !KEYWORD_FILLER.has(word));
+  const telling = [...words].sort((left, right) => right.length - left.length)[0];
+  if (!telling) return [];
+  const { folderIds, ...filters } = input.filters;
+  const rows = (await ctx.runQuery(listGalleryAssetsQueryRef, {
+    ownerUserId: input.ownerUserId,
+    search: telling,
+    limit: Math.min(Math.max(input.limit * 4, input.limit), 200),
+    folderId: filters.folderId,
+    kind: filters.kind,
+    modelName: filters.modelName,
+    tagNames: filters.tagNames,
+    anyTagNames: filters.anyTagNames,
+    excludeTagNames: filters.excludeTagNames,
+    pieceType: filters.pieceType,
+    medium: filters.medium,
+    onlyLiked: filters.onlyLiked,
+    onlyStarred: filters.onlyStarred,
+  })) as Array<Omit<ScoredAsset, "score">>;
+  const inFolders = folderIds?.length ? new Set<string>(folderIds) : null;
+  const hasAll = galleryWordMatcher(words.join(" "));
+  const text = (asset: Omit<ScoredAsset, "score">) =>
+    [asset.agentDescription, asset.description, asset.promptText, asset.tagNames.join(" "), asset.fileName]
+      .filter(Boolean).join(" ");
+  return rows
+    .filter((asset) => !inFolders || asset.folderIds.some((id) => inFolders.has(id)))
+    .map((asset) => ({ ...asset, score: hasAll(text(asset)) ? 1 : 0.5 }))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, input.limit);
+};
+
+export const searchAssetsVerified = ownerAction({
+  args: {
+    ownerUserId: v.optional(v.string()),
+    scope: v.union(v.literal("mine"), v.literal("public")),
+    // The request in plain words, conditions included: "city street at night
+    // with no cars" is checked as a whole.
+    query: v.string(),
+    // What every result must show, one short statement each ("a castle is a
+    // main subject", "the castle stands on a hill"). Each is checked on its
+    // own; a piece is kept only when all hold. At most five.
+    mustShow: v.optional(v.array(v.string())),
+    pillar: optionalPillarValidator,
+    mode: searchModeValidator,
+    ...assetFilterArgs,
+    limit: v.optional(v.number()),
+    // false: the nearest pieces, unchecked (what searchAssets returns).
+    verify: v.optional(v.boolean()),
+    // Check every candidate instead of stopping once `limit` pieces match.
+    exhaustive: v.optional(v.boolean()),
+    // Also return pieces that show the main subject with a detail doubtful, after the matches.
+    includeNear: v.optional(v.boolean()),
+  },
+  returns: verifiedSearchValidator,
+  handler: async (ctx, args) => {
+    const query = args.query.trim();
+    const limit = Math.min(Math.max(args.limit ?? getDefaultLimit(), 1), 100);
+    const none = (mode: "verified" | "ranked" | "keyword", note?: string) => ({
+      results: [],
+      summary: { mode, candidates: 0, checked: 0, matched: 0, near: 0, unchecked: 0, ...(note ? { note } : {}) },
+    });
+    if (!query || !isSemanticEmbeddingsEnabled()) {
+      return none("ranked");
+    }
+    if ((args.mustShow?.length ?? 0) > MAX_PARTS) {
+      throw new ConvexError(`mustShow takes at most ${MAX_PARTS} statements.`);
+    }
+    const ownerCandidates = resolveScope(args.scope, args.ownerUserId);
+    const spec: ScopeSpec = { scope: args.scope, ownerCandidates, pillar: args.pillar };
+    const storage = readStorage();
+    const filters: AssetFilters = args;
+    const filtered = hasMetadataFilters(filters);
+    const keep = buildAssetFilter(filters, args.scope);
+    const searchMode: SearchMode = args.mode ?? "hybrid";
+
+    // The picture check spends the owner's model budget: owner searches only.
+    const canVerify = args.verify !== false && args.scope === "mine" && relevanceProviders().length > 0;
+
+    // Candidates come in waves, best first: from the search's own ranking, or,
+    // while search by meaning is unavailable, from keyword matches.
+    let nextWave: (size: number) => Promise<ScoredAsset[]>;
+    let candidates: number;
+    let left: () => number;
+    let mode: "verified" | "ranked" | "keyword" = "verified";
+    let note: string | undefined;
+    try {
+      const ranked = await rankAllCandidates(ctx, {
+        vectors: await embedQueryLanes(ctx, query, searchMode, storage),
+        spec, storage, optionalVisual: searchMode === "hybrid",
+      });
+      let remaining = ranked;
+      candidates = ranked.length;
+      left = () => remaining.length;
+      nextWave = async (size) => {
+        const page = await hydrateFiltered(ctx, remaining, keep, size, spec, filtered || canVerify);
+        remaining = remaining.slice(page.consumed);
+        return page.results;
+      };
+    } catch (error) {
+      if (!isSearchPaused(error) || args.scope !== "mine") throw error;
+      const pool = await keywordFallback(ctx, {
+        ownerUserId: args.ownerUserId?.trim() || ownerCandidates[0]!, query,
+        limit: canVerify ? KEYWORD_POOL : limit, filters,
+      });
+      let remaining = pool;
+      candidates = pool.length;
+      left = () => remaining.length;
+      nextWave = async (size) => {
+        const wave = remaining.slice(0, size);
+        remaining = remaining.slice(size);
+        return wave;
+      };
+      mode = "keyword";
+      note = canVerify
+        ? `${SEARCH_BY_MEANING_PAUSED} Candidates are keyword matches for the request's words; each was still checked.`
+        : `${SEARCH_BY_MEANING_PAUSED} These are keyword matches for the request's words, unchecked.`;
+    }
+
+    if (!canVerify) {
+      const results = await nextWave(limit);
+      return {
+        results,
+        summary: {
+          mode: mode === "keyword" ? mode : ("ranked" as const), candidates, checked: 0, matched: 0, near: 0,
+          unchecked: left(), ...(note ? { note } : {}),
+        },
+      };
+    }
+
+    const relevance = new Map<Id<"assets">, Relevance>();
+    const read: ScoredAsset[] = [];
+    let checked = 0;
+    let stopped: string | undefined;
+    const matchedSoFar = () =>
+      read.filter((asset) => {
+        const answer = relevance.get(asset._id);
+        return answer !== undefined && relevanceTier(answer.match, answer.whole) === "match";
+      }).length;
+    const checkBudget = args.exhaustive ? candidates : Math.max(VERIFY_CHECK_DEFAULT, limit * 6);
+    while (left() > 0 && checked < checkBudget && (args.exhaustive || matchedSoFar() < limit)) {
+      const size = Math.min(Math.max(limit * 3, VERIFY_WAVE_MIN), VERIFY_WAVE_MAX, checkBudget - checked);
+      const wave = await nextWave(size);
+      if (wave.length === 0) continue;
+      const outcome = await verifyPieces(ctx, wave, query, args.mustShow);
+      checked += wave.length;
+      read.push(...wave);
+      for (const [assetId, answer] of outcome.judged) relevance.set(assetId, answer);
+      if (outcome.unavailable) {
+        stopped = "The relevance check stopped: no decision model can be used right now (credit or key). Unchecked pieces are not in the results.";
+        break;
+      }
+    }
+
+    // Nothing could be checked at all: the nearest pieces, unchecked, are better than nothing.
+    if (stopped && relevance.size === 0) {
+      return {
+        results: read.slice(0, limit),
+        summary: {
+          mode: mode === "keyword" ? mode : ("ranked" as const), candidates, checked: 0, matched: 0, near: 0,
+          unchecked: candidates, note: [note, stopped].filter(Boolean).join(" "),
+        },
+      };
+    }
+
+    const tiered: VerifiedAsset[] = [];
+    for (const asset of read) {
+      const answer = relevance.get(asset._id);
+      if (!answer) continue;
+      const tier = relevanceTier(answer.match, answer.whole);
+      if (tier) tiered.push({ ...asset, match: answer.match, tier });
+    }
+    // Answers are probabilities; two in the same tenth are equally sure, and
+    // the search's own ranking orders them.
+    const byMatch = (left: VerifiedAsset, right: VerifiedAsset) =>
+      Math.round((right.match ?? 0) * 10) - Math.round((left.match ?? 0) * 10) || right.score - left.score;
+    const matches = tiered.filter((asset) => asset.tier === "match").sort(byMatch);
+    const near = tiered.filter((asset) => asset.tier === "near").sort(byMatch);
+    const results = [...matches, ...(args.includeNear ? near : [])].slice(0, limit);
+    const notes = [note, stopped].filter(Boolean).join(" ");
+    return {
+      results,
+      summary: {
+        mode: mode === "keyword" ? mode : ("verified" as const),
+        candidates,
+        checked,
+        matched: matches.length,
+        near: near.length,
+        unchecked: left(),
+        ...(notes ? { note: notes } : {}),
+      },
+    };
   },
 });
 
