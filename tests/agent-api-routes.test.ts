@@ -15,6 +15,7 @@ const state = {
   mutationFailure: undefined as string | undefined,
   // Set: requireAgentReader answers as a guest reader with these roots.
   guestRoots: undefined as string[] | undefined,
+  actionFailure: undefined as string | undefined,
 };
 
 const ingestRoutePath = new URL("../app/api/agent/ingest/route.ts", import.meta.url).pathname;
@@ -74,6 +75,7 @@ mock.module("@/lib/server/convex", () => ({
   getServerConvexClient: () => ({
     action: async (_reference: unknown, payload: Record<string, unknown>) => {
       state.actionCalls.push({ payload });
+      if (state.actionFailure) throw new Error(state.actionFailure);
       return state.actionResult;
     },
     query: async (reference: unknown, payload: Record<string, unknown>) => {
@@ -103,6 +105,7 @@ describe("agent API routes", () => {
     state.queryFailure = undefined;
     state.mutationFailure = undefined;
     state.guestRoots = undefined;
+    state.actionFailure = undefined;
   });
 
   test("complete listing rejects unknown predicates and token-owner overrides", async () => {
@@ -679,5 +682,34 @@ describe("agent API routes", () => {
     expect((await call({ action: "listAssets", folderId: "love" })).status).toBe(404);
     expect((await call({ action: "findBySourceUrls", sourceUrls: ["https://x"] })).status).toBe(403);
     expect((await call({ action: "listAssets", world: "dear-annete" })).status).toBe(404);
+  });
+
+  test("guest reader: a bare id gets the typed-id help, and skill search falls back to keywords while search by meaning is paused", async () => {
+    const { POST } = await import(galleryRoutePath);
+    state.guestRoots = ["techniques"];
+    state.queryResultByName = {
+      "folders:listFolders": [{ _id: "techniques", name: "TECHNIQUES" }, { _id: "da", name: "DA", worldKey: "dear-annete" }],
+      "skills:resolveSkillReference": null,
+      "skills:listSkills": [
+        { _id: "k1", title: "Car explainer", folderIds: ["techniques"] },
+        { _id: "k2", title: "Car in a world", folderIds: ["techniques", "da"] },
+      ],
+    };
+    const call = async (body: Record<string, unknown>) => {
+      const response = await POST(new Request("http://localhost/api/agent/gallery", {
+        method: "POST", headers: { authorization: "Bearer guest", "content-type": "application/json" }, body: JSON.stringify(body),
+      }));
+      return { status: response.status, json: await response.json() as Record<string, unknown> };
+    };
+    const bare = await call({ action: "getById", id: "j5797yevr50ssz9tp4ny027pf98j3ge0" });
+    expect(bare.status).toBe(400);
+    expect(String(bare.json.error)).toContain("asset:<id>");
+
+    state.actionFailure = "Uncaught ConvexError: Search by meaning is paused: the embedding provider's credit ran out.";
+    const found = await call({ action: "searchSkills", query: "car explainer style" });
+    expect(found.status).toBe(200);
+    expect((found.json.skills as Array<{ _id: string }>).map((skill) => skill._id)).toEqual(["k1"]);
+    expect(String(found.json.note)).toContain("explainer");
+    expect(state.queryCalls.find((entry) => entry.name === "skills:listSkills")?.payload).toMatchObject({ search: "explainer" });
   });
 });
