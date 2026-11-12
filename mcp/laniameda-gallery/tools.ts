@@ -923,7 +923,10 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
       title: "Search Gallery",
       annotations: { ...readAnnotations, openWorldHint: true },
       description:
-        "Semantic search over the user's gallery. Hybrid by default: matches what pieces look like (pixels) AND what they are about (agent description, caption, prompt, tags). Narrow with tag / piece-type / medium / liked / starred / collection / world filters. Results (default 24, max 96) carry asset ids, agentDescription, caption, tagNames, folderIds, url, thumbUrl, a 300-character promptText excerpt, score, visualScore and textScore; get_gallery_item has the full prompt and record.",
+        "Find pieces in the user's gallery that answer a request, checked one by one. Candidates are ranked by what they look like and what they are about, then a decision model looks at each picture with its description and keeps only the pieces that are a good result for the whole request (independent judges: 91% of returned pieces right, none wrong). " +
+        "Write `query` as the full request in plain words, conditions included (\"city street at night with no cars\"). For a request with more than one condition, also pass `mustShow`: one short statement per thing every result must show (\"a castle is a main subject\", \"the castle stands on a hill\"); each is checked on its own. " +
+        "`summary` says what happened: mode verified (checked), ranked (unchecked nearest pieces) or keyword (search by meaning unavailable); how many candidates were checked, matched and near, how many were not checked, and any note. `matched` below `limit` with `unchecked` above zero means more may exist: call again with `exhaustive: true` to check every candidate. `includeNear: true` adds pieces that show the main subject with a detail doubtful, after the matches (each result carries `tier`). " +
+        "Narrow with tag / piece-type / medium / liked / starred / collection / world filters before the check. `verify: false` returns the nearest pieces unchecked, faster. A first search takes a few seconds; the same request again answers from kept checks.",
       inputSchema: {
         query: z.string(),
         mode: z
@@ -936,11 +939,15 @@ export function registerGalleryTools(server: McpServer, options: GalleryToolOpti
         modelName: z.string().optional(),
         assetRole: z.string().optional(),
         ...namedFilterShape,
-        minRelativeScore: z
-          .number()
-          .describe("Keep only hits within this fraction (0–1) of the best score. Off by default.")
+        mustShow: z
+          .array(z.string())
+          .max(5)
+          .describe("What every result must show, one short statement each; each is checked on its own.")
           .optional(),
         limit: z.number().optional(),
+        exhaustive: z.boolean().describe("Check every candidate, not just until `limit` pieces match.").optional(),
+        includeNear: z.boolean().describe("Also return near pieces (main subject there, a detail doubtful), after the matches.").optional(),
+        verify: z.boolean().describe("false = nearest pieces, unchecked (faster).").optional(),
       },
     },
     async (input) =>

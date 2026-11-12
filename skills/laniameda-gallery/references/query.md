@@ -135,6 +135,26 @@ Tag names match canonically: case, `-`, `_` and punctuation fold, plurals
 don't (except piece types). On `list`, a `tagNames` entry that isn't a tag at
 all returns nothing.
 
+### Checked results (`search_gallery`, since 12 Nov 2026)
+
+Every candidate, best ranked first, is asked by a decision model (Gemini
+Decision, else Jev) whether it is a good result for the whole request, and
+whether each `mustShow` statement holds. Kept: whole x weakest part >= 0.7
+(`tier: "match"`); `includeNear` adds whole >= 0.5 (`tier: "near"`). The check
+reads 60–120 candidates a wave and stops once `limit` pieces match (240
+candidates at most) or, with `exhaustive`, reads every candidate. The reply is
+`{count, summary, results}`; `summary.mode` is `verified`, `ranked`
+(`verify: false`, or no model available) or `keyword` (search by meaning
+unavailable: keyword candidates, still checked). On 12 held-out searches graded
+by independent judges: 91% of returned pieces right, none wrong, against 58%
+for the unchecked top 24 (agent-docs/SEARCH_EVAL.md).
+
+Good `mustShow`: one fact a picture can show, each on its own. "castle on a
+hill" → `["a castle is a main subject", "the castle stands on a hill, cliff or
+mountain"]`. "city street at night with no cars" → `["the scene is a city
+street", "it is night", "no cars or other vehicles are visible"]`. Names go in
+as they are: `["the piece shows the character named Dari"]`.
+
 ### `search` modes
 
 `mode`: `hybrid` (default) runs the pixel lane and the text lane with a query

@@ -192,7 +192,12 @@ separate checks. Leave the retired pillar field unset on ordinary saves.
 styles in one call.
 
 Use search_gallery for meaning or visual similarity; find_similar expands around
-an asset. Use list_assets_page with filters and its opaque cursor for a complete
+an asset. search_gallery checks every candidate with a decision model and
+returns only pieces that answer the whole request: write the full request as
+`query`, and for a request with more than one condition pass `mustShow` (one
+short statement per thing every result must show). Read `summary`: when
+`matched` is below your limit and `unchecked` is above zero, more may exist
+(`exhaustive: true`); `includeNear: true` adds pieces with a detail doubtful. Use list_assets_page with filters and its opaque cursor for a complete
 inventory. Continue until isDone: true; list_assets is a bounded convenience read.
 For a world, includeDescendants includes its parts; an empty root does not mean an
 empty world. For a complete unfiltered inventory use the Bun client's

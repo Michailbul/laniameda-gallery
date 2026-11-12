@@ -149,7 +149,7 @@ export async function POST(request: Request) {
       if (!query) {
         return NextResponse.json({ error: "query is required." }, { status: 400 });
       }
-      const results = await client.action(api.semanticSearch.searchAssets, {
+      const found = await client.action(api.semanticSearch.searchAssetsVerified, {
         ownerUserId: agent.ownerUserId,
         scope: "mine",
         query,
@@ -162,10 +162,17 @@ export async function POST(request: Request) {
         assetRole: stringValue(data.assetRole) as AssetRoleValue | undefined,
         mode: enumValue<"hybrid" | "visual" | "text">(data.mode, SEARCH_MODES),
         ...namedFilters(data),
-        minRelativeScore: numberValue(data.minRelativeScore),
         limit: numberValue(data.limit),
+        mustShow: stringArrayValue(data.mustShow),
+        verify: data.verify === false ? false : undefined,
+        exhaustive: booleanValue(data.exhaustive),
+        includeNear: booleanValue(data.includeNear),
       });
-      return NextResponse.json({ count: results.length, results: projectAgentAssets(results) });
+      return NextResponse.json({
+        count: found.results.length,
+        summary: found.summary,
+        results: projectAgentAssets(found.results),
+      });
     }
 
     if (action === "findSimilar") {

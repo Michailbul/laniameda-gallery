@@ -957,6 +957,10 @@ video poster), `createdAt`. Written a minute after ingest and by the backfill
 `perceptualHash:backfillPerceptualHashes`; deleted with the asset. Indexes:
 asset, owner. Read by the grid's Similar view and `find_similar_groups`.
 
+`pictureJudgments` also keeps the agents' relevance checks (phrase
+`relevance|<version>|<provider>|<hash of request and parts>|match` or `|whole`),
+so the same request about the same piece is asked once per model.
+
 `pictureJudgments` holds what the Decisions model answered when a search
 asked about a picture ("does this show a car?"): `assetId`, `phrase`,
 `probability`, `model`, `judgedAt`, one row per picture and phrase. Search
