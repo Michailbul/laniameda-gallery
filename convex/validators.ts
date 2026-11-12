@@ -406,6 +406,10 @@ export const agentTokenScopeValidator = v.union(
   // post versions and dispatch only for the token's own worlds.
   v.literal("inspiration:capture"),
   v.literal("inspiration:adapt"),
+  // Guest reader (lib/guest-access.ts): read-only, limited to the token's
+  // allowedRootIds shelves; never a world, never a write. Minted by the owner
+  // with scripts/guest-token.ts, never through OAuth or the /agents form.
+  v.literal("guest:read"),
 );
 
 /** A stored grid rendition of an image (lib/card-thumbnail.ts ThumbVariant). */

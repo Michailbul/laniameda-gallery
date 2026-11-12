@@ -13,6 +13,7 @@ const agentTokenPublicValidator = v.object({
   label: v.string(),
   scopes: v.array(agentTokenScopeValidator),
   worldIds: v.optional(v.array(v.id("folders"))),
+  allowedRootIds: v.optional(v.array(v.id("folders"))),
   canEditScopes: v.boolean(),
   expiresAt: v.optional(v.number()),
   revokedAt: v.optional(v.number()),
@@ -28,6 +29,7 @@ const authenticatedTokenValidator = v.object({
   label: v.string(),
   scopes: v.array(agentTokenScopeValidator),
   worldIds: v.optional(v.array(v.id("folders"))),
+  allowedRootIds: v.optional(v.array(v.id("folders"))),
 });
 
 const resolveIssuerSecret = () =>
@@ -80,6 +82,36 @@ const normalizeWorlds = async (
   return unique;
 };
 
+// guest:read is a token on its own: read-only and limited to allowed root
+// collections. It never combines with another scope, needs at least one
+// root, and a world root (or a project or universe member) is never allowed.
+const isGuestScopes = (scopes: AgentTokenScope[]) => scopes.includes("guest:read");
+
+const normalizeGuestRoots = async (
+  ctx: MutationCtx,
+  ownerUserId: string,
+  scopes: AgentTokenScope[],
+  allowedRootIds: Id<"folders">[] | undefined,
+) => {
+  if (!isGuestScopes(scopes)) {
+    if (allowedRootIds?.length) throw new ConvexError("allowedRootIds belong to a guest:read token only.");
+    return undefined;
+  }
+  if (scopes.length !== 1) throw new ConvexError("A guest token reads only: guest:read cannot be combined with other permissions.");
+  const unique = Array.from(new Set(allowedRootIds ?? [])).slice(0, 50);
+  if (unique.length === 0) throw new ConvexError("A guest token needs at least one allowed root collection.");
+  for (const id of unique) {
+    const folder = await ctx.db.get(id);
+    if (!folder || folder.ownerUserId !== ownerUserId || folder.parentFolderId !== undefined) {
+      throw new ConvexError("A guest token opens your own root collections only.");
+    }
+    if (folder.worldKey || folder.universeRootId || folder.project) {
+      throw new ConvexError(`${folder.name} is a world; worlds are never open to a guest token.`);
+    }
+  }
+  return unique;
+};
+
 // The label check conservatively protects older OAuth tokens minted before
 // durable oauthCodeHash storage. Neither kind of OAuth grant is editable here.
 const isOAuthToken = (token: Doc<"agentTokens">) =>
@@ -93,8 +125,10 @@ const toPublicToken = (token: Doc<"agentTokens">) => ({
   label: token.label,
   scopes: token.scopes,
   ...(token.worldIds ? { worldIds: token.worldIds } : {}),
+  ...(token.allowedRootIds ? { allowedRootIds: token.allowedRootIds } : {}),
   canEditScopes:
     !isOAuthToken(token) &&
+    !isGuestScopes(token.scopes) &&
     !token.revokedAt &&
     !(token.expiresAt && token.expiresAt <= Date.now()),
   expiresAt: token.expiresAt,
@@ -114,6 +148,7 @@ export const createAgentToken = mutation({
     label: v.optional(v.string()),
     scopes: v.optional(v.array(agentTokenScopeValidator)),
     worldIds: v.optional(v.array(v.id("folders"))),
+    allowedRootIds: v.optional(v.array(v.id("folders"))),
     expiresAt: v.optional(v.number()),
   },
   returns: agentTokenPublicValidator,
@@ -150,6 +185,8 @@ export const createAgentToken = mutation({
     const now = Date.now();
     const scopes = normalizeScopes(args.scopes);
     const worldIds = await normalizeWorlds(ctx, ownerUserId, scopes, args.worldIds);
+    const allowedRootIds = await normalizeGuestRoots(ctx, ownerUserId, scopes, args.allowedRootIds);
+    if (oauthCodeHash && allowedRootIds) throw new ConvexError("OAuth never grants a guest token.");
     const tokenId = await ctx.db.insert("agentTokens", {
       ownerUserId,
       tokenHash,
@@ -158,6 +195,7 @@ export const createAgentToken = mutation({
       label: normalizeLabel(args.label),
       scopes,
       ...(worldIds ? { worldIds } : {}),
+      ...(allowedRootIds ? { allowedRootIds } : {}),
       expiresAt: args.expiresAt,
       createdAt: now,
       updatedAt: now,
@@ -263,6 +301,9 @@ export const updateAgentTokenScopes = mutation({
     if (isOAuthToken(token)) {
       throw new ConvexError("Reconnect this OAuth connection to approve different permissions.");
     }
+    if (isGuestScopes(token.scopes) || isGuestScopes(scopes)) {
+      throw new ConvexError("A guest token's reach is fixed. Revoke it and mint a new one instead.");
+    }
     const now = Date.now();
     if (token.revokedAt || (token.expiresAt && token.expiresAt <= now)) {
       throw new ConvexError("Only an active token's permissions can be changed.");
@@ -322,6 +363,7 @@ export const authenticateAgentToken = mutation({
       label: token.label,
       scopes: token.scopes,
       ...(token.worldIds ? { worldIds: token.worldIds } : {}),
+      ...(token.allowedRootIds ? { allowedRootIds: token.allowedRootIds } : {}),
     };
   },
 });

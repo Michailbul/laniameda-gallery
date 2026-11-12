@@ -18,10 +18,17 @@ export const AGENT_TOKEN_SCOPES = [
 ] as const;
 export type AgentTokenScope = (typeof AGENT_TOKEN_SCOPES)[number];
 
+// The guest reader scope (lib/guest-access.ts). Kept out of
+// AGENT_TOKEN_SCOPES on purpose: the /agents form, the scope editor and
+// OAuth never offer it; the owner mints one with scripts/guest-token.ts.
+export const GUEST_READ_SCOPE = "guest:read" as const;
+export type StoredTokenScope = AgentTokenScope | typeof GUEST_READ_SCOPE;
+
 export const isAgentTokenScope = (value: unknown): value is AgentTokenScope =>
   typeof value === "string" && (AGENT_TOKEN_SCOPES as readonly string[]).includes(value);
 
-export const SCOPE_LABEL: Record<AgentTokenScope, string> = {
+export const SCOPE_LABEL: Record<StoredTokenScope, string> = {
+  "guest:read": "Guest: look only, chosen shelves",
   "gallery:read": "Read",
   "gallery:write": "Write",
   "gallery:delete": "Delete",
@@ -29,7 +36,8 @@ export const SCOPE_LABEL: Record<AgentTokenScope, string> = {
   "inspiration:adapt": "Takes for chosen projects only",
 };
 
-export const SCOPE_HINT: Record<AgentTokenScope, string> = {
+export const SCOPE_HINT: Record<StoredTokenScope, string> = {
+  "guest:read": "Search and read the chosen shelves only. No worlds, no saving.",
   "gallery:read": "See everything in the gallery.",
   "gallery:write": "Save and edit pieces, prompts, tags and collections.",
   "gallery:delete": "Remove pieces, prompts and collections.",

@@ -50,6 +50,7 @@ import type * as frameMarks from "../frameMarks.js";
 import type * as galleryAssetResults from "../galleryAssetResults.js";
 import type * as galleryPresets from "../galleryPresets.js";
 import type * as generationLineage from "../generationLineage.js";
+import type * as guestAccess from "../guestAccess.js";
 import type * as helpers from "../helpers.js";
 import type * as heroRendition from "../heroRendition.js";
 import type * as heroRenditionData from "../heroRenditionData.js";
@@ -183,6 +184,7 @@ declare const fullApi: ApiFromModules<{
   galleryAssetResults: typeof galleryAssetResults;
   galleryPresets: typeof galleryPresets;
   generationLineage: typeof generationLineage;
+  guestAccess: typeof guestAccess;
   helpers: typeof helpers;
   heroRendition: typeof heroRendition;
   heroRenditionData: typeof heroRenditionData;

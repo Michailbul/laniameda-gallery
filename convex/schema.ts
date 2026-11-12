@@ -627,6 +627,9 @@ export default defineSchema({
     scopes: v.array(agentTokenScopeValidator),
     // inspiration:adapt only: the world roots this token may work on.
     worldIds: v.optional(v.array(v.id("folders"))),
+    // guest:read only: the root collections (and their non-world children)
+    // the guest may read. Anything else, every world included, stays hidden.
+    allowedRootIds: v.optional(v.array(v.id("folders"))),
     expiresAt: v.optional(v.number()),
     revokedAt: v.optional(v.number()),
     lastUsedAt: v.optional(v.number()),

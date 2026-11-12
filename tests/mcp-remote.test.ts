@@ -23,23 +23,26 @@ class MockAgentAuthError extends Error {
   }
 }
 
+const mockAgent = (request: Request) => {
+  if (!request.headers.get("authorization")) throw new MockAgentAuthError("Missing bearer token.");
+  if (!state.agentValid) throw new MockAgentAuthError("Invalid agent token or missing scope.");
+  return {
+    tokenId: "agentTokens:1",
+    ownerUserId: state.agentOwner,
+    tokenPrefix: "lgat_prefix",
+    label: "MCP",
+    scopes: ["gallery:read", "gallery:write"],
+  };
+};
+
 mock.module("@/lib/server/agent-auth", () => ({
   AgentAuthError: MockAgentAuthError,
   createAgentTokenSecret: () => "lgat_test_secret_token_value",
   hashAgentToken: (token: string) => `hash:${token}`,
   tokenPrefix: (token: string) => token.slice(0, 14),
   requireAgentTokenIssuerSecret: () => "issuer-secret",
-  requireAgentAuth: async (request: Request) => {
-    if (!request.headers.get("authorization")) throw new MockAgentAuthError("Missing bearer token.");
-    if (!state.agentValid) throw new MockAgentAuthError("Invalid agent token or missing scope.");
-    return {
-      tokenId: "agentTokens:1",
-      ownerUserId: state.agentOwner,
-      tokenPrefix: "lgat_prefix",
-      label: "MCP",
-      scopes: ["gallery:read", "gallery:write"],
-    };
-  },
+  requireAgentAuth: async (request: Request) => mockAgent(request),
+  requireAgentReader: async (request: Request) => ({ ...mockAgent(request), guest: null }),
 }));
 
 mock.module("@/lib/server/convex", () => ({

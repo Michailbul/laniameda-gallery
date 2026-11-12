@@ -37,6 +37,7 @@ export const GALLERY_SKILL_RESOURCES = [
   { path: "references/midjourney-srefs.md", title: "Midjourney style reference library", access: "public" },
   { path: "references/mj-queue.md", title: "Midjourney prompt queue: agents prepare, Michael sends", access: "public" },
   { path: "references/video-refs.md", title: "YouTube research", access: "public" },
+  { path: "references/guest-tokens.md", title: "Guest reader tokens: read-only, chosen shelves", access: "public" },
   { path: "references/motion.md", title: "Motion media and facets", access: "public" },
   { path: "references/cinematography.md", title: "Cinematography Skill packs", access: "public" },
   { path: "references/extraction.md", title: "Reference capture and provenance", access: "public" },

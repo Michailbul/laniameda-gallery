@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { AgentAuthError, requireAgentAuth } from "@/lib/server/agent-auth";
+import { AgentAuthError, requireAgentAuth, requireAgentReader } from "@/lib/server/agent-auth";
+import { handleGuestRead } from "@/lib/server/guest-gallery";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { requireSkillForOwner } from "@/lib/server/agent-skills";
 import { clientErrorMessage } from "@/lib/server/route-error";
@@ -83,6 +84,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "action is required." }, { status: 400 });
     }
 
+    // list_collections is the one customize read a guest reader may make.
+    if (action === "listFolders") {
+      const reader = await requireAgentReader(request);
+      if (reader.guest) {
+        return await handleGuestRead("/api/agent/customize", { ownerUserId: reader.ownerUserId, guest: reader.guest }, getServerConvexClient(reader.ownerUserId), data);
+      }
+    }
     const agent = await requireAgentAuth(request, requiredScopeForAction(action));
     const client = getServerConvexClient(agent.ownerUserId);
 

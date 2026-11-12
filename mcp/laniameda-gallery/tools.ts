@@ -60,6 +60,11 @@ export type GalleryToolOptions = {
    * from the schemas, so remote clients send `url` or `fileBase64` instead.
    */
   readLocalFile?: (filePath: string) => { base64: string; fileName: string };
+  /**
+   * Register only these tools (a guest reader token, lib/guest-access.ts).
+   * The routes refuse the rest anyway; this keeps them out of the tool list.
+   */
+  onlyTools?: ReadonlySet<string>;
 };
 
 export const GALLERY_MCP_INSTRUCTIONS = [
@@ -208,8 +213,16 @@ const namedFilterShape = {
   onlyStarred: z.boolean().describe("Starred = featured on the public reel.").optional(),
 };
 
-export function registerGalleryTools(server: McpServer, options: GalleryToolOptions) {
-  const { apiFetch, apiUrl, readLocalFile } = options;
+export function registerGalleryTools(mcpServer: McpServer, options: GalleryToolOptions) {
+  const { apiFetch, apiUrl, readLocalFile, onlyTools } = options;
+  const server: Pick<McpServer, "registerTool"> = onlyTools
+    ? {
+        registerTool: ((name: string, ...rest: unknown[]) =>
+          onlyTools.has(name)
+            ? (mcpServer.registerTool as (...args: unknown[]) => unknown)(name, ...rest)
+            : undefined) as McpServer["registerTool"],
+      }
+    : mcpServer;
 
   const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
   server.registerTool("list_srefs", {
