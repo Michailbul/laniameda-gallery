@@ -219,6 +219,38 @@
     return null;
   }
 
+  // The edges of the whole prompt block: the text box plus what Midjourney
+  // shows next to it, such as the strip of attached images (image prompts,
+  // style and omni references) and the row of queued jobs. The dock sits past
+  // all of it, so attached images are never covered. Boxes with no size are
+  // empty and do not count.
+  function blockEdges(barRect, rects) {
+    let top = barRect.top;
+    let bottom = barRect.bottom;
+    for (const rect of rects || []) {
+      if (!rect || rect.height < 1 || rect.width < 1) continue;
+      top = Math.min(top, rect.top);
+      bottom = Math.max(bottom, rect.bottom);
+    }
+    return { top, bottom };
+  }
+
+  // The boxes beside the text box inside the prompt block. Midjourney's
+  // settings panel scrolls and is placed by findPromptPanel; the dock and its
+  // sheets are ours.
+  function promptBlockRects(bar) {
+    const box = bar && bar.parentElement;
+    if (!box || box === document.body || bar.matches("div.fixed")) return [];
+    const rects = [];
+    for (const node of box.children) {
+      if (node === bar || node.closest(".stg-mb-dock, .stg-pp-bar, .stg-mb-snap")) continue;
+      const overflow = getComputedStyle(node).overflowY;
+      if (overflow === "auto" || overflow === "scroll") continue;
+      rects.push(node.getBoundingClientRect());
+    }
+    return rects;
+  }
+
   // Replaces every profile flag with one flag of exactly these codes; with
   // no codes the flag goes. Everything else in the prompt is untouched.
   function setProfileFlag(promptText, codes) {
@@ -446,6 +478,7 @@
     stickyCodes,
     withStickyFlag,
     findPromptPanel,
+    blockEdges,
     activeBoardCodes,
     chipLabel,
     snapshotImages,
@@ -1971,8 +2004,11 @@
     // Midjourney's settings panel is open: sit past it, or step aside.
     const panel = promptPanel(textarea);
     const above = panel ? !panel.below : rect.top > window.innerHeight * 0.5;
-    const edgeTop = panel ? panel.top : rect.top;
-    const edgeBottom = panel ? panel.bottom : rect.bottom;
+    // Attached images and queued jobs show beside the text box: keep them clear.
+    const block = blockEdges(rect, promptBlockRects(bar));
+    const extended = block.top < rect.top - 1 || block.bottom > rect.bottom + 1;
+    const edgeTop = panel ? Math.min(panel.top, block.top) : block.top;
+    const edgeBottom = panel ? Math.max(panel.bottom, block.bottom) : block.bottom;
     dock.classList.toggle("stg-mb-dock--above", above);
     // Bottom prompt (narrow): sit above it. Top prompt (wide): sit under it.
     if (above) {
@@ -1982,7 +2018,7 @@
       setStyle(dock, "bottom", "auto");
       setStyle(dock, "top", `${Math.round(edgeBottom + DOCK_GAP_PX)}px`);
     }
-    if (panel) {
+    if (panel || extended) {
       const placed = dock.getBoundingClientRect();
       dock.hidden = placed.top < 0 || placed.bottom > window.innerHeight;
     }

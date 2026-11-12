@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.34.2 (12 Nov 2026)
+
+- Attached images stay visible on Midjourney. When you attach an image, a
+  style reference or a starting frame, Midjourney shows a strip of thumbnails
+  under the prompt box. The moodboard and profile bar sat right on top of it.
+  The bar now measures the whole prompt block (the box, the strip of attached
+  images and the row of queued jobs) and docks below it, so nothing is covered.
+  With the bar docked on top, it clears the block the same way.
+
 ## 0.34.1 (11 Nov 2026)
 
 - The writer sizes world details to the shot. Grow, quick edit and Make it

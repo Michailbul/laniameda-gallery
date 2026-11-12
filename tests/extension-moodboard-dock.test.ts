@@ -31,6 +31,10 @@ type DockApi = {
   setParams: (promptText: string, paramsText: string) => string;
   removeParams: (promptText: string, paramsText: string) => string;
   hasParams: (promptText: string, paramsText: string) => boolean;
+  blockEdges: (
+    bar: { top: number; bottom: number },
+    rects: { top: number; bottom: number; width: number; height: number }[],
+  ) => { top: number; bottom: number };
   snapshotImages: (board: {
     previews?: { thumbUrl?: string; url?: string }[];
     thumbUrl?: string | null;
@@ -305,5 +309,29 @@ describe("other worlds' profiles", () => {
       ["dear-annete", ["DA4"]],
       ["", ["GLOBAL"]],
     ]);
+  });
+});
+
+describe("prompt block edges", () => {
+  const bar = { top: 16, bottom: 70 };
+  test("only the text box when nothing is attached", () => {
+    const empty = [
+      { top: 112, bottom: 112, width: 0, height: 0 },
+      { top: 70, bottom: 70, width: 1339, height: 0 },
+    ];
+    expect(getApi().blockEdges(bar, empty)).toEqual({ top: 16, bottom: 70 });
+  });
+
+  test("attached images and queued jobs push the bottom edge down", () => {
+    const shown = [
+      { top: 78, bottom: 112, width: 400, height: 34 },
+      { top: 112, bottom: 190, width: 300, height: 78 },
+    ];
+    expect(getApi().blockEdges(bar, shown)).toEqual({ top: 16, bottom: 190 });
+  });
+
+  test("a strip above the text box moves the top edge up", () => {
+    const above = [{ top: 900, bottom: 960, width: 300, height: 60 }];
+    expect(getApi().blockEdges({ top: 970, bottom: 1024 }, above)).toEqual({ top: 900, bottom: 1024 });
   });
 });
