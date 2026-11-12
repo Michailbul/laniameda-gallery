@@ -55,6 +55,14 @@ right pieces kept: the check reads "big type" more strictly than the grader),
 "city street at night with no cars" (12 of 24 kept, all 12 right), "airship in
 the sky" (8 of 18 kept).
 
+## Live check after the push (12 Nov 2026, Jev answering)
+Seven held-out searches through `semanticSearch:searchAssetsVerified` on the
+live gallery. Of the matches graders had already labelled, 74 of 87 right and
+none wrong. First search 3–7.5 s with whole waves checked at once (20–37 s
+before that change); the same search again 0.5–0.7 s. Without `mustShow`,
+"silhouette against a sunset" got 16 of 22 right (with parts offline: 16 of
+19): agents should always pass the parts.
+
 ## Not measured
 - Gemini Decision with required parts and the shipped wording: its prepaid
   credit ran out during the first run. The shipped order is Gemini first,
