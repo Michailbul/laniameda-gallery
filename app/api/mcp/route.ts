@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
-import { AgentAuthError, requireAgentAuth } from "@/lib/server/agent-auth";
+import { AgentAuthError, requireAgentReader, type GuestReach } from "@/lib/server/agent-auth";
+import { GUEST_MCP_INSTRUCTIONS, GUEST_TOOL_NAMES } from "@/lib/guest-access";
 import { AGENT_ROUTES } from "@/lib/server/mcp-agent-routes";
 import {
   CORS_HEADERS,
@@ -74,8 +75,11 @@ export async function POST(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
   const hadToken = /^bearer\s+\S/i.test(authorization);
 
+  // A guest reader (guest:read) gets the read-only, shelf-limited tool set.
+  let guest: GuestReach | null = null;
   try {
-    const auth = await requireAgentAuth(request, "gallery:read");
+    const auth = await requireAgentReader(request);
+    guest = auth.guest;
     if (!isMcpAllowedUser(auth.ownerUserId)) {
       return withCors(
         Response.json(
@@ -106,11 +110,12 @@ export async function POST(request: Request) {
 
   const server = new McpServer(
     { name: "laniameda-gallery", version: "0.3.0" },
-    { instructions: GALLERY_MCP_INSTRUCTIONS },
+    { instructions: guest ? GUEST_MCP_INSTRUCTIONS : GALLERY_MCP_INSTRUCTIONS },
   );
   registerGalleryTools(server, {
     apiFetch: createApiFetch(origin, authorization),
     apiUrl: origin,
+    ...(guest ? { onlyTools: GUEST_TOOL_NAMES } : {}),
   });
 
   const transport = new WebStandardStreamableHTTPServerTransport({

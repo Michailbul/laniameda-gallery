@@ -3,7 +3,7 @@ import { makeFunctionReference } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getServerConvexClient } from "@/lib/server/convex";
 
-import { grantingScope, type AgentTokenScope } from "@/lib/agent-scopes";
+import { GUEST_READ_SCOPE, grantingScope, type AgentTokenScope, type StoredTokenScope } from "@/lib/agent-scopes";
 
 export type { AgentTokenScope } from "@/lib/agent-scopes";
 
@@ -12,9 +12,11 @@ export type AgentAuthContext = {
   ownerUserId: string;
   tokenPrefix: string;
   label: string;
-  scopes: AgentTokenScope[];
+  scopes: StoredTokenScope[];
   // inspiration:adapt tokens: the world roots they may work on.
   worldIds?: string[];
+  // guest:read tokens: the root collections they may read (lib/guest-access.ts).
+  allowedRootIds?: string[];
 };
 
 export class AgentAuthError extends Error {
@@ -92,7 +94,7 @@ export const requireAgentAuth = async (
   // Authentication and permission failures need different responses. A valid
   // token without Delete permission must not be treated as an expired token,
   // and reconnecting never grants a scope without the owner's consent.
-  if (!auth.scopes.includes(requiredScope)) {
+  if (!(auth.scopes as string[]).includes(requiredScope)) {
     throw new AgentAuthError(
       `This agent token lacks ${requiredScope}. The signed-in gallery owner can edit this active token's permissions at /agents, or reconnect the gallery and approve that permission. Permission grants do not approve any deletion.`,
       403,
@@ -116,4 +118,26 @@ export const requireAgentAuthAny = async (
     );
   }
   return { ...auth, granted };
+};
+
+export type GuestReach = { allowedRootIds: string[] };
+
+/**
+ * A read that a guest token may also make. Owner readers (gallery:read) get
+ * guest: null and the unchanged owner path; guest:read tokens get their
+ * allowed roots, and the route must filter what it returns through
+ * lib/guest-access.ts. Any other token is refused.
+ */
+export const requireAgentReader = async (
+  request: Request,
+): Promise<AgentAuthContext & { guest: GuestReach | null }> => {
+  const auth = await authenticate(request);
+  if (auth.scopes.includes("gallery:read")) return { ...auth, guest: null };
+  if (auth.scopes.includes(GUEST_READ_SCOPE)) {
+    return { ...auth, guest: { allowedRootIds: auth.allowedRootIds ?? [] } };
+  }
+  throw new AgentAuthError(
+    "This agent token lacks gallery:read. The signed-in gallery owner can edit this active token's permissions at /agents.",
+    403,
+  );
 };

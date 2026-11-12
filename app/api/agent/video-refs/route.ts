@@ -3,6 +3,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
   requireAgentAuth,
+  requireAgentReader,
   AgentAuthError,
   type AgentTokenScope,
 } from "@/lib/server/agent-auth";
@@ -108,7 +109,9 @@ export async function POST(request: Request) {
         { status: 400 },
       );
     }
-    const agent = await requireAgentAuth(request, scope);
+    // Reads are open to a guest reader too: video references are a separate
+    // research surface the guest may read in full (lib/guest-access.ts).
+    const agent = scope === "gallery:read" ? await requireAgentReader(request) : await requireAgentAuth(request, scope);
     const client = getServerConvexClient(agent.ownerUserId);
     const ownerUserId = agent.ownerUserId;
 

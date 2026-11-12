@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { requireAgentAuth, AgentAuthError } from "@/lib/server/agent-auth";
+import { requireAgentReader, AgentAuthError } from "@/lib/server/agent-auth";
+import { handleGuestRead } from "@/lib/server/guest-gallery";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { CINEMATOGRAPHY_TAG, isCinematographySkill } from "@/lib/cinematography";
 import { makeFunctionReference } from "convex/server";
@@ -88,7 +89,7 @@ const readOrExplain = async <T>(read: () => Promise<T>, typed: string, table: st
 
 export async function POST(request: Request) {
   try {
-    const agent = await requireAgentAuth(request, "gallery:read");
+    const agent = await requireAgentReader(request);
     const data = await readJson(request);
     if (!data) {
       return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
@@ -100,6 +101,8 @@ export async function POST(request: Request) {
     }
 
     const client = getServerConvexClient(agent.ownerUserId);
+    // A guest reader takes its own filtered path (lib/guest-access.ts).
+    if (agent.guest) return await handleGuestRead("/api/agent/gallery", { ownerUserId: agent.ownerUserId, guest: agent.guest }, client, data);
 
     // `world` scopes any listing or search to one world: its root collection
     // and every shelf in it. It replaces folderId for that call.

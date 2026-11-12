@@ -13,6 +13,8 @@ const state = {
   mutationCalls: [] as Array<{ payload: Record<string, unknown> }>,
   queryFailure: undefined as string | undefined,
   mutationFailure: undefined as string | undefined,
+  // Set: requireAgentReader answers as a guest reader with these roots.
+  guestRoots: undefined as string[] | undefined,
 };
 
 const ingestRoutePath = new URL("../app/api/agent/ingest/route.ts", import.meta.url).pathname;
@@ -54,6 +56,18 @@ mock.module("@/lib/server/agent-auth", () => ({
       scopes: ["gallery:read", "gallery:write"],
     };
   },
+  // The owner side of a read a guest reader may also make.
+  requireAgentReader: async () => {
+    state.requiredScopes.push("gallery:read");
+    return {
+      tokenId: "agentTokens:1",
+      ownerUserId: state.ownerUserId,
+      tokenPrefix: "lgat_prefix",
+      label: "Codex",
+      scopes: state.guestRoots ? ["guest:read"] : ["gallery:read", "gallery:write"],
+      guest: state.guestRoots ? { allowedRootIds: state.guestRoots } : null,
+    };
+  },
 }));
 
 mock.module("@/lib/server/convex", () => ({
@@ -88,6 +102,7 @@ describe("agent API routes", () => {
     state.mutationCalls = [];
     state.queryFailure = undefined;
     state.mutationFailure = undefined;
+    state.guestRoots = undefined;
   });
 
   test("complete listing rejects unknown predicates and token-owner overrides", async () => {
@@ -622,5 +637,47 @@ describe("agent API routes", () => {
       if (previousOwner === undefined) delete process.env.KB_OWNER_USER_ID; else process.env.KB_OWNER_USER_ID = previousOwner;
       if (previousAllowed === undefined) delete process.env.MCP_ALLOWED_USER_IDS; else process.env.MCP_ALLOWED_USER_IDS = previousAllowed;
     }
+  });
+
+  test("guest reader: hidden pieces read as missing, search stays on visible shelves, collections are filtered", async () => {
+    const { POST } = await import(galleryRoutePath);
+    state.guestRoots = ["art", "dear-annete"];
+    state.queryResultByName = {
+      "folders:listFolders": [
+        { _id: "art", name: "ART", memberCount: 5 },
+        { _id: "art-child", name: "Posters", parentFolderId: "art" },
+        { _id: "dear-annete", name: "DEAR ANNETE", worldKey: "dear-annete" },
+        { _id: "love", name: "LOVE" },
+      ],
+      "skills:resolveSkillReference": null,
+      "assets:getGalleryAsset": { _id: "a1", folderIds: ["art", "dear-annete"], isLiked: true },
+    };
+    const call = async (body: Record<string, unknown>) => {
+      const response = await POST(new Request("http://localhost/api/agent/gallery", {
+        method: "POST", headers: { authorization: "Bearer guest", "content-type": "application/json" }, body: JSON.stringify(body),
+      }));
+      return { status: response.status, json: await response.json() as Record<string, unknown> };
+    };
+
+    expect((await call({ action: "getById", id: "asset:a1" })).json).toEqual({ asset: null });
+
+    state.queryResultByName["assets:getGalleryAsset"] = { _id: "a2", folderIds: ["art-child"], isLiked: true, starNote: "x" };
+    expect((await call({ action: "getById", id: "asset:a2" })).json).toEqual({ asset: { _id: "a2", folderIds: ["art-child"] } });
+
+    state.actionResult = { results: [
+      { _id: "s1", folderIds: ["art"], score: 1 },
+      { _id: "s2", folderIds: ["art", "love"], score: 0.9 },
+    ], summary: { mode: "verified", candidates: 900, checked: 40, matched: 2, near: 0, unchecked: 860 } };
+    const search = await call({ action: "searchAssets", query: "car", onlyLiked: true });
+    const searchPayload = state.actionCalls.at(-1)!.payload;
+    expect(new Set(searchPayload.folderIds as string[])).toEqual(new Set(["art", "art-child"]));
+    expect(searchPayload.onlyLiked).toBeUndefined();
+    expect(search.json).toEqual({ count: 1, summary: { mode: "verified" }, results: [{ _id: "s1", folderIds: ["art"], score: 1 }] });
+
+    const folders = await call({ action: "listFolders" });
+    expect((folders.json.folders as Array<{ _id: string }>).map((folder) => folder._id).sort()).toEqual(["art", "art-child"]);
+    expect((await call({ action: "listAssets", folderId: "love" })).status).toBe(404);
+    expect((await call({ action: "findBySourceUrls", sourceUrls: ["https://x"] })).status).toBe(403);
+    expect((await call({ action: "listAssets", world: "dear-annete" })).status).toBe(404);
   });
 });

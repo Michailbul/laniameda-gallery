@@ -571,6 +571,10 @@ only plain collections may be children. One level deep.
   ingestKey); read as `alsoSavedFrom` on `get_gallery_item`.
 - `agentTokens.scopes` gains `inspiration:capture` and `inspiration:adapt`;
   `worldIds` lists the projects an adapt token may work on.
+- `agentTokens.scopes` gains `guest:read` (12 Nov 2026), always alone, with
+  `allowedRootIds`: the non-world root collections a guest reader may read.
+  Deny wins: a piece or Skill filed anywhere outside those roots is hidden.
+  See references/guest-tokens.md.
 - `assetComments.source` gains `inspiration`: a source note mirrored onto the
   lead asset's thread; it opens no task.
 - `tasks.source` gains `inspiration`: a redo task, `sourceRef` = the event id.

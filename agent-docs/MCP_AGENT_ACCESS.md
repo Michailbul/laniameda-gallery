@@ -100,3 +100,13 @@ preserves original prompts, media, source metadata, ownership and publication fl
 it does not resave examples or treat every media batch as a recipe. See
 [NATIVE_SKILLS_MIGRATION.md](NATIVE_SKILLS_MIGRATION.md) for the temporary staging
 schemas, guarded retirement and mandatory final removal.
+
+## Guest reader tokens (12 Nov 2026)
+
+`guest:read` tokens are read-only and limited to chosen non-world root
+collections (`agentTokens.allowedRootIds`); deny wins for pieces and Skills
+filed anywhere else. They get 14 MCP tools, every other `/api/agent/*` action
+answers 403, and private skill references stay owner-only. Mint, list and
+revoke with `scripts/guest-token.ts`; rule and tool list:
+`skills/laniameda-gallery/references/guest-tokens.md`, code: `lib/guest-access.ts`,
+`lib/server/guest-gallery.ts`.
