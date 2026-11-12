@@ -199,8 +199,8 @@ export async function handleGuestRead(
     if (!reference) return NextResponse.json({ error: "id is required." }, { status: 400 });
     const skill = await readGuestSkill(client, owner, scope, reference);
     if (skill) return NextResponse.json({ skill });
-    let parsed: ReturnType<typeof parseGalleryId>;
-    try { parsed = parseGalleryId(reference); } catch { return NextResponse.json({ asset: null }); }
+    // A malformed id gets the owner's help message (it names no record).
+    const parsed = parseGalleryId(reference);
     if (parsed.kind !== "asset") return NextResponse.json({ asset: null });
     const asset = await client.query(api.assets.getGalleryAsset, { id: parsed.id as Id<"assets">, ownerUserId: owner }).catch(() => null) as Row | null;
     return NextResponse.json({ asset: asset && isGuestVisibleAsset(asset as never, scope.visible) ? sanitizeGuestAsset(asset) : null });
@@ -229,16 +229,34 @@ export async function handleGuestRead(
     const query = str(data.query);
     if (!query) return NextResponse.json({ error: "query is required." }, { status: 400 });
     const limit = Math.max(1, Math.min(num(data.limit) ?? 24, 100));
-    const skills = await client.action(api.semanticSearch.searchSkills, {
-      ownerUserId: owner,
-      query,
-      tagNames: strArray(data.tagNames),
-      folderId: folderId as Id<"folders"> | undefined,
-      minRelativeScore: num(data.minRelativeScore),
-      limit: 100,
-      previewLimit: num(data.previewLimit) ?? 2,
-    }) as SkillRow[];
-    return NextResponse.json({ skills: (await guestSkills(client, owner, scope, skills)).slice(0, limit) });
+    let skills: SkillRow[];
+    let note: string | undefined;
+    try {
+      skills = await client.action(api.semanticSearch.searchSkills, {
+        ownerUserId: owner,
+        query,
+        tagNames: strArray(data.tagNames),
+        folderId: folderId as Id<"folders"> | undefined,
+        minRelativeScore: num(data.minRelativeScore),
+        limit: 100,
+        previewLimit: num(data.previewLimit) ?? 2,
+      }) as SkillRow[];
+    } catch (error) {
+      // Search by meaning paused (provider credit or key): the request's most
+      // telling word, matched in title, description, body and tags.
+      if (!/search by meaning is paused/i.test(error instanceof Error ? error.message : "")) throw error;
+      const word = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((entry) => entry.length > 2).sort((a, b) => b.length - a.length)[0] ?? query;
+      skills = await client.query(api.skills.listSkills, {
+        ownerUserId: owner,
+        tagNames: strArray(data.tagNames),
+        folderId: folderId as Id<"folders"> | undefined,
+        search: word,
+        limit: 200,
+        previewLimit: num(data.previewLimit) ?? 2,
+      }) as SkillRow[];
+      note = `Search by meaning is paused; these are keyword matches for "${word}".`;
+    }
+    return NextResponse.json({ skills: (await guestSkills(client, owner, scope, skills)).slice(0, limit), ...(note ? { note } : {}) });
   }
 
   if (action === "contactSheet") {
