@@ -1145,7 +1145,7 @@ export const searchAssetsVerified = ownerAction({
       }).length;
     const checkBudget = args.exhaustive ? candidates : Math.max(VERIFY_CHECK_DEFAULT, limit * 6);
     while (left() > 0 && checked < checkBudget && (args.exhaustive || matchedSoFar() < limit)) {
-      const size = Math.min(Math.max(limit * 3, VERIFY_WAVE_MIN), VERIFY_WAVE_MAX, checkBudget - checked);
+      const size = Math.min(Math.max(limit * 4, VERIFY_WAVE_MIN), VERIFY_WAVE_MAX, checkBudget - checked);
       const wave = await nextWave(size);
       if (wave.length === 0) continue;
       const outcome = await verifyPieces(ctx, wave, query, args.mustShow);

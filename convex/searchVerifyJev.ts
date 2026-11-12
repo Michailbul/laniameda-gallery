@@ -19,7 +19,9 @@ import {
 import { jpegOf } from "./tagClassify";
 
 const API_URL = "https://api.typesafe.ai/v1/systemone";
-const AT_ONCE = 30;
+// A whole wave at once: Jev allows 1,200 requests a minute, and the wait is
+// what an agent notices (30 at a time made a first search take 20-37 s).
+const AT_ONCE = 120;
 
 const pieceValidator = v.object({
   assetId: v.id("assets"),
