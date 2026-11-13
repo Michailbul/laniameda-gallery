@@ -143,4 +143,24 @@ describe("a thread of steps", () => {
     expect(matches("Dark city street with parked cars")).toBeFalse();
     expect(matches("A bright interior")).toBeFalse();
   });
+
+describe("a filter at the head of a line", () => {
+  test("\"only videos foggy forest\" filters to videos and searches the rest", () => {
+    const read = readSearchInstructions(["only videos foggy forest"], FOLDERS);
+    expect(read.kind).toBe("video");
+    expect(read.phrasings).toEqual(["foggy forest"]);
+  });
+
+  test("without only or just, the words stay words", () => {
+    const read = readSearchInstructions(["videos of rain"], FOLDERS);
+    expect(read.kind).toBeUndefined();
+    expect(read.phrasings).toEqual(["videos of rain"]);
+  });
+
+  test("two-word filters: \"just live action street\"", () => {
+    const read = readSearchInstructions(["just live action street"], FOLDERS);
+    expect(read.medium).toBe("live-action");
+    expect(read.phrasings).toEqual(["street"]);
+  });
+});
 });

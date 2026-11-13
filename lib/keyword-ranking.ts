@@ -37,6 +37,10 @@ const variants = (term: string) => {
   return forms;
 };
 
+/** The request's steps, each as its subject words; empty steps dropped. */
+export const keywordClauses = (query: string) =>
+  query.split(",").map(keywordTerms).filter((clause) => clause.length > 0);
+
 /** The string handed to the full-text index: every term and its plural or singular. */
 export const keywordSearchString = (terms: string[]) => {
   const tokens: string[] = [];
@@ -64,6 +68,12 @@ export type KeywordCandidate<T> = { item: T; text: string; tagNames: string[] };
 export const rankKeywordCandidates = <T>(query: string, candidates: Array<KeywordCandidate<T>>) => {
   const terms = keywordTerms(query);
   if (terms.length === 0) return [];
+  // Each step of a search arrives as its own comma clause ("library, candles").
+  // A later step never widens the results: pieces must answer the earlier
+  // steps, and the newest step narrows them further when any piece answers it.
+  const clauses = keywordClauses(query);
+  const earlier = clauses.slice(0, -1);
+  const newest = clauses.at(-1) ?? [];
   const wanted = canonicalTagKey(terms.join(" "));
   const total = candidates.length;
   const scored = candidates.map((candidate, index) => {
@@ -81,12 +91,19 @@ export const rankKeywordCandidates = <T>(query: string, candidates: Array<Keywor
     return {
       item: candidate.item,
       inText,
+      earlierHit: earlier.filter((clause) => clause.some((term) => holds(textWords, term))).length,
+      newestHit: newest.some((term) => holds(textWords, term)),
       score: 0.45 * inText + 0.3 * inTags + 0.15 * exact + 0.1 * position,
     };
   });
   const anyWhole = scored.some((hit) => hit.inText > 0);
-  return scored
-    .filter((hit) => !anyWhole || hit.inText > 0)
+  let kept = scored.filter((hit) => !anyWhole || hit.inText > 0);
+  if (clauses.length > 1) {
+    const mostEarlier = Math.max(0, ...kept.map((hit) => hit.earlierHit));
+    kept = kept.filter((hit) => hit.earlierHit === mostEarlier);
+    if (kept.some((hit) => hit.newestHit)) kept = kept.filter((hit) => hit.newestHit);
+  }
+  return kept
     .sort((left, right) => right.score - left.score)
     .map(({ item, score }) => ({ item, score }));
 };

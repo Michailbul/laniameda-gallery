@@ -93,6 +93,21 @@ const findFilter = (table: typeof FILTER_PHRASES, tokens: string[]) => {
   return phrase ? table.find((entry) => entry.phrases.includes(phrase)) : undefined;
 };
 
+// "only videos ...", "just liked ...": a filter at the head of a line with
+// words after it. Without "only" or "just", "videos of rain" stays words.
+const LEADING_CUES = new Set(["only", "just"]);
+const leadingFilter = (tokens: string[]) => {
+  if (!LEADING_CUES.has(tokens[0] ?? "")) return undefined;
+  for (const entry of FILTER_PHRASES) {
+    for (const phrase of entry.phrases) {
+      const size = phrase.split(" ").length;
+      const rest = tokens.slice(1 + size);
+      if (rest.length > 0 && tokens.slice(1, 1 + size).join(" ") === phrase) return { entry, rest };
+    }
+  }
+  return undefined;
+};
+
 type FolderAlias = { folder: SearchFolder; tokens: string[]; whole: boolean };
 
 // A folder answers to its whole name, and to the part before a dash
@@ -227,13 +242,21 @@ export const readSearchInstructions = (
       continue;
     }
 
-    const choice = clause.split(ALTERNATIVES).map((part) => part.trim()).filter(Boolean);
+    // "only videos foggy forest" in one line: the filter, then the words.
+    const lead = leadingFilter(tokens);
+    if (lead) {
+      Object.assign(filter, lead.entry.filter);
+      readings.push({ kind: "filter", label: lead.entry.label });
+    }
+    const wordsOf = lead ? lead.rest.join(" ") : clause;
+
+    const choice = wordsOf.split(ALTERNATIVES).map((part) => part.trim()).filter(Boolean);
     // "interiors / city street" asks for either, so it rules nothing out.
     if (choice.length === 1) {
       for (const facet of facetsIn(tokens)) facet.ruledOut.forEach((tag) => excludeTags.add(tag));
     }
-    words.push(choice.length > 1 ? { choice } : { text: clause });
-    readings.push({ kind: "words", label: choice.length > 1 ? choice.join(" / ") : clause });
+    words.push(choice.length > 1 ? { choice } : { text: wordsOf });
+    readings.push({ kind: "words", label: choice.length > 1 ? choice.join(" / ") : wordsOf });
   }
 
   // Only the newest choice forks the search; an older one reads as its words.
