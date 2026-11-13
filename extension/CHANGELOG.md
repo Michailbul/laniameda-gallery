@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.34.4 (13 Nov 2026)
+
+- MJ Queue: a thread never opens empty. Opening a thread loads its own
+  prompts, and the gallery now sends every prompt still to send. Before, the
+  list stopped at 500 prompts sorted by thread name, so the 21 Cassandra
+  "Style · CAS …" threads showed in the list with nothing inside.
+
 ## 0.34.3 (12 Nov 2026)
 
 - MJ Queue: one stylize for a whole thread. Under the send bar a Stylize
