@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { getFunctionName } from "convex/server";
 
-import { SEARCH_BY_MEANING_PAUSED, searchAssetsVerified } from "../convex/semanticSearch";
+import { SEARCHING_BY_WORDS, searchAssetsVerified } from "../convex/semanticSearch";
 import { geminiQuestions, normalizeParts, relevanceOf } from "../convex/searchVerify";
 import { jevQuestions } from "../convex/searchVerifyJev";
 import { RELEVANCE_MATCH_AT, relevanceTier } from "../lib/search-relevance";
@@ -36,11 +36,8 @@ const makeCtx = (options: { embedFails?: boolean; keptJudgments?: Array<{ assetI
       calls.push({ name, args });
       if (args.queryHash) return options.embedFails ? null : [0.1, 0.2, 0.3];
       if (name === "pictureJudgments:getJudgments") return options.keptJudgments ?? [];
-      if (name === "assets:listGalleryAssets") {
-        return [5, 20, 2].map((i) => ({
-          _id: id(i), kind: "image", tagIds: [], tagNames: [], folderIds: [], createdAt: 1, ownerUserId: OWNER,
-          agentDescription: i === 20 ? "A castle by the sea." : "A castle on a hill.", thumbUrl: `https://img.example/${i}.webp`,
-        }));
+      if (name === "assetKeywords:searchKeywordHits") {
+        return [5, 20, 2].map((i, rank) => ({ assetId: id(i), score: 1 - rank * 0.1 }));
       }
       if (args.ids) {
         return (args.ids as string[]).map((docId) => ({
@@ -171,7 +168,7 @@ describe("verified search for agents", () => {
       scope: "mine", ownerUserId: OWNER, query: "castle on a hill", mustShow: parts, limit: 24,
     });
     expect(found.summary.mode).toBe("keyword");
-    expect(found.summary.note).toContain(SEARCH_BY_MEANING_PAUSED);
+    expect(found.summary.note).toContain(SEARCHING_BY_WORDS);
     // Keyword candidates 5, 20, 2: 20 is about something else.
     expect(found.results.map((asset) => asset._id as string)).toEqual([id(5), id(2)]);
   });

@@ -21,6 +21,7 @@ import type * as assetArchiveCore from "../assetArchiveCore.js";
 import type * as assetClassifications from "../assetClassifications.js";
 import type * as assetComments from "../assetComments.js";
 import type * as assetHashes from "../assetHashes.js";
+import type * as assetKeywords from "../assetKeywords.js";
 import type * as assetPackHelpers from "../assetPackHelpers.js";
 import type * as assetPacks from "../assetPacks.js";
 import type * as assetReview from "../assetReview.js";
@@ -155,6 +156,7 @@ declare const fullApi: ApiFromModules<{
   assetClassifications: typeof assetClassifications;
   assetComments: typeof assetComments;
   assetHashes: typeof assetHashes;
+  assetKeywords: typeof assetKeywords;
   assetPackHelpers: typeof assetPackHelpers;
   assetPacks: typeof assetPacks;
   assetReview: typeof assetReview;

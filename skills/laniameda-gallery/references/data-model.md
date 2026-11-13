@@ -113,6 +113,19 @@ hydrating. In hybrid mode a rate-limited pixel model degrades the search to the
 text lane instead of failing it. `searchText` on the row holds the text lane, so
 the `search_text` keyword index covers it as well.
 
+**Search without embeddings (13 Nov 2026).** Every search by words keeps
+working when the embedding provider cannot embed a new request (no credit, a
+refused key, rate limits, `SEMANTIC_EMBEDDINGS_ENABLED` off). It falls back to
+`assetKeywords`, a slim full-text index of each asset's name, file name, agent
+description, caption, prompt, post text and tags. Ranking: pieces tagged with
+the request's words lead, then pieces holding every word, then the rest;
+plurals match either way, filler words are skipped. Requests embedded before
+stay on search by meaning through the query cache. A grid page searched this
+way carries `by: "keywords"` and a `note`; `search_gallery` reports
+`summary.mode: "keyword"`. Look-only (`mode: "visual"`) searches have no
+stand-in and still fail; look-alike search reads stored vectors and needs no
+credit.
+
 `semanticDocumentIdentities` is an internal lightweight projection used to
 resolve vector-hit IDs without loading either embedding. Both lanes share one
 deduplicated lookup. Semantic mutations maintain the projection atomically;
@@ -484,6 +497,10 @@ only plain collections may be children. One level deep.
   - Async search index rows generated from assets, prompts, and legacy design inspirations.
   - Backend-managed fields include `sourceType`, `sourceId`, linked record IDs, `searchText`, `contentHash`, embedding data, and owner/public scope keys.
   - The pixel lane uses image-only multimodal embeddings; the separate text lane includes agent description, caption, prompt and tags. Hybrid retrieval combines their ranks. Legacy video rows may store a text-only vector, which visual retrieval excludes; a poster or search hit does not establish motion understanding.
+
+- `assetKeywords`
+  - Backend-managed keyword row per asset: `ownerUserId`, `assetId`, `isPublic`, `tagNames`, `text`, `updatedAt`; full-text index `search_text` filtered by owner or public.
+  - Written first on every asset reindex, before any embedding call, so it stays current while the provider is down. Backfill: `assetKeywords:backfillAssetKeywords`.
 
 - `semantic_index_failures`
   - Backend-managed retry/failure rows for semantic indexing failures.

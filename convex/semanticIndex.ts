@@ -72,6 +72,9 @@ const recordFailureMutationRef = makeFunctionReference<"mutation">(
 const resolveFailureMutationRef = makeFunctionReference<"mutation">(
   "semanticIndex:resolveSemanticIndexFailure",
 );
+const refreshAssetKeywordsMutationRef = makeFunctionReference<"mutation">(
+  "assetKeywords:refreshAssetKeywords",
+);
 const reindexAssetActionRef = makeFunctionReference<"action">(
   "semanticIndex:reindexAsset",
 );
@@ -1634,6 +1637,13 @@ const reindexAssetSource = async (
   // backfills so they don't drain the pixel lane's small quota.
   textOnly = false,
 ): Promise<ReindexResult> => {
+  // The keyword row comes first and needs no provider, so a piece stays
+  // findable by its words and tags while embeddings are off or failing.
+  await ctx.runMutation(refreshAssetKeywordsMutationRef, { assetId }).catch((error: unknown) => {
+    console.warn(`[semanticIndex] keyword row not refreshed for ${assetId}: ${
+      error instanceof Error ? error.message : error
+    }`);
+  });
   if (!isSemanticEmbeddingsEnabled()) {
     return {
       status: "skipped" as const,
