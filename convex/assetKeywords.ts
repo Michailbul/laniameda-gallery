@@ -10,7 +10,7 @@ import type { Id } from "./_generated/dataModel";
 import { buildAssetTextLane } from "./agentDescriptionText";
 import { buildBookmarkSearchText } from "./bookmarkHelpers";
 import { dedupeIds } from "./helpers";
-import { keywordSearchString, keywordTerms, rankKeywordCandidates } from "../lib/keyword-ranking";
+import { keywordClauses, keywordSearchString, keywordTerms, rankKeywordCandidates } from "../lib/keyword-ranking";
 
 const backfillRef = makeFunctionReference<"mutation">("assetKeywords:backfillAssetKeywords");
 
@@ -117,6 +117,9 @@ export const backfillAssetKeywords = internalMutation({
 // Full-text candidates for one owner (or the public reel), at most this many.
 // Rows are a few KB; 400 of them stay far below a query's read limit.
 const CANDIDATES_PER_OWNER = 400;
+// Steps read separately share twice that budget; later steps past this many
+// are still scored, they only add no candidates of their own.
+const MAX_CLAUSE_READS = 4;
 
 const keywordHitValidator = v.object({ assetId: v.id("assets"), score: v.number() });
 
@@ -134,17 +137,24 @@ export const searchKeywordHits = internalQuery({
   },
   returns: v.array(keywordHitValidator),
   handler: async (ctx, args) => {
-    const search = keywordSearchString(keywordTerms(args.query));
-    if (!search) return [];
-    const take = Math.min(Math.max(Math.floor(args.take ?? CANDIDATES_PER_OWNER), 1), CANDIDATES_PER_OWNER);
-    const lists = args.scope === "public"
-      ? [await ctx.db.query("assetKeywords")
+    // One full-text read per step, so a step with many matches cannot crowd
+    // another step's pieces out of the candidates.
+    const clauses = keywordClauses(args.query);
+    const searches = (clauses.length > 1 ? clauses : [keywordTerms(args.query)])
+      .map((terms) => keywordSearchString(terms))
+      .filter(Boolean)
+      .slice(0, MAX_CLAUSE_READS);
+    if (searches.length === 0) return [];
+    const limit = Math.floor(CANDIDATES_PER_OWNER * 2 / searches.length);
+    const take = Math.min(Math.max(Math.floor(args.take ?? limit), 1), Math.min(limit, CANDIDATES_PER_OWNER));
+    const lists = (await Promise.all(searches.map((search) => args.scope === "public"
+      ? Promise.all([ctx.db.query("assetKeywords")
           .withSearchIndex("search_text", (q) => q.search("text", search).eq("isPublic", true))
-          .take(take)]
-      : await Promise.all([...new Set(args.ownerCandidates)].map((owner) =>
+          .take(take)])
+      : Promise.all([...new Set(args.ownerCandidates)].map((owner) =>
           ctx.db.query("assetKeywords")
             .withSearchIndex("search_text", (q) => q.search("text", search).eq("ownerUserId", owner))
-            .take(take)));
+            .take(take)))))).flat();
     const seen = new Set<Id<"assets">>();
     const candidates = lists.flat().flatMap((row) => {
       if (seen.has(row.assetId)) return [];

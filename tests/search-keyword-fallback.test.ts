@@ -33,6 +33,21 @@ describe("ranking by words and tags", () => {
     ])[0]).toBe("world");
   });
 
+  test("a later step narrows: a piece must answer every step when one does", () => {
+    expect(rank("library, candles", [
+      ["candles only", "A woman holding candles.", []],
+      ["both", "A library lit by candles.", []],
+      ["library only", "A library with tall shelves.", []],
+    ])).toEqual(["both"]);
+  });
+
+  test("a step nothing answers never widens the results past the earlier steps", () => {
+    expect(rank("library, candles", [
+      ["candles only", "A woman holding candles.", []],
+      ["library only", "A library with tall shelves.", []],
+    ])).toEqual(["library only"]);
+  });
+
   test("plurals either way; a prefix inside another word is not a match", () => {
     expect(rank("cars", [
       ["prefix", "A character portrait.", []],
