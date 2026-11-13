@@ -109,8 +109,6 @@ const normalizeQueryForCache = (query: string) =>
 const RETRYABLE_EMBED_STATUSES = new Set([429, 500, 503]);
 export const SEARCH_BY_MEANING_PAUSED =
   "Search by meaning is paused: the embedding provider's credit ran out or its key was refused. Keyword matches still work.";
-const isSearchPaused = (error: unknown) =>
-  error instanceof ConvexError && error.data === SEARCH_BY_MEANING_PAUSED;
 const EMBED_RETRY_DELAYS_MS = [1000, 2500];
 
 const sleep = (ms: number) =>
@@ -894,6 +892,63 @@ const embedQueryLanes = async (
   return { visual, text };
 };
 
+// ── Search by words and tags ────────────────────────────────────────────
+// Search by meaning needs the embedding provider to embed every new request.
+// When it cannot (credit ran out, a refused key, rate limits, embeddings
+// off), a search still answers from the keyword index (convex/assetKeywords.ts):
+// pieces tagged with the request's words first, then pieces whose words hold
+// them all. Requests embedded before stay searchable by meaning from the
+// query cache, so only new wordings fall back.
+export const SEARCHING_BY_WORDS =
+  "Search by meaning is unavailable right now (the embedding provider has no credit or refused the request), so these are matches by words and tags.";
+
+const searchKeywordHitsQueryRef = makeFunctionReference<"query">("assetKeywords:searchKeywordHits");
+
+const keywordRanking = async (ctx: ActionCtx, query: string, spec: ScopeSpec): Promise<FusedHit[]> =>
+  await ctx.runQuery(searchKeywordHitsQueryRef, {
+    query, scope: spec.scope, ownerCandidates: spec.ownerCandidates,
+  }) as FusedHit[];
+
+// Keyword rows carry no pillar, so a pillar-limited search checks it on the piece.
+const keepInPillar = (keep: (asset: FilterableAsset) => boolean, spec: ScopeSpec) =>
+  spec.pillar
+    ? (asset: FilterableAsset) => (asset as { pillar?: string }).pillar === spec.pillar && keep(asset)
+    : keep;
+
+// The request's vectors, or undefined when search by meaning cannot run now.
+// An explicit look-only search ("visual") has no stand-in and keeps its error.
+const tryEmbedQueryLanes = async (
+  ctx: ActionCtx, query: string, mode: SearchMode, storage: Storage, trace?: SearchTrace, textHint?: string,
+): Promise<Partial<Record<LaneName, number[]>> | undefined> => {
+  if (!isSemanticEmbeddingsEnabled()) return undefined;
+  try {
+    const vectors = await embedQueryLanes(ctx, query, mode, storage, trace, textHint);
+    return vectors.visual || vectors.text ? vectors : undefined;
+  } catch (error) {
+    if (mode === "visual") throw error;
+    console.warn(`[semanticSearch] search by meaning unavailable, searching by words: ${
+      error instanceof Error ? error.message : error
+    }`);
+    return undefined;
+  }
+};
+
+const searchByKeywords = async (ctx: ActionCtx, input: {
+  query: string;
+  spec: ScopeSpec;
+  limit: number;
+  filters: AssetFilters;
+  minRelativeScore?: number;
+}): Promise<ScoredAsset[]> => {
+  const ranked = cutRelative(
+    await keywordRanking(ctx, input.query, input.spec), (hit) => hit.score, input.minRelativeScore ?? 0,
+  );
+  return (await hydrateFiltered(
+    ctx, ranked, keepInPillar(buildAssetFilter(input.filters, input.spec.scope), input.spec),
+    input.limit, input.spec, hasMetadataFilters(input.filters),
+  )).results;
+};
+
 const searchByQuery = async (ctx: ActionCtx, input: {
   query: string;
   mode: SearchMode;
@@ -904,7 +959,8 @@ const searchByQuery = async (ctx: ActionCtx, input: {
   storage: Storage;
   trace?: SearchTrace;
 }): Promise<ScoredAsset[]> => {
-  const vectors = await embedQueryLanes(ctx, input.query, input.mode, input.storage, input.trace);
+  const vectors = await tryEmbedQueryLanes(ctx, input.query, input.mode, input.storage, input.trace);
+  if (!vectors) return await searchByKeywords(ctx, input);
   return await searchRanked(ctx, {
     vectors,
     spec: input.spec,
@@ -936,7 +992,7 @@ export const searchAssets = ownerAction({
   returns: v.array(scoredGalleryAssetResultValidator),
   handler: async (ctx, args) => {
     const query = args.query.trim();
-    if (!query || !isSemanticEmbeddingsEnabled()) {
+    if (!query) {
       return [];
     }
 
@@ -967,8 +1023,6 @@ export const searchAssets = ownerAction({
 const VERIFY_WAVE_MIN = 60;
 const VERIFY_WAVE_MAX = 120;
 const VERIFY_CHECK_DEFAULT = 240;
-// Keyword candidates read when search by meaning is unavailable.
-const KEYWORD_POOL = 200;
 
 const verifiedAssetValidator = v.object({
   ...scoredGalleryAssetResultValidator.fields,
@@ -993,48 +1047,6 @@ const verifiedSearchValidator = v.object({
   }),
 });
 type VerifiedAsset = Infer<typeof verifiedAssetValidator>;
-
-const listGalleryAssetsQueryRef = makeFunctionReference<"query">("assets:listGalleryAssets");
-const KEYWORD_FILLER = new Set(["a", "an", "and", "at", "by", "for", "from", "in", "of", "on", "or", "the", "to", "with", "without", "no", "not"]);
-
-// With search by meaning unavailable: pieces whose words hold the request's
-// most telling word, those holding every word first.
-const keywordFallback = async (ctx: ActionCtx, input: {
-  ownerUserId: string;
-  query: string;
-  limit: number;
-  filters: AssetFilters;
-}): Promise<ScoredAsset[]> => {
-  const words = input.query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word && !KEYWORD_FILLER.has(word));
-  const telling = [...words].sort((left, right) => right.length - left.length)[0];
-  if (!telling) return [];
-  const { folderIds, ...filters } = input.filters;
-  const rows = (await ctx.runQuery(listGalleryAssetsQueryRef, {
-    ownerUserId: input.ownerUserId,
-    search: telling,
-    limit: Math.min(Math.max(input.limit * 4, input.limit), 200),
-    folderId: filters.folderId,
-    kind: filters.kind,
-    modelName: filters.modelName,
-    tagNames: filters.tagNames,
-    anyTagNames: filters.anyTagNames,
-    excludeTagNames: filters.excludeTagNames,
-    pieceType: filters.pieceType,
-    medium: filters.medium,
-    onlyLiked: filters.onlyLiked,
-    onlyStarred: filters.onlyStarred,
-  })) as Array<Omit<ScoredAsset, "score">>;
-  const inFolders = folderIds?.length ? new Set<string>(folderIds) : null;
-  const hasAll = galleryWordMatcher(words.join(" "));
-  const text = (asset: Omit<ScoredAsset, "score">) =>
-    [asset.agentDescription, asset.description, asset.promptText, asset.tagNames.join(" "), asset.fileName]
-      .filter(Boolean).join(" ");
-  return rows
-    .filter((asset) => !inFolders || asset.folderIds.some((id) => inFolders.has(id)))
-    .map((asset) => ({ ...asset, score: hasAll(text(asset)) ? 1 : 0.5 }))
-    .sort((left, right) => right.score - left.score)
-    .slice(0, input.limit);
-};
 
 export const searchAssetsVerified = ownerAction({
   args: {
@@ -1066,7 +1078,7 @@ export const searchAssetsVerified = ownerAction({
       results: [],
       summary: { mode, candidates: 0, checked: 0, matched: 0, near: 0, unchecked: 0, ...(note ? { note } : {}) },
     });
-    if (!query || !isSemanticEmbeddingsEnabled()) {
+    if (!query) {
       return none("ranked");
     }
     if ((args.mustShow?.length ?? 0) > MAX_PARTS) {
@@ -1084,44 +1096,26 @@ export const searchAssetsVerified = ownerAction({
     const canVerify = args.verify !== false && args.scope === "mine" && relevanceProviders().length > 0;
 
     // Candidates come in waves, best first: from the search's own ranking, or,
-    // while search by meaning is unavailable, from keyword matches.
-    let nextWave: (size: number) => Promise<ScoredAsset[]>;
-    let candidates: number;
-    let left: () => number;
-    let mode: "verified" | "ranked" | "keyword" = "verified";
-    let note: string | undefined;
-    try {
-      const ranked = await rankAllCandidates(ctx, {
-        vectors: await embedQueryLanes(ctx, query, searchMode, storage),
-        spec, storage, optionalVisual: searchMode === "hybrid",
-      });
-      let remaining = ranked;
-      candidates = ranked.length;
-      left = () => remaining.length;
-      nextWave = async (size) => {
-        const page = await hydrateFiltered(ctx, remaining, keep, size, spec, filtered || canVerify);
-        remaining = remaining.slice(page.consumed);
-        return page.results;
-      };
-    } catch (error) {
-      if (!isSearchPaused(error) || args.scope !== "mine") throw error;
-      const pool = await keywordFallback(ctx, {
-        ownerUserId: args.ownerUserId?.trim() || ownerCandidates[0]!, query,
-        limit: canVerify ? KEYWORD_POOL : limit, filters,
-      });
-      let remaining = pool;
-      candidates = pool.length;
-      left = () => remaining.length;
-      nextWave = async (size) => {
-        const wave = remaining.slice(0, size);
-        remaining = remaining.slice(size);
-        return wave;
-      };
-      mode = "keyword";
-      note = canVerify
-        ? `${SEARCH_BY_MEANING_PAUSED} Candidates are keyword matches for the request's words; each was still checked.`
-        : `${SEARCH_BY_MEANING_PAUSED} These are keyword matches for the request's words, unchecked.`;
-    }
+    // while search by meaning is unavailable, from the words-and-tags ranking.
+    const vectors = await tryEmbedQueryLanes(ctx, query, searchMode, storage);
+    const mode: "verified" | "ranked" | "keyword" = vectors ? "verified" : "keyword";
+    const note = vectors
+      ? undefined
+      : canVerify
+        ? `${SEARCHING_BY_WORDS} Each candidate was still checked.`
+        : `${SEARCHING_BY_WORDS} Unchecked.`;
+    const ranked = vectors
+      ? await rankAllCandidates(ctx, { vectors, spec, storage, optionalVisual: searchMode === "hybrid" })
+      : await keywordRanking(ctx, query, spec);
+    const keepHere = vectors ? keep : keepInPillar(keep, spec);
+    let remaining = ranked;
+    const candidates = ranked.length;
+    const left = () => remaining.length;
+    const nextWave = async (size: number) => {
+      const page = await hydrateFiltered(ctx, remaining, keepHere, size, spec, filtered || canVerify);
+      remaining = remaining.slice(page.consumed);
+      return page.results;
+    };
 
     if (!canVerify) {
       const results = await nextWave(limit);
@@ -1315,7 +1309,12 @@ const searchPageValidator = v.object({
   results: v.array(scoredGalleryAssetResultValidator),
   // Ranked hits not read yet, best first. Pass them to loadSearchHits.
   remaining: v.array(rankedHitValidator),
+  // "keywords": search by meaning was unavailable, so the ranking is by the
+  // request's words and tags; `note` says so in words a visitor can read.
+  by: v.optional(v.literal("keywords")),
+  note: v.optional(v.string()),
 });
+type SearchPage = Infer<typeof searchPageValidator>;
 const SEARCH_PAGE_DEFAULT = 60;
 const SEARCH_PAGE_MAX = 120;
 // A search may be said in a few ways at once ("interiors / city street").
@@ -1451,9 +1450,11 @@ export const searchAssetsPage = ownerAction({
     pageSize: v.optional(v.number()),
   },
   returns: searchPageValidator,
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<SearchPage> => {
     const empty = { results: [], remaining: [] };
-    if (!isSemanticEmbeddingsEnabled()) {
+    // Look-alikes read stored vectors only; with embeddings off there are none
+    // to trust. A search by words still runs, by keywords if need be.
+    if (!isSemanticEmbeddingsEnabled() && args.similarToAssetId) {
       return empty;
     }
 
@@ -1504,13 +1505,22 @@ export const searchAssetsPage = ownerAction({
     const textHint = normalizeOptionalString(args.textHint);
     const mode: SearchMode = args.mode ?? "hybrid";
     const spec: ScopeSpec = { scope: args.scope, ownerCandidates, pillar: args.pillar };
-    const rank = async (text: string, hint?: string) => await rankAllCandidates(ctx, {
-      vectors: await embedQueryLanes(ctx, text, mode, storage, undefined, hint),
-      spec, storage, optionalVisual: mode === "hybrid",
-    });
+    const [embedded, excludedVectors] = await Promise.all([
+      Promise.all(phrasings.map((phrasing) =>
+        tryEmbedQueryLanes(ctx, phrasing, mode, storage, undefined, textHint))),
+      Promise.all(excluded.map((phrase) => tryEmbedQueryLanes(ctx, phrase, mode, storage))),
+    ]);
+    const byMeaning = embedded.every(Boolean);
+    const rank = async (vectors?: Partial<Record<LaneName, number[]>>) => vectors
+      ? await rankAllCandidates(ctx, { vectors, spec, storage, optionalVisual: mode === "hybrid" })
+      : [];
+    // Without search by meaning every phrasing is matched by its words and
+    // tags; what the search leaves out is still dropped by its words below.
     const [wanted, unwanted] = await Promise.all([
-      Promise.all(phrasings.map((phrasing) => rank(phrasing, textHint))),
-      Promise.all(excluded.map((phrase) => rank(phrase))),
+      byMeaning
+        ? Promise.all(embedded.map((vectors) => rank(vectors)))
+        : Promise.all(phrasings.map((phrasing) => keywordRanking(ctx, phrasing, spec))),
+      byMeaning ? Promise.all(excludedVectors.map((vectors) => rank(vectors))) : [],
     ]);
     const shown = new Set(unwanted.flatMap((list) =>
       list.filter((hit) => hit.score >= EXCLUDED_STRENGTH).map((hit) => hit.assetId)));
@@ -1520,13 +1530,15 @@ export const searchAssetsPage = ownerAction({
       minRelativeScore ?? 0,
     );
     const named = buildExcludedWordsFilter(excluded);
-    return await readSearchPage(ctx, ranked, {
+    const keepHere = byMeaning ? keep : keepInPillar(keep, spec);
+    const found = await readSearchPage(ctx, ranked, {
       ...page,
       spec,
       filtered: page.filtered || excluded.length > 0,
-      keep: (asset) => keep(asset) && named(asset),
+      keep: (asset) => keepHere(asset) && named(asset),
       excluded,
     });
+    return byMeaning ? found : { ...found, by: "keywords" as const, note: SEARCHING_BY_WORDS };
   },
 });
 
@@ -1546,7 +1558,7 @@ export const loadSearchHits = ownerAction({
     pageSize: v.optional(v.number()),
   },
   returns: searchPageValidator,
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<SearchPage> => {
     if (args.hits.length > RANKED_HITS_MAX) {
       throw new ConvexError("Too many search hits in one request.");
     }
@@ -1603,9 +1615,18 @@ export const searchSkills = ownerAction({
     if (!query) return [];
 
     const scored = new Map<string, number>();
-    if (isSemanticEmbeddingsEnabled()) {
-      const storage = readStorage();
-      const vector = await getQueryEmbedding(ctx, query, textQueryModel(), storage);
+    // Without search by meaning (no credit, a refused key) the keyword match
+    // below is the whole answer instead of an error.
+    const storage = readStorage();
+    const vector = isSemanticEmbeddingsEnabled()
+      ? await getQueryEmbedding(ctx, query, textQueryModel(), storage).catch((error: unknown) => {
+          console.warn(`[semanticSearch] skill search by meaning unavailable: ${
+            error instanceof Error ? error.message : error
+          }`);
+          return undefined;
+        })
+      : undefined;
+    if (vector) {
       const options = {
         vector,
         limit: Math.min(limit * 4, 256),

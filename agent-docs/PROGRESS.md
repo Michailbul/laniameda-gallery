@@ -2,11 +2,26 @@
 
 > What's been built. For all pending/future work see `agent-docs/BACKLOG.md`.
 
-Last updated: 2026-11-12
+Last updated: 2026-11-13
 
 ---
 
 ## ✔ Shipped
+
+### 2026-11-13 — Search works without embedding credit (branch `fix/search-without-embeddings`)
+- Gemini's prepayment credit ran out (402 on every new query), so the grid's
+  search by meaning failed for any wording not cached and fell back to
+  substring matching over the pieces already loaded in the browser.
+- New `assetKeywords` table with a full-text index over each asset's name,
+  file name, agent description, caption, prompt, post and tags, written first
+  on every reindex (no provider call) and backfilled by
+  `assetKeywords:backfillAssetKeywords`.
+- `searchAssetsPage`, `searchAssets`, `searchAssetsVerified` and
+  `searchSkills` fall back to it instead of erroring. Ranking
+  (`lib/keyword-ranking.ts`): tagged with the words first, then every word,
+  then the rest; plurals either way; prefix-only hits ("car" in "character")
+  dropped. The grid shows "Search by words and tags" with a one-line note.
+- Tests: tests/search-keyword-fallback.test.ts.
 
 ### 2026-11-12 — The agents' search checks every result (branch `feat/agent-search-verified`)
 - `search_gallery` now calls `semanticSearch:searchAssetsVerified`: candidates
@@ -20,9 +35,8 @@ Last updated: 2026-11-12
 - Measured with independent graders (agent-docs/SEARCH_EVAL.md): on 12
   held-out searches 91% of returned pieces right and none wrong, against 58%
   for the unchecked top 24; 80% of the right pieces kept as matches.
-- When the embedding provider refuses (no credit, bad key) the query errors
-  name it (`SEARCH_BY_MEANING_PAUSED`) and the agents' search falls back to
-  keyword candidates, still checked.
+- When the embedding provider refuses (no credit, bad key) the agents' search
+  falls back to words-and-tags candidates (`assetKeywords`, 13 Nov), still checked.
 - Owner searches only; a visitor's search never calls a model.
 
 ### 2026-11-11 — The pitch page is one click from the world's vault view (branch `feat/pitch-link`, no backend change)

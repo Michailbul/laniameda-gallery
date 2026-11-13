@@ -1287,6 +1287,20 @@ export default defineSchema({
     .index("by_status_lastErrorAt", ["status", "lastErrorAt"])
     .index("by_owner_status_lastErrorAt", ["ownerUserId", "status", "lastErrorAt"])
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"]),
+  // Keyword search over every asset's words and tags (convex/assetKeywords.ts).
+  // Needs no embedding provider: when search by meaning is unavailable (no
+  // credit, a refused key, rate limits) the search falls back to this index.
+  // One slim row per asset, written whenever the asset is reindexed.
+  assetKeywords: defineTable({
+    ownerUserId: v.string(),
+    assetId: v.id("assets"),
+    isPublic: v.boolean(),
+    tagNames: v.array(v.string()),
+    text: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_asset", ["assetId"])
+    .searchIndex("search_text", { searchField: "text", filterFields: ["ownerUserId", "isPublic"] }),
   semanticDocuments: defineTable({
     ownerUserId: v.string(),
     sourceType: semanticSourceTypeValidator,

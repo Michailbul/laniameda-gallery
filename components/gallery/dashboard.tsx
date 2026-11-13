@@ -799,6 +799,8 @@ export function GalleryDashboard({
   >(null);
   const [semanticLoading, setSemanticLoading] = useState(false);
   const [semanticError, setSemanticError] = useState<string>();
+  // Set when the search ran by words and tags because search by meaning was unavailable.
+  const [semanticNote, setSemanticNote] = useState<string>();
   const semanticRequestIdRef = useRef(0);
   // Ranked hits the search has not shown yet. They belong to one exact result
   // list (`shown`), so anything that replaces or clears the results drops
@@ -2514,6 +2516,7 @@ export function GalleryDashboard({
     semanticRequestIdRef.current = requestId;
     setSemanticLoading(true);
     setSemanticError(undefined);
+    setSemanticNote(undefined);
 
     const pageArgs: SemanticPageArgs = {
       ownerUserId: galleryScope === "mine" ? ownerUserId : undefined,
@@ -2543,12 +2546,13 @@ export function GalleryDashboard({
       textHint: request.folderName,
       pageSize: SEARCH_PAGE_SIZE,
     })
-      .then(({ results, remaining }) => {
+      .then(({ results, remaining, note }) => {
         if (semanticRequestIdRef.current !== requestId) {
           return;
         }
 
         setSemanticLoading(false);
+        setSemanticNote(note);
         if (results.length === 0) {
           setSemanticMode(null);
           setSemanticResults(null);
@@ -6371,7 +6375,7 @@ export function GalleryDashboard({
               </div>
             )}
 
-            {!storybooksView && !bookmarksView && !extraTabView && (semanticMode?.kind === "similar" || semanticError) && (
+            {!storybooksView && !bookmarksView && !extraTabView && (semanticMode?.kind === "similar" || semanticError || (semanticMode?.kind === "query" && semanticNote)) && (
               <div className="px-4 pb-2">
                 <div
                   className="flex flex-col gap-2 rounded-[18px] px-4 py-3 md:flex-row md:items-center md:justify-between"
@@ -6392,7 +6396,9 @@ export function GalleryDashboard({
                     >
                       {semanticMode?.kind === "similar"
                         ? "Similar Results"
-                        : "Semantic Search"}
+                        : semanticNote && !semanticError
+                          ? "Search by words and tags"
+                          : "Semantic Search"}
                     </div>
                     <p
                       className="mt-1"
@@ -6405,7 +6411,9 @@ export function GalleryDashboard({
                     >
                       {semanticError
                         ? semanticError
-                        : semanticMode?.kind === "similar"
+                        : semanticNote && semanticMode?.kind === "query"
+                          ? semanticNote
+                          : semanticMode?.kind === "similar"
                           ? `Showing nearest matches for "${semanticMode.prompt}".`
                           : undefined}
                     </p>
