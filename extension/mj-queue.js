@@ -138,6 +138,36 @@
     return (items || []).filter((item) => item.id === activeId || keep(item));
   }
 
+  // Stylize (--s / --stylize) across a thread: the panel's slider sets one
+  // value on every prompt still to send (Michael, 12 Nov 2026).
+  const STYLIZE_RE = /(^|\s)--(?:s|stylize)\s+(\d+)(?=\s|$)/g;
+
+  function stylizeOf(params) {
+    const found = [...String(params || "").matchAll(STYLIZE_RE)];
+    return found.length ? Number(found[found.length - 1][2]) : null;
+  }
+
+  function withStylize(params, value) {
+    const v = Math.max(0, Math.min(1000, Math.round(Number(value) || 0)));
+    const text = String(params || "").replace(STYLIZE_RE, "").replace(/\s+/g, " ").trim();
+    return `${text} --stylize ${v}`.trim();
+  }
+
+  // The prompts the slider touches (queued, not yet sent) and their current value:
+  // the shared one, or the most common when they differ (mixed).
+  function threadStylize(items) {
+    const open = (items || []).filter((item) => item.status === "queued");
+    const tally = new Map();
+    for (const item of open) {
+      const value = stylizeOf(item.params);
+      tally.set(value, (tally.get(value) || 0) + 1);
+    }
+    let value = null;
+    let best = -1;
+    for (const [key, count] of tally) if (count > best) { best = count; value = key; }
+    return { items: open, count: open.length, value, mixed: tally.size > 1 };
+  }
+
   function filterCounts(items) {
     const counts = { open: 0, sent: 0, skipped: 0, all: 0 };
     for (const item of items || []) {
@@ -192,6 +222,7 @@
     recount,
     nextQueued, jobIdsIn, promptNeedle, parseRefLines, refLines,
     threadName, threadGroups, threadOrder, filterItems, filterCounts, worldLabel,
+    stylizeOf, withStylize, threadStylize,
   };
 
   const onMidjourney =

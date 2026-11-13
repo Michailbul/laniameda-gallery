@@ -14,6 +14,8 @@ describe("detail at the scale of the shot", () => {
     expect(SHOT_SCALE_RULES).toContain("NEAR");
     expect(SHOT_SCALE_RULES).toMatch(/no lamps, windows, signs/);
     expect(SHOT_SCALE_RULES).toMatch(/airship is moored/);
+    expect(SHOT_SCALE_RULES).toMatch(/Describe, never refer/);
+    expect(SHOT_SCALE_RULES).toMatch(/never jump to glass skyscrapers/);
   });
 
   test("every writer mode carries it, with or without a world", () => {

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.34.3 (12 Nov 2026)
+
+- MJ Queue: one stylize for a whole thread. Under the send bar a Stylize
+  slider shows the thread's value (or "mixed"); drag it and let go, and every
+  prompt still to send gets that --stylize. Sent prompts keep theirs.
+- The writer describes, never refers. Grow, quick edit and Make it ours never
+  put a character's name, a place name, "the other country" or "our city" into
+  a prompt (Midjourney knows none of them): a person is written by their look,
+  a place by its architecture in style words (late Gothic, Brick Gothic, lancet
+  windows, stepped gables), materials, land and light.
+- Dear Annete's second country stays medieval fantasy: a richer, stricter,
+  smoother Gothic (pale limestone towers with long lancet windows, or dark red
+  brick Gothic with stepped gables), never glass skyscrapers. The default world
+  prompt is updated; a saved copy that is still the old default switches by
+  itself.
+
 ## 0.34.2 (12 Nov 2026)
 
 - Attached images stay visible on Midjourney. When you attach an image, a
