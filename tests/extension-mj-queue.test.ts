@@ -13,6 +13,9 @@ type QueueApi = {
   filterItems: (items: { id: string; status: string }[], filter: string, activeId?: string | null) => { id: string }[];
   filterCounts: (items: { id: string; status: string }[]) => Record<string, number>;
   recount: (batches: Batch[], items: { batchKey: string; status: string }[]) => Batch[];
+  stylizeOf: (params?: string | null) => number | null;
+  withStylize: (params: string | null | undefined, value: number) => string;
+  threadStylize: (items: { status: string; params?: string | null }[]) => { count: number; value: number | null; mixed: boolean };
 };
 type Batch = { batch: string; batchKey: string; worldKey?: string; total: number; queued: number; injected: number; sent: number; skipped: number; updatedAt: number };
 const batch = (name: string, worldKey: string | undefined, counts: Partial<Batch>, updatedAt: number): Batch => ({
@@ -94,5 +97,21 @@ describe("extension Midjourney queue helpers", () => {
     const [hand, empty] = api().recount(batches, items);
     expect([hand.total, hand.queued, hand.injected, hand.sent, hand.skipped]).toEqual([2, 0, 1, 1, 0]);
     expect(empty.sent).toBe(1);
+  });
+
+  test("stylize slider: read, replace and summarise a thread", () => {
+    const { stylizeOf, withStylize, threadStylize } = api();
+    expect(stylizeOf("--ar 21:9 --stylize 300")).toBe(300);
+    expect(stylizeOf("--s 600 --ar 2:3")).toBe(600);
+    expect(stylizeOf("--ar 21:9 --sref 123")).toBeNull();
+    expect(withStylize("--ar 21:9 --stylize 300 --raw", 750)).toBe("--ar 21:9 --raw --stylize 750");
+    expect(withStylize("--s 600 --ar 2:3", 750)).toBe("--ar 2:3 --stylize 750");
+    expect(withStylize("--ar 16:9 --sref 123", 1200)).toBe("--ar 16:9 --sref 123 --stylize 1000");
+    expect(withStylize(null, 250)).toBe("--stylize 250");
+    const summary = threadStylize([
+      { status: "queued", params: "--stylize 300" }, { status: "queued", params: "--stylize 300" },
+      { status: "queued", params: "--stylize 600" }, { status: "sent", params: "--stylize 900" },
+    ]);
+    expect(summary).toMatchObject({ count: 3, value: 300, mixed: true });
   });
 });

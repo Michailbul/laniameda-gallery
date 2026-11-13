@@ -60,6 +60,8 @@
     rate: null,
     rateError: "",
     rateAt: 0,
+    stylizing: false,
+    sliding: false,
   };
 
   const space = (value) => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
@@ -136,7 +138,7 @@
       state.batchKey = railOrder()[0] || H().threadOrder(state.batches, "all")[0] || "";
       if (state.view === "thread" && !state.batchKey) state.view = "threads";
     }
-    if (state.editingId && quiet) return;
+    if ((state.editingId || state.sliding || state.stylizing) && quiet) return;
     render();
   }
 
@@ -796,6 +798,66 @@
     return card;
   }
 
+  // One stylize for the whole thread: drag, let go, and every prompt still to
+  // send gets that --stylize. Sent prompts keep what they went out with.
+  function stylizeBar(items) {
+    const info = H().threadStylize(items);
+    const bar = el("div", "mjq-stylize");
+    const label = el("span", "mjq-stylize-label", "Stylize");
+    const start = info.value == null ? 100 : info.value;
+    const slider = el("input", "mjq-stylize-range");
+    slider.type = "range";
+    slider.min = "0";
+    slider.max = "1000";
+    slider.step = "25";
+    slider.value = String(start);
+    slider.disabled = !info.count || state.stylizing;
+    slider.setAttribute("aria-label", "Stylize for every prompt in this thread");
+    const readout = el("b", "mjq-stylize-value", info.value == null ? "—" : String(start));
+    const meta = el("span", "mjq-stylize-meta", !info.count
+      ? "nothing left to send"
+      : `${info.mixed ? "mixed · " : ""}${info.count} to send`);
+    slider.addEventListener("pointerdown", () => { state.sliding = true; });
+    slider.addEventListener("input", () => { readout.textContent = slider.value; });
+    slider.addEventListener("change", () => {
+      state.sliding = false;
+      void applyStylize(Number(slider.value));
+    });
+    slider.addEventListener("blur", () => { state.sliding = false; });
+    bar.append(label, slider, readout, meta);
+    return bar;
+  }
+
+  async function applyStylize(value) {
+    const { items } = H().threadStylize(threadItems());
+    const todo = items.filter((item) => H().stylizeOf(item.params) !== value || /--s\s/.test(item.params || ""));
+    if (!todo.length) {
+      state.message = `Every prompt to send is already at stylize ${value}.`;
+      render();
+      return;
+    }
+    state.stylizing = true;
+    state.message = `Setting stylize ${value} on ${todo.length} prompts…`;
+    render();
+    let done = 0;
+    let failed = 0;
+    const queue = [...todo];
+    const worker = async () => {
+      while (queue.length) {
+        const item = queue.shift();
+        const saved = await save(item, { params: H().withStylize(item.params, value) });
+        if (saved) done += 1;
+        else failed += 1;
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    state.stylizing = false;
+    state.message = failed
+      ? `Stylize ${value} on ${done} prompts; ${failed} not saved, try again.`
+      : `Stylize ${value} on ${done} prompts.`;
+    render();
+  }
+
   function renderThread(box) {
     const batch = state.batches.find((entry) => entry.batchKey === state.batchKey);
     if (!batch) {
@@ -828,6 +890,7 @@
     pace.append(count, el("span", "mjq-pace-label", "jobs in the last hour"));
     sendBar.append(next, putNext, pace);
     box.appendChild(sendBar);
+    box.appendChild(stylizeBar(items));
     const reason = el("p", "mjq-pace-reason");
     reason.dataset.paceReason = "1";
     reason.hidden = true;
@@ -852,7 +915,7 @@
   }
 
   function render() {
-    if (!state.visible) return;
+    if (!state.visible || state.sliding) return;
     const focused = document.activeElement && root.contains(document.activeElement) && document.activeElement.matches("input, textarea");
     if (focused && state.editingId) return;
     const railScroll = root.querySelector(".mjq-rail")?.scrollTop || 0;
