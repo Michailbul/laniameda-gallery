@@ -20,6 +20,9 @@ export const MJ_QUEUE_LIMITS = {
   editRefs: 4,
   url: 2048,
   listItems: 500,
+  listOpenItems: 1500,
+  // Owner rows read per list: the thread counts come from these.
+  listRows: 2500,
 } as const;
 
 export type MjQueueRef = { url?: string; code?: string; weight?: number };
