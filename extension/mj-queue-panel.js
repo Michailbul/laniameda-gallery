@@ -126,7 +126,16 @@
       return;
     }
     const batches = Array.isArray(res.batches) ? res.batches : [];
-    const items = Array.isArray(res.items) ? res.items : [];
+    let items = Array.isArray(res.items) ? res.items : [];
+    // The full list is capped, so a thread's own prompts are loaded on their own:
+    // a thread past the cap would otherwise open empty.
+    const threadKey = state.batchKey;
+    if (threadKey && batches.some((batch) => batch.batchKey === threadKey)) {
+      const own = await call({ method: "GET", query: { batch: threadKey } });
+      if (own.ok && Array.isArray(own.items)) {
+        items = items.filter((item) => item.batchKey !== threadKey).concat(own.items);
+      }
+    }
     // Quiet polls redraw only when something changed, so the list never flickers or jumps.
     const signature = JSON.stringify([batches, items]);
     if (quiet && !state.error && signature === state.signature) return;
@@ -373,6 +382,8 @@
     render();
     root.querySelector(".mjq-main")?.scrollTo(0, 0);
     if (!state.wide) globalScope.scrollTo(0, 0);
+    // Load this thread's own prompts (the full list is capped).
+    void refresh({ quiet: true });
   }
 
   function showThreads() {

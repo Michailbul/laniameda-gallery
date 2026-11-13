@@ -134,7 +134,7 @@ async function ownedRows(ctx: Ctx, owner: string) {
   for (const candidate of resolveUserIdCandidates(owner)) {
     rows.push(...await ctx.db.query("mjQueueItems")
       .withIndex("by_owner_updatedAt", (q) => q.eq("ownerUserId", candidate))
-      .order("desc").take(MJ_QUEUE_LIMITS.listItems * 2));
+      .order("desc").take(MJ_QUEUE_LIMITS.listRows));
   }
   return rows;
 }
@@ -183,11 +183,20 @@ export const listQueue = ownerQuery({
     }
 
     const batchKey = args.batch?.trim() ? batchKeyOf(args.batch) : undefined;
-    const items = rows
+    // One thread: read all of its rows, not only the newest owner rows.
+    const source = batchKey
+      ? (await batchRows(ctx, args.ownerUserId, batchKey)).filter((row) => !worldKey || row.worldKey === worldKey)
+      : rows;
+    const isOpen = (row: Item) => row.status === "queued" || row.status === "injected";
+    const wanted = source
       .filter((row) => !batchKey || row.batchKey === batchKey)
-      .filter((row) => (args.status ? row.status === args.status : args.includeDone !== false || row.status === "queued" || row.status === "injected"))
+      .filter((row) => (args.status ? row.status === args.status : args.includeDone !== false || isOpen(row)));
+    // Prompts still to send always come back; finished ones (newest first) fill the rest,
+    // so a thread late in the alphabet never loses its open prompts to old sent ones.
+    const open = wanted.filter(isOpen).slice(0, MJ_QUEUE_LIMITS.listOpenItems);
+    const done = wanted.filter((row) => !isOpen(row)).slice(0, Math.max(0, MJ_QUEUE_LIMITS.listItems - open.length));
+    const items = [...open, ...done]
       .sort((a, b) => a.batchKey.localeCompare(b.batchKey) || a.order - b.order || a.createdAt - b.createdAt)
-      .slice(0, MJ_QUEUE_LIMITS.listItems)
       .map(toOut);
     // Batches with prompts still to send first, then the newest.
     const batchList = [...batches.values()].sort((a, b) =>
