@@ -1,11 +1,11 @@
 // MJ Queue tab of the extension's side panel. Agents queue Midjourney prompts in
 // the gallery, grouped in threads (one per direction or round, each with a
 // copyable id thr-xxxxxxxx). Here Michael picks a thread and sends it:
-// "Next · Send" puts the next queued prompt in the Imagine bar of the
-// Midjourney tab and presses Enter once, so a thread goes out by clicking one
-// button again and again. One job per click, never a timer or a loop. Nothing
-// caps his own clicks; the counter shows the account's last hour. "Put in bar" stays for
-// when he wants to edit first. The Midjourney page side (mj-queue.js) does the
+// "Next" puts the next queued prompt in the Imagine bar of the Midjourney tab;
+// Michael sends it with his own Enter in the bar. The extension never presses
+// Enter for him: Midjourney flagged the scripted Enter as a bot (14 Nov 2026).
+// One job per Enter, never a timer or a loop. Nothing caps his own sends; the
+// counter shows the account's last hour. The Midjourney page side (mj-queue.js) does the
 // bar work and reads the account's pace.
 //
 // Layout follows the panel's width: narrow is one column (threads, then a
@@ -268,9 +268,9 @@
       const left = Math.ceil(now.waitMs / 1000);
       const open = H().filterCounts(threadItems()).open > 0;
       node.disabled = state.sending || !open || !now.ok || !state.tab.bar;
-      node.textContent = state.sending ? "Sending…" : left > 0 ? `${left}s` : "Next · Send";
+      node.textContent = state.sending ? "Sending…" : left > 0 ? `${left}s` : "Next";
       node.classList.toggle("mjq-btn--waiting", left > 0);
-      node.title = !state.tab.bar ? "Open Midjourney Create in this tab." : now.reason || "Put the next prompt in the bar and send it: one job per click (⌥⇧S).";
+      node.title = !state.tab.bar ? "Open Midjourney Create in this tab." : now.reason || "Put the next prompt in the bar; press Enter on Midjourney to send it (⌥⇧S).";
     }
     for (const node of root.querySelectorAll("[data-pace-reason]")) {
       node.textContent = now.reason || "";
@@ -329,12 +329,18 @@
     void inject(next);
   }
 
-  // The one job, after the gate. The Midjourney page presses Enter once.
+  // After the gate: readies the bar for his Enter (the page never presses it).
   async function doSend(item) {
     state.sending = true;
     render();
     const res = await toTab({ action: "mjQueueSend", itemId: item.id });
     state.sending = false;
+    if (res.ok && res.waitingForEnter) {
+      // The page never presses Enter for him (Midjourney flags it as a bot).
+      state.message = "In the bar. Click the bar on Midjourney and press Enter to send.";
+      render();
+      return false;
+    }
     if (res.ok && res.sent) {
       state.lastSendAt = Date.now();
       remember({ [KEYS.lastSend]: state.lastSendAt });
@@ -353,20 +359,9 @@
     return Boolean(res.ok && res.sent);
   }
 
-  // A Send on a card, only from his own click, under the same pace gate.
-  async function send(event, item) {
-    if (!event.isTrusted || state.sending || state.activeId !== item.id) return;
-    const now = gate();
-    if (!now.ok) {
-      state.message = now.reason || `Midjourney pacing: wait ${Math.ceil(now.waitMs / 1000)} s.`;
-      render();
-      return;
-    }
-    await doSend(item);
-  }
-
-  // Next · Send: the prompt in the bar if one is waiting there, else the next
-  // queued one; put in the bar, then Enter once. Only from his own click.
+  // Next: the prompt in the bar if one is waiting there, else the next queued
+  // one; put in the bar with the cursor at its end. Only from his own click;
+  // his own Enter on Midjourney sends it.
   async function nextSend(event) {
     if (!event.isTrusted || state.sending || !state.batchKey) return;
     await readRate(true);
@@ -807,9 +802,7 @@
     const actions = el("div", "mjq-actions");
     if (active) {
       const now = gate();
-      const sendBtn = button(state.sending ? "Sending…" : "Send", "mjq-btn--send", (event) => send(event, item), "Send this one job to Midjourney (your click)");
-      sendBtn.disabled = state.sending || !state.tab.bar || !now.ok;
-      actions.appendChild(sendBtn);
+      actions.appendChild(el("span", "mjq-mono mjq-meta", state.sending ? "Sending…" : now.ok ? "In the bar · press Enter on Midjourney" : now.reason || "In the bar"));
     }
     if (item.status !== "skipped") {
       actions.appendChild(button(active || item.status === "sent" ? "Again" : "Put in bar", "", () => inject(item), "Put the full command in the Imagine bar, to edit it there first"));
@@ -935,17 +928,15 @@
     box.appendChild(el("h2", "mjq-ttitle", capital(H().threadName(batch))));
     const counts = H().filterCounts(items);
 
-    // The send bar: one click puts the next prompt in and sends it.
+    // The send bar: one click puts the next prompt in the bar; his Enter sends it.
     const sendBar = el("div", "mjq-sendbar");
-    const next = button("Next · Send", "mjq-btn--next", nextSend);
+    const next = button("Next", "mjq-btn--next", nextSend);
     next.dataset.nextSend = "1";
-    const putNext = button("Put next in bar", "mjq-btn--ghostline", injectNext, "Put the next prompt in the bar without sending, to edit it first (⌥⇧N)");
-    putNext.disabled = !counts.open;
     const pace = el("div", "mjq-pacebox");
     const count = el("b", "mjq-pace-count");
     count.dataset.paceCount = "1";
     pace.append(count, el("span", "mjq-pace-label", "jobs in the last hour"));
-    sendBar.append(next, putNext, pace);
+    sendBar.append(next, pace);
     box.appendChild(sendBar);
     box.appendChild(stylizeBar(items));
     const reason = el("p", "mjq-pace-reason");
@@ -1006,7 +997,7 @@
       else renderRail(box);
       root.appendChild(box);
     }
-    root.appendChild(el("p", "mjq-hint", "Next · Send puts the next prompt in the bar and sends it: one job per click, 30 an hour at most · ⌥⇧S next · send · ⌥⇧N next in bar · ⌥⇧↑↓ threads"));
+    root.appendChild(el("p", "mjq-hint", "Next puts the next prompt in the bar; press Enter on Midjourney to send it · ⌥⇧N on the Midjourney page: next in bar, then Enter · ⌥⇧↑↓ threads"));
     paintPace();
   }
 
@@ -1035,6 +1026,10 @@
       void refresh({ quiet: true });
     } else if (message.action === "mjQueueSending" && message.itemId === state.activeId) {
       state.sending = true;
+      render();
+    } else if (message.action === "mjQueueNotSent" && message.itemId === state.activeId) {
+      state.sending = false;
+      state.message = message.error || "Not sent.";
       render();
     } else if (message.action === "mjQueueNext") {
       injectNext();
