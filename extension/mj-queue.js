@@ -14,10 +14,14 @@
 
   // ── Pure helpers (tested) ──
 
-  // The next item to inject in a batch: the first queued one after `afterId`
-  // in order, else the first queued one from the top.
+  // Still to send: queued, or put in the bar earlier and never sent (a reload,
+  // another tab, a closed panel leave it "injected"). Both go out with Next · Send.
+  const isOpen = (item) => item.status === "queued" || item.status === "injected";
+
+  // The next item to inject in a batch: the first open one after `afterId`
+  // in order, else the first open one from the top.
   function nextQueued(items, afterId) {
-    const open = (item) => item.status === "queued";
+    const open = isOpen;
     const list = items || [];
     const at = afterId ? list.findIndex((item) => item.id === afterId) : -1;
     return list.slice(at + 1).find(open) || list.find(open) || null;
@@ -126,7 +130,7 @@
   }
 
   const FILTERS = {
-    open: (item) => item.status === "queued" || item.status === "injected",
+    open: isOpen,
     sent: (item) => item.status === "sent",
     skipped: (item) => item.status === "skipped",
     all: () => true,
@@ -153,10 +157,10 @@
     return `${text} --stylize ${v}`.trim();
   }
 
-  // The prompts the slider touches (queued, not yet sent) and their current value:
+  // The prompts the slider touches (still to send) and their current value:
   // the shared one, or the most common when they differ (mixed).
   function threadStylize(items) {
-    const open = (items || []).filter((item) => item.status === "queued");
+    const open = (items || []).filter(isOpen);
     const tally = new Map();
     for (const item of open) {
       const value = stylizeOf(item.params);

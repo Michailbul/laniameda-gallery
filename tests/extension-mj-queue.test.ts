@@ -38,6 +38,14 @@ describe("extension Midjourney queue helpers", () => {
     expect(api().nextQueued([{ id: "a", status: "sent" }], null)).toBeNull();
   });
 
+  test("prompts left in the bar earlier still count as to send", () => {
+    const stuck = [{ id: "a", status: "sent" }, { id: "b", status: "injected", params: "--stylize 300" }, { id: "c", status: "injected", params: "--stylize 300" }];
+    expect(api().nextQueued(stuck, null)?.id).toBe("b");
+    expect(api().nextQueued(stuck, "b")?.id).toBe("c");
+    expect(api().filterCounts(stuck).open).toBe(2);
+    expect(api().threadStylize(stuck)).toMatchObject({ count: 2, value: 300, mixed: false });
+  });
+
   test("job ids come out of job links and CDN image URLs", () => {
     const ids = api().jobIdsIn([
       "/jobs/0C1E5A2B-1111-4a4a-9b9b-123456789abc?index=0",

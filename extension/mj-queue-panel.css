@@ -345,6 +345,29 @@ body.mjq-mode .badge { color: var(--text-3); }
 
 .mjq-status--injected { color: #0e0d0c; background: var(--coral); }
 .mjq-status--sent { color: #0e0d0c; background: var(--green); }
+.mjq-again {
+  flex: none;
+  padding: 2px 7px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: 600 10px/1.3 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.mjq-requeue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.mjq-requeue-meta { font-size: 11px; color: var(--text-2); }
 
 .mjq-refs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 

@@ -63,6 +63,9 @@ export const mjQueueItemFields = {
   seed: v.optional(v.number()),
   screen: v.optional(v.boolean()),
   note: v.optional(v.string()),
+  // A copy queued again from a sent prompt (to rerun it, e.g. at another
+  // stylize); the sent original keeps its job and its filed frames.
+  requeuedFrom: v.optional(v.id("mjQueueItems")),
   status: mjQueueStatusValidator,
   injectedAt: v.optional(v.number()),
   sentAt: v.optional(v.number()),

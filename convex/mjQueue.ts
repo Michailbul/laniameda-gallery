@@ -366,4 +366,59 @@ export const updateItem = ownerMutation({
   },
 });
 
+/**
+ * Queue prompts again: each becomes a new queued copy at the end of its thread
+ * (same words, references, codes, params and seed), so a sent round can be
+ * rerun, e.g. at another stylize. The original keeps its status, job and frames.
+ */
+export const requeueItems = ownerMutation({
+  args: { ownerUserId: v.string(), itemIds: v.array(v.string()) },
+  returns: v.object({ items: v.array(mjQueueItemOutValidator) }),
+  handler: async (ctx, args) => {
+    const owner = args.ownerUserId;
+    if (args.itemIds.length === 0 || args.itemIds.length > MJ_QUEUE_LIMITS.itemsPerCall) {
+      throw new ConvexError(`Queue 1 to ${MJ_QUEUE_LIMITS.itemsPerCall} prompts again per call.`);
+    }
+    const sources: Item[] = [];
+    for (const ref of args.itemIds) {
+      const row = await itemFor(ctx, owner, ref);
+      if (!sources.some((other) => other._id === row._id)) sources.push(row);
+    }
+    sources.sort((a, b) => a.batchKey.localeCompare(b.batchKey) || a.order - b.order || a.createdAt - b.createdAt);
+    const threads = new Map<string, { maxOrder: number; count: number }>();
+    const now = Date.now();
+    const out = [];
+    for (const source of sources) {
+      let thread = threads.get(source.batchKey);
+      if (!thread) {
+        const rows = await batchRows(ctx, owner, source.batchKey);
+        thread = { maxOrder: rows.reduce((max, row) => Math.max(max, row.order), 0), count: rows.length };
+        threads.set(source.batchKey, thread);
+      }
+      if (thread.count >= MJ_QUEUE_LIMITS.itemsPerBatch) {
+        throw new ConvexError(`A thread holds at most ${MJ_QUEUE_LIMITS.itemsPerBatch} prompts; "${source.batch}" is full.`);
+      }
+      thread.maxOrder += 1;
+      thread.count += 1;
+      const {
+        _id, _creationTime, status: _status, injectedAt: _injectedAt, sentAt: _sentAt, sentCommand: _sentCommand,
+        jobId: _jobId, ingestKey: _ingestKey, ...fields
+      } = source;
+      void _creationTime; void _status; void _injectedAt; void _sentAt; void _sentCommand; void _jobId; void _ingestKey;
+      const doc = {
+        ...fields,
+        order: thread.maxOrder,
+        requeuedFrom: source.requeuedFrom ?? _id,
+        status: "queued" as const,
+        createdBy: "extension · queued again",
+        createdAt: now,
+        updatedAt: now,
+      };
+      const id = await ctx.db.insert("mjQueueItems", doc);
+      out.push(toOut((await ctx.db.get(id))!));
+    }
+    return { items: out };
+  },
+});
+
 export type MjQueueItemId = Id<"mjQueueItems">;
