@@ -68,6 +68,11 @@ export const mjQueueUpdateSchema = z.object({
   position: z.number().int().min(0).optional().describe("0-based place inside its batch; the others shift around it."),
 });
 
+export const mjQueueRequeueSchema = z.object({
+  itemIds: z.array(z.string().trim().min(1)).min(1).max(MJ_QUEUE_LIMITS.itemsPerCall)
+    .describe("Prompts to queue again (mjq:<id> or bare ids), usually sent ones. Each becomes a new queued copy at the end of its thread; the original keeps its job."),
+});
+
 export type MjQueueUpdateInput = z.infer<typeof mjQueueUpdateSchema>;
 
 /** Refs as the Convex mutation takes them: asset ids bare-or-prefixed, as given. */

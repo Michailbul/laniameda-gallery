@@ -62,6 +62,7 @@
     rateAt: 0,
     stylizing: false,
     sliding: false,
+    requeuing: false,
   };
 
   const space = (value) => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
@@ -165,6 +166,32 @@
     return res.item || null;
   }
 
+  // Sent prompts queued again: each comes back as a new copy at the end of the
+  // thread (same words, codes and seed), so a round can be rerun at another
+  // stylize. The sent original keeps its job and frames.
+  async function requeue(items) {
+    if (!items.length || state.requeuing) return;
+    state.requeuing = true;
+    state.message = `Queueing ${items.length} again…`;
+    render();
+    let added = 0;
+    let failed = "";
+    for (let at = 0; at < items.length; at += 50) {
+      const res = await call({ method: "POST", body: { action: "requeue", itemIds: items.slice(at, at + 50).map((item) => item.id) } });
+      if (!res.ok) { failed = String(res.error || "").slice(0, 120); break; }
+      added += (res.items || []).length;
+      state.items = state.items.concat(res.items || []);
+    }
+    state.batches = H().recount(state.batches, state.items);
+    state.requeuing = false;
+    state.filter = "open";
+    state.message = failed
+      ? `${added} queued again; the rest not saved. ${failed}`
+      : `${added} queued again at the end of this thread. Set the stylize, then Next · Send.`;
+    render();
+    void refresh({ quiet: true });
+  }
+
   // ── The Midjourney tab ──
 
   // ?mjqTab=<tab id> pins the panel to one tab (testing the panel as a page).
@@ -239,7 +266,7 @@
     }
     for (const node of root.querySelectorAll("[data-next-send]")) {
       const left = Math.ceil(now.waitMs / 1000);
-      const open = threadItems().some((item) => item.status === "queued") || activeItem()?.status === "injected";
+      const open = H().filterCounts(threadItems()).open > 0;
       node.disabled = state.sending || !open || !now.ok || !state.tab.bar;
       node.textContent = state.sending ? "Sending…" : left > 0 ? `${left}s` : "Next · Send";
       node.classList.toggle("mjq-btn--waiting", left > 0);
@@ -313,7 +340,7 @@
       remember({ [KEYS.lastSend]: state.lastSendAt });
       state.activeId = null;
       state.readback = "";
-      const left = threadItems().filter((entry) => entry.status === "queued" && entry.id !== item.id).length;
+      const left = threadItems().filter((entry) => (entry.status === "queued" || entry.status === "injected") && entry.id !== item.id).length;
       state.message = left ? `Sent. ${left} left in this thread.` : "Sent. That was the last one in this thread.";
       item.status = "sent";
       state.batches = H().recount(state.batches, state.items);
@@ -731,6 +758,11 @@
       el("span", "mjq-title", item.title || space(item.prompt).split(" ").slice(0, 7).join(" ")),
       el("span", `mjq-status mjq-status--${item.status}`, STATUS_LABEL[item.status] || item.status),
     );
+    if (item.requeuedFrom) {
+      const again = el("span", "mjq-again", "Again");
+      again.title = "Queued again from a sent prompt";
+      head.insertBefore(again, head.lastChild);
+    }
     card.appendChild(head);
     // A restyle of a locked location prompt: which place, in which style, how.
     if (item.lockedPromptId) {
@@ -787,6 +819,11 @@
       state.editDraft = null;
       render();
     }));
+    if (item.status === "sent") {
+      const again = button("Queue again", "", () => requeue([item]), "Queue a copy of this prompt at the end of the thread, to send it again (e.g. at another stylize). This one stays sent.");
+      again.disabled = state.requeuing;
+      actions.appendChild(again);
+    }
     if (item.status === "skipped") {
       actions.appendChild(button("Restore", "", async () => {
         await save(item, { status: "queued" });
@@ -810,7 +847,8 @@
   }
 
   // One stylize for the whole thread: drag, let go, and every prompt still to
-  // send gets that --stylize. Sent prompts keep what they went out with.
+  // send (queued or left in the bar) gets that --stylize. Sent prompts keep
+  // what they went out with; "Queue again" brings them back to rerun.
   function stylizeBar(items) {
     const info = H().threadStylize(items);
     const bar = el("div", "mjq-stylize");
@@ -834,7 +872,15 @@
       state.sliding = false;
       void applyStylize(Number(slider.value));
     });
-    slider.addEventListener("blur", () => { state.sliding = false; });
+    // A click that changes nothing must not leave the panel frozen (render waits while sliding).
+    const release = () => {
+      if (!state.sliding) return;
+      state.sliding = false;
+      if (Number(slider.value) === start) render();
+    };
+    slider.addEventListener("pointerup", () => setTimeout(release, 0));
+    slider.addEventListener("pointercancel", release);
+    slider.addEventListener("blur", release);
     bar.append(label, slider, readout, meta);
     return bar;
   }
@@ -917,6 +963,15 @@
       tabs.appendChild(tab);
     }
     box.appendChild(tabs);
+    if (state.filter === "sent" && counts.sent) {
+      const sentItems = items.filter((item) => item.status === "sent");
+      const bulk = el("div", "mjq-requeue");
+      const all = button(state.requeuing ? "Queueing…" : `Queue all ${sentItems.length} again`, "mjq-btn--primary", () => requeue(sentItems),
+        "Copy every sent prompt of this thread back into the queue, to send the round again (e.g. at another stylize). The sent ones stay as they are.");
+      all.disabled = state.requeuing;
+      bulk.append(all, el("span", "mjq-requeue-meta", "Same words, codes and seeds. Then set the stylize."));
+      box.appendChild(bulk);
+    }
     if (state.message) box.appendChild(el("p", "mjq-message", state.message));
     const list = el("div", "mjq-list");
     const shown = H().filterItems(items, state.filter, state.activeId);

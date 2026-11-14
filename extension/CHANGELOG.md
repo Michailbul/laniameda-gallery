@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.34.5 (14 Nov 2026)
+
+- MJ Queue: queue sent prompts again. On a thread's Sent tab, "Queue all again"
+  copies every sent prompt back into the queue at the end of the thread (same
+  words, codes and seeds), and each sent card has "Queue again". Set the
+  stylize and send the round again to compare. The sent originals stay sent,
+  with their jobs and filed frames; the copies carry an "Again" tag.
+- MJ Queue: prompts left "In the bar" (put in the bar in an earlier session and
+  never sent) count as still to send everywhere. Before, a thread holding only
+  those showed "To send 2" while Next · Send stayed grey and the stylize slider
+  said nothing was left.
+- MJ Queue: a click on the stylize slider that changes nothing no longer
+  freezes the panel until you click elsewhere.
+
 ## 0.34.4 (13 Nov 2026)
 
 - MJ Queue: a thread never opens empty. Opening a thread loads its own
