@@ -1,9 +1,10 @@
 // Midjourney prompt queue. Agents queue prompts in the gallery, grouped in
 // threads, with every reference set. Michael reviews them in the extension's
 // side panel (MJ Queue tab, mj-queue-panel.js); on midjourney.com this script
-// is its hands: it puts a prompt in the Imagine bar, reads the bar back,
-// presses Enter once when he clicks Send in the panel (or he presses Enter
-// himself), and records the job. One job per click; no loops, no timers,
+// is its hands: it puts a prompt in the Imagine bar, reads the bar back, and
+// records the job once Michael presses Enter in the bar himself. It never
+// presses Enter for him: Midjourney reads a scripted keypress as a bot and
+// blocked the account on 14 Nov 2026. One job per Enter; no loops, no timers,
 // nothing submitted in the background. The pure helpers below are shared with
 // the panel.
 (function registerMjQueue(globalScope) {
@@ -474,23 +475,17 @@
     });
   }
 
-  // Send: only from his own click on Send in the side panel. Presses Enter in
-  // the bar once, the way he would; the bar's own command (with any edit he
-  // made there) is sent.
-  function pressSend(itemId) {
+  // Send from the panel: puts the cursor at the end of the prompt in the bar
+  // and waits. Only his own Enter in the bar sends it (onAreaKeydown below):
+  // a scripted Enter is what Midjourney flags as a bot (14 Nov 2026).
+  function readyForEnter(itemId) {
     if (sending) return Promise.resolve({ ok: false, error: "Already sending." });
     if (!active || active.item.id !== itemId) return Promise.resolve({ ok: false, error: "Put it in the bar first." });
     const area = findTextarea();
     if (!area || !space(area.value)) return Promise.resolve({ ok: false, error: "The bar is empty. Put it in again." });
-    sending = true;
-    const command = area.value;
-    const before = snapshotJobIds();
     area.focus();
-    const enter = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
-    area.dispatchEvent(new KeyboardEvent("keydown", enter));
-    area.dispatchEvent(new KeyboardEvent("keypress", enter));
-    area.dispatchEvent(new KeyboardEvent("keyup", enter));
-    return confirmSend(active.item, command, before);
+    area.setSelectionRange(area.value.length, area.value.length);
+    return Promise.resolve({ ok: true, sent: false, waitingForEnter: true });
   }
 
   // His own Enter in the bar while a queued prompt is in it counts as Send.
@@ -500,8 +495,11 @@
     const command = event.currentTarget.value;
     if (!space(command)) return;
     sending = true;
-    tellPanel({ action: "mjQueueSending", itemId: active.item.id });
-    void confirmSend(active.item, command, snapshotJobIds());
+    const item = active.item;
+    tellPanel({ action: "mjQueueSending", itemId: item.id });
+    void confirmSend(item, command, snapshotJobIds()).then((res) => {
+      if (!res.ok) tellPanel({ action: "mjQueueNotSent", itemId: item.id, error: res.error });
+    });
   }
 
   function onAreaInput(event) {
@@ -534,7 +532,7 @@
       return false;
     }
     if (message.action === "mjQueueSend") {
-      pressSend(message.itemId).then(sendResponse);
+      readyForEnter(message.itemId).then(sendResponse);
       return true;
     }
     if (message.action === "mjQueueRate") {
