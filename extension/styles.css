@@ -2595,7 +2595,7 @@ html.stg-x-capturing .stg-badge {
   box-shadow: 0 0 6px #f26157;
 }
 
-/* Hold ⌥ (or the key's modifier): each chip shows its key. */
+/* Hold ⌥ alone for a moment: each chip shows its key. */
 .stg-mb-dock--keys [data-key] {
   position: relative;
 }

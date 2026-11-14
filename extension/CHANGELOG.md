@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.34.8 (14 Nov 2026)
+
+- Midjourney dock: the key badges on the moodboard, profile and preset chips
+  no longer pop up during everyday shortcuts. They show only while ⌥ is held
+  on its own for 0.7 s; ⌘ and Ctrl alone never show them, and any other key, a
+  click or a scroll hides them at once. The keys themselves still work.
+
 ## 0.34.5 (14 Nov 2026)
 
 - MJ Queue: queue sent prompts again. On a thread's Sent tab, "Queue all again"

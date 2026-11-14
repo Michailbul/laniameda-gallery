@@ -761,6 +761,8 @@
     window.removeEventListener("keydown", onHotkeyDown, true);
     window.removeEventListener("keyup", onHotkeyUp, true);
     window.removeEventListener("blur", onWindowBlur);
+    window.removeEventListener("pointerdown", onPointerHideHints, true);
+    window.removeEventListener("wheel", onPointerHideHints, true);
     if (textarea) {
       textarea.removeEventListener("input", onPromptInput);
       textarea.removeEventListener("pointerdown", engage);
@@ -1650,6 +1652,10 @@
 
   const TYPING_TARGET = "input, textarea, select, [contenteditable=''], [contenteditable='true']";
   const HINT_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
+  // The key badges show only while ⌥ is held on its own for a moment, never
+  // during ⌘C, ⌘V, ⌘A and other everyday combos (Michael, 14 Nov 2026: the
+  // badges kept popping up and ruined the dock).
+  const HINT_DELAY_MS = 700;
 
   function showKeyHints(on) {
     clearTimeout(hintTimer);
@@ -1660,14 +1666,16 @@
     }
     hintTimer = setTimeout(() => {
       if (dockOnScreen() && hotkeyMap.size) dock.classList.add("stg-mb-dock--keys");
-    }, 220);
+    }, HINT_DELAY_MS);
   }
 
   function onHotkeyDown(event) {
     if (retired || !dock) return;
     if (worldMenuOpen() && dockOnScreen() && handleWorldMenuKey(event)) return;
     if (HINT_KEYS.has(event.key)) {
-      if (event.key !== "Shift" || event.altKey || event.ctrlKey || event.metaKey) showKeyHints(true);
+      // Only ⌥ (with or without Shift or Ctrl) arms the badges; ⌘ cancels them.
+      if (event.repeat) return;
+      showKeyHints(event.altKey && !event.metaKey);
       return;
     }
     showKeyHints(false);
@@ -1690,8 +1698,12 @@
     showKeyHints(false);
   }
 
+  function onPointerHideHints() {
+    showKeyHints(false);
+  }
+
   function onHotkeyUp(event) {
-    if (HINT_KEYS.has(event.key) && !(event.altKey || event.ctrlKey || event.metaKey)) showKeyHints(false);
+    if (HINT_KEYS.has(event.key) && !event.altKey) showKeyHints(false);
   }
 
   // The prompt packs are Dear Annete's lexicon: the Packs button shows only
@@ -2064,6 +2076,8 @@
     window.addEventListener("keydown", onHotkeyDown, true);
     window.addEventListener("keyup", onHotkeyUp, true);
     window.addEventListener("blur", onWindowBlur);
+    window.addEventListener("pointerdown", onPointerHideHints, true);
+    window.addEventListener("wheel", onPointerHideHints, { capture: true, passive: true });
     document.addEventListener(
       "pointerdown",
       (event) => {
