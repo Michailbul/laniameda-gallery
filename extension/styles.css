@@ -3076,3 +3076,47 @@ html.stg-x-capturing .stg-badge {
 
 /* A gallery style preset in the dock (prompt runs share it): dashed, no ×. */
 .stg-mb-preset--gallery { border-style: dashed; }
+
+/* MJ Queue "Next prompt" pill on midjourney.com (mj-queue.js). A click here keeps
+   the keyboard on the page, so Michael's own Enter sends the prompt it puts in the bar. */
+.stg-mjq-pill {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 2147483000;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px 10px 14px;
+  border: 1px solid rgba(255, 244, 234, 0.14);
+  border-radius: 999px;
+  background: rgba(10, 8, 5, 0.92);
+  color: #fff4ea;
+  font: 800 12px/1 Inter, "Helvetica Neue", Arial, sans-serif;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: border-color 120ms ease, transform 120ms ease;
+}
+.stg-mjq-pill[hidden] { display: none; }
+.stg-mjq-pill::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f26157;
+  box-shadow: 0 0 10px rgba(242, 97, 87, 0.8);
+}
+.stg-mjq-pill:hover { border-color: rgba(242, 97, 87, 0.7); }
+.stg-mjq-pill:active { transform: translateX(-50%) scale(0.97); }
+.stg-mjq-pill--busy { opacity: 0.6; }
+.stg-mjq-pill__meta {
+  font: 500 11px/1 "JetBrains Mono", ui-monospace, Menlo, monospace;
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgba(255, 244, 234, 0.55);
+}
