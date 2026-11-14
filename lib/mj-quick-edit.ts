@@ -2,6 +2,7 @@
 // bar, ⌥E, say what to change). Client-safe helpers shared by the Convex
 // runner (convex/promptEditRunner.ts) and the extension route.
 
+import { MJ_PROMPT_KNOWLEDGE } from "./mj-prompt-knowledge";
 import { SHOT_SCALE_RULES } from "./writer-scale";
 
 export const QUICK_EDIT_LIMITS = {
@@ -32,13 +33,15 @@ export const QUICK_EDIT_ROUTES: Record<QuickEditModel, Array<{ provider: "fal" |
 export const QUICK_EDIT_BASE_RULES = `You edit Midjourney prompts for an art director. He selects text in the Imagine bar and tells you in a few words what to change. You return the edited text and nothing else.
 
 Rules:
-- Change only what the instruction asks. Keep every other word, the order, the voice and the length close to the original.
+- Change only what the instruction asks. Keep every other word, the order, the voice and the length close to the original. The one exception is a request for an ordinary prompt (below): that rewrites every sentence.
 - Return plain text only: no quotes around it, no markdown, no notes, no "Here is".
 - Image links appear as [[IMG1]], [[IMG2]] …: keep each placeholder exactly where it is unless told to remove it.
 - Keep every Midjourney parameter (--ar, --sref, --profile, --stylize, --chaos, --raw, --v, --hd, --relax, --draft, --sw, --iw …) exactly as written unless the instruction is about it. Parameters stay at the end.
 - Midjourney reads plain visual description: subject, setting, light, materials, camera, film. Write it as concrete nouns and adjectives in full sentences. No instructions to the model ("make sure", "please"), no negatives ("no people"): say what is there instead ("the street is empty").
 - If you get a SELECTION and a FULL PROMPT, rewrite only the selection so it fits back into the full prompt in its place, and return only the new selection.
 - When the instruction asks you to add world details or move the prompt into a world, size what you add to the shot, as below.
+
+${MJ_PROMPT_KNOWLEDGE}
 
 ${SHOT_SCALE_RULES}`;
 
@@ -62,9 +65,16 @@ export function cleanModelText(raw: string) {
   const fence = /^```[a-z]*\s*\n?([\s\S]*?)\n?```$/i.exec(text);
   if (fence) text = fence[1]!.trim();
   text = text.replace(/^(?:here(?:'s| is)[^\n:]*:|edited (?:prompt|text)[^\n:]*:)\s*/i, "").trim();
+  // An ordinary-prompt rewrite sometimes echoes the instruction first.
+  text = text.replace(/^(?:(?:re)?write(?:n)?\s+(?:it\s+)?as\s+(?:an?\s+)?)?(?:ordinary|normal|plain)\s+prompt\s*:\s*/i, "").trim();
   if (text.length > 1 && /^["“'][\s\S]*["”']$/.test(text)) text = text.slice(1, -1).trim();
   return text;
 }
+
+/** "rewrite it as ordinary prompt", "normal prompt pls", "no edit mode", "without the attachment" … */
+export const ORDINARY_PROMPT_ASK = /\b(?:ordinary|normal|plain|regular|simple|text[- ]to[- ]image|t2i)\b[\s\S]{0,20}\bprompt\b|\bno edit(?:ing)? mode\b|\bwithout (?:the |an? |any )?(?:edit mode|attachments?|references?|attached images?)\b|\bnot instructive\b/i;
+
+const ORDINARY_REMINDER = "This asks for an ordinary prompt: follow the ordinary-prompt steps. A person, room or place seen only in an attachment is described with what this prompt writes about it and nothing more: no hair, skin, eyes, walls or furniture the prompt does not name.";
 
 export function buildQuickEditMessages({ prompt, selection, instruction, system, worldBrief }: {
   prompt: string; selection?: string; instruction: string; system?: string;
@@ -86,8 +96,9 @@ export function buildQuickEditMessages({ prompt, selection, instruction, system,
     worldBrief?.trim() ? `${worldBrief.trim()}\n\nThe edit stays inside this world. Still change only what the instruction asks, and still return the edited text and nothing else.` : "",
     system?.trim() ? `Project context (what we like, what to avoid):\n${system.trim()}` : "",
   ].filter(Boolean).join("\n\n");
+  const reminder = ORDINARY_PROMPT_ASK.test(instruction) ? `\n\n${ORDINARY_REMINDER}` : "";
   const user = selectionText
-    ? `FULL PROMPT:\n${full.masked}\n\nSELECTION:\n${selectionText}\n\nINSTRUCTION: ${instruction.trim()}`
-    : `PROMPT:\n${full.masked}\n\nINSTRUCTION: ${instruction.trim()}`;
+    ? `FULL PROMPT:\n${full.masked}\n\nSELECTION:\n${selectionText}\n\nINSTRUCTION: ${instruction.trim()}${reminder}`
+    : `PROMPT:\n${full.masked}\n\nINSTRUCTION: ${instruction.trim()}${reminder}`;
   return { messages: [{ role: "system" as const, content: systemText }, { role: "user" as const, content: user }], urls: full.urls };
 }
