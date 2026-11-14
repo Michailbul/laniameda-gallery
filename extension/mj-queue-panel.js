@@ -207,7 +207,7 @@
     const onMidjourney = Boolean(tab && /^https?:\/\/([a-z]+\.)?midjourney\.com(\.localhost(:\d+)?)?\//.test(tab.url || ""));
     const next = { id: tab?.id ?? null, onMidjourney, bar: false, reachable: false };
     if (onMidjourney && tab?.id != null) {
-      const res = await toTab({ action: "mjQueuePing" }, tab.id);
+      const res = await toTab({ action: "mjQueuePing", queue: pillQueue() }, tab.id);
       next.reachable = Boolean(res && res.ok);
       next.bar = Boolean(res && res.bar);
       if (res && res.ok && res.activeId && res.activeId === state.activeId) state.readback = res.value;
@@ -216,6 +216,13 @@
     state.tab = next;
     if (next.reachable && Date.now() - state.rateAt > RATE_MS) void readRate();
     if (changed) render();
+  }
+
+  // What the page's "Next prompt" pill shows: prompts left in the open thread.
+  function pillQueue() {
+    if (state.view !== "thread" || !state.batchKey) return { open: 0 };
+    const batch = (state.batches || []).find((entry) => entry.batchKey === state.batchKey);
+    return { open: H().filterCounts(threadItems()).open, thread: batch ? H().threadName(batch) : "" };
   }
 
   function toTab(message, tabId = state.tab.id) {
@@ -337,7 +344,7 @@
     state.sending = false;
     if (res.ok && res.waitingForEnter) {
       // The page never presses Enter for him (Midjourney flags it as a bot).
-      state.message = "In the bar. Click the bar on Midjourney and press Enter to send.";
+      state.message = "In the bar. Next time use Next prompt on the Midjourney page: it keeps the keyboard there, so Enter sends. Now click the bar and press Enter.";
       render();
       return false;
     }
@@ -364,7 +371,9 @@
   // his own Enter on Midjourney sends it.
   async function nextSend(event) {
     if (!event.isTrusted || state.sending || !state.batchKey) return;
-    await readRate(true);
+    // The pace from the last 20 s is enough; a fresh history read on every
+    // click made Next slow (14 Nov 2026).
+    await readRate();
     const now = gate();
     if (!now.ok) {
       state.message = now.reason || `Midjourney pacing: wait ${Math.ceil(now.waitMs / 1000)} s.`;
@@ -997,7 +1006,7 @@
       else renderRail(box);
       root.appendChild(box);
     }
-    root.appendChild(el("p", "mjq-hint", "Next puts the next prompt in the bar; press Enter on Midjourney to send it · ⌥⇧N on the Midjourney page: next in bar, then Enter · ⌥⇧↑↓ threads"));
+    root.appendChild(el("p", "mjq-hint", "On the Midjourney page: Next prompt (or ⌥⇧N), then Enter sends · ⌥⇧↑↓ threads"));
     paintPace();
   }
 
@@ -1012,6 +1021,19 @@
         const item = state.items.find((entry) => entry.id === state.activeId);
         if (item) box.replaceWith(readbackBox(item));
       }
+    } else if (message.action === "mjQueueSent" && message.itemId === state.activeId) {
+      // Midjourney took it (the bar emptied); the gallery save follows on its own.
+      const item = state.items.find((entry) => entry.id === state.activeId);
+      if (item) item.status = "sent";
+      state.activeId = null;
+      state.sending = false;
+      state.lastSendAt = Date.now();
+      remember({ [KEYS.lastSend]: state.lastSendAt });
+      state.batches = H().recount(state.batches, state.items);
+      const left = threadItems().filter((entry) => entry.status === "queued" || entry.status === "injected").length;
+      state.message = left ? `Sent. ${left} left: Next prompt on the page, then Enter.` : "Sent. That was the last one in this thread.";
+      render();
+      void readTab();
     } else if (message.action === "mjQueueChanged") {
       if (message.itemId === state.activeId) {
         const item = state.items.find((entry) => entry.id === state.activeId);

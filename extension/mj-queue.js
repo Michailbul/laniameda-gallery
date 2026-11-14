@@ -460,6 +460,7 @@
           sending = false;
           active = null;
           rateCache = null;
+          tellPanel({ action: "mjQueueSent", itemId: item.id });
           void save(item.id, { status: "sent", sentCommand: command }).then(() => watchForJob(item, before));
           resolve({ ok: true, sent: true });
           return;
@@ -523,6 +524,7 @@
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!message || sender.id !== chrome.runtime.id || sender.tab) return false;
     if (message.action === "mjQueuePing") {
+      notePanel(message.queue);
       const area = findTextarea();
       sendResponse({ ok: true, bar: Boolean(area), value: area ? area.value : "", activeId: active ? active.item.id : null, sending });
       return false;
@@ -541,6 +543,54 @@
     }
     return false;
   });
+
+  // ── "Next prompt" pill on the page ──
+  // A click in the side panel keeps the keyboard in the panel, so his Enter
+  // never reaches the bar. This pill sits on the Midjourney page: a click here
+  // keeps the keyboard on the page, the panel puts the next prompt in the bar
+  // with the cursor at its end, and his own Enter sends it. Shown only while
+  // the MJ Queue panel is open on a thread with prompts left (it pings every 4 s).
+  const PILL_STALE_MS = 10000;
+  let pill = null;
+  let pillHideTimer = null;
+  function pillNode() {
+    if (pill && pill.isConnected) return pill;
+    pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = "stg-mjq-pill";
+    pill.hidden = true;
+    // Keep focus where it is (the page), so the bar can take it after the fill.
+    pill.addEventListener("mousedown", (event) => event.preventDefault());
+    pill.addEventListener("click", (event) => {
+      if (!event.isTrusted || sending) return;
+      pill.classList.add("stg-mjq-pill--busy");
+      setTimeout(() => pill && pill.classList.remove("stg-mjq-pill--busy"), 900);
+      tellPanel({ action: "mjQueueNext" });
+    });
+    document.documentElement.appendChild(pill);
+    return pill;
+  }
+  function notePanel(queue) {
+    const left = queue && Number(queue.open);
+    const node = pillNode();
+    if (!left || left < 1) {
+      node.hidden = true;
+      return;
+    }
+    node.textContent = "";
+    const label = document.createElement("span");
+    label.textContent = "Next prompt";
+    const meta = document.createElement("span");
+    meta.className = "stg-mjq-pill__meta";
+    meta.textContent = `${left} left · then Enter`;
+    node.append(label, meta);
+    node.title = `${queue.thread ? queue.thread + ": " : ""}put the next prompt in the bar, then press Enter to send (⌥⇧N)`;
+    node.hidden = false;
+    clearTimeout(pillHideTimer);
+    pillHideTimer = setTimeout(() => {
+      if (pill) pill.hidden = true;
+    }, PILL_STALE_MS);
+  }
 
   // ⌥⇧N on the page: the panel puts the next prompt of its thread in the bar.
   document.addEventListener(
