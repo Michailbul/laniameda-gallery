@@ -1220,13 +1220,68 @@ button.rv-note:hover { background: var(--hover); color: var(--text); }
 .rv-sec-copy:hover, .rv-sec-copy[data-on] { color: var(--text); background: var(--sel); }
 @media (max-width: 640px) { .rv-recipe-line { grid-template-columns: minmax(0, 1fr) auto; } .rv-recipe-line .k { grid-column: 1 / -1; } }
 
-/* Held · only you (owner view): in the draft, never sent. */
-.rv-t[data-held] { outline: 1px dashed rgba(var(--ink), 0.45); outline-offset: -1px; }
-.rv-t[data-held] img { filter: saturate(0.85); }
-.rv-chip.held { display: inline-flex; align-items: center; gap: 6px; background: rgba(var(--ground), 0.82); color: var(--text); border: 1px dashed rgba(var(--ink), 0.5); cursor: pointer; text-transform: uppercase; letter-spacing: 0.1em; font-family: var(--mono); font-size: 9.5px; }
-.rv-chip.held .rel { display: none; padding-left: 6px; border-left: 1px solid var(--line-2); }
-.rv-chip.held:hover .rel, .rv-t:hover .rv-chip.held .rel { display: inline; }
-.rv-held-note { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border: 1px dashed var(--line-2); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
+/* Approve / Discard (owner, Michael 15 Nov 2026). A frame waiting for his
+   decision carries no mark at all; an approved one carries this one quiet,
+   filled pill, bottom left, which the hover pills replace in place. */
+.rv-t-ok {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--like) 86%, transparent);
+  color: var(--bg);
+  font: 600 9px/1 var(--mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+.rv-t:hover .rv-t-ok, .rv-t[data-active] .rv-t-ok { opacity: 0; }
+
+/* The owner's hover hint as clickable text pills: 1 APPROVE · 2 DISCARD · C COMMENT. */
+.rv-t-acts.rv-pills { left: 10px; right: 10px; bottom: 10px; gap: 6px; flex-wrap: wrap; }
+.rv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 11px 0 5px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--ink), 0.2);
+  background: rgba(var(--ground), 0.62);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  font: 600 10px/1 var(--sans);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(var(--ink), 0.86);
+  white-space: nowrap;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+.rv-pill kbd { min-width: 16px; height: 16px; border-color: rgba(var(--ink), 0.28); font-size: 9.5px; }
+.rv-pill:hover { color: var(--text); border-color: rgba(var(--ink), 0.5); }
+.rv-pill.approve[aria-pressed="true"] { background: var(--like); border-color: var(--like); color: var(--bg); }
+.rv-pill.approve[aria-pressed="true"] kbd { border-color: rgba(var(--ground), 0.35); color: var(--bg); }
+.rv-pill.discard[aria-pressed="true"] { background: rgba(var(--ink), 0.9); border-color: transparent; color: var(--bg); }
+.rv-pill.discard[aria-pressed="true"] kbd { border-color: rgba(var(--ground), 0.35); color: var(--bg); }
+.rv[data-size="s"] .rv-pills .rv-pill { padding-right: 5px; }
+.rv[data-size="s"] .rv-pills .rv-pill span { display: none; }
+.rv-lb-acts.rv-pills { gap: 8px; }
+.rv-lb-acts.rv-pills .rv-pill { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.rv-lb-acts.rv-pills .rv-pill.approve[aria-pressed="true"] { background: var(--like); }
+.rv-lb-acts.rv-pills .rv-pill.discard[aria-pressed="true"] { background: rgba(var(--ink), 0.9); }
+.rv-lb-acts.rv-pills .rv-act { margin-left: auto; }
+
+/* The owner strip's numbers: what is approved and not sent, then the quiet rest. */
+.rv-strip-sum { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 4px 0; }
+.rv-strip-sum b { font-weight: 600; }
+.rv-strip-sum > span { margin-left: 6px; }
+.rv-strip-sum .q { color: var(--faint); }
+.rv-strip-sum .q::before { content: "·"; margin: 0 8px 0 2px; color: var(--faint); }
 
 /* ------------------------------------------------------------ the style book (?mode=styles)
 
@@ -1318,13 +1373,32 @@ button.rv-bk-round:hover, .rv-bk-round[aria-expanded="true"] { color: var(--text
 .rv-bk-cap .rv-code:hover { color: var(--text); }
 .rv-bk-cap .rv-code.ok { color: var(--like); }
 
-/* Held · only you: small and quiet; Release shows on the mark's own hover. */
-.rv-bk-held { position: absolute; top: 7px; left: 7px; display: inline-flex; align-items: center; gap: 6px; height: 18px; padding: 0 6px; border-radius: 3px; background: rgba(var(--ground), 0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); font: 500 8.5px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: rgba(var(--ink), 0.55); }
-button.rv-bk-held { cursor: pointer; }
-button.rv-bk-held:hover { color: var(--text); }
-.rv-bk-held .rel { display: none; padding-left: 6px; border-left: 1px solid var(--line-2); }
-button.rv-bk-held:hover .rel { display: inline; }
-.rv-bk-held.arch { left: auto; right: 7px; }
+/* The style book's PDF: a quiet text control in the top line, its options in a popover. */
+.rv-bk-pdf[data-busy] { color: var(--text); font-variant-numeric: tabular-nums; }
+.rv-pdf { width: 320px; padding: 2px 4px 6px; }
+.rv-pdf-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 10px; }
+.rv-pdf-row .k { font: 500 10px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.rv-pdf .rv-size button { width: auto; min-width: 30px; padding: 0 10px; font-size: 10.5px; letter-spacing: 0.04em; }
+.rv-pdf .rv-size button:disabled { opacity: 0.5; cursor: default; }
+.rv-pdf .rv-size .nm { display: inline-block; max-width: 138px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.rv-pdf-sum { margin: 4px 10px 12px; font: 500 10px/1.5 var(--mono); letter-spacing: 0.04em; color: var(--faint); }
+.rv-pdf-go { width: calc(100% - 20px); margin: 0 10px 4px; justify-content: center; }
+.rv-pdf-err { margin: 0 10px 10px; font-size: 12px; color: var(--dislike); }
+.rv-pdf-run { display: grid; gap: 10px; padding: 0 10px 4px; }
+.rv-pdf-run .t { font: 500 11px/1 var(--mono); letter-spacing: 0.06em; color: var(--text); font-variant-numeric: tabular-nums; }
+.rv-pdf-run .bar { height: 2px; border-radius: 2px; background: var(--line-2); overflow: hidden; }
+.rv-pdf-run .bar span { display: block; height: 100%; background: var(--text); transition: width 0.25s ease-out; }
+.rv-pdf-run .rv-btn { justify-self: start; }
+
+/* Discarded (owner): small and quiet, top right, over the grayed frame. */
+.rv-bk-mark { position: absolute; top: 7px; right: 7px; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 3px; background: rgba(var(--ground), 0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); font: 500 8.5px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: rgba(var(--ink), 0.55); }
+.rv-bk .rv-t-ok { left: 8px; bottom: 8px; }
+.rv-bk .rv-t-acts.rv-pills { left: 8px; right: 8px; bottom: 8px; }
+/* The owner's pills hold the bottom edge, so the place and code sit on top. */
+.rv-bk-cap[data-top] { top: 8px; bottom: auto; transform: translateY(-2px); }
+.rv-bk-t:hover .rv-bk-cap[data-top], .rv-bk-t[data-active] .rv-bk-cap[data-top] { transform: none; }
+.rv-bk[data-size="s"] .rv-pills .rv-pill { padding-right: 5px; }
+.rv-bk[data-size="s"] .rv-pills .rv-pill span { display: none; }
 .rv-bk-check { position: absolute; top: 7px; right: 7px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--text); color: var(--bg); }
 
 @media (max-width: 1100px) {
@@ -1356,7 +1430,7 @@ button.rv-bk-held:hover .rel { display: inline; }
     print-color-adjust: exact;
   }
   .rv[data-mode="styles"] { min-height: 0; }
-  .rv[data-mode="styles"] :is(.rv-bk-head, .rv-bulk, .rv-dock, .rv-toasts, .rv-flash, .rv-preview, .rv-box, .rv-bk-held, .rv-bk-cap, .rv-bk-check, .rv-svote, .rv-bk-tag) { display: none !important; }
+  .rv[data-mode="styles"] :is(.rv-bk-head, .rv-bulk, .rv-dock, .rv-toasts, .rv-flash, .rv-preview, .rv-box, .rv-bk-mark, .rv-bk-cap, .rv-bk-check, .rv-svote, .rv-bk-tag, .rv-t-ok, .rv-pills, .rv-bk-pdf) { display: none !important; }
   .rv-bk { --bk-gap: 5px; }
   .rv-bk, .rv-bk[data-size="m"] { --cols: 4; }
   .rv-bk[data-size="s"] { --cols: 6; }

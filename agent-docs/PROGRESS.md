@@ -1298,3 +1298,42 @@ mode ... really minimize UI".
   Retina screen (Chrome embeds the WebP thumbnails losslessly); the director's
   44 frames are ~14 MB / ~48 MB.
 
+
+## Director review: Approve / Discard and the style book PDF (15 Nov 2026)
+
+Michael: "the held only you release, I don't like it. Instead there should be
+functionality of clicking to approve or discard"; and for the style book "a
+tool for making it in PDF, no margins, images are occupying 90%".
+
+- Owner only, on the draft round. No HELD chip anywhere (grid, style book,
+  lightbox, bulk bar): a frame waiting for him has no mark. **1 Approve**
+  (`review.setApproved`, owner `mutation`) sets `held` false on the frame's
+  draft rows and restores it if it was discarded; 1 again puts it back to
+  waiting. An approved frame carries one filled APPROVED pill (bottom left,
+  `.rv-t-ok`) that the hover pills replace. **2 / D Discard** is the existing
+  owner archive (wording now "Discarded"). Hover hint as clickable pills
+  `1 APPROVE · 2 DISCARD · C COMMENT` (`OwnerPills` in `Grid.tsx`, reused by
+  the book tiles and, as `.rv-pills`, the lightbox). Bulk bar: Approve all /
+  Back to waiting, Discard all / Restore all; Hold and Release are gone.
+  Owner filters Waiting for you, Approved (draft only), Discarded.
+- Owner strip: "24 approved · not sent yet · 319 waiting for you · 12
+  discarded" and "Send round to producers" (same confirmation dialog).
+  Draft counts come from `review.page` (`added`, `held`, `sending`,
+  `discarded`; archive lookups cached per frame).
+- Publish (`publishDraft`) sends only approved frames: held **and archived**
+  rows leave the published round and are carried, held, into the next draft
+  (before, archived rows were published and only hidden on read, so a later
+  restore would have shown them to producers). Returns `discarded` too.
+- Reviewer bell (`review.notifications`): comments on frames a reviewer
+  cannot see (not in a published round, held or archived) are left out.
+- Style book **PDF** (`BookPdf.tsx`, `stylebook-pdf.ts`, pdf-lib loaded on
+  click): all styles or the one on screen, 1 / 4 / 9 per page. 1920 × 1200 pt
+  pages, full bleed: 16:9 cells edge to edge with 2 pt gaps fill the width and
+  90 % of the height, a ~120 pt strip on top (style name Inter 800, count and
+  "2 / 6" in JetBrains Mono, project · round, the owner's style line on its
+  first page) drawn on a canvas as PNG. Frames: the thumbnail that covers the
+  cell (largest for 1 per page), JPEG q 0.78–0.84 at cell size; near-16:9
+  frames fill, others are fitted whole. Discarded frames are left out.
+  Thumbnails via `api/download?thumb=<key>` (R2 sends CORS only for
+  localhost:3317). Owner strings and wording updated in review.md, the MCP
+  tool descriptions and `lib/review-contract.ts`. Skill 1.45.2.

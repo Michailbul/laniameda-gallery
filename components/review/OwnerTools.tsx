@@ -57,34 +57,47 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
     }
   };
 
+  // Michael's next step, in numbers: approved frames not sent yet (new
+  // against the current round), what still waits for him, what he discarded.
+  const approvedNew = shown.added ?? 0;
+  const waiting = shown.held ?? 0;
+  const discarded = shown.discarded ?? 0;
+  const sending = shown.sending ?? Math.max(itemCount - waiting - discarded, 0);
   const changes = shown.isDraft
-    ? shown.added || shown.removed
-      ? [shown.added ? plural(shown.added, "new frame") : "", shown.removed ? `${shown.removed} taken out` : ""].filter(Boolean).join(", ")
-      : "Frames moved or restyled"
+    ? [
+        approvedNew ? plural(approvedNew, "new approved frame") : "",
+        shown.removed ? `${shown.removed} taken out` : "",
+      ].filter(Boolean).join(", ") || "No new frames"
     : "";
+  const later = [waiting ? `${plural(waiting, "frame")} waiting for you` : "", discarded ? `${discarded} discarded` : ""].filter(Boolean).join(" and ");
 
   return (
     <>
       {shown.isDraft ? (
         <div className="rv-strip">
           <span className="k">Next round · {shown.label}</span>
-          <span>
-            <b>{changes}.</b> {sees(audience)} {current ? current.label : "nothing yet"} until you send it.
-            {shown.held ? <> <span className="rv-held-note">{plural(shown.held, "frame")} held · only you</span></> : null}
+          <span className="rv-strip-sum">
+            <b>{approvedNew ? `${approvedNew} approved` : "Nothing new approved"}</b>
+            <span>{approvedNew ? "not sent yet" : "yet"}</span>
+            {waiting ? <span className="q">{waiting} waiting for you</span> : null}
+            {discarded ? <span className="q">{discarded} discarded</span> : null}
+            {shown.removed ? <span className="q">{shown.removed} taken out</span> : null}
+            <span className="q">{sees(audience)} {current ? current.label : "nothing yet"} until you send it</span>
           </span>
           <span className="acts">
             <button type="button" className="rv-btn ghost" disabled={busy} onClick={() => setDialog("discard")}>Throw away</button>
             <button
               type="button"
               className="rv-btn accent"
-              disabled={busy || itemCount === 0}
+              disabled={busy || sending === 0}
+              title={sending === 0 ? "Approve the frames to send first" : undefined}
               onClick={() => {
                 setTitle(shown.title ?? "");
                 setNote(shown.note ?? "");
                 setDialog("send");
               }}
             >
-              Send to {audience.plural ? "reviewers" : audience.name}
+              Send round to producers
             </button>
           </span>
         </div>
@@ -112,8 +125,11 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
           <div className="rv-pop rv-dialog" role="dialog" aria-modal="true" style={{ position: "static" }}>
             {dialog === "send" ? (
               <>
-                <h4>Send {shown.label} to {audience.name}</h4>
-                <p>{changes}. {plural(Math.max(itemCount - (shown.held ?? 0), 0), "frame")} in all. {audience.plural ? "They see" : "He sees"} it as soon as you send it.{shown.held ? ` ${plural(shown.held, "held frame")} stay with you in the next round.` : ""}</p>
+                <h4>Send {shown.label} to producers</h4>
+                <p>
+                  {changes}. {plural(sending, "approved frame")} in all. {audience.name} and the producers see it as soon as you send it.
+                  {later ? ` ${later[0]!.toUpperCase()}${later.slice(1)} stay with you in the next round.` : ""}
+                </p>
                 <label>
                   Title, optional
                   <input className="rv-input" value={title} placeholder={`Round ${shown.number}`} onChange={(event) => setTitle(event.target.value)} autoFocus />
@@ -141,7 +157,7 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
             ) : (
               <>
                 <h4>Throw away the next round?</h4>
-                <p>{changes}. They leave the round; the frames stay in the gallery. {sees(audience)} {current?.label ?? "nothing"} as before.</p>
+                <p>{plural(itemCount, "frame")} leave the round; they stay in the gallery. {sees(audience)} {current?.label ?? "nothing"} as before.</p>
                 <div className="row">
                   <button type="button" className="rv-btn ghost" onClick={() => setDialog(null)}>Keep it</button>
                   <button
@@ -383,7 +399,7 @@ export function BulkOwnerTools({ slug, itemIds, codes, folders, styles, shown, c
   const inDraft = Boolean(shown?.isDraft);
   const later = inDraft ? "" : ` ${sees(audience)} ${current?.label ?? "the current round"} unchanged until you send the next round.`;
 
-  const apply = async (patch: { folderId?: Id<"reviewFolders">; styleId?: Id<"worldStyles"> | null; held?: boolean }, label: string) => {
+  const apply = async (patch: { folderId?: Id<"reviewFolders">; styleId?: Id<"worldStyles"> | null }, label: string) => {
     setBusy(true);
     try {
       const result = await update({ slug, itemIds, ...patch });
@@ -459,13 +475,6 @@ export function BulkOwnerTools({ slug, itemIds, codes, folders, styles, shown, c
           Remove from round
         </button>
       )}
-      <button type="button" className="rv-btn" disabled={busy} title="Only you see held frames; sending the round leaves them out"
-        onClick={() => void apply({ held: true }, "held back · only you")}>
-        Hold · only me
-      </button>
-      <button type="button" className="rv-btn" disabled={busy} onClick={() => void apply({ held: false }, "released")}>
-        Release
-      </button>
       <button
         type="button"
         className="rv-btn"

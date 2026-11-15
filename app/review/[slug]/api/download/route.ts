@@ -16,6 +16,9 @@ export const dynamic = "force-dynamic";
 //
 //   GET  ?id=<assetId>            one original
 //   POST ids=<id,id,…> (form)     a ZIP of originals
+//   GET  ?thumb=<r2 key>          one stored thumbnail, inline, for the style
+//                                 book's PDF (the page draws it into a canvas,
+//                                 which needs a same-address image)
 
 const noStore = { "Cache-Control": "no-store" };
 const MAX_FILES = 500;
@@ -69,10 +72,50 @@ const readIds = async (request: Request): Promise<string[]> => {
   return form ? form.getAll("ids").flatMap((value) => String(value).split(",")) : [];
 };
 
+// R2 keys are uuids (thumbnails) or plain paths; nothing that climbs out.
+const THUMB_KEY = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
+const mediaBases = new Map<string, { base: string; at: number }>();
+
+const mediaBaseOf = async (client: ConvexHttpClient, slug: string) => {
+  const hit = mediaBases.get(slug);
+  if (hit && Date.now() - hit.at < 10 * 60_000) return hit.base;
+  const card = await client.query(api.review.signInCard, { slug }).catch(() => null);
+  if (!card?.mediaBase) return null;
+  mediaBases.set(slug, { base: card.mediaBase, at: Date.now() });
+  return card.mediaBase;
+};
+
+// A thumbnail of the review's public bucket, for a signed-in viewer. The
+// bucket is public, so this exposes nothing new; it only lets the page's
+// canvas read the image (the bucket's CORS allows no review address).
+async function thumbnail(slug: string, key: string, convexUrl: string) {
+  if (!THUMB_KEY.test(key) || key.includes("..")) {
+    return NextResponse.json({ error: "Unknown picture." }, { status: 400, headers: noStore });
+  }
+  const base = await mediaBaseOf(new ConvexHttpClient(convexUrl), slug);
+  if (!base) return NextResponse.json({ error: "No such review." }, { status: 404, headers: noStore });
+  const upstream = await fetch(`${base.replace(/\/+$/, "")}/${key}`).catch(() => null);
+  const type = upstream?.headers.get("content-type") ?? "";
+  if (!upstream?.ok || !upstream.body || !type.startsWith("image/")) {
+    return NextResponse.json({ error: "The picture could not be read." }, { status: 502, headers: noStore });
+  }
+  const headers = new Headers({ "Content-Type": type, "Cache-Control": "private, max-age=86400" });
+  const length = upstream.headers.get("content-length");
+  if (length) headers.set("Content-Length", length);
+  return new Response(upstream.body, { headers });
+}
+
 async function handle(request: Request, context: { params: Promise<{ slug: string }> }) {
   const { slug } = await context.params;
   const viewer = await resolveReviewViewer();
   if (!viewer) return NextResponse.json({ error: "Sign in first." }, { status: 401, headers: noStore });
+
+  const thumb = request.method === "GET" ? new URL(request.url).searchParams.get("thumb") : null;
+  if (thumb !== null) {
+    const url = process.env.CONVEX_URL || process.env.NEXT_PUBLIC_CONVEX_URL;
+    if (!url) return NextResponse.json({ error: "Convex is not configured." }, { status: 500, headers: noStore });
+    return thumbnail(slug, thumb, url);
+  }
 
   const ids = [...new Set((await readIds(request)).map((id) => id.trim()).filter(Boolean))];
   if (ids.length === 0 || ids.length > MAX_FILES || ids.some((id) => !ID.test(id))) {

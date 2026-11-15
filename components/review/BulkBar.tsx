@@ -13,8 +13,12 @@ type BulkBarProps = {
   canVote: boolean;
   onLike: () => void;
   onDislike: () => void;
-  /** The art director: D archives instead of disliking. */
+  /** The art director, in the round he is preparing: approve them all (again: back to waiting). */
+  onApprove?: () => void;
+  allApproved?: boolean;
+  /** The art director: 2 / D discards (the gallery's archive) instead of disliking. */
   onArchive?: () => void;
+  allArchived?: boolean;
   onComment: (body: string) => Promise<boolean>;
   onDownload: () => void;
   onClear: () => void;
@@ -23,7 +27,7 @@ type BulkBarProps = {
 };
 
 export function BulkBar(props: BulkBarProps) {
-  const { count, canVote, onLike, onDislike, onArchive, onComment, onDownload, onClear, composeSignal, ownerTools } = props;
+  const { count, canVote, onLike, onDislike, onApprove, allApproved, onArchive, allArchived, onComment, onDownload, onClear, composeSignal, ownerTools } = props;
   const [composerOpen, setOpen, composeRef, composePop] = usePopover();
   const [body, setBody] = useState("");
   const [sending, setSending] = useState(false);
@@ -53,17 +57,27 @@ export function BulkBar(props: BulkBarProps) {
       <span className="count">{plural(count, "frame")} selected</span>
       {canVote ? (
         <>
-          <button type="button" className="rv-btn" onClick={onLike}>
-            <kbd>1</kbd> Like all
-          </button>
           {onArchive ? (
-            <button type="button" className="rv-btn" onClick={onArchive}>
-              <kbd>D</kbd> Archive all
-            </button>
+            // The art director approves and discards; like and dislike are the director's.
+            <>
+              {onApprove ? (
+                <button type="button" className="rv-btn" data-on={allApproved ? "" : undefined} onClick={onApprove}>
+                  <kbd>1</kbd> {allApproved ? "Back to waiting" : "Approve all"}
+                </button>
+              ) : null}
+              <button type="button" className="rv-btn" onClick={onArchive}>
+                <kbd>2</kbd> {allArchived ? "Restore all" : "Discard all"}
+              </button>
+            </>
           ) : (
+            <>
+            <button type="button" className="rv-btn" onClick={onLike}>
+              <kbd>1</kbd> Like all
+            </button>
             <button type="button" className="rv-btn" onClick={onDislike}>
               <kbd>2</kbd> Dislike all
             </button>
+            </>
           )}
           <button type="button" ref={composeRef} className="rv-btn" onClick={() => setOpen(!composerOpen)} aria-expanded={composerOpen}>
             <kbd>C</kbd> Comment on all
