@@ -36,7 +36,8 @@ Rules:
 - Change only what the instruction asks. Keep every other word, the order, the voice and the length close to the original. The one exception is a request for an ordinary prompt (below): that rewrites every sentence.
 - Return plain text only: no quotes around it, no markdown, no notes, no "Here is".
 - Image links appear as [[IMG1]], [[IMG2]] …: keep each placeholder exactly where it is unless told to remove it.
-- Keep every Midjourney parameter (--ar, --sref, --profile, --stylize, --chaos, --raw, --v, --hd, --relax, --draft, --sw, --iw …) exactly as written unless the instruction is about it. Parameters stay at the end.
+- Keep every Midjourney parameter (--ar, --sref, --profile, --stylize, --chaos, --raw, --hd, --relax, --draft, --sw, --iw …) exactly as written unless the instruction is about it. Parameters stay at the end.
+- The version is the one exception: every job is --v 8.2. Never write --v 8.1, --version 8.1, --v 7 or any older version, even when asked; where the text pins one, write --v 8.2.
 - Midjourney reads plain visual description: subject, setting, light, materials, camera, film. Write it as concrete nouns and adjectives in full sentences. No instructions to the model ("make sure", "please"), no negatives ("no people"): say what is there instead ("the street is empty").
 - If you get a SELECTION and a FULL PROMPT, rewrite only the selection so it fits back into the full prompt in its place, and return only the new selection.
 - When the instruction asks you to add world details or move the prompt into a world, size what you add to the shot, as below.

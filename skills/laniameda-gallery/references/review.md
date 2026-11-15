@@ -160,7 +160,11 @@ own frames wait until there are 8. Edits (Midjourney --edit inpaint, clean-up
 edits) keep their source frame's style. A mislabelled frame in a published
 round is corrected with `review.restyleInRound`. Director labels are
 plain words ("Bright day", "Painted panorama"); recipes and codes stay with
-the owner and agents.
+the owner and agents. On the owner's page a style shows one quiet line (its
+`line`, else its template) with a copy control for the full prompt; the
+parameters, moodboards, codes and the other recipes ("near:", exceptions)
+sit behind a closed Details toggle (Michael, 15 Nov 2026: the recipe cards
+cluttered the page).
 
 ## People
 

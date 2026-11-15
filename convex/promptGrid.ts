@@ -12,6 +12,7 @@ import { ART_DIRECTOR_SCOPE } from "./projectValidators";
 import { GRID_LIMITS, composeCell, pacingEstimate, planGrid, presetFields, variantsOf } from "../lib/prompt-grid";
 import { parseFlags, templateWords } from "../lib/mj-recipe";
 import { MJ_QUEUE_LIMITS, batchKeyOf, composeMjCommand, threadIdOf } from "../lib/mj-queue";
+import { enforceMjVersion } from "../lib/mj-version";
 import { mjFilePrefix, mjIdentityOf, mjMatches, mjSourcePrefixes } from "../lib/world-styles";
 
 // Prompt sets × style presets × seeds: the comparison grid of a project.
@@ -159,6 +160,8 @@ export const listPresets = ownerQuery({
 type PresetContent = Pick<Preset, "name" | "moodboards" | "profiles" | "srefs" | "parameters" | "sentence" | "note" | "status" | "styleId" | "parentPresetId" | "perturbation">;
 
 const writePreset = async (ctx: MutationCtx, owner: string, root: Doc<"folders">, ingestKey: string, content: PresetContent, source: Preset["source"], meta: { actor?: string; session?: string }) => {
+  // Every job is V8.2: a preset never stores --v 8.1, --v 7 or older (lib/mj-version.ts).
+  if (content.parameters !== undefined) content = { ...content, parameters: enforceMjVersion(content.parameters).text.trim() || undefined };
   if (content.moodboards.length + content.profiles.length + content.srefs.length === 0 && !content.parameters?.trim()) {
     throw new ConvexError("A preset needs at least a moodboard, a profile, an sref or parameters.");
   }
@@ -299,7 +302,8 @@ export const presetFromStyle = ownerMutation({
 });
 
 const perturbationValidator = v.object({
-  kind: v.union(v.literal("board_alone"), v.literal("sref_only"), v.literal("add_profile"), v.literal("drop_profiles"), v.literal("stylize"), v.literal("raw"), v.literal("chaos"), v.literal("sv"), v.literal("version")),
+  // No "version" perturbation: every job is V8.2 (Michael, 15 Nov 2026: never v8.1).
+  kind: v.union(v.literal("board_alone"), v.literal("sref_only"), v.literal("add_profile"), v.literal("drop_profiles"), v.literal("stylize"), v.literal("raw"), v.literal("chaos"), v.literal("sv")),
   value: v.optional(v.string()),
 });
 
@@ -332,7 +336,6 @@ export const perturbPreset = ownerMutation({
         label = `+ ${hit?.name ?? code}`;
       } else if (change.kind === "stylize") { content = { ...content, parameters: setFlag("stylize", change.value ?? "250") }; label = `stylize ${change.value ?? "250"}`; }
       else if (change.kind === "chaos") { content = { ...content, parameters: setFlag("chaos", change.value ?? "5") }; label = `chaos ${change.value ?? "5"}`; }
-      else if (change.kind === "version") { content = { ...content, parameters: setFlag("v", change.value ?? "8.1") }; label = `v ${change.value ?? "8.1"}`; }
       else if (change.kind === "raw") {
         const on = change.value !== "off";
         content = { ...content, parameters: on ? setFlag("raw", "") : setFlag("raw") };
@@ -588,6 +591,7 @@ export const queueRun = ownerMutation({
         styleRefs: fields.styleRefs.map((ref) => ({ code: ref.code, weight: ref.weight, label: ref.label })),
         profileCodes: fields.profileCodes,
         params: fields.params,
+        replacedVersion: fields.replacedVersion,
         editRefs: fields.editRefs.length ? fields.editRefs.filter((ref) => ref.url).map((ref) => ({ url: ref.url, assetId: ref.assetId as Id<"assets"> | undefined, thumbUrl: ref.thumbUrl, label: ref.label })) : undefined,
         lockedPromptId: row._id, placeLabel: row.place,
         runId, presetId: preset._id, presetLabel: preset.name, variantKey: cell.variant.key, variantLabel: cell.variant.label, seed: cell.seed, screen,

@@ -22,12 +22,12 @@ export const mjQueueItemInputSchema = z.object({
   prompt: z.string().max(MJ_QUEUE_LIMITS.prompt).describe("The prose only. No URLs or flags: those go in the fields below."),
   imagePrompts: z.array(ref).max(MJ_QUEUE_LIMITS.imagePrompts).optional().describe("Image prompts, placed first in the command."),
   styleRefs: z.array(ref).max(MJ_QUEUE_LIMITS.styleRefs).optional().describe("--sref images or codes, in order."),
-  omniRef: ref.optional().describe("--oref image. V8.2 has none (Edit model replaced it): added only when params pin --v 7."),
-  characterRef: ref.optional().describe("--cref image. Only V6 reads it: added only when params pin --v 6."),
+  omniRef: ref.optional().describe("Not used: V8.2 has no --oref (the Edit model replaced it). The item keeps it and warns; attach the picture as an edit reference instead."),
+  characterRef: ref.optional().describe("Not used in V8.2: --cref is added only with --niji 6. Otherwise the item warns; attach the picture as an edit reference instead."),
   profileCodes: z.array(z.string().trim().min(1).max(40)).max(MJ_QUEUE_LIMITS.profileCodes).optional()
     .describe("Personalization codes for --profile (moodboard or profile codes, m<id> for a moodboard id)."),
   params: z.string().max(MJ_QUEUE_LIMITS.params).optional()
-    .describe("Every other flag as typed, e.g. --ar 3:1 --draft --relax --stylize 250. --draft and --relax are valid V8.2 prompt params."),
+    .describe("Every other flag as typed, e.g. --ar 3:1 --draft --relax --stylize 250. --draft and --relax are valid V8.2 prompt params. Every job is V8.2: leave --v out or write --v 8.2. --v 8.1, --v 7 and older are rewritten to --v 8.2 and the item warns."),
   note: z.string().max(MJ_QUEUE_LIMITS.note).optional().describe("Plain words for Michael: what to look for in this one."),
   order: z.number().optional().describe("Place in the batch; default after the last item."),
   describe: z.object({

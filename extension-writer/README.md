@@ -28,6 +28,11 @@ Needs: `~/.local/bin/claude` (Claude Code) and a long-lived sign-in from
    `"effort": "medium"` in `config.json` to trade speed for care.
 4. The extension hands the raw answer back to the gallery (`local.stage = "finish"`),
    which reads it exactly as it reads a provider's answer.
+5. Every Midjourney job is `--v 8.2` (Michael, 15 Nov 2026: "never use mj v8.1,
+   do not let it happen"; V7 and older since 11 Nov). The bridge adds that rule
+   to every system prompt, and an answer that still pins `--v 8.1`,
+   `--version 8.1`, `--v 7` or older is rewritten to `--v 8.2` before it leaves
+   the Mac (since 1.2.0; twin of `lib/mj-version.ts`).
 
 ## What it will not do
 

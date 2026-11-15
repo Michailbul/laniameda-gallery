@@ -1149,7 +1149,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
               ) : null}
             </div>
             {isOwner && style && recipeByStyle.get(style.id) ? (
-              <ReviewRecipe name={style.label} recipes={recipeByStyle.get(style.id)!.recipes} />
+              <ReviewRecipe name={style.label} line={style.line} recipes={recipeByStyle.get(style.id)!.recipes} />
             ) : null}
 
             {visible.length === 0 ? (

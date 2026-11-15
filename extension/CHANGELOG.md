@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.35.0 (15 Nov 2026)
+
+- MJ Queue: never Midjourney v8.1 (Michael: "never use mj v8.1, do not let it
+  happen"), nor V7 or older. A queued prompt that pins `--v 8.1`,
+  `--version 8.1`, `--v 7` or older goes into the Imagine bar as `--v 8.2`,
+  and the item says "v8.1 is not used: switched to v8.2". The omni reference
+  warning no longer suggests pinning V7.
+- Midjourney dock: a preset that pins `--v 8.1` or older sets `--v 8.2`, and
+  a preset saved from the bar never stores an older version.
+
 ## 0.34.9 (15 Nov 2026)
 
 - MJ Queue: the side panel reads the queue every 15 s instead of every 4 s

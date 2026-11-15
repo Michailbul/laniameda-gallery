@@ -15,6 +15,7 @@ import {
   EXPAND_LIMITS, buildExpandMessages, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
 } from "../lib/mj-expand";
 import { LOCAL_WRITER_LIMITS, localAnswer } from "../lib/local-writer";
+import { enforceMjVersion, mjVersionWarning } from "../lib/mj-version";
 import type { BriefTier } from "../lib/writer-brief";
 
 // Quick edit of a Midjourney prompt from the extension (select text in the
@@ -135,7 +136,10 @@ export const rewrite = ownerAction({
     if (args.local?.stage === "messages") return { local: { messages, maxTokens: 1500 } };
     const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, args.model as QuickEditModel, messages, "Could not edit");
     const { raw, ...meta } = answer;
-    return { ...meta, text: restoreUrls(cleanModelText(raw), urls), ...briefMeta(brief) };
+    // Every job is V8.2: an edit that still pins --v 8.1 or 7 comes back as --v 8.2.
+    const versioned = enforceMjVersion(restoreUrls(cleanModelText(raw), urls));
+    const notes = versioned.replaced.length ? [...meta.notes, mjVersionWarning(versioned.replaced[0]!)] : meta.notes;
+    return { ...meta, notes, text: versioned.text, ...briefMeta(brief) };
   },
 });
 

@@ -16,7 +16,7 @@ Each style is one record (`style:<id>`) with:
 | status | `draft` → `ready` (Michael's word only); `archived`; `merged` (set by merge_styles) |
 | shelf | The child collection (group Styles) holding its frames. Frames = the shelf's members |
 | covers | Up to 12 frames, in order; the first is its face in the carousel |
-| recipes | Up to 8, the first is the main one: gallery moodboards and Midjourney profiles in stack order, codes with no gallery record yet (`unknownCodes`), parameters, a copy-ready prompt template, how many frames it made, a note |
+| recipes | Up to 8, the first is the main one: gallery moodboards and Midjourney profiles in stack order, codes with no gallery record yet (`unknownCodes`), parameters, a copy-ready prompt template, how many frames it made, a note. Parameters are V8.2 only: `--v 8.1`, `--v 7` or older is saved and copied as `--v 8.2` (Michael, 15 Nov 2026: never v8.1) |
 | raises, lowers | What pushes the look up and what breaks it, with numbers when measured |
 | lock | The style lock story (`package_style`) holding the long recipe text |
 

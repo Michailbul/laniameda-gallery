@@ -9,7 +9,12 @@ Research behind it: `~/AI-video-work/CASSANDRA/bible/mj-style-consistency-resear
 (V7–V8.2, 9 Nov 2026). What it changes here:
 - A recipe is frozen codes: moodboard and profile **codes** (an ID points at
   the latest board; a profile code changes as ratings are added), srefs with
-  their `--sv` version, version, every parameter, the opening sentence.
+  their `--sv` version, every parameter, the opening sentence.
+- Every job is **V8.2**, never 8.1, never V7 or older (Michael, 11 and 15 Nov
+  2026: "never use mj v8.1, do not let it happen"). A preset or prompt that
+  pins `--v 8.1`, `--v 7` or older is saved and queued as `--v 8.2`, and the
+  queue item warns "v8.1 is not used: switched to v8.2". The version is never
+  a perturbation.
 - A seed is a rerun tool, "99% identical" for the same prompt and recipe; it
   does not hold a layout across recipes (use the Edit model for that).
 - Screen in Draft (one submit = 24 small images, one job against the caps),
@@ -34,7 +39,7 @@ Research behind it: `~/AI-video-work/CASSANDRA/bible/mj-style-consistency-resear
   her sheet waits until a sheet exists in each style) and "Cassandra
   locations" (the 20 locked location prompts, neutral / short / full prose).
 - **Style preset** (`preset:<id>`): one exact recipe. A perturbation (board
-  alone, sref only, + profile, stylize 750, raw off, sv 6, version 8.1) is a
+  alone, sref only, + profile, stylize 750, raw off, sv 6, chaos 5) is a
   preset of its own with a parent, so every frame maps to exactly one recipe.
   Made from a world style (`style_preset_from_style`, codes read now), by
   hand (`save_style_preset`), or copied from the extension dock's presets

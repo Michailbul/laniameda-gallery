@@ -83,7 +83,8 @@ session (Comet or another browser the agent drives), the web app's own API:
    add what is missing and remove what is no longer on the gallery board.
 5. Midjourney fixes the board's personalization code when the first job uses
    it, and `--profile m<id>` resolves to the current code. Run that first job
-   when the code is not shown yet, then read the code Midjourney displays.
+   (V8.2: never `--v 8.1` or 7) when the code is not shown yet, then read the
+   code Midjourney displays.
 6. `set_moodboard_midjourney` with `mjCode`, `mjMoodboardId`, `mjUrl` and
    `syncedItemCount` (how many board images Midjourney now holds). A changed
    code goes onto `mjCodeHistory` on its own.

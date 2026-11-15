@@ -320,7 +320,10 @@
       }
       const value = tokens[index + 1];
       if (!value || value.startsWith("-")) continue;
-      out.push(`--${match[1].toLowerCase()} ${value}`);
+      // Every job is V8.2 (Michael, 15 Nov 2026: "never use mj v8.1"; V7 and
+      // older since 11 Nov): a preset that pins an older version sets --v 8.2.
+      if (key === "v" && Number.parseFloat(value) < 8.2) out.push("--v 8.2");
+      else out.push(`--${match[1].toLowerCase()} ${value}`);
       index += 1;
     }
     return out.join(" ");
