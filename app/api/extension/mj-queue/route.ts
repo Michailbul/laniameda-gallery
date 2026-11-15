@@ -3,6 +3,7 @@ import { api } from "@/convex/_generated/api";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/server/extension-auth";
 import { clientErrorMessage } from "@/lib/server/route-error";
+import { etagJson } from "@/lib/server/etag-json";
 import { mjQueueAddSchema, mjQueueListSchema, mjQueueRequeueSchema, mjQueueUpdateSchema } from "@/lib/mj-queue-contract";
 
 // The extension's MJ Queue tab (side panel): GET reads the batches and
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
       includeDone: params.get("includeDone") === "false" ? false : undefined,
     });
     const result = await getServerConvexClient(ownerUserId).query(api.mjQueue.listQueue, { ownerUserId, ...input });
-    return corsJson({ ok: true, ...result });
+    return etagJson(request, { ok: true, ...result }, CORS_HEADERS);
   } catch (error) {
     return corsJson({ error: clientErrorMessage(error, "Could not load the Midjourney queue.") }, 400);
   }

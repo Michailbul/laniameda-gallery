@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.34.9 (15 Nov 2026)
+
+- MJ Queue: the side panel reads the queue every 15 s instead of every 4 s
+  (focusing the window or the panel still reads at once), and the gallery
+  answers an unchanged queue with an empty 304. Each poll used to send the
+  whole 1.2 MB queue again and used up the Vercel plan's transfer.
+
 ## 0.34.8 (14 Nov 2026)
 
 - Midjourney dock: the key badges on the moodboard, profile and preset chips
