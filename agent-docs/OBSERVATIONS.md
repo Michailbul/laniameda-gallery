@@ -8,6 +8,14 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Convex
 
+- Convex CLI too old to push (15 Nov 2026): the repo pins `convex@1.37.0`,
+  and `bun scripts/convex-dev.ts --once` now fails with "Unexpected Error …
+  childComponents … args … Required" (the backend's analysis answer changed
+  shape). The functions are fine. Push with a current CLI and the same
+  sanitized env, codegen off so the committed `convex/_generated` stays:
+  spawn `bunx convex@1.50.0 dev --once --codegen disable --env-file <file>`
+  with `buildSanitizedConvexEnv` (as `scripts/convex-dev.ts` does). Upgrading
+  the `convex` dependency removes the need.
 - Provider secrets (3 Nov 2026): `providerCredentials.sealed` is opened only in
   "use node" code (`convex/providerVault.ts`). The seal key derives from
   PROVIDER_KEYS_SECRET, falling back to AGENT_TOKEN_ISSUER_SECRET; rotating
