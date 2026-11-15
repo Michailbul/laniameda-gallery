@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { etagJson } from "@/lib/server/etag-json";
 import { makeFunctionReference } from "convex/server";
 
 import { getServerConvexClient } from "@/lib/server/convex";
@@ -130,13 +131,13 @@ export async function GET(request: Request) {
     const worldList = (Array.isArray(worlds) ? worlds : []).map(toWorldDto);
 
     if (!worldParam) {
-      return corsJson({
+      return etagJson(request, {
         ok: true,
         worlds: worldList,
         world: null,
         moodboards: [],
         profiles: [],
-      });
+      }, CORS_HEADERS);
     }
 
     const resolved = (await client.query(resolveWorldRefQuery, {
@@ -192,7 +193,7 @@ export async function GET(request: Request) {
     } catch {
       galleryPresets = [];
     }
-    return corsJson({
+    return etagJson(request, {
       ok: true,
       worlds: worldList,
       world: toWorldDto(resolved),
@@ -200,7 +201,7 @@ export async function GET(request: Request) {
       profiles,
       otherProfiles,
       galleryPresets,
-    });
+    }, CORS_HEADERS);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to load moodboards.";

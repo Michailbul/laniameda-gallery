@@ -26,8 +26,10 @@
     collapsed: "stgMjqCollapsed", lastSend: "stgMjqLastSend",
     pins: "stgMjqPins", // sync
   };
-  // New prompts from agents (MCP queue_mj_prompts) show within a few seconds.
-  const REFRESH_MS = 4000;
+  // New prompts from agents (MCP queue_mj_prompts) show within 15 seconds; focusing
+  // the window or the panel reads at once. Every poll is a Vercel function call
+  // (4 s polling used up the Hobby plan in Nov 2026), so keep it slow.
+  const REFRESH_MS = 15000;
   // The account's pace is read at most this often (gentle reading).
   const RATE_MS = 30000;
   const WIDE_PX = 680;
