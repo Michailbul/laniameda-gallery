@@ -44,9 +44,12 @@ type Props = {
   onList?: (key: ListKey) => void;
   focusComment: number;
   onVerdict: (verdict: Verdict) => void;
-  /** The art director: D (and 2) archive the frame instead of disliking it. */
+  /** The art director: D (and 2) discard the frame (the gallery's archive) instead of disliking it. */
   archived?: boolean;
   onArchive?: () => void;
+  /** The art director: 1 approves the frame into the next round; undefined outside the draft. */
+  approved?: boolean;
+  onApprove?: () => void;
   onNav: (delta: number) => void;
   onClose: () => void;
   onDownload: () => void;
@@ -67,7 +70,7 @@ const fastConnection = () => {
 export default function Lightbox(props: Props) {
   const {
     slug, item, position, total, prev, next, mediaBase, folderName, styleLabel, sectionLabel, roundLabel,
-    mine, verdicts, people, canVote, isOwner, viewerName, viewerWho, onList, focusComment, onVerdict, archived, onArchive, onNav, onClose, onDownload, onToast,
+    mine, verdicts, people, canVote, isOwner, viewerName, viewerWho, onList, focusComment, onVerdict, archived, onArchive, approved, onApprove, onNav, onClose, onDownload, onToast,
   } = props;
   const assetId = item.assetId as Id<"assets">;
   const large = mediaUrl(mediaBase, thumbAtLeast(item.thumbs, 1400)?.src);
@@ -223,9 +226,9 @@ export default function Lightbox(props: Props) {
   };
 
   // ----------------------------------------------------------- keys
-  const keyState = useRef<{ onNav: typeof onNav; onClose: typeof onClose; onVerdict: typeof onVerdict; onList: typeof onList; onArchive?: () => void; toggle: () => void }>({ onNav, onClose, onVerdict, onList, onArchive, toggle: () => {} });
+  const keyState = useRef<{ onNav: typeof onNav; onClose: typeof onClose; onVerdict: typeof onVerdict; onList: typeof onList; onArchive?: () => void; onApprove?: () => void; toggle: () => void }>({ onNav, onClose, onVerdict, onList, onArchive, onApprove, toggle: () => {} });
   useEffect(() => {
-    keyState.current = { onNav, onClose, onVerdict, onList, onArchive, toggle: () => toggleZoom() };
+    keyState.current = { onNav, onClose, onVerdict, onList, onArchive, onApprove, toggle: () => toggleZoom() };
   });
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -245,6 +248,8 @@ export default function Lightbox(props: Props) {
       } else if (key === "arrowright") {
         event.preventDefault();
         keys.onNav(1);
+      } else if (key === "1" && keys.onApprove) {
+        keys.onApprove();
       } else if (key === "1" && canVote) {
         keys.onVerdict("like");
       } else if (keys.onArchive && (key === "d" || key === "2")) {
@@ -354,6 +359,28 @@ export default function Lightbox(props: Props) {
 
         {isOwner ? <MadeWith detail={detail} onToast={onToast} /> : null}
 
+        {isOwner && onArchive ? (
+          // The art director: approve into the next round, discard, comment.
+          <div className="rv-lb-acts rv-pills">
+            {approved !== undefined ? (
+              <button type="button" className="rv-pill approve" aria-pressed={approved && !archived} onClick={onApprove}>
+                <kbd>1</kbd>
+                <span>{approved && !archived ? "Approved" : "Approve"}</span>
+              </button>
+            ) : null}
+            <button type="button" className="rv-pill discard" aria-pressed={Boolean(archived)} onClick={onArchive}>
+              <kbd>2</kbd>
+              <span>{archived ? "Restore" : "Discard"}</span>
+            </button>
+            <button type="button" className="rv-pill" onClick={() => areaRef.current?.focus()}>
+              <kbd>C</kbd>
+              <span>Comment</span>
+            </button>
+            <button type="button" className="rv-act" onClick={onDownload}>
+              <span>Download original</span>
+            </button>
+          </div>
+        ) : (
         <div className="rv-lb-acts">
           {canVote ? (
             <>
@@ -361,17 +388,10 @@ export default function Lightbox(props: Props) {
                 <kbd>1</kbd>
                 <span>{mine === "like" ? "Liked" : "Like"}</span>
               </button>
-              {onArchive ? (
-                <button type="button" className="rv-act archive" aria-pressed={Boolean(archived)} onClick={onArchive}>
-                  <kbd>D</kbd>
-                  <span>{archived ? "Restore" : "Archive"}</span>
-                </button>
-              ) : (
-                <button type="button" className="rv-act dislike" aria-pressed={mine === "dislike"} onClick={() => onVerdict("dislike")}>
-                  <kbd>2</kbd>
-                  <span>{mine === "dislike" ? "Disliked" : "Dislike"}</span>
-                </button>
-              )}
+              <button type="button" className="rv-act dislike" aria-pressed={mine === "dislike"} onClick={() => onVerdict("dislike")}>
+                <kbd>2</kbd>
+                <span>{mine === "dislike" ? "Disliked" : "Dislike"}</span>
+              </button>
               <button type="button" className="rv-act" onClick={() => areaRef.current?.focus()}>
                 <kbd>C</kbd>
                 <span>Comment</span>
@@ -382,6 +402,7 @@ export default function Lightbox(props: Props) {
             <span>Download original</span>
           </button>
         </div>
+        )}
 
         {verdicts.length > 0 ? (
           <div>

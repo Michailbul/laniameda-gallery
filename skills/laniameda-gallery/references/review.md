@@ -44,24 +44,33 @@ rolling back and choosing who may look stay Michael's calls.
   older round stays exactly as it was shown. A round is a `draft` (being
   prepared, only Michael sees it) or `published`. One published round is
   `current`: what the director sees by default. There is at most one draft.
-- **Held · only you**: a draft item can be held. Michael (and agents) see it
-  in its folder with a HELD mark; the director never does. Publishing leaves
-  held frames out and carries them, still held, into the next draft. One
-  click on the HELD mark (or Release on a selection) puts it into the round.
-  Agent promotions are held by default (`review_promote` `held`, default
-  true for agents); `review_organize {op: "move", held: false}` releases,
-  only on Michael's word. Michael's own promotions from the gallery are not
-  held. (Michael, 9 Nov 2026: art-director scope first.)
+- **Waiting for Michael's approval** (`held` in the data): a draft item an
+  agent promoted waits for Michael. He sees it in its folder with no mark at
+  all; the director and producers never see it. On the review page he
+  decides per frame (Michael, 15 Nov 2026: "clicking to approve or
+  discard"): **Approve** (key 1, the APPROVE pill on hover, or a selection's
+  Approve all) puts it into the round (`held` false) and it carries one quiet
+  APPROVED pill; 1 again puts it back to waiting. **Discard** (2 or D) is the
+  archive below. The draft's top strip counts approved frames not sent yet
+  ("24 approved · not sent yet") next to "Send round to producers".
+  Publishing sends only approved frames: waiting and discarded ones leave
+  the published round and wait, held, in the next draft. Agent promotions
+  wait by default (`review_promote` `held`, default true for agents);
+  `review_organize {op: "move", held: false}` approves, only on Michael's
+  word. Michael's own promotions from the gallery are approved at once.
+  (Michael, 9 Nov 2026: art-director scope first.)
 - **Item**: a frame in a round: the asset, its folder, its style, an optional
   caption the director reads, and earlier takes it replaced. One frame may sit
   in two folders (a place and a person).
-- **Archived (D)**: on the review page Michael's D (and 2) archives a frame
-  instead of disliking it: the gallery's soft archive (`assetArchive`, the
-  same as D on a board). It grays out in place for him, leaves the
-  director's and guests' view, teaser and downloads, and sits in the
-  gallery's Archive tray; D again or Restore there brings it back. The
-  Archived filter lists them. Never archive for him; it is his call.
-  (Michael, 9 Nov 2026: "for me as art director the dislike doesn't matter.")
+- **Discarded (2 or D)**: on the review page Michael's 2 (and D) discards a
+  frame instead of disliking it: the gallery's soft archive (`assetArchive`,
+  the same as D on a board). It grays out in place for him, leaves the
+  director's, producers' and guests' view, teaser, downloads and bell, is
+  left out when the round is published, and sits in the gallery's Archive
+  tray; 2 again, Approve, or Restore there brings it back (into the draft as
+  waiting, once a round was sent without it). The Discarded filter lists
+  them. Never discard or approve for him; it is his call. (Michael, 9 Nov
+  2026: "for me as art director the dislike doesn't matter.")
 - **Verdict**: one like or dislike per frame per person. It belongs to the
   frame (the asset), not the round, so a like carries into the next round.
 - **Style verdict**: one like or dislike per style per person, on the look as
@@ -103,10 +112,13 @@ world style's name, any case; a round as `"draft"`, `"current"`, `"v0.2"` or
 1. **Draft.** The first promote starts a draft as a copy of the current round
    (or `review_round {op: "draft"}` starts it now; `round` copies an older
    one instead). Everything an agent changes lands in the draft. The director
-   sees nothing of it.
+   sees nothing of it. Michael approves or discards the frames that wait.
 2. **Publish.** `review_round {op: "publish", title, note, confirmed: true}`
-   makes the draft the current round. The title and note tell the director
-   what changed, in plain words. Frames not in the round before show as new.
+   makes the draft the current round (on the page: "Send round to
+   producers"). Only approved frames go out; the answer's `held` and
+   `discarded` count the frames that stayed with Michael in the next draft.
+   The title and note tell the director what changed, in plain words. Frames
+   not in the round before show as new.
 3. **Roll back.** `review_round {op: "set_current", round: "v0.1",
    confirmed: true}` shows an earlier published round instead; the same call
    goes forward again. Nothing is lost.
@@ -177,12 +189,26 @@ order, so every style shows the places in the same sequence and styles
 compare side by side. It strips the chrome: a thin top line (title, round,
 the switch, S / M / L density, keys − and +), a sticky index of styles with
 counts, then per style its label, count and, for the owner only, the style's
-one-line look, over a uniform grid of 16:9 frames. The owner also sees held
-frames (a small HELD mark) and hidden styles (a "hidden" tag); a reviewer
-sees neither. Every key and the open view work as in the folder view; the
-open view steps through the style it was opened in. Browser Print starts
-each style on a new sheet, so Print → Save as PDF gives a style book. Link a
-director straight to it with `<address>?mode=styles`.
+one-line look, over a uniform grid of 16:9 frames. The owner also sees the
+frames waiting for him (no mark), approved ones (APPROVED pill) and hidden
+styles (a "hidden" tag); a reviewer sees none of these. Every key and the
+open view work as in the folder view; the open view steps through the style
+it was opened in. Link a director straight to it with `<address>?mode=styles`.
+
+**PDF** in the book's top line saves the book as a real PDF (Michael, 15 Nov
+2026: "no margins, images are occupying 90%"): all styles or only the one on
+screen, 1 / 4 / 9 frames per page (default 4), one click, built in the
+browser and downloaded as `<project>-style-book-<round>.pdf`. Pages are
+full bleed: an even grid of 16:9 frames edge to edge with hairline gaps fills
+the width and 90 % of the height (so the page is 16:10), and a 10 % strip on
+top carries the style's name, frame count and its page number ("2 / 6"),
+plus the owner's one-line look on the style's first page; each style starts
+on a new page, Obsidian ground, Linen type. Frames are JPEG-compressed at
+their cell's size (the whole CASSANDRA owner round at 4 per page is tens of
+MB, not the ~110 MB of browser Print). It holds exactly what the viewer may
+see, never discarded frames. Thumbnails come through the page's own
+`api/download?thumb=<key>` (the R2 bucket sends no CORS for the review's
+addresses).
 
 In the Locations view, where frames of several styles share the screen
 (All locations, a folder in all styles), hovering a frame shows its style

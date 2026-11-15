@@ -237,10 +237,14 @@ const pageValidator = v.object({
     createdAt: v.number(),
     isCurrent: v.boolean(),
     isDraft: v.boolean(),
-    // Owner only, on the draft: frames it adds to / takes out of the current round.
+    // Owner only, on the draft: approved frames it adds to / takes out of the
+    // current round, frames waiting for his approval (held), frames that go
+    // out when it is sent (approved, not discarded) and discarded (archived) ones.
     added: v.optional(v.number()),
     removed: v.optional(v.number()),
     held: v.optional(v.number()),
+    sending: v.optional(v.number()),
+    discarded: v.optional(v.number()),
   })),
   versionId: v.optional(v.id("reviewVersions")),
   items: v.array(pageItemValidator),
@@ -299,9 +303,21 @@ export const page = query({
       if (before) previousAssets = new Set((await itemsOf(ctx, before._id)).map((row) => row.assetId));
     }
 
+    // One archive lookup per frame, shared by the items and the draft counts.
+    const archivedCache = new Map<string, boolean>();
+    const isArchivedAsset = async (assetId: Id<"assets">) => {
+      const hit = archivedCache.get(assetId);
+      if (hit !== undefined) return hit;
+      const value = Boolean(await archiveEntryOf(ctx, assetId));
+      archivedCache.set(assetId, value);
+      return value;
+    };
+
     const items: Infer<typeof pageItemValidator>[] = [];
+    let shownRows: Doc<"reviewItems">[] = [];
     if (shown) {
       const rows = await itemsOf(ctx, shown._id);
+      shownRows = rows;
       const codeOf = uniqueCodes(rows.map((row) => row.assetId));
       const assets = await Promise.all(rows.map((row) => ctx.db.get(row.assetId)));
       for (let index = 0; index < rows.length; index += 1) {
@@ -312,7 +328,7 @@ export const page = query({
         if (row.held && !isOwner) continue;
         // Archived (D) frames are out of the review: the owner sees them
         // grayed out, everyone else (and the owner's director preview) not at all.
-        const archived = Boolean(await archiveEntryOf(ctx, row.assetId));
+        const archived = await isArchivedAsset(row.assetId);
         if (archived && !isOwner) continue;
         const media = await mediaOf(ctx, asset);
         let previous: Array<{ assetId: Id<"assets">; thumb?: string }> | undefined;
@@ -347,18 +363,28 @@ export const page = query({
     }
 
     // Owner only: what the draft changes against the current round, so the
-    // page can say "Next round · 5 frames waiting" without opening it.
-    let draftChange: { added: number; removed: number; held: number } | undefined;
+    // page can say "24 approved · not sent yet" without opening it. Approved =
+    // not held; a discarded (archived) frame never goes out, approved or not.
+    let draftChange: { added: number; removed: number; held: number; sending: number; discarded: number } | undefined;
     if (isOwner && project.draftVersionId) {
-      const draftRows = await itemsOf(ctx, project.draftVersionId);
-      const draftAssets = new Set(draftRows.filter((row) => !row.held).map((row) => row.assetId as string));
+      const draftRows = shown?._id === project.draftVersionId ? shownRows : await itemsOf(ctx, project.draftVersionId);
+      const sending = new Set<string>();
+      const waiting = new Set<string>();
+      const discarded = new Set<string>();
+      for (const row of draftRows) {
+        if (await isArchivedAsset(row.assetId)) discarded.add(row.assetId);
+        else if (row.held) waiting.add(row.assetId);
+        else sending.add(row.assetId);
+      }
       const currentAssets = project.currentVersionId
         ? new Set((await itemsOf(ctx, project.currentVersionId)).map((row) => row.assetId as string))
         : new Set<string>();
       draftChange = {
-        added: [...draftAssets].filter((id) => !currentAssets.has(id)).length,
-        removed: [...currentAssets].filter((id) => !draftAssets.has(id)).length,
-        held: draftRows.filter((row) => row.held).length,
+        added: [...sending].filter((id) => !currentAssets.has(id)).length,
+        removed: [...currentAssets].filter((id) => !sending.has(id)).length,
+        held: [...waiting].filter((id) => !sending.has(id)).length,
+        sending: sending.size,
+        discarded: discarded.size,
       };
     }
 
@@ -717,6 +743,47 @@ export const setArchived = mutation({
       }
     }
     return { changed };
+  },
+});
+
+/**
+ * The art director's Approve on the review page (key 1, Michael 15 Nov 2026):
+ * an approved frame goes out with the next round (held false); taking it back
+ * leaves it waiting for him again (held). Approving a discarded (archived)
+ * frame brings it back from the archive. Owner only, on the draft round: a
+ * frame of the current round is approved through its copy in the draft.
+ */
+export const setApproved = mutation({
+  args: { slug: v.string(), assetIds: v.array(v.id("assets")), approved: v.boolean() },
+  returns: v.object({ changed: v.number(), draftLabel: v.string() }),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role !== "owner") throw new ConvexError("Only the art director can approve frames.");
+    const draft = project.draftVersionId ? await ctx.db.get(project.draftVersionId) : null;
+    if (!draft) throw new ConvexError("There is no next round yet. Frames are approved in the next round.");
+    let changed = 0;
+    for (const assetId of uniqueIds(args.assetIds)) {
+      const rows = await ctx.db
+        .query("reviewItems")
+        .withIndex("by_version_asset", (q) => q.eq("versionId", draft._id).eq("assetId", assetId))
+        .collect();
+      if (rows.length === 0) throw new ConvexError(`That frame is not in the next round (${draft.label}).`);
+      let touched = false;
+      for (const row of rows) {
+        if (Boolean(row.held) === !args.approved) continue;
+        await ctx.db.patch(row._id, { held: args.approved ? undefined : true });
+        touched = true;
+      }
+      if (args.approved) {
+        const entry = await archiveEntryOf(ctx, assetId);
+        if (entry) {
+          await restoreAsset(ctx, entry);
+          touched = true;
+        }
+      }
+      if (touched) changed += 1;
+    }
+    return { changed, draftLabel: draft.label };
   },
 });
 
@@ -1117,16 +1184,23 @@ export const notifications = query({
       const style = await ctx.db.get(entry.styleId);
       styleLabels.set(entry.styleId, entry.label || style?.name || "Style");
     }
+    const publishedIds = new Set(versions.filter((row) => row.status === "published").map((row) => row._id as string));
     const frameCache = new Map<string, { assetId: Id<"assets">; code: string; thumb?: string; folder?: string }>();
+    // Frames a reviewer may see: in a published round, not held, not archived.
+    const hiddenFromReviewers = new Set<string>();
     const frame = async (assetId: Id<"assets">) => {
       const hit = frameCache.get(assetId);
       if (hit) return hit;
       const asset = await ctx.db.get(assetId);
       const media = asset ? await mediaOf(ctx, asset) : undefined;
-      const item = await ctx.db
+      const rows = await ctx.db
         .query("reviewItems")
         .withIndex("by_project_asset", (q) => q.eq("projectId", project._id).eq("assetId", assetId))
-        .first();
+        .collect();
+      const item = rows[0];
+      if (!isOwner && (!rows.some((row) => publishedIds.has(row.versionId) && !row.held) || (await archiveEntryOf(ctx, assetId)))) {
+        hiddenFromReviewers.add(assetId);
+      }
       const value = {
         assetId,
         code: shortCode(assetId),
@@ -1143,6 +1217,8 @@ export const notifications = query({
       if (own) continue;
       const who = row.authorRole === "agent" ? "agent" : whoOf(row.authorEmail ?? "owner");
       const { folder, ...picture } = await frame(row.assetId);
+      // A note on a frame still waiting for Michael, or discarded, stays his.
+      if (hiddenFromReviewers.has(row.assetId)) continue;
       items.push({
         key: `c:${row._id}`, type: "comment", who, name: row.authorRole === "agent" ? "Agent" : nameOf(row.authorEmail, row.authorName),
         at: row.createdAt, frames: [picture], body: row.body.slice(0, 280), folder,
@@ -2069,21 +2145,35 @@ export const createDraft = signedOwnerMutation({
 /** Publish the draft: it becomes the round the director sees. */
 export const publishDraft = signedOwnerMutation({
   args: { ...ownerArgs, title: v.optional(v.string()), note: v.optional(v.string()), label: v.optional(v.string()) },
-  returns: v.object({ versionId: v.id("reviewVersions"), label: v.string(), items: v.number(), held: v.number() }),
+  returns: v.object({
+    versionId: v.id("reviewVersions"),
+    label: v.string(),
+    items: v.number(),
+    // Frames still waiting for Michael's approval, carried into the next draft.
+    held: v.number(),
+    // Discarded (archived) frames left out of the round, carried as waiting.
+    discarded: v.number(),
+  }),
   handler: async (ctx, args) => {
     const project = await requireOwnedProject(ctx, args.ownerUserId!, args.slug);
     if (!project.draftVersionId) throw new ConvexError("There is no draft round to publish.");
     const draft = await ctx.db.get(project.draftVersionId);
     if (!draft) throw new ConvexError("There is no draft round to publish.");
     const rows = await itemsOf(ctx, draft._id);
-    const heldRows = rows.filter((row) => row.held);
-    const items = rows.length - heldRows.length;
-    if (items === 0) throw new ConvexError(heldRows.length ? "Every frame in the draft is held. Release the ones to send first." : "The draft round is empty.");
+    const archived = new Set<string>();
+    for (const assetId of new Set(rows.map((row) => row.assetId))) {
+      if (await archiveEntryOf(ctx, assetId)) archived.add(assetId);
+    }
+    // Only approved frames go out: one waiting for Michael (held) or
+    // discarded (archived) leaves the round being published and waits in the
+    // next draft, held, so a frame restored from the archive later comes back
+    // as waiting for his approval, never straight into a sent round.
+    const outRows = rows.filter((row) => row.held || archived.has(row.assetId));
+    const items = rows.length - outRows.length;
+    if (items === 0) throw new ConvexError(outRows.length ? "Nothing is approved yet. Approve the frames to send first." : "The draft round is empty.");
     const now = Date.now();
-    // Held frames never go out: they leave the round being published and wait
-    // in the next draft, still held.
-    const carried = heldRows.map(({ _id, _creationTime, versionId, ...rest }) => { void _creationTime; void versionId; void _id; return rest; });
-    for (const row of heldRows) await ctx.db.delete(row._id);
+    const carried = outRows.map(({ _id, _creationTime, versionId, ...rest }) => { void _creationTime; void versionId; void _id; return rest; });
+    for (const row of outRows) await ctx.db.delete(row._id);
     const label = args.label?.trim() || draft.label;
     await ctx.db.patch(draft._id, {
       status: "published",
@@ -2097,7 +2187,8 @@ export const publishDraft = signedOwnerMutation({
       const next = await ensureDraft(ctx, (await ctx.db.get(project._id))!);
       for (const row of carried) await ctx.db.insert("reviewItems", { ...row, versionId: next._id, held: true });
     }
-    return { versionId: draft._id, label, items, held: carried.length };
+    const discarded = outRows.filter((row) => archived.has(row.assetId)).length;
+    return { versionId: draft._id, label, items, held: carried.length - discarded, discarded };
   },
 });
 

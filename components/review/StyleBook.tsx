@@ -6,9 +6,10 @@ import {
   mediaUrl, shortDate, srcSetOf, thumbAtLeast,
   type GridSize, type ReviewItem, type ReviewVersion, type Verdict,
 } from "@/lib/review-client";
-import { StyleVote, type StyleMark, type TileAction } from "./Grid";
+import { OwnerPills, StyleVote, type StyleMark, type TileAction } from "./Grid";
 import { Check, ChevronDown } from "./icons";
 import { Floating, usePopover } from "./Floating";
+import { BookPdf } from "./BookPdf";
 import type { Person } from "./people";
 
 // The style book (?mode=styles): every frame of the round grouped by style,
@@ -45,6 +46,8 @@ type Props = {
   isOwner: boolean;
   canVote: boolean;
   archived: (assetId: string) => boolean;
+  /** Owner, in the round he is preparing: is the frame approved? */
+  approved?: (assetId: string) => boolean;
   selected: Set<string>;
   size: GridSize;
   onSize: (size: GridSize) => void;
@@ -62,6 +65,7 @@ type Props = {
   styleMarks: Map<string, StyleMark>;
   people: Map<string, Person>;
   onStyleVerdict?: (styleId: string, verdict: Verdict) => void;
+  onToast?: (text: string, error?: boolean) => void;
 };
 
 /** Columns per density: wide screens, then up to 1100 px. Phones always show 2. */
@@ -77,8 +81,8 @@ const pageId = (key: string) => `rv-bk-${key}`;
 
 export function StyleBook(props: Props) {
   const {
-    title, groups, total, folderName, mediaBase, isOwner, canVote, archived, selected, size, onSize, modeSwitch,
-    rounds, shownId, onRound, loading, targetRef, onAct, onOpen, onToggle, onRange, onClear, styleMarks, people, onStyleVerdict,
+    title, groups, total, folderName, mediaBase, isOwner, canVote, archived, approved, selected, size, onSize, modeSwitch,
+    rounds, shownId, onRound, loading, targetRef, onAct, onOpen, onToggle, onRange, onClear, styleMarks, people, onStyleVerdict, onToast,
   } = props;
   const headRef = useRef<HTMLElement>(null);
   const indexRef = useRef<HTMLDivElement>(null);
@@ -231,6 +235,9 @@ export function StyleBook(props: Props) {
                 ))}
               </Floating>
             ) : null}
+            {groups.length > 0 ? (
+              <BookPdf title={title} round={shown?.label ?? ""} groups={groups} active={active} archived={archived} onToast={onToast} />
+            ) : null}
             {modeSwitch}
             <div className="rv-size rv-bk-size" role="group" aria-label="Frame size">
               {(["s", "m", "l"] as GridSize[]).map((value) => (
@@ -308,6 +315,9 @@ export function StyleBook(props: Props) {
                       high={at === 0}
                       place={folderName.get(item.folderId) ?? ""}
                       archived={archived(item.assetId)}
+                      owner={isOwner}
+                      approving={Boolean(approved)}
+                      approved={approved ? approved(item.assetId) : false}
                       selected={selected.has(item.assetId)}
                     />
                   );
@@ -329,10 +339,13 @@ type TileProps = {
   high: boolean;
   place: string;
   archived: boolean;
+  owner: boolean;
+  approving: boolean;
+  approved: boolean;
   selected: boolean;
 };
 
-const BookTile = memo(function BookTile({ item, mediaBase, sizes, eager, high, place, archived, selected }: TileProps) {
+const BookTile = memo(function BookTile({ item, mediaBase, sizes, eager, high, place, archived, owner, approving, approved, selected }: TileProps) {
   const poster = thumbAtLeast(item.thumbs, 480);
   const [playing, setPlaying] = useState(false);
   const isVideo = item.kind === "video";
@@ -342,6 +355,7 @@ const BookTile = memo(function BookTile({ item, mediaBase, sizes, eager, high, p
       data-id={item.assetId}
       data-sel={selected ? "" : undefined}
       data-arch={archived ? "" : undefined}
+      data-ok={approved && !archived ? "" : undefined}
       onPointerEnter={isVideo ? () => setPlaying(true) : undefined}
       onPointerLeave={isVideo ? () => setPlaying(false) : undefined}
     >
@@ -362,13 +376,11 @@ const BookTile = memo(function BookTile({ item, mediaBase, sizes, eager, high, p
       {isVideo && playing && item.original ? (
         <video src={mediaUrl(mediaBase, item.original)} muted loop autoPlay playsInline preload="auto" />
       ) : null}
-      {item.held ? (
-        <button type="button" className="rv-bk-held" data-act="release" title="Held · only you see it. Click to release it into the round the director gets.">
-          Held<span className="rel">Release</span>
-        </button>
-      ) : null}
-      {archived ? <span className="rv-bk-held arch">Archived</span> : null}
-      <div className="rv-bk-cap">
+      {approved && !archived ? <span className="rv-t-ok">Approved</span> : null}
+      {archived ? <span className="rv-bk-mark">Discarded</span> : null}
+      {/* The owner's pills take the bottom edge, so the place and code move to the top. */}
+      {owner ? <OwnerPills approving={approving} approved={approved} archived={archived} /> : null}
+      <div className="rv-bk-cap" data-top={owner ? "" : undefined}>
         <span className="pl">{place}</span>
         <button type="button" className="rv-code" data-act="copy" title="Copy this frame's code">{item.code}</button>
       </div>

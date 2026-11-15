@@ -62,7 +62,8 @@ export const slugOf = (value: string) =>
 
 // ------------------------------------------------------------- view state
 
-export type FeedbackFilter = "all" | "liked" | "disliked" | "commented" | "todo" | "new" | "feedback" | "archived";
+// "approved" / "waiting": the owner's own decisions in the draft round (Approve, key 1).
+export type FeedbackFilter = "all" | "liked" | "disliked" | "commented" | "todo" | "new" | "feedback" | "archived" | "approved" | "waiting";
 export type GridSize = "s" | "m" | "l";
 // "folders": the round by location / character folder (the default).
 // "styles": the style book, every frame of the round grouped by style.
@@ -79,7 +80,7 @@ export type ViewState = {
   mode: ReviewMode;
 };
 
-const FILTERS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback", "archived"];
+const FILTERS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback", "archived", "approved", "waiting"];
 const SIZES: GridSize[] = ["s", "m", "l"];
 const SECTIONS: ReviewSection[] = ["locations", "characters", "scenes"];
 

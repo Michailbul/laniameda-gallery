@@ -597,7 +597,7 @@ export async function POST(request: Request) {
           const result = await client.mutation(api.review.promote, {
             ownerUserId, slug: input.project, assetIds: batch as Id<"assets">[],
             folderId: folderId as Id<"reviewFolders">, styleId: style?.styleId as Id<"worldStyles"> | undefined, note: input.note,
-            // Art-director scope: an agent's promotion is held for Michael unless he said to send (held: false).
+            // Art-director scope: an agent's promotion waits for Michael's approval unless he said to send (held: false).
             held: input.held ?? true,
           });
           added += result.added;
@@ -612,7 +612,7 @@ export async function POST(request: Request) {
         unplaced: unplaced.length ? unplaced.map(asset) : undefined,
         next: [
           unplaced.length ? "Unplaced frames have no folder named like their shelves: promote them again with folder." : "",
-          (input.held ?? true) ? "Held · only Michael sees them; publishing leaves them out until he releases them (review_organize op move, held: false, on his word)." : "",
+          (input.held ?? true) ? "Waiting for Michael's approval: only he sees them, and publishing leaves them out until he approves them on the review page (1 Approve; review_organize op move, held: false, only on his word)." : "",
           "review_items {round: \"draft\"} checks the draft. Publish only on Michael's go.",
         ].filter(Boolean).join(" "),
       });
@@ -701,9 +701,9 @@ export async function POST(request: Request) {
         });
         const overview = await overviewOf(input.project);
         return NextResponse.json({
-          ok: true, project: input.project, current: result.label, frames: result.items, held: result.held,
+          ok: true, project: input.project, current: result.label, frames: result.items, held: result.held, discarded: result.discarded,
           url: reviewUrl(input.project), publicUrl: overview.project.publicUrl,
-          next: `The director now sees this round.${result.held ? ` ${result.held} held frames stayed with Michael in the next draft.` : ""} review_round {op: "set_current", round} rolls back.`,
+          next: `The director now sees this round.${result.held ? ` ${result.held} frames still waiting for Michael's approval stayed with him in the next draft.` : ""}${result.discarded ? ` ${result.discarded} discarded frames were left out.` : ""} review_round {op: "set_current", round} rolls back.`,
         });
       }
       if (action === "set_current") {

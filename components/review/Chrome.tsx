@@ -127,20 +127,24 @@ export const FILTER_SHORT: Record<FeedbackFilter, string> = {
   todo: "To review",
   new: "New",
   feedback: "His feedback",
-  archived: "Archived",
+  archived: "Discarded",
+  approved: "Approved",
+  waiting: "Waiting",
 };
 
-const filterOptions = (isOwner: boolean, director: string): Array<[FeedbackFilter, string]> =>
+const filterOptions = (isOwner: boolean, director: string, draft: boolean): Array<[FeedbackFilter, string]> =>
   isOwner
     ? [
         ["all", "All frames"],
+        // The owner's own decisions, in the round he is preparing.
+        ...(draft ? ([["waiting", "Waiting for you"], ["approved", "Approved"]] as Array<[FeedbackFilter, string]>) : []),
         ["feedback", `Only ${director}'s feedback`],
         ["new", "New feedback"],
         ["liked", `Liked by ${director}`],
         ["disliked", `Disliked by ${director}`],
         ["commented", "With comments"],
         ["todo", "Nobody has looked yet"],
-        ["archived", "Archived (D)"],
+        ["archived", "Discarded (2)"],
       ]
     : [
         ["all", "All frames"],
@@ -202,7 +206,8 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
   };
   const [filterOpen, setFilterOpen, filterRef, filterPop] = usePopover();
   const [keysOpen, setKeysOpen, keysRef, keysPop] = usePopover();
-  const options = filterOptions(isOwner, directorName);
+  const draftShown = Boolean(props.versions.find((row) => row.id === props.versionId)?.isDraft);
+  const options = filterOptions(isOwner, directorName, draftShown);
   const covers = styles.filter((row) => row.cover).slice(0, 4);
 
   return (

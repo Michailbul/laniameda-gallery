@@ -38,9 +38,12 @@ export type TileMark = {
   lists: string;
   // Owner only: archived (D), grayed out in place until the page reloads.
   archived?: boolean;
+  // Owner only, in the round he is preparing: approved (goes out when sent).
+  // Undefined anywhere else.
+  approved?: boolean;
 };
 
-export type TileAction = "like" | "dislike" | "archive" | "comment" | "copy" | "release";
+export type TileAction = "like" | "dislike" | "approve" | "archive" | "comment" | "copy";
 
 type GridProps = {
   groups: GridGroup[];
@@ -50,6 +53,8 @@ type GridProps = {
   mediaBase: string;
   canVote: boolean;
   isOwner: boolean;
+  /** Owner, in the draft round: Approve (1) and the APPROVED pill. */
+  approving?: boolean;
   size: "s" | "m" | "l";
   targetRef: MutableRefObject<string | null>;
   onAct: (action: TileAction, assetId: string, tile: HTMLElement) => void;
@@ -103,7 +108,7 @@ const NEAR = 12;
 const STEP = 120;
 
 export function Grid(props: GridProps) {
-  const { groups, marks, people, selected, mediaBase, canVote, isOwner, size, targetRef, onAct, onOpen, onToggle, onRange, onBox, onClear, onSelectGroup, styleMarks, styleCopy, onStyleVerdict, styleNames } = props;
+  const { groups, marks, people, selected, mediaBase, canVote, isOwner, approving = false, size, targetRef, onAct, onOpen, onToggle, onRange, onBox, onClear, onSelectGroup, styleMarks, styleCopy, onStyleVerdict, styleNames } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const suppressClick = useRef(false);
@@ -331,6 +336,8 @@ export function Grid(props: GridProps) {
                   comments={mark?.comments ?? 0}
                   fresh={mark?.fresh ?? false}
                   archived={mark?.archived ?? false}
+                  approved={mark?.approved ?? false}
+                  approving={approving}
                   selected={selected.has(item.assetId)}
                   canVote={canVote}
                   isOwner={isOwner}
@@ -401,6 +408,8 @@ type TileProps = {
   comments: number;
   fresh: boolean;
   archived: boolean;
+  approved: boolean;
+  approving: boolean;
   selected: boolean;
   canVote: boolean;
   isOwner: boolean;
@@ -410,7 +419,7 @@ type TileProps = {
 const MAX_FACES = 4;
 
 const Tile = memo(function Tile(props: TileProps) {
-  const { item, mediaBase, sizes, eager, high, far, verdict, mine, faces, lists, people, comments, fresh, archived, selected, canVote, isOwner, styleName } = props;
+  const { item, mediaBase, sizes, eager, high, far, verdict, mine, faces, lists, people, comments, fresh, archived, approved, approving, selected, canVote, isOwner, styleName } = props;
   const ratio = item.width / Math.max(1, item.height);
   const poster = thumbAtLeast(item.thumbs, 960);
   const [playing, setPlaying] = useState(false);
@@ -432,8 +441,8 @@ const Tile = memo(function Tile(props: TileProps) {
       data-v={verdict}
       data-sel={selected ? "" : undefined}
       data-arch={archived ? "" : undefined}
+      data-ok={approved && !archived ? "" : undefined}
       data-far={far ? "" : undefined}
-      data-held={item.held ? "" : undefined}
       style={{ "--ar": ratio.toFixed(4) } as React.CSSProperties}
       onPointerEnter={isVideo ? () => setPlaying(true) : undefined}
       onPointerLeave={isVideo ? () => setPlaying(false) : undefined}
@@ -460,13 +469,9 @@ const Tile = memo(function Tile(props: TileProps) {
         <button type="button" className="rv-chip rv-code" data-act="copy" title="Copy this frame's code">
           {item.code}
         </button>
-        {item.isNew && !item.held ? <span className="rv-chip new">New</span> : null}
-        {item.held ? (
-          <button type="button" className="rv-chip held" data-act="release" title="Held · only you see it. Click to release it into the round the director gets.">
-            Held · only you<span className="rel">Release</span>
-          </button>
-        ) : null}
-        {archived ? <span className="rv-chip arch">Archived · D restores</span> : null}
+        {/* In the round he is preparing, the owner reads APPROVED (or nothing) instead. */}
+        {item.isNew && !approving && !item.held ? <span className="rv-chip new">New</span> : null}
+        {archived ? <span className="rv-chip arch">Discarded · 2 restores</span> : null}
       </div>
 
       <div className="rv-t-marks">
@@ -496,23 +501,20 @@ const Tile = memo(function Tile(props: TileProps) {
 
       {styleName ? <span className={`rv-chip rv-t-style${canVote ? " up" : ""}`}>{styleName}</span> : null}
 
-      {canVote ? (
+      {approved && !archived ? <span className="rv-t-ok">Approved</span> : null}
+
+      {isOwner ? (
+        <OwnerPills approving={approving} approved={approved} archived={archived} />
+      ) : canVote ? (
         <div className="rv-t-acts">
           <button type="button" className="rv-act like" data-act="like" aria-pressed={mine === "like"}>
             <kbd>1</kbd>
             <span>{mine === "like" ? "Liked" : "Like"}</span>
           </button>
-          {isOwner ? (
-            <button type="button" className="rv-act archive" data-act="archive" aria-pressed={archived}>
-              <kbd>D</kbd>
-              <span>{archived ? "Restore" : "Archive"}</span>
-            </button>
-          ) : (
-            <button type="button" className="rv-act dislike" data-act="dislike" aria-pressed={mine === "dislike"}>
-              <kbd>2</kbd>
-              <span>{mine === "dislike" ? "Disliked" : "Dislike"}</span>
-            </button>
-          )}
+          <button type="button" className="rv-act dislike" data-act="dislike" aria-pressed={mine === "dislike"}>
+            <kbd>2</kbd>
+            <span>{mine === "dislike" ? "Disliked" : "Dislike"}</span>
+          </button>
           <button type="button" className="rv-act" data-act="comment">
             <kbd>C</kbd>
             <span>Comment</span>
@@ -522,3 +524,30 @@ const Tile = memo(function Tile(props: TileProps) {
     </div>
   );
 });
+
+/**
+ * The art director's hover hint on a frame, as clickable text pills:
+ * 1 APPROVE (APPROVED, filled, once approved) · 2 DISCARD (RESTORE once
+ * discarded) · C COMMENT. Approve shows only in the round he is preparing.
+ * The style book's tiles use it too.
+ */
+export function OwnerPills({ approving, approved, archived }: { approving: boolean; approved: boolean; archived: boolean }) {
+  return (
+    <div className="rv-t-acts rv-pills">
+      {approving ? (
+        <button type="button" className="rv-pill approve" data-act="approve" aria-pressed={approved && !archived} title={approved && !archived ? "Approved: it goes out when you send the round. 1 takes it back." : "Approve: it goes out when you send the round"}>
+          <kbd>1</kbd>
+          <span>{approved && !archived ? "Approved" : "Approve"}</span>
+        </button>
+      ) : null}
+      <button type="button" className="rv-pill discard" data-act="archive" aria-pressed={archived} title={archived ? "Bring it back" : "Discard: producers never see it; the gallery's Archive keeps it"}>
+        <kbd>2</kbd>
+        <span>{archived ? "Restore" : "Discard"}</span>
+      </button>
+      <button type="button" className="rv-pill" data-act="comment">
+        <kbd>C</kbd>
+        <span>Comment</span>
+      </button>
+    </div>
+  );
+}

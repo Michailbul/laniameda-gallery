@@ -8,6 +8,18 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Convex
 
+- Local owner testing needs `CONVEX_AUTH_PRIVATE_KEY` (15 Nov 2026). It is a
+  Vercel *sensitive* variable, so `vercel env pull` writes it empty and a
+  local dev server can neither mint the owner's nor a reviewer's Convex token
+  (the review page shows the sign-in card). Previews carry only the Convex
+  URLs, and a production-env deployment on `*.vercel.app` redirects to the
+  canonical host (proxy.ts). Without the key on the machine, review-page
+  changes are exercised live after merge, writes on `cassandra-test` only.
+- The R2 public bucket answers CORS only for `http://localhost:3317`; the
+  review's addresses (gallery.laniameda.space, mishabuloichyk.com) get no
+  `Access-Control-Allow-Origin`, so a canvas cannot read its images. The
+  review page reads thumbnails through `api/download?thumb=<key>`.
+
 - Convex CLI too old to push (15 Nov 2026): the repo pins `convex@1.37.0`,
   and `bun scripts/convex-dev.ts --once` now fails with "Unexpected Error …
   childComponents … args … Required" (the backend's analysis answer changed

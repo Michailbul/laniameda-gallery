@@ -619,8 +619,10 @@ only plain collections may be children. One level deep.
   `publishedAt`. Index `by_project_number`.
 - `reviewItems`: a frame in one round. `versionId`, `assetId`, `folderId`,
   `styleId`, `order`, `note` (caption), `previousAssetIds` (earlier takes,
-  oldest first), `held` (Held · only you: draft only, never on a reviewer's
-  page, left out of publish and carried into the next draft), `addedAt`. A
+  oldest first), `held` (waiting for Michael's approval: draft only, never
+  on a reviewer's page; his Approve sets it false; publishing leaves held and
+  archived frames out and carries them, held, into the next draft;
+  `review.setApproved` is the page's Approve), `addedAt`. A
   draft starts as a copy of a round's items, so
   published rounds never change. Indexes `by_version_order`,
   `by_version_asset`, `by_project_asset`.

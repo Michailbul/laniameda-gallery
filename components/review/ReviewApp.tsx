@@ -88,7 +88,7 @@ export function ReviewApp(props: Props) {
 const SECTIONS: ReviewSection[] = ["locations", "characters", "scenes"];
 const SECTION_ORDER: Record<ReviewSection, number> = { locations: 0, characters: 1, scenes: 2 };
 const EMPTY_FEEDBACK: ReviewFeedback = { people: [], verdicts: [], styleVerdicts: [], comments: [], reviewers: [], openSignIn: undefined };
-const FILTER_KEYS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback", "archived"];
+const FILTER_KEYS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback", "archived", "approved", "waiting"];
 
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message.replace(/^[\s\S]*ConvexError: /, "").replace(/\s+at [\s\S]*$/, "") : "That did not work.";
@@ -278,6 +278,18 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     [isOwner, archivedOverride, index],
   );
 
+  // ---------------------------------------------------------- approve (owner, 1)
+  // Michael, 15 Nov 2026: approve or discard instead of "held · release".
+  // In the round he is preparing, an approved frame goes out when he sends
+  // it (held false) and carries one quiet APPROVED pill; a frame waiting for
+  // his decision carries no mark. 1 again takes it back to waiting.
+  const approving = isOwner && Boolean(shownVersion?.isDraft);
+  const [approvedOverride, setApprovedOverride] = useState<Map<string, boolean>>(() => new Map());
+  const isApproved = useCallback(
+    (assetId: string) => approving && !isArchived(assetId) && (approvedOverride.get(assetId) ?? !index.byAsset.get(assetId)?.held),
+    [approving, isArchived, approvedOverride, index],
+  );
+
   // ---------------------------------------------------------- owner lists (keys 3–9)
   const [lists, setLists] = useState<Lists>(emptyLists);
   const [viewingList, setViewingList] = useState<ListKey | null>(null);
@@ -318,10 +330,11 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         fresh: fb.fresh.has(id),
         lists: listsOf.get(id) ?? "",
         archived: isArchived(id),
+        approved: approving ? isApproved(id) : undefined,
       });
     }
     return map;
-  }, [page.items, mineOf, fb, isOwner, myKey, me, listsOf, isArchived]);
+  }, [page.items, mineOf, fb, isOwner, myKey, me, listsOf, isArchived, approving, isApproved]);
 
   // ---------------------------------------------------------- style verdicts
   // Per style: your own verdict, the faces shown next to it (reviewers plus
@@ -437,6 +450,8 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     if (!mark) return false;
     if (filter === "liked") return mark.verdict === "like";
     if (filter === "disliked") return mark.verdict === "dislike";
+    if (filter === "approved") return mark.approved === true;
+    if (filter === "waiting") return mark.approved === false && !mark.archived;
     if (filter === "commented") return mark.comments > 0;
     if (filter === "todo") return !mark.verdict && mark.comments === 0;
     if (filter === "feedback") {
@@ -634,7 +649,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     });
     if (archived) setKeptInPlace((current) => new Set([...current, ...ids]));
     const count = ids.length > 1 ? ` ${ids.length}` : "";
-    flash(ids, archived ? `Archived${count}` : `Restored${count}`, archived ? "dislike" : "plain");
+    flash(ids, archived ? `Discarded${count}` : `Restored${count}`, archived ? "dislike" : "plain");
     const settle = () =>
       setArchivedOverride((current) => {
         const map = new Map(current);
@@ -642,10 +657,52 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         return map;
       });
     setArchivedMutation({ slug, assetIds: ids as Id<"assets">[], archived })
-      .then(() => { if (archived) toast("Archived · out of the director's view · D brings it back"); })
+      .then(() => { if (archived) toast("Discarded · producers never see it · 2 brings it back"); })
       .catch((error) => toast(errorText(error), true))
       .finally(settle);
   }, [isOwner, isArchived, flash, setArchivedMutation, slug, toast]);
+
+  // Approve frames into the round being prepared, or take them back to waiting.
+  const setApprovedMutation = useMutation(api.review.setApproved);
+  const applyApprove = useCallback((ids: string[]) => {
+    if (!isOwner || ids.length === 0) return;
+    if (!approving) {
+      const draft = page.versions.find((row) => row.isDraft);
+      toast(draft ? `This round is sent. Approve frames in the next round, ${draft.label}.` : "This round is sent. Frames are approved in the next round.");
+      return;
+    }
+    const approved = !ids.every((id) => isApproved(id));
+    setApprovedOverride((current) => {
+      const map = new Map(current);
+      for (const id of ids) map.set(id, approved);
+      return map;
+    });
+    // Approving a discarded frame brings it back.
+    if (approved && ids.some((id) => isArchived(id))) {
+      setArchivedOverride((current) => {
+        const map = new Map(current);
+        for (const id of ids) if (isArchived(id)) map.set(id, false);
+        return map;
+      });
+    }
+    const count = ids.length > 1 ? ` ${ids.length}` : "";
+    flash(ids, approved ? `Approved${count}` : `Not approved${count}`, approved ? "like" : "plain");
+    setApprovedMutation({ slug, assetIds: ids as Id<"assets">[], approved })
+      .catch((error) => toast(errorText(error), true))
+      .finally(() => {
+        // The live round has the answer now; drop the guesses.
+        setApprovedOverride((current) => {
+          const map = new Map(current);
+          for (const id of ids) if (map.get(id) === approved) map.delete(id);
+          return map;
+        });
+        setArchivedOverride((current) => {
+          const map = new Map(current);
+          for (const id of ids) if (map.get(id) === false) map.delete(id);
+          return map;
+        });
+      });
+  }, [isOwner, approving, page.versions, isApproved, isArchived, flash, setApprovedMutation, slug, toast]);
 
   // Like or dislike a whole style; the same choice again clears it.
   const applyStyleVerdict = useCallback((styleId: string, verdict: Verdict) => {
@@ -922,7 +979,6 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
 
   const [composeSignal, setComposeSignal] = useState(0);
 
-  const updateItems = useMutation(api.review.updateItems);
   const onAct = useCallback((action: TileAction, assetId: string, tile: HTMLElement) => {
     if (action === "copy") {
       const item = index.byAsset.get(assetId);
@@ -937,23 +993,14 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       return;
     }
     const ids = selected.has(assetId) && selected.size > 1 ? [...selected] : [assetId];
-    if (action === "release") {
-      // One click: a held frame (or every held one selected with it) joins the round.
-      const itemIds = ids.map((id) => index.byAsset.get(id)).filter((item) => item?.held).map((item) => item!.id);
-      if (!itemIds.length) return;
-      void updateItems({ slug, itemIds, held: false }).then(
-        (result) => flash(ids, `Released into ${result.draftLabel}`, "plain"),
-        () => toast("Could not release it. Try again.", true),
-      );
-      return;
-    }
-    if (action === "like" || action === "dislike") applyVerdict(ids, action);
+    if (action === "approve") applyApprove(ids);
+    else if (action === "like" || action === "dislike") applyVerdict(ids, action);
     else if (action === "archive") applyArchive(ids);
     else if (action === "comment") {
       if (ids.length > 1) setComposeSignal((value) => value + 1);
       else openFrame(assetId, true);
     }
-  }, [index, selected, applyVerdict, applyArchive, openFrame, flash, updateItems, slug, toast]);
+  }, [index, selected, applyVerdict, applyApprove, applyArchive, openFrame, flash]);
 
   const moveActive = useCallback((key: string) => {
     const ids = flatRef.current;
@@ -991,7 +1038,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
 
   // Keys on the hovered frame (the open view handles its own keys).
   const keys = useRef({
-    open: false, isOwner: false, targets, applyVerdict, applyArchive, openFrame, clearSelection, moveActive, toggleList, stepRound,
+    open: false, isOwner: false, targets, applyVerdict, applyApprove, applyArchive, openFrame, clearSelection, moveActive, toggleList, stepRound,
     selectedSize: 0, selectAll: () => {}, compose: () => {}, isBook: false, stepBookSize,
   });
   useEffect(() => {
@@ -1000,6 +1047,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       isOwner,
       targets,
       applyVerdict,
+      applyApprove,
       applyArchive,
       openFrame,
       clearSelection,
@@ -1039,9 +1087,13 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       } else if (key === "?") {
         document.querySelector<HTMLButtonElement>(".rv-bar-r .rv-btn.round")?.click();
       } else if (state.isOwner && (key === "d" || key === "2")) {
-        // The art director archives; dislike is the director's.
+        // The art director discards (the gallery's archive); dislike is the director's.
         const ids = state.targets();
         if (ids.length) state.applyArchive(ids);
+      } else if (state.isOwner && key === "1") {
+        // The art director approves frames into the next round; like is the director's.
+        const ids = state.targets();
+        if (ids.length) state.applyApprove(ids);
       } else if (key === "1" || key === "2") {
         const ids = state.targets();
         if (ids.length) state.applyVerdict(ids, key === "1" ? "like" : "dislike");
@@ -1209,6 +1261,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           isOwner={isOwner}
           canVote={canVote}
           archived={isArchived}
+          approved={approving ? isApproved : undefined}
           selected={selected}
           size={bookSize}
           onSize={onBookSize}
@@ -1226,6 +1279,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           styleMarks={styleMarks}
           people={people}
           onStyleVerdict={canVote ? applyStyleVerdict : undefined}
+          onToast={toast}
         />
         </Suspense>
       ) : (
@@ -1330,6 +1384,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
                 mediaBase={page.mediaBase}
                 canVote={canVote}
                 isOwner={isOwner}
+                approving={approving}
                 size={view.size}
                 targetRef={targetRef}
                 onAct={onAct}
@@ -1357,7 +1412,10 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           canVote={canVote}
           onLike={() => applyVerdict(selectedIds, "like")}
           onDislike={() => applyVerdict(selectedIds, "dislike")}
+          onApprove={approving ? () => applyApprove(selectedIds) : undefined}
+          allApproved={approving && selectedIds.every((id) => isApproved(id))}
           onArchive={isOwner ? () => applyArchive(selectedIds) : undefined}
+          allArchived={isOwner && selectedIds.every((id) => isArchived(id))}
           onComment={commentAll}
           onDownload={() => downloadFrames(reviewBase(), selectedIds)}
           onClear={clearSelection}
@@ -1437,6 +1495,8 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
             onVerdict={(verdict) => applyVerdict([openItem.assetId], verdict)}
             archived={isOwner ? isArchived(openItem.assetId) : undefined}
             onArchive={isOwner ? () => applyArchive([openItem.assetId]) : undefined}
+            approved={approving ? isApproved(openItem.assetId) : undefined}
+            onApprove={isOwner ? () => applyApprove([openItem.assetId]) : undefined}
             onNav={navFrame}
             onClose={closeFrame}
             onDownload={() => downloadFrames(reviewBase(), [openItem.assetId])}
