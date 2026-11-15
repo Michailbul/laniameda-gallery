@@ -64,6 +64,12 @@ type GridProps = {
   styleCopy?: Map<string, string>;
   /** Anyone who may vote: like or dislike a whole style (again = clear). */
   onStyleVerdict?: (styleId: string, verdict: Verdict) => void;
+  /**
+   * Set when the frames on screen span several styles: each frame's style
+   * (the world style's name for the owner, the review label for anyone
+   * else), shown on the tile on hover only.
+   */
+  styleNames?: Map<string, string>;
 };
 
 const PER_ROW = { s: 5, m: 3, l: 2 } as const;
@@ -97,7 +103,7 @@ const NEAR = 12;
 const STEP = 120;
 
 export function Grid(props: GridProps) {
-  const { groups, marks, people, selected, mediaBase, canVote, isOwner, size, targetRef, onAct, onOpen, onToggle, onRange, onBox, onClear, onSelectGroup, styleMarks, styleCopy, onStyleVerdict } = props;
+  const { groups, marks, people, selected, mediaBase, canVote, isOwner, size, targetRef, onAct, onOpen, onToggle, onRange, onBox, onClear, onSelectGroup, styleMarks, styleCopy, onStyleVerdict, styleNames } = props;
   const rootRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const suppressClick = useRef(false);
@@ -328,6 +334,7 @@ export function Grid(props: GridProps) {
                   selected={selected.has(item.assetId)}
                   canVote={canVote}
                   isOwner={isOwner}
+                  styleName={item.styleId ? styleNames?.get(item.styleId) : undefined}
                 />
               );
             })}
@@ -397,12 +404,13 @@ type TileProps = {
   selected: boolean;
   canVote: boolean;
   isOwner: boolean;
+  styleName?: string;
 };
 
 const MAX_FACES = 4;
 
 const Tile = memo(function Tile(props: TileProps) {
-  const { item, mediaBase, sizes, eager, high, far, verdict, mine, faces, lists, people, comments, fresh, archived, selected, canVote, isOwner } = props;
+  const { item, mediaBase, sizes, eager, high, far, verdict, mine, faces, lists, people, comments, fresh, archived, selected, canVote, isOwner, styleName } = props;
   const ratio = item.width / Math.max(1, item.height);
   const poster = thumbAtLeast(item.thumbs, 960);
   const [playing, setPlaying] = useState(false);
@@ -485,6 +493,8 @@ const Tile = memo(function Tile(props: TileProps) {
           </span>
         ) : null}
       </div>
+
+      {styleName ? <span className={`rv-chip rv-t-style${canVote ? " up" : ""}`}>{styleName}</span> : null}
 
       {canVote ? (
         <div className="rv-t-acts">

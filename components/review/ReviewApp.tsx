@@ -5,15 +5,17 @@ import { ConvexProvider, ConvexReactClient, useMutation, useQuery } from "convex
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  LIST_COLORS, LIST_KEYS, SECTION_LABEL, SECTION_SINGULAR, downloadFrames, copyText, emptyLists, isTyping, plural, readLists, readViewState,
-  reviewBase, slugOf, writeLists, writeViewState,
-  type FeedbackFilter, type GridSize, type ListKey, type Lists, type ReviewFeedback, type ReviewFolder, type ReviewItem, type ReviewPage,
-  type ReviewSection, type ReviewVersion, type Verdict, type ViewState,
+  LIST_COLORS, LIST_KEYS, SECTION_LABEL, SECTION_SINGULAR, downloadFrames, copyText, emptyLists, isTyping, plural, readBookSize, readLists,
+  readViewState, reviewBase, slugOf, writeBookSize, writeLists, writeViewState,
+  type FeedbackFilter, type GridSize, type ListKey, type Lists, type ReviewFeedback, type ReviewFolder, type ReviewItem, type ReviewMode,
+  type ReviewPage, type ReviewSection, type ReviewVersion, type Verdict, type ViewState,
 } from "@/lib/review-client";
+import { templateWords } from "@/lib/mj-recipe";
 import { reviewTheme } from "@/lib/review-theme";
 import { Grid, type GridGroup, type StyleMark, type TileAction, type TileMark } from "./Grid";
-import { Sidebar, TopBar, type AreaGroup, type StyleChip } from "./Chrome";
+import { ModeSwitch, Sidebar, TopBar, type AreaGroup, type StyleChip } from "./Chrome";
 import { Milestones } from "./Milestones";
+import type { BookGroup } from "./StyleBook";
 import { ReviewRecipe } from "./Recipe";
 import { BulkBar } from "./BulkBar";
 import { Bell } from "./Bell";
@@ -28,6 +30,8 @@ import type { Audience } from "./OwnerTools";
 // instant: every index is built once per round.
 
 const Lightbox = lazy(() => import("./Lightbox"));
+// The style book (?mode=styles) loads only when shown; a link to it still renders on the server.
+const StyleBook = lazy(() => import("./StyleBook").then((module) => ({ default: module.StyleBook })));
 // Michael's tools load only for him (never for a director, never in "view as director").
 const OwnerStrip = lazy(() => import("./OwnerTools").then((module) => ({ default: module.OwnerStrip })));
 const FeedbackPanel = lazy(() => import("./OwnerTools").then((module) => ({ default: module.FeedbackPanel })));
@@ -165,8 +169,11 @@ function initialView(search: string, page: ReviewPage): ViewState {
     size: parsed.size,
     round: parsed.round ?? "",
     open: parsed.open && index.byCode.has(parsed.open) ? parsed.open : "",
+    mode: parsed.mode ?? "folders",
   };
 }
+
+const BOOK_SIZES: GridSize[] = ["s", "m", "l"];
 
 type Flash = { key: string; x: number; y: number; label: string; tone: "like" | "dislike" | "list" | "plain"; color?: string };
 type Toast = { key: number; text: string; error?: boolean };
@@ -380,7 +387,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     const onPop = () => {
       pushedOpen.current = false;
       const parsed = readViewState(window.location.search, "m");
-      setView((current) => ({ ...current, open: parsed.open ?? "" }));
+      setView((current) => ({ ...current, open: parsed.open ?? "", mode: parsed.mode ?? "folders" }));
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -471,7 +478,95 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     return [{ key: "frames", items: visible }];
   }, [listView, folder, style, visible, page.styles, index, view.section]);
 
-  const flatIds = useMemo(() => groups.flatMap((group) => group.items.map((item) => item.assetId as string)), [groups]);
+  // ---------------------------------------------------------- the style book (?mode=styles)
+  // Every frame of the round grouped by style, across all folders. Inside a
+  // style the frames run in folder order (script order of the places, then
+  // the characters), then item order, so every style reads in the same place
+  // sequence. Styles in carousel order; frames with no style last. The page's
+  // own items, so held frames, hidden styles and archived frames follow the
+  // same rules as the folder view (archived ones show only while the page
+  // that archived them is open).
+  const isBook = view.mode === "styles";
+  const bookGroups = useMemo<BookGroup[]>(() => {
+    if (!isBook) return [];
+    const folderRank = new Map(index.folders.map((row, position) => [row.id as string, position]));
+    const shown = page.items
+      .filter((item) => !isArchived(item.assetId) || keptInPlace.has(item.assetId))
+      .sort((a, b) => (folderRank.get(a.folderId) ?? 999) - (folderRank.get(b.folderId) ?? 999) || a.order - b.order);
+    const byStyle = new Map<string, ReviewItem[]>();
+    const seen = new Set<string>();
+    for (const item of shown) {
+      const key = item.styleId && index.styleOrder.has(item.styleId) ? item.styleId : "none";
+      // A frame in two folders (a place and a person) shows once per style.
+      if (seen.has(`${key}|${item.assetId}`)) continue;
+      seen.add(`${key}|${item.assetId}`);
+      const list = byStyle.get(key) ?? [];
+      list.push(item);
+      byStyle.set(key, list);
+    }
+    const out: BookGroup[] = page.styles
+      .filter((row) => byStyle.has(row.id))
+      .map((row) => ({
+        key: row.id as string,
+        styleId: row.id as string,
+        title: row.label,
+        hidden: row.hidden,
+        line: isOwner ? row.line?.trim() || templateWords(recipeByStyle.get(row.id)?.recipes[0]?.prompt) || undefined : undefined,
+        items: byStyle.get(row.id)!,
+      }));
+    const loose = byStyle.get("none");
+    if (loose) out.push({ key: "none", title: "No style", items: loose });
+    return out;
+  }, [isBook, index, page.items, page.styles, isArchived, keptInPlace, isOwner, recipeByStyle]);
+  const bookTotal = useMemo(() => bookGroups.reduce((sum, group) => sum + group.items.length, 0), [bookGroups]);
+  // The open view steps through the style a frame was opened in.
+  const bookScope = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const group of bookGroups) {
+      const ids = group.items.map((item) => item.assetId as string);
+      for (const id of ids) if (!map.has(id)) map.set(id, ids);
+    }
+    return map;
+  }, [bookGroups]);
+  const folderName = useMemo(() => new Map(index.folders.map((row) => [row.id as string, row.name])), [index]);
+
+  // Density (S / M / L, keys − and +), remembered per viewer.
+  const [bookSize, setBookSize] = useState<GridSize>("m");
+  useEffect(() => {
+    // Read after the first paint, so the server render and the browser agree.
+    const handle = window.requestAnimationFrame(() => {
+      const stored = readBookSize();
+      if (stored) setBookSize(stored);
+    });
+    return () => window.cancelAnimationFrame(handle);
+  }, []);
+  const onBookSize = useCallback((size: GridSize) => {
+    setBookSize(size);
+    writeBookSize(size);
+  }, []);
+  const stepBookSize = useCallback((delta: number) => {
+    setBookSize((current) => {
+      const next = BOOK_SIZES[Math.max(0, Math.min(BOOK_SIZES.length - 1, BOOK_SIZES.indexOf(current) + delta))]!;
+      if (next !== current) writeBookSize(next);
+      return next;
+    });
+  }, []);
+
+  // Frames of several styles on screen (All locations, a folder in all
+  // styles, a list): each tile names its style on hover. The owner reads the
+  // world style's name, everyone else the review label (page.styles.name is
+  // already that split). Never in the style book: its headings say it.
+  const styleNames = useMemo(() => {
+    if (isBook) return undefined;
+    const used = new Set(visible.map((item) => item.styleId ?? ""));
+    if (used.size < 2) return undefined;
+    return new Map(page.styles.map((row) => [row.id as string, row.name]));
+  }, [isBook, visible, page.styles]);
+
+  const flatIds = useMemo(
+    () => (isBook ? bookGroups : groups).flatMap((group) => group.items.map((item) => item.assetId as string)),
+    [isBook, bookGroups, groups],
+  );
 
   // ---------------------------------------------------------- feedback UI
   const [flashes, setFlashes] = useState<Flash[]>([]);
@@ -598,9 +693,11 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const anchor = useRef<string | null>(null);
   const flatRef = useRef(flatIds);
+  const bookScopeRef = useRef(bookScope);
   useEffect(() => {
     flatRef.current = flatIds;
-  }, [flatIds]);
+    bookScopeRef.current = bookScope;
+  }, [flatIds, bookScope]);
   const targetRef = useRef<string | null>(null);
 
   const clearSelection = useCallback(() => {
@@ -659,9 +756,18 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     window.scrollTo({ top: 0 });
   }, [changeView]);
   const onFilter = useCallback((filter: FeedbackFilter) => changeView({ filter }), [changeView]);
+  const onMode = useCallback((mode: ReviewMode) => {
+    if (mode === view.mode) return;
+    setViewingList(null);
+    pushNext.current = true;
+    changeView({ mode, open: "" }, { clear: true });
+    window.scrollTo({ top: 0 });
+  }, [changeView, view.mode]);
   const onSize = useCallback((size: GridSize) => changeView({ size }), [changeView]);
   const onViewList = useCallback((key: ListKey | null) => {
     setViewingList(key);
+    // A list is shown in the folder view.
+    if (key) setView((current) => (current.mode === "folders" ? current : { ...current, mode: "folders" }));
     clearSelection();
     window.scrollTo({ top: 0 });
   }, [clearSelection]);
@@ -706,7 +812,8 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   const openFrame = useCallback((assetId: string, focusComment = false) => {
     const item = index.byAsset.get(assetId);
     if (!item) return;
-    setLightbox((current) => ({ ids: flatRef.current, focus: focusComment ? current.focus + 1 : current.focus }));
+    const ids = bookScopeRef.current.get(assetId) ?? flatRef.current;
+    setLightbox((current) => ({ ids, focus: focusComment ? current.focus + 1 : current.focus }));
     setView((current) => {
       if (!current.open) {
         pushNext.current = true;
@@ -726,7 +833,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     }
     const folder = index.folderById.get(item.folderId);
     setViewingList(null);
-    if (folder) changeView({ section: folder.section, folder: folder.slug, style: "", filter: "all" }, { clear: true });
+    if (folder) changeView({ section: folder.section, folder: folder.slug, style: "", filter: "all", mode: "folders" }, { clear: true });
     window.setTimeout(() => openFrame(assetId, comment), 40);
   }, [index, changeView, openFrame, toast]);
   const onNoteStyle = useCallback((styleId: string) => {
@@ -735,7 +842,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       toast("That style is not in the round on screen.");
       return;
     }
-    changeView({ style: slugOf(row.label), filter: "all" });
+    changeView({ style: slugOf(row.label), filter: "all", mode: "folders" });
     window.scrollTo({ top: 0 });
   }, [page.styles, index, changeView, toast]);
   const onNoteRound = useCallback((versionId: string) => {
@@ -748,7 +855,9 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   );
 
   const openItem = view.open ? index.byCode.get(view.open) : undefined;
-  const lightboxIds = lightbox.ids.length && openItem && lightbox.ids.includes(openItem.assetId) ? lightbox.ids : flatIds;
+  const lightboxIds = lightbox.ids.length && openItem && lightbox.ids.includes(openItem.assetId)
+    ? lightbox.ids
+    : (openItem && bookScope.get(openItem.assetId)) || flatIds;
   const openPosition = openItem ? Math.max(0, lightboxIds.indexOf(openItem.assetId)) : 0;
 
   const closeFrame = useCallback(() => {
@@ -782,7 +891,10 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
 
   useEffect(() => {
     const idle = (window as Window & { requestIdleCallback?: (callback: () => void) => number }).requestIdleCallback;
-    const run = () => void import("./Lightbox");
+    const run = () => {
+      void import("./Lightbox");
+      void import("./StyleBook");
+    };
     if (idle) idle(run);
     else window.setTimeout(run, 1500);
   }, []);
@@ -880,7 +992,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   // Keys on the hovered frame (the open view handles its own keys).
   const keys = useRef({
     open: false, isOwner: false, targets, applyVerdict, applyArchive, openFrame, clearSelection, moveActive, toggleList, stepRound,
-    selectedSize: 0, selectAll: () => {}, compose: () => {},
+    selectedSize: 0, selectAll: () => {}, compose: () => {}, isBook: false, stepBookSize,
   });
   useEffect(() => {
     keys.current = {
@@ -897,6 +1009,8 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       selectedSize: selected.size,
       selectAll: () => setSelected(new Set(flatRef.current)),
       compose: () => setComposeSignal((value) => value + 1),
+      isBook,
+      stepBookSize,
     };
   });
   useEffect(() => {
@@ -917,7 +1031,10 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         return;
       }
       if (event.metaKey || event.ctrlKey) return;
-      if (key === "[" || key === "]") {
+      if (state.isBook && (key === "-" || key === "_" || key === "+" || key === "=")) {
+        // The style book's density: − smaller frames, + larger.
+        state.stepBookSize(key === "-" || key === "_" ? -1 : 1);
+      } else if (key === "[" || key === "]") {
         state.stepRound(key === "]" ? 1 : -1);
       } else if (key === "?") {
         document.querySelector<HTMLButtonElement>(".rv-bar-r .rv-btn.round")?.click();
@@ -1071,9 +1188,48 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       ? `${folder.area ? `${folder.area} · ` : ""}${SECTION_SINGULAR[view.section]}`
       : sectionLabel;
   const headTitle = listView ? lists.names[listView] : folder ? folder.name : `All ${sectionLabel.toLowerCase()}`;
+  const modeSwitch = useMemo(() => <ModeSwitch mode={view.mode} folderLabel={sectionLabel} onMode={onMode} />, [view.mode, sectionLabel, onMode]);
 
   return (
-    <div className="rv" data-theme={reviewTheme(slug)} data-size={view.size} data-nav={navOpen ? "" : undefined}>
+    <div
+      className="rv"
+      data-theme={reviewTheme(slug)}
+      data-size={view.size}
+      data-mode={isBook ? "styles" : undefined}
+      data-nav={navOpen && !isBook ? "" : undefined}
+    >
+      {isBook ? (
+        <Suspense fallback={null}>
+        <StyleBook
+          title={page.project.title}
+          groups={bookGroups}
+          total={bookTotal}
+          folderName={folderName}
+          mediaBase={page.mediaBase}
+          isOwner={isOwner}
+          canVote={canVote}
+          archived={isArchived}
+          selected={selected}
+          size={bookSize}
+          onSize={onBookSize}
+          modeSwitch={modeSwitch}
+          rounds={roundOrder}
+          shownId={page.versionId}
+          onRound={onPickRound}
+          loading={loadingRound}
+          targetRef={targetRef}
+          onAct={onAct}
+          onOpen={openFrame}
+          onToggle={toggleSelect}
+          onRange={rangeSelect}
+          onClear={clearSelection}
+          styleMarks={styleMarks}
+          people={people}
+          onStyleVerdict={canVote ? applyStyleVerdict : undefined}
+        />
+        </Suspense>
+      ) : (
+      <>
       <Sidebar
         title={page.project.title}
         subtitle={page.project.subtitle}
@@ -1115,6 +1271,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           people={people}
           onStyleVerdict={canVote ? applyStyleVerdict : undefined}
           bell={isPreview ? undefined : bell}
+          modeSwitch={modeSwitch}
         />
 
         <main className="rv-content" data-loading={loadingRound ? "" : undefined}>
@@ -1185,11 +1342,14 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
                 styleMarks={styleMarks}
                 styleCopy={isOwner ? styleCopy : undefined}
                 onStyleVerdict={canVote ? applyStyleVerdict : undefined}
+                styleNames={styleNames}
               />
             )}
           </div>
         </main>
       </div>
+      </>
+      )}
 
       {selected.size > 0 ? (
         <BulkBar
