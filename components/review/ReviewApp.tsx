@@ -1441,7 +1441,8 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         />
       ) : null}
 
-      {isOwner && !openItem ? (
+      {/* The bulk bar takes the bottom edge while frames are selected. */}
+      {isOwner && !openItem && selected.size === 0 ? (
         <Suspense fallback={null}>
           <ListsDock lists={lists} viewing={listView} codeOf={codeOf} onRename={renameList} onView={onViewList} onToast={toast} />
         </Suspense>
