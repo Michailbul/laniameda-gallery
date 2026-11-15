@@ -166,6 +166,29 @@ parameters, moodboards, codes and the other recipes ("near:", exceptions)
 sit behind a closed Details toggle (Michael, 15 Nov 2026: the recipe cards
 cluttered the page).
 
+## Two ways to read a round: Locations and Styles
+
+The page's top bar has a quiet switch, "Locations · Styles" (Michael, 15 Nov
+2026). Locations is the folder view above. Styles (`?mode=styles` on the
+page's address) is the style book: every frame of the shown round grouped by
+style across all folders, one page per style in carousel order (frames with
+no style last, under "No style"). Inside a style the frames run in folder
+order, so every style shows the places in the same sequence and styles
+compare side by side. It strips the chrome: a thin top line (title, round,
+the switch, S / M / L density, keys − and +), a sticky index of styles with
+counts, then per style its label, count and, for the owner only, the style's
+one-line look, over a uniform grid of 16:9 frames. The owner also sees held
+frames (a small HELD mark) and hidden styles (a "hidden" tag); a reviewer
+sees neither. Every key and the open view work as in the folder view; the
+open view steps through the style it was opened in. Browser Print starts
+each style on a new sheet, so Print → Save as PDF gives a style book. Link a
+director straight to it with `<address>?mode=styles`.
+
+In the Locations view, where frames of several styles share the screen
+(All locations, a folder in all styles), hovering a frame shows its style
+bottom-left: the world style's name for the owner, the review label for a
+reviewer.
+
 ## People
 
 Reviewers carry a name and a `title` ("Director · Sula Entertainment",

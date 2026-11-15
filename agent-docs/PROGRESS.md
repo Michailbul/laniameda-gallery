@@ -1273,3 +1273,28 @@ review and click send." Agents prepare; he sends, one job per click.
   and ⌥⇧N; ⌥⇧Q toggles. Job id taken from the new feed row whose text carries
   the prompt's first words (page DOM only, no Midjourney API calls).
 - Skill 1.33.0: references/mj-queue.md, data-model.md, SKILL.md row.
+
+## Director review: the style book and style names on hover (15 Nov 2026)
+
+Michael: compare styles "as a PDF, a grid of images per style ... a separate
+mode ... really minimize UI".
+
+- `?mode=styles` on /review/<slug> (`components/review/StyleBook.tsx`): every
+  frame of the round grouped by style across folders, one page per style
+  (carousel order, "No style" last), frames in folder order then item order,
+  uniform 16:9 grid, S / M / L density in localStorage (`rv-book-size`, keys
+  − and +), sticky index with scroll-spy, owner-only style line (style
+  `line`, else the recipe template words), HELD mark and "hidden" tag for the
+  owner only. Same keys, selection, flashes and lightbox (scoped to the
+  style). `@media print`: one style per A4 landscape sheet, chrome and marks
+  off, page ground kept.
+- "Locations · Styles" switch (`ModeSwitch`) in the folder top bar and the
+  book's top line; mode lives in the URL (`writeViewState`), pushes history.
+- Locations view: when the frames on screen span several styles, each tile
+  shows its style on hover bottom-left (`.rv-t-style`; owner: world style
+  name, reviewer: review label).
+- Front end only. Measured on CASSANDRA v0.2 (403 frames, 26 styles): print
+  of the whole owner round is ~110 MB at 1x and several hundred MB on a
+  Retina screen (Chrome embeds the WebP thumbnails losslessly); the director's
+  44 frames are ~14 MB / ~48 MB.
+

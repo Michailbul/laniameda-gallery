@@ -64,6 +64,9 @@ export const slugOf = (value: string) =>
 
 export type FeedbackFilter = "all" | "liked" | "disliked" | "commented" | "todo" | "new" | "feedback" | "archived";
 export type GridSize = "s" | "m" | "l";
+// "folders": the round by location / character folder (the default).
+// "styles": the style book, every frame of the round grouped by style.
+export type ReviewMode = "folders" | "styles";
 
 export type ViewState = {
   section: ReviewSection;
@@ -73,6 +76,7 @@ export type ViewState = {
   size: GridSize;
   round: string; // round label ("v0.1"), "" = the default round
   open: string; // frame code when the open view shows a frame
+  mode: ReviewMode;
 };
 
 const FILTERS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback", "archived"];
@@ -92,6 +96,7 @@ export const readViewState = (search: string, fallbackSize: GridSize): Partial<V
     size: size && SIZES.includes(size) ? size : fallbackSize,
     round: params.get("r") ?? undefined,
     open: params.get("open") ?? undefined,
+    mode: params.get("mode") === "styles" ? "styles" : undefined,
   };
 };
 
@@ -103,11 +108,19 @@ export const writeViewState = (state: ViewState, mode: "replace" | "push" = "rep
     if (!value || value === empty) params.delete(key);
     else params.set(key, value);
   };
-  set("s", state.section, "");
-  params.set("f", state.folder || "all");
-  set("style", state.style, "");
-  set("show", state.filter, "all");
-  set("size", state.size, "");
+  if (state.mode === "styles") {
+    // The style book's address is short (?mode=styles): folder, style,
+    // filter and size belong to the folder view, which keeps them in memory.
+    params.set("mode", "styles");
+    for (const key of ["s", "f", "style", "show", "size"]) params.delete(key);
+  } else {
+    params.delete("mode");
+    set("s", state.section, "");
+    params.set("f", state.folder || "all");
+    set("style", state.style, "");
+    set("show", state.filter, "all");
+    set("size", state.size, "");
+  }
   set("r", state.round, "");
   set("open", state.open, "");
   params.delete("draft");
@@ -117,6 +130,26 @@ export const writeViewState = (state: ViewState, mode: "replace" | "push" = "rep
   if (url === `${window.location.pathname}${window.location.search}${window.location.hash}`) return;
   if (mode === "push") window.history.pushState(window.history.state, "", url);
   else window.history.replaceState(window.history.state, "", url);
+};
+
+/** The style book's column density, remembered per viewer (this browser). */
+const BOOK_SIZE_KEY = "rv-book-size";
+
+export const readBookSize = (): GridSize | null => {
+  try {
+    const value = window.localStorage.getItem(BOOK_SIZE_KEY) as GridSize | null;
+    return value && SIZES.includes(value) ? value : null;
+  } catch {
+    return null;
+  }
+};
+
+export const writeBookSize = (size: GridSize) => {
+  try {
+    window.localStorage.setItem(BOOK_SIZE_KEY, size);
+  } catch {
+    // Private mode or a full store: the density lasts for this visit only.
+  }
 };
 
 // ------------------------------------------------------------- formatting

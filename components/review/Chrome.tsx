@@ -4,7 +4,7 @@
 import { memo, useState, type ReactNode } from "react";
 import {
   SECTION_LABEL, mediaUrl,
-  type FeedbackFilter, type GridSize, type ReviewFolder, type ReviewSection, type ReviewStyle, type ReviewVersion, type Verdict,
+  type FeedbackFilter, type GridSize, type ReviewFolder, type ReviewMode, type ReviewSection, type ReviewStyle, type ReviewVersion, type Verdict,
 } from "@/lib/review-client";
 import { Faces, type Person } from "./people";
 import type { StyleMark } from "./Grid";
@@ -108,6 +108,17 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
 
 // ------------------------------------------------------------ top bar
 
+/** "Locations · Styles": the two ways to read a round. */
+export function ModeSwitch({ mode, folderLabel, onMode }: { mode: ReviewMode; folderLabel: string; onMode: (mode: ReviewMode) => void }) {
+  return (
+    <div className="rv-mode" role="group" aria-label="View the round by">
+      <button type="button" aria-pressed={mode === "folders"} onClick={() => onMode("folders")}>{folderLabel}</button>
+      <button type="button" aria-pressed={mode === "styles"} onClick={() => onMode("styles")}>Styles</button>
+    </div>
+  );
+}
+
+
 export const FILTER_SHORT: Record<FeedbackFilter, string> = {
   all: "All",
   liked: "Liked",
@@ -172,12 +183,14 @@ type TopBarProps = {
   onStyleVerdict?: (styleId: string, verdict: Verdict) => void;
   // The notification bell (top right corner).
   bell?: ReactNode;
+  // "Locations · Styles": the folder view or the style book.
+  modeSwitch?: ReactNode;
 };
 
 export const TopBar = memo(function TopBar(props: TopBarProps) {
   const {
     mediaBase, styles, style, allCount, onStyle, filter, filterCounts, onFilter, isOwner, directorName,
-    roundMessage, size, onSize, onMenu, menuLabel, onRemoveStyle, styleMarks, people, onStyleVerdict, bell,
+    roundMessage, size, onSize, onMenu, menuLabel, onRemoveStyle, styleMarks, people, onStyleVerdict, bell, modeSwitch,
   } = props;
   const [styleMenu, setStyleMenu, styleMenuRef, styleMenuPop] = usePopover();
   const [menuStyle, setMenuStyle] = useState<StyleChip | null>(null);
@@ -353,6 +366,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
         ) : null}
 
         <div className="rv-tools">
+          {modeSwitch}
           <button
             type="button"
             ref={filterRef}
