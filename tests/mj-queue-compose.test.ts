@@ -44,8 +44,14 @@ describe("composeMjCommand", () => {
     const omni = composeMjCommand(fixtures.omniV82);
     expect(omni.command).toBe("a clawed blackletter A --ar 3:1");
     expect(omni.warnings[0]).toContain("Omni reference left out");
-    expect(composeMjCommand(fixtures.omniV7).command).toBe(`a clawed blackletter A --oref ${R2}/claw.jpg --ow 120 --v 7 --ar 3:1`);
-    expect(composeMjCommand(fixtures.crefV6).command).toBe(`a portrait --cref ${R2}/face.jpg --v 6.1`);
+    expect(omni.warnings[0]).not.toContain("--v 7");
+    // A pinned V7 or V6 is moved to V8.2, so --oref and --cref never come back.
+    const v7 = composeMjCommand(fixtures.omniV7);
+    expect(v7.command).toBe("a clawed blackletter A --v 8.2 --ar 3:1");
+    expect(v7.warnings).toEqual(["v7 is not used: switched to v8.2", "Omni reference left out: V8.2 has none. Attach the picture for the Edit model instead."]);
+    const v6 = composeMjCommand(fixtures.crefV6);
+    expect(v6.command).toBe("a portrait --v 8.2");
+    expect(v6.warnings).toContain("v6.1 is not used: switched to v8.2");
     expect(composeMjCommand(fixtures.crefNiji).command).toBe(`a portrait --cref ${R2}/face.jpg --niji 6`);
   });
 
@@ -81,8 +87,12 @@ describe("edit attachments", () => {
     expect(composeMjCommand(fixtures.restyleFrame).command).toBe(
       "a school patio, wide shot --profile dfvmdw1 --raw --ar 16:9 --seed 42 --edit https://cdn.midjourney.com/1c8e8ead-03c5-47ec-9ac0-5e9472ee466a/0_2.png",
     );
+    // --v 7 is rewritten to --v 8.2, so the attached frame is kept.
     const v7 = composeMjCommand(fixtures.editV7);
-    expect(v7.command).not.toContain("--edit");
-    expect(v7.warnings.length).toBe(1);
+    expect(v7.command).toBe(`a patio --v 8.2 --edit ${R2}/frame.jpg`);
+    expect(v7.warnings).toEqual(["v7 is not used: switched to v8.2"]);
+    const niji = composeMjCommand({ prompt: "a patio", params: "--niji 7", editRefs: [{ url: `${R2}/frame.jpg` }] });
+    expect(niji.command).not.toContain("--edit");
+    expect(niji.warnings.length).toBe(1);
   });
 });

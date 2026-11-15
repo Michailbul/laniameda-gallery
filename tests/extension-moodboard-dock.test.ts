@@ -222,6 +222,9 @@ describe("presets", () => {
   test("readParams keeps settings and skips image references and the profile flag", () => {
     expect(getApi().readParams(prompt)).toBe("--ar 3:2 --stylize 100 --raw");
     expect(getApi().readParams("A tram --seed 42 --v 8.2 --chaos 10")).toBe("--v 8.2 --chaos 10");
+    // Never v8.1 (Michael, 15 Nov 2026), nor V7 or older: a dock preset sets --v 8.2.
+    expect(getApi().readParams("A tram --v 8.1 --chaos 10")).toBe("--v 8.2 --chaos 10");
+    expect(getApi().readParams("A tram --version 7")).toBe("--v 8.2");
   });
 
   test("setParams replaces the same setting under its short or long name", () => {

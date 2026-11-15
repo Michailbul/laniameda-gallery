@@ -42,6 +42,9 @@ export const mjQueueItemFields = {
   characterRef: v.optional(mjQueueRefValidator),
   profileCodes: v.array(v.string()),
   params: v.optional(v.string()),
+  // The retired Midjourney version the params pinned (8.1, 7 …) before they
+  // were stored as --v 8.2 (lib/mj-version.ts); the item warns about it.
+  replacedVersion: v.optional(v.string()),
   // Images attached for the Edit model (--edit), e.g. a locked frame to restyle.
   editRefs: v.optional(v.array(mjQueueRefValidator)),
   // A restyle of a locked location prompt (convex/lockedPrompts.ts): which

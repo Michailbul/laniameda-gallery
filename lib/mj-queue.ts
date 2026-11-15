@@ -3,6 +3,8 @@
 // twin of composeMjCommand (extension/mj-queue-compose.js); the parity test
 // (tests/mj-queue-compose.test.ts) keeps the two identical.
 
+import { enforceMjVersion, mjVersionWarning } from "./mj-version";
+
 export const MJ_QUEUE_STATUSES = ["queued", "injected", "sent", "skipped"] as const;
 export type MjQueueStatus = (typeof MJ_QUEUE_STATUSES)[number];
 
@@ -37,6 +39,8 @@ export type MjQueueComposable = {
   // Images attached to the prompt for Midjourney's Edit model (V8.2, up to
   // four): "--edit url1 url2". An attached frame holds its layout (restyle).
   editRefs?: MjQueueRef[];
+  // The retired version an agent pinned (8.1, 7 …) that was stored as --v 8.2.
+  replacedVersion?: string;
 };
 
 const space = (value: string | undefined) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -78,13 +82,19 @@ export function threadIdOf(batchKey: string) {
 
 /**
  * Image prompts first, then the prose, then the reference flags, the profile
- * codes and the params as written. V8.2 has no omni or character reference
- * (the Edit model replaced both): those flags are added only when the params
- * pin a version that reads them, otherwise the item carries a warning.
+ * codes and the params as written, except the version: every job is --v 8.2
+ * (lib/mj-version.ts), so --v 8.1, --v 7 and older become --v 8.2 with a
+ * warning. V8.2 has no omni or character reference (the Edit model replaced
+ * both): --oref is never added, --cref only for --niji 6.
  */
 export function composeMjCommand(item: MjQueueComposable) {
   const warnings: string[] = [];
-  const params = space(item.params);
+  const enforced = enforceMjVersion(space(item.params));
+  const params = space(enforced.text);
+  for (const from of [item.replacedVersion, ...enforced.replaced]) {
+    const note = from ? mjVersionWarning(from) : "";
+    if (note && !warnings.includes(note)) warnings.push(note);
+  }
   const version = pinnedVersion(params);
   const parts: string[] = [];
 
@@ -106,25 +116,16 @@ export function composeMjCommand(item: MjQueueComposable) {
   const imageWeight = (item.imagePrompts ?? []).map((ref) => num(ref.weight)).find(Boolean);
   if (imageWeight && images.length) parts.push(`--iw ${imageWeight}`);
 
-  const omni = space(item.omniRef?.url);
-  if (omni) {
-    if (major(version) === 7 && !version.startsWith("niji")) {
-      parts.push(`--oref ${omni}`);
-      const weight = num(item.omniRef?.weight);
-      if (weight) parts.push(`--ow ${weight}`);
-    } else {
-      warnings.push("Omni reference left out: V8.2 has none. Use it in the Edit model, or pin --v 7.");
-    }
-  }
+  if (space(item.omniRef?.url)) warnings.push("Omni reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
 
   const character = space(item.characterRef?.url);
   if (character) {
-    if (major(version) === 6) {
+    if (version.startsWith("niji") && major(version) === 6) {
       parts.push(`--cref ${character}`);
       const weight = num(item.characterRef?.weight);
       if (weight) parts.push(`--cw ${weight}`);
     } else {
-      warnings.push("Character reference left out: only V6 reads it. Use the Edit model in V8.2.");
+      warnings.push("Character reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
     }
   }
 
@@ -135,7 +136,7 @@ export function composeMjCommand(item: MjQueueComposable) {
   const edits = (item.editRefs ?? []).map((ref) => space(ref.url)).filter(Boolean).slice(0, 4);
   if (edits.length) {
     if (!version || major(version) >= 8) parts.push(`--edit ${edits.join(" ")}`);
-    else warnings.push("Attached frame left out: the Edit model is V8.2. Drop the pinned version to keep the layout.");
+    else warnings.push("Attached frame left out: the Edit model is V8.2. Drop --niji to keep the layout.");
   }
 
   if (!prose && !images.length) warnings.push("No prompt words yet.");

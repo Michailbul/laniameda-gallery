@@ -39,9 +39,16 @@ the same label join that batch after its last item. Each item:
 - `params`: every other flag as typed: `--ar 3:1 --draft --relax --stylize 250`.
   `--draft` and `--relax` are valid prompt params in V8.2 (draft makes a
   24-image grid there). `--turbo` and `--q` are not V8.
+- The version is always **V8.2** (Michael, 15 Nov 2026: "never use mj v8.1,
+  do not let it happen"; V7 and older were banned on 11 Nov). Leave `--v` out
+  or write `--v 8.2`. Params with `--v 8.1` / `--version 8.1`, `--v 7` or
+  older are stored as `--v 8.2` (`lib/mj-version.ts`), the item keeps
+  `replacedVersion` and warns "v8.1 is not used: switched to v8.2", so a v8.1
+  job can never be sent. The extension's composer and the writer bridge
+  apply the same rule. `--niji` is a separate model and stays as written.
 - `omniRef` / `characterRef`: V8.2 has neither; the Edit model replaced both.
-  They are added (`--oref/--ow`, `--cref/--cw`) only when params pin `--v 7`
-  or `--v 6`; otherwise the item carries a warning he sees.
+  `--oref` is never added; `--cref` only with `--niji 6`. Otherwise the item
+  carries a warning he sees: attach the picture as an `editRefs` image instead.
 - `editRefs`: images attached for the Edit model (`--edit url`, V8.2, up to
   four), written after the params. A restyle of a locked frame uses it.
 - `note`: plain words for him: what to look for in this one.

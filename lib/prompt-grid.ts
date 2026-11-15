@@ -17,6 +17,7 @@
 // never permutations or --repeat for grids; --weird is dropped on board jobs.
 
 import { parseFlags } from "./mj-recipe";
+import { enforceMjVersion } from "./mj-version";
 
 export type VariantKind = "short" | "prose" | "neutral";
 export type Variant = { key: string; label: string; kind: VariantKind; text: string; seeds: number[] };
@@ -94,19 +95,21 @@ export function composeCell(prompt: PromptForCompose, cell: GridCell, preset: Pr
   const words = cell.variant.text.trim().replace(/[\s,]+$/, "");
   const sentence = preset.sentence?.trim();
   const text = sentence && !words.toLowerCase().startsWith(sentence.toLowerCase()) ? `${sentence} ${words}` : words;
-  const params = [
+  // Every job is V8.2 (lib/mj-version.ts): a preset or prompt that pins 8.1, 7 or older is moved up.
+  const versioned = enforceMjVersion([
     fields.params,
     ...extra.map((flag) => [`--${flag.name}`, ...flag.values].join(" ")),
     `--ar ${prompt.aspect?.trim() || "16:9"}`,
     `--seed ${cell.seed}`,
     ...(options.draft ? ["--draft"] : []),
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean).join(" "));
   return {
     prompt: text,
     imagePrompts: prompt.imagePrompts,
     styleRefs: fields.styleRefs,
     profileCodes: fields.profileCodes,
-    params,
+    params: versioned.text,
+    replacedVersion: versioned.replaced[0],
     editRefs: prompt.attach ?? [],
   };
 }

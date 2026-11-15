@@ -7,7 +7,11 @@
 // record for ("--sref 7613287694", "37vd7r6"). Some records hold a --profile
 // only in the template, or a --sref only in unknownCodes. The copy line is
 // all of them merged, each code once, in this precedence: parameters, then
-// template, then moodboards, profiles and the loose codes.
+// template, then moodboards, profiles and the loose codes. The version is
+// always --v 8.2 (lib/mj-version.ts): a recipe that pins 8.1, 7 or older is
+// copied as --v 8.2.
+
+import { enforceMjVersion } from "./mj-version";
 
 export type RecipeInput = {
   parameters?: string;
@@ -26,6 +30,8 @@ export type ComposedRecipe = {
   profiles: string[];
   /** The --sref codes in the line, in order. */
   srefs: string[];
+  /** A retired version the recipe pinned (8.1, 7 …), copied as --v 8.2. */
+  replacedVersion?: string;
 };
 
 type Flag = { name: string; values: string[] };
@@ -100,7 +106,11 @@ export function composeRecipe(input: RecipeInput): ComposedRecipe {
     if (MULTI.has(flag.name) && values.length === 0) continue;
     parts.push([`--${flag.name}`, ...values].join(" "));
   }
-  const params = parts.join(" ");
+  const versioned = enforceMjVersion(parts.join(" "));
+  const params = versioned.text;
   const words = templateWords(input.template);
-  return { params, prompt: words ? `${words} ${params}`.trim() : undefined, profiles, srefs };
+  return {
+    params, prompt: words ? `${words} ${params}`.trim() : undefined, profiles, srefs,
+    ...(versioned.replaced[0] ? { replacedVersion: versioned.replaced[0] } : {}),
+  };
 }

@@ -34,8 +34,8 @@ describe("composeRecipe", () => {
   });
 
   test("--p is read as --profile and the parameters' order wins", () => {
-    const out = composeRecipe({ parameters: "--ar 2:1 --p xvkk4gf pkdbjf8 --v 8.1", profileCodes: ["s65c54q"] });
-    expect(out.params).toBe("--ar 2:1 --profile xvkk4gf pkdbjf8 s65c54q --v 8.1");
+    const out = composeRecipe({ parameters: "--ar 2:1 --p xvkk4gf pkdbjf8 --v 8.2", profileCodes: ["s65c54q"] });
+    expect(out.params).toBe("--ar 2:1 --profile xvkk4gf pkdbjf8 s65c54q --v 8.2");
   });
 
   test("helpers", () => {

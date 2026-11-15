@@ -23,8 +23,8 @@ export const presetFromStyleSchema = z.object({ world, style: z.string().trim().
 export const presetPerturbSchema = z.object({
   world, preset: presetRef,
   perturbations: z.array(z.object({
-    kind: z.enum(["board_alone", "sref_only", "add_profile", "drop_profiles", "stylize", "raw", "chaos", "sv", "version"]),
-    value: z.string().trim().max(40).optional().describe("stylize 250/750, raw on/off, add_profile <code>, sv 6, version 8.1 …"),
+    kind: z.enum(["board_alone", "sref_only", "add_profile", "drop_profiles", "stylize", "raw", "chaos", "sv"]),
+    value: z.string().trim().max(40).optional().describe("stylize 250/750, raw on/off, add_profile <code>, sv 6, chaos 5 … The version is never a perturbation: every job is --v 8.2."),
   })).min(1).max(12),
   session,
 });

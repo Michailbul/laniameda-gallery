@@ -13,6 +13,7 @@
 //           architecture.
 
 import { composeRecipe, parseFlags, templateWords } from "./mj-recipe";
+import { enforceMjVersion } from "./mj-version";
 
 export type RestyleMode = "seed" | "frame";
 
@@ -92,6 +93,8 @@ export type RestyledItem = {
   params: string;
   editRefs: Array<{ url: string; assetId?: string; label?: string }>;
   warnings: string[];
+  // A retired version (8.1, 7 …) the recipe or the place pinned, stored as --v 8.2.
+  replacedVersion?: string;
 };
 
 const DROP_FROM_PARAMS = new Set(["sref", "profile", "seed", "ar", "aspect", "edit", "iw"]);
@@ -108,7 +111,12 @@ export function restyle(locked: LockedForCompose, style: StyleForCompose, mode: 
   const extra = parseFlags(locked.extraParams).filter((flag) => !DROP_FROM_PARAMS.has(flag.name));
   const merged = [...flags.filter((flag) => !extra.some((own) => own.name === flag.name)), ...extra];
   const aspect = locked.aspect?.trim() || "16:9";
-  const params = [...merged.map((flag) => [`--${flag.name}`, ...flag.values].join(" ")), `--ar ${aspect}`, `--seed ${locked.seed}`].join(" ");
+  // composeRecipe already moved the recipe to V8.2; the place's own params may still pin a retired version.
+  const placeVersion = enforceMjVersion(locked.extraParams);
+  const versioned = enforceMjVersion([...merged.map((flag) => [`--${flag.name}`, ...flag.values].join(" ")), `--ar ${aspect}`, `--seed ${locked.seed}`].join(" "));
+  const params = versioned.text;
+  // The queue item warns about it (composeMjCommand reads replacedVersion).
+  const replacedVersion = recipe.replacedVersion ?? placeVersion.replaced[0] ?? versioned.replaced[0];
   const editRefs: RestyledItem["editRefs"] = [];
   let imagePrompts = locked.imagePrompts;
   if (mode === "frame") {
@@ -128,6 +136,7 @@ export function restyle(locked: LockedForCompose, style: StyleForCompose, mode: 
     params,
     editRefs,
     warnings,
+    replacedVersion,
   };
 }
 

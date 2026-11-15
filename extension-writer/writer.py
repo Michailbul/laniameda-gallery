@@ -17,7 +17,7 @@ Python 3.9, standard library only.
 import base64, json, os, re, subprocess, sys, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 HOME = os.path.expanduser("~")
 CONF_DIR = os.path.join(HOME, ".config", "laniameda", "writer")
 MODELS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5"}
@@ -44,6 +44,25 @@ EFFORTS = ("low", "medium", "high")
 MAX_BODY = 12_000_000
 MAX_IMAGE = 5_000_000
 RUNNING = threading.Semaphore(2)
+
+# Every Midjourney job is --v 8.2 (Michael, 15 Nov 2026: "never use mj v8.1, do
+# not let it happen"; V7 and older since 11 Nov). The rule rides on every system
+# prompt, and an answer that still pins an older version is fixed before it
+# leaves this Mac. Twin of lib/mj-version.ts in the gallery.
+MJ_VERSION = "8.2"
+VERSION_RULE = ("Midjourney version: every job is --v 8.2. Never write --v 8.1, --version 8.1, --v 7 or any older "
+                "version; where the text pins one, write --v 8.2 instead. Leaving --v out is also fine: 8.2 is the default.")
+RETIRED_VERSION = re.compile(r"(^|\s)(?:--|[–—])(?:v|version)(?:\s+|(?=\d))(\d+(?:\.\d+)?)(?=\s|$)", re.I)
+
+
+def enforce_version(text):
+    def fix(match):
+        try:
+            retired = float(match.group(2)) < float(MJ_VERSION)
+        except ValueError:
+            retired = False
+        return match.group(1) + "--v " + MJ_VERSION if retired else match.group(0)
+    return RETIRED_VERSION.sub(fix, text)
 
 
 def config():
@@ -105,7 +124,7 @@ def run_claude(conf, system, blocks, model, max_tokens):
             "--model", MODELS[model], "--tools", "", "--strict-mcp-config", "--no-session-persistence",
             "--disable-slash-commands", "--setting-sources", "",
             "--effort", conf["effort"] if conf.get("effort") in EFFORTS else "low",
-            "--system-prompt", system or "You are a careful writing assistant. Answer with the text asked for and nothing else."]
+            "--system-prompt", (system or "You are a careful writing assistant. Answer with the text asked for and nothing else.") + "\n\n" + VERSION_RULE]
     home = os.path.join(CONF_DIR, "claude-home")
     cwd = os.path.join(CONF_DIR, "cwd")
     os.makedirs(home, exist_ok=True); os.makedirs(cwd, exist_ok=True)
@@ -135,7 +154,7 @@ def run_claude(conf, system, blocks, model, max_tokens):
         text = str((result or {}).get("result") or "").strip()
         # A cut answer comes back as text that ends in an API error line: that is a failure, not a result.
         if result and result.get("subtype") == "success" and not result.get("is_error") and text and "API Error:" not in text:
-            return str(result["result"]), os.path.basename(path).replace(".token", "")
+            return enforce_version(str(result["result"])), os.path.basename(path).replace(".token", "")
         last = str((result or {}).get("result") or done.stderr.strip()[-300:] or "Claude returned nothing.")
         log("account %s failed: %s" % (os.path.basename(path), last[:160].replace("\n", " ")))
     raise RuntimeError(last[:300])

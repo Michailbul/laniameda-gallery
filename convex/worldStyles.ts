@@ -12,6 +12,7 @@ import {
 } from "./worldCore";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
 import { profileFlagForCode, profileFlagForMoodboardId } from "../lib/moodboards";
+import { enforceMjVersion } from "../lib/mj-version";
 import {
   MERGED_SHELF_GROUP, STYLE_LIMITS, STYLE_SHELF_GROUP, mjFilePrefix, mjIdentityOf, mjMatches, mjSourcePrefixes,
   parseLookupQuery, recipeLabel, styleSlug, worldShortName,
@@ -522,13 +523,16 @@ const resolveRecipes = async (ctx: MutationCtx, owner: string, input: Infer<type
     out.push({
       name: clip(recipe.name, STYLE_LIMITS.name, `${label} name`), moodboardIds, profileIds,
       ...(unknownCodes.length ? { unknownCodes } : {}),
-      parameters: clip(recipe.parameters, STYLE_LIMITS.parameters, `${label} parameters`),
-      template: clip(recipe.template, STYLE_LIMITS.recipeText, `${label} template`),
+      // Every job is V8.2: --v 8.1, --v 7 and older are saved as --v 8.2 (lib/mj-version.ts).
+      parameters: clip(v82(recipe.parameters), STYLE_LIMITS.parameters, `${label} parameters`),
+      template: clip(v82(recipe.template), STYLE_LIMITS.recipeText, `${label} template`),
       frames: recipe.frames, note: clip(recipe.note, STYLE_LIMITS.recipeText, `${label} note`),
     });
   }
   return out;
 };
+
+const v82 = (text: string | undefined) => (text === undefined ? undefined : enforceMjVersion(text).text);
 
 const resolveCovers = async (ctx: MutationCtx, owner: string, worldId: Id<"folders">, refs: string[]) => {
   const ids: Id<"assets">[] = [];

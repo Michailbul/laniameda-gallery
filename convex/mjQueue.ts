@@ -7,6 +7,7 @@ import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { resolveWorld } from "./worldCore";
 import { mjQueueDescribeValidator, mjQueueItemFields, mjQueueRefValidator, mjQueueStatusValidator } from "./mjQueueValidators";
 import { MJ_QUEUE_LIMITS, batchKeyOf, composeMjCommand } from "../lib/mj-queue";
+import { versionedParams } from "../lib/mj-version";
 
 // Midjourney prompt queue. Agents queue prompts with their references set;
 // Michael reviews each one in the Imagine bar (extension Queue panel) and
@@ -259,6 +260,7 @@ export const queueItems = ownerMutation({
       const order = typeof input.order === "number" && Number.isFinite(input.order) ? input.order : maxOrder + 1;
       maxOrder = Math.max(maxOrder, order);
       count += 1;
+      const versioned = versionedParams(text(input.params, MJ_QUEUE_LIMITS.params, `${label} params`));
       const doc = {
         ownerUserId: owner,
         worldFolderId: world?._id,
@@ -271,7 +273,8 @@ export const queueItems = ownerMutation({
         omniRef: input.omniRef ? await resolveRef(ctx, owner, input.omniRef, "Omni reference") : undefined,
         characterRef: input.characterRef ? await resolveRef(ctx, owner, input.characterRef, "Character reference") : undefined,
         profileCodes: cleanCodes(input.profileCodes),
-        params: text(input.params, MJ_QUEUE_LIMITS.params, `${label} params`),
+        params: versioned.params,
+        replacedVersion: versioned.replacedVersion,
         note: text(input.note, MJ_QUEUE_LIMITS.note, `${label} note`),
         describe: input.describe ? {
           sourceUrl: /^https:\/\//i.test(input.describe.sourceUrl ?? "") ? input.describe.sourceUrl!.slice(0, MJ_QUEUE_LIMITS.url) : undefined,
@@ -325,6 +328,12 @@ export const updateItem = ownerMutation({
     };
     clear("title", args.title, MJ_QUEUE_LIMITS.title, "A title");
     clear("params", args.params, MJ_QUEUE_LIMITS.params, "Params");
+    // Rewrite a retired version; params sent back unchanged keep their warning.
+    if (args.params !== undefined && patch.params !== row.params) {
+      const versioned = versionedParams(patch.params);
+      patch.params = versioned.params;
+      patch.replacedVersion = versioned.replacedVersion;
+    }
     clear("note", args.note, MJ_QUEUE_LIMITS.note, "A note");
     if (args.jobId !== undefined) {
       const jobId = args.jobId === null ? undefined : text(args.jobId, 80, "A job id");

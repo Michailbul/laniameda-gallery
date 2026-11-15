@@ -411,6 +411,7 @@ export const restyleLockedPrompts = ownerMutation({
           styleRefs: composed.styleRefs,
           profileCodes: composed.profileCodes,
           params: composed.params,
+          replacedVersion: composed.replacedVersion,
           editRefs: composed.editRefs.map((ref) => ({ url: ref.url, assetId: ref.assetId as Id<"assets"> | undefined, thumbUrl: row.lockedFrame?.thumbUrl, label: ref.label })),
         };
         const { command, warnings } = composeMjCommand(queueFields);

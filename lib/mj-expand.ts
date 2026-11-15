@@ -10,6 +10,7 @@
 // look made of --sref / --profile codes cannot drift.
 
 import { parseFlags } from "./mj-recipe";
+import { enforceMjVersion } from "./mj-version";
 import { wordsOnly } from "./mj-describe";
 import { SHOT_SCALE_RULES } from "./writer-scale";
 
@@ -71,7 +72,7 @@ export const expandPreset = (key?: string | null) => EXPAND_PRESETS.find((preset
 export const EXPAND_BASE_RULES = `You write Midjourney V8.2 prompts for an art director who is exploring a look. You see one of his generated frames, and the prompt that made it when there is one. He liked this frame. Your job is to grow it: new frames that belong to the same world and keep the same look.
 
 How the look is kept:
-- Codes and parameters (--sref, --profile, --ar, --stylize …) carry most of a look. They are added to your prompts for you, unchanged. Never write a parameter, a URL or a "--" flag.
+- Codes and parameters (--sref, --profile, --ar, --stylize …) carry most of a look. They are added to your prompts for you, unchanged, except the version: every job is --v 8.2, never 8.1 or 7. Never write a parameter, a URL or a "--" flag.
 - Read the source prompt as three kinds of words:
   WORLD WORDS name the genre, the era and the kind of world ("a baroque futuristic cyberpunk town", "dark art deco city"). Keep them word for word in every prompt, attached to the new subject or place. Never drop one, never swap in a synonym.
   STYLE WORDS name the medium or look (an opening sentence such as "Dark art deco animation frame, a hand-painted background.") and the film, lens and light (closing sentences such as "Shot on 35mm colour negative film."). Copy them word for word into every prompt, in the same places.
@@ -167,7 +168,8 @@ export function splitCommand(command: string | undefined): SplitCommand {
       rest.push([`--${flag.name}`, ...flag.values].join(" "));
     }
   }
-  return { images, words, srefs, profiles, rest: rest.join(" "), aspect };
+  // A grown frame never inherits a retired version: --v 8.1 or 7 on the source becomes --v 8.2.
+  return { images, words, srefs, profiles, rest: enforceMjVersion(rest.join(" ")).text, aspect };
 }
 
 /** --iw of the source command, when it set one. */

@@ -1187,22 +1187,35 @@ button.rv-note:hover { background: var(--hover); color: var(--text); }
 .rv-doors[data-n="4"] { grid-template-columns: 1fr 1fr; }
 .rv-person .who .rv-lock { white-space: normal; }
 
-/* Owner only: a style's Midjourney recipe, copy-ready (components/review/Recipe.tsx). */
-.rv-recipe { display: flex; flex-direction: column; gap: 8px; margin: 0 0 18px; }
-.rv-recipe-card { border: 1px solid var(--line-2); border-radius: 8px; padding: 12px 14px; background: var(--surface); }
-.rv-recipe-h { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
-.rv-recipe-only { color: var(--faint); }
-.rv-recipe-line { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
-.rv-recipe-line:first-of-type { border-top: 0; }
-.rv-recipe-line .k { font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
-.rv-recipe-line code { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; color: var(--text); word-break: break-word; user-select: all; }
-.rv-recipe-line mark { background: var(--sel); color: var(--text); border-radius: 3px; padding: 0 3px; }
-.rv-recipe-copy { white-space: nowrap; font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; }
-.rv-recipe-codes { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 6px 14px; }
-.rv-recipe-codes li { display: inline-flex; align-items: baseline; gap: 6px; font-size: 11px; color: var(--faint); }
+/* Owner only: a style's Midjourney recipe (components/review/Recipe.tsx). One
+   quiet line (the style's look, a copy control, a Details toggle); the
+   parameters, codes and other recipes open under it. No card, no box. */
+.rv-recipe { margin: -4px 0 20px; }
+.rv-recipe-row { display: flex; align-items: baseline; gap: 6px 14px; flex-wrap: wrap; }
+.rv-recipe-look { flex: 1 1 320px; min-width: 0; margin: 0; font: 400 14px/1.5 var(--sans); color: var(--muted); }
+.rv-recipe-look[data-empty] { color: var(--faint); }
+.rv-recipe-look mark, .rv-recipe-line mark { background: var(--sel); color: var(--text); border-radius: 3px; padding: 0 3px; }
+.rv-recipe-copy, .rv-recipe-more { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 3px 0; background: none; border: 0; font: 500 10px/1.4 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); cursor: pointer; white-space: nowrap; transition: color 0.15s ease; }
+.rv-recipe-copy:hover, .rv-recipe-more:hover, .rv-recipe-copy[data-on], .rv-recipe-more[aria-expanded="true"] { color: var(--text); }
+.rv-recipe-copy:focus-visible, .rv-recipe-more:focus-visible { outline: 1px solid var(--line-2); outline-offset: 3px; border-radius: 3px; }
+.rv-recipe-chev { transition: transform 0.18s ease; }
+.rv-recipe-more[aria-expanded="true"] .rv-recipe-chev { transform: rotate(180deg); }
+.rv-recipe-details { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px; animation: rv-recipe-in 0.16s ease-out; }
+@keyframes rv-recipe-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+.rv-recipe-only, .rv-recipe-name { margin: 0; font: 500 10px/1.4 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+.rv-recipe-name { color: var(--muted); margin-bottom: 2px; }
+.rv-recipe-set { display: flex; flex-direction: column; }
+.rv-recipe-line { display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; align-items: baseline; gap: 10px; padding: 4px 0; }
+.rv-recipe-line .k { font: 500 10px/1.4 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+.rv-recipe-line code { font-family: var(--mono); font-size: 12px; line-height: 1.55; color: var(--muted); word-break: break-word; user-select: all; }
+.rv-recipe-codes { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.rv-recipe-codes li { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--faint); }
 .rv-recipe-codes code { font-family: var(--mono); color: var(--text); }
 .rv-recipe-codes span { font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; }
 .rv-recipe-codes b { font-weight: 600; color: var(--muted); }
+.rv-recipe-pics { display: inline-flex; gap: 1px; align-self: center; border-radius: 4px; overflow: hidden; }
+.rv-recipe-pics img { width: 22px; height: 22px; object-fit: cover; display: block; }
+@media (prefers-reduced-motion: reduce) { .rv-recipe-details { animation: none; } .rv-recipe-chev { transition: none; } }
 .rv-sec-copy { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); background: none; border: 1px solid var(--line-2); border-radius: 999px; padding: 3px 9px; cursor: pointer; }
 .rv-sec-copy:hover, .rv-sec-copy[data-on] { color: var(--text); background: var(--sel); }
 @media (max-width: 640px) { .rv-recipe-line { grid-template-columns: minmax(0, 1fr) auto; } .rv-recipe-line .k { grid-column: 1 / -1; } }
@@ -1214,6 +1227,3 @@ button.rv-note:hover { background: var(--hover); color: var(--text); }
 .rv-chip.held .rel { display: none; padding-left: 6px; border-left: 1px solid var(--line-2); }
 .rv-chip.held:hover .rel, .rv-t:hover .rv-chip.held .rel { display: inline; }
 .rv-held-note { font-family: var(--mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border: 1px dashed var(--line-2); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
-.rv-recipe-pics { display: inline-flex; gap: 1px; align-self: center; border-radius: 4px; overflow: hidden; }
-.rv-recipe-pics img { width: 26px; height: 26px; object-fit: cover; display: block; }
-.rv-recipe-codes li { align-items: center; }

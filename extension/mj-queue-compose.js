@@ -18,9 +18,38 @@
 
   const major = (version) => Math.floor(Number.parseFloat(version.replace(/^niji\s*/, "")) || 0);
 
+  // Twin of lib/mj-version.ts: every job is --v 8.2 (Michael, 15 Nov 2026:
+  // "never use mj v8.1, do not let it happen"; V7 and older since 11 Nov).
+  const MJ_VERSION = "8.2";
+  const VERSION_FLAG = /(^|\s)(?:--|[–—])(?:v|version)(?:\s+|(?=\d))(\d+(?:\.\d+)?)(?=\s|$)/gi;
+  const isRetiredMjVersion = (value) => {
+    const number = Number.parseFloat(value);
+    return Number.isFinite(number) && number < Number.parseFloat(MJ_VERSION);
+  };
+  const mjVersionWarning = (from) => `v${from} is not used: switched to v${MJ_VERSION}`;
+
+  function enforceMjVersion(text) {
+    const input = String(text == null ? "" : text);
+    const replaced = [];
+    let seen = false;
+    const output = input.replace(VERSION_FLAG, (whole, lead, value) => {
+      const retired = isRetiredMjVersion(value);
+      if (retired && !replaced.includes(value)) replaced.push(value);
+      if (seen) return "";
+      seen = true;
+      return retired ? `${lead}--v ${MJ_VERSION}` : whole;
+    });
+    return { text: output, replaced };
+  }
+
   function composeMjCommand(item) {
     const warnings = [];
-    const params = space(item && item.params);
+    const enforced = enforceMjVersion(space(item && item.params));
+    const params = space(enforced.text);
+    for (const from of [item && item.replacedVersion, ...enforced.replaced]) {
+      const note = from ? mjVersionWarning(from) : "";
+      if (note && !warnings.includes(note)) warnings.push(note);
+    }
     const version = pinnedVersion(params);
     const parts = [];
 
@@ -43,25 +72,16 @@
     const imageWeight = imageRefs.map((ref) => num(ref && ref.weight)).find(Boolean);
     if (imageWeight && images.length) parts.push(`--iw ${imageWeight}`);
 
-    const omni = space(item && item.omniRef && item.omniRef.url);
-    if (omni) {
-      if (major(version) === 7 && !version.startsWith("niji")) {
-        parts.push(`--oref ${omni}`);
-        const weight = num(item.omniRef.weight);
-        if (weight) parts.push(`--ow ${weight}`);
-      } else {
-        warnings.push("Omni reference left out: V8.2 has none. Use it in the Edit model, or pin --v 7.");
-      }
-    }
+    if (space(item && item.omniRef && item.omniRef.url)) warnings.push("Omni reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
 
     const character = space(item && item.characterRef && item.characterRef.url);
     if (character) {
-      if (major(version) === 6) {
+      if (version.startsWith("niji") && major(version) === 6) {
         parts.push(`--cref ${character}`);
         const weight = num(item.characterRef.weight);
         if (weight) parts.push(`--cw ${weight}`);
       } else {
-        warnings.push("Character reference left out: only V6 reads it. Use the Edit model in V8.2.");
+        warnings.push("Character reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
       }
     }
 
@@ -72,7 +92,7 @@
     const edits = ((item && item.editRefs) || []).map((ref) => space(ref && ref.url)).filter(Boolean).slice(0, 4);
     if (edits.length) {
       if (!version || major(version) >= 8) parts.push(`--edit ${edits.join(" ")}`);
-      else warnings.push("Attached frame left out: the Edit model is V8.2. Drop the pinned version to keep the layout.");
+      else warnings.push("Attached frame left out: the Edit model is V8.2. Drop --niji to keep the layout.");
     }
 
     if (!prose && !images.length) warnings.push("No prompt words yet.");
@@ -100,5 +120,5 @@
     return `thr-${hash.toString(16).padStart(8, "0")}`;
   }
 
-  globalScope.SaveToGalleryMjQueueCompose = { composeMjCommand, pinnedVersion, sameCommand, threadIdOf };
+  globalScope.SaveToGalleryMjQueueCompose = { composeMjCommand, enforceMjVersion, pinnedVersion, sameCommand, threadIdOf };
 })(typeof globalThis !== "undefined" ? globalThis : self);

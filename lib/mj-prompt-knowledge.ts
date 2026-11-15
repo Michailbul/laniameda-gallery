@@ -16,6 +16,7 @@ export const MJ_PROMPT_KNOWLEDGE = `How Midjourney V8.2 reads a prompt:
 - One picture: only what this one frame shows.
 - Stay under about 1,000 characters of prose; past 1,024 Midjourney shortens the prompt itself and drops detail.
 - Parameters (--ar, --sref, --profile, --stylize …) come last; nothing descriptive after them.
+- Every job is --v 8.2 (or no --v at all: 8.2 is the default). Never --v 8.1, --version 8.1, --v 7 or older.
 
 Two kinds of prompt:
 - An ORDINARY prompt (text to image) describes a finished picture and nothing else. Midjourney sees no file, no earlier image and no world.
