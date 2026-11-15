@@ -55,7 +55,7 @@ export function Milestones({ versions, shownId, isOwner, directorName, onPick }:
 
   const draftLine = draft
     ? draft.added || draft.removed
-      ? [draft.added ? plural(draft.added, "new frame") : "", draft.removed ? `${draft.removed} taken out` : ""].filter(Boolean).join(", ")
+      ? [draft.added ? plural(draft.added, "new approved frame") : "", draft.removed ? `${draft.removed} taken out` : ""].filter(Boolean).join(", ")
       : "Frames moved or restyled"
     : "";
 
@@ -132,7 +132,7 @@ export function Milestones({ versions, shownId, isOwner, directorName, onPick }:
           >
             <span className="dot" />
             <span className="lb">Next round</span>
-            <span className="dt">{draft ? (draft.added ? `${draft.added} waiting` : "ready") : "nothing yet"}</span>
+            <span className="dt">{draft ? (draft.added ? `${draft.added} approved` : "ready") : "nothing yet"}</span>
           </button>
         ) : null}
         {ghosts.map((number) => (

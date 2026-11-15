@@ -64,16 +64,17 @@ export const pageLayout = (perPage: PerPage) => {
 export const pageCount = (styles: PdfStyle[], perPage: PerPage) =>
   styles.reduce((sum, style) => sum + Math.max(1, Math.ceil(style.frames.length / perPage)), 0);
 
-const fileSlug = (value: string) =>
+const fileSlug = (value: string, keep = "") =>
   value
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(new RegExp(`[^a-z0-9${keep}]+`, "g"), "-")
     .replace(/^-+|-+$/g, "");
 
+/** cassandra-style-book-v0.2.pdf (the round keeps its dot), plus the style when it is one. */
 export const pdfFileName = (project: string, round: string, style?: string) =>
-  [fileSlug(project) || "review", "style-book", fileSlug(round), style ? fileSlug(style) : ""].filter(Boolean).join("-") + ".pdf";
+  [fileSlug(project) || "review", "style-book", fileSlug(round, "."), style ? fileSlug(style) : ""].filter(Boolean).join("-") + ".pdf";
 
 // ------------------------------------------------------------ images
 
@@ -149,7 +150,7 @@ const encodeFrame = async (frame: PdfFrame, job: PdfJob): Promise<Encoded> => {
       context.imageSmoothingEnabled = true;
       context.imageSmoothingQuality = "high";
       context.drawImage(bitmap, sx, sy, sw, sh, 0, 0, w, h);
-      const quality = job.perPage === 1 ? 0.84 : job.perPage === 4 ? 0.8 : 0.78;
+      const quality = job.perPage === 1 ? 0.84 : job.perPage === 4 ? 0.78 : 0.76;
       const jpeg = await canvasBlob(canvas, "image/jpeg", quality);
       return { bytes: new Uint8Array(await jpeg.arrayBuffer()), w, h, contain };
     } finally {
@@ -295,6 +296,9 @@ export async function buildStyleBookPdf(job: PdfJob): Promise<PdfResult> {
         round: job.round,
       });
       const stripImage = await doc.embedPng(strip);
+      // pdf-lib compresses a PNG only when it is embedded; doing it now, page
+      // by page, keeps that work from freezing the page all at once on save.
+      await stripImage.embed();
       page.drawImage(stripImage, { x: 0, y: PAGE_H - layout.stripH, width: PAGE_W, height: layout.stripH });
 
       const slice = style.frames.slice(p * job.perPage, (p + 1) * job.perPage);
@@ -314,6 +318,7 @@ export async function buildStyleBookPdf(job: PdfJob): Promise<PdfResult> {
           page.drawRectangle({ x, y, width: layout.cellW, height: layout.cellH, color: rgb(CELL.r, CELL.g, CELL.b) });
         } else {
           const image = await doc.embedJpg(result.bytes);
+          await image.embed();
           if (result.contain) {
             page.drawRectangle({ x, y, width: layout.cellW, height: layout.cellH, color: rgb(CELL.r, CELL.g, CELL.b) });
             const fit = Math.min(layout.cellW / result.w, layout.cellH / result.h);
