@@ -132,22 +132,26 @@ const listSkillFolderIds = async (
   return Array.from(new Set(links.map((link) => link.folderId)));
 };
 
-const listSkillModelNames = async (
-  ctx: QueryCtx,
-  skillId: Id<"skills">,
-): Promise<string[]> => {
-  const prompts = await ctx.db
+const listSkillSteps = (ctx: QueryCtx, skillId: Id<"skills">) =>
+  ctx.db
     .query("prompts")
     .withIndex("by_skill_stepOrder", (q) => q.eq("skillId", skillId))
+    .order("asc")
     .collect();
-  return Array.from(
+
+const modelNamesOf = (prompts: Doc<"prompts">[]) =>
+  Array.from(
     new Set(
       prompts
         .map((prompt) => prompt.modelName?.trim())
         .filter((name): name is string => Boolean(name)),
     ),
   );
-};
+
+const listSkillModelNames = async (
+  ctx: QueryCtx,
+  skillId: Id<"skills">,
+): Promise<string[]> => modelNamesOf(await listSkillSteps(ctx, skillId));
 
 // Markdown flattened to a plain lead sentence or two for cards.
 export const markdownExcerpt = (markdown: string | undefined, max = 220) => {
@@ -211,27 +215,34 @@ const isUnwiredCopy = async (ctx: QueryCtx, skillId: Id<"skills">) =>
   (await ctx.db.query("skillMigrationAliases").withIndex("by_skill", (q) => q.eq("skillId", skillId)).collect())
     .some((alias) => alias.sourceKind === "workflow" && alias.phase === "copied");
 
+// A card reads its steps once (model names and previews share them) and the
+// skill row it was handed, never a second copy of it. listSkills builds up to
+// 200 of these per call and re-runs on every change to what they read, so
+// each repeated read was paid many times over (Nov 2026: ~3 MB a call).
 const buildSkillCard = async (
   ctx: QueryCtx,
   workflow: Doc<"skills">,
   previewLimit: number,
   tagNames?: string[],
-) => ({
-  _id: workflow._id,
-  title: workflow.title,
-  description: workflow.description,
-  excerpt: markdownExcerpt(workflow.body ?? workflow.agentInstructions),
-  pillar: workflow.pillar,
-  tagNames: tagNames ?? (await resolveTagNames(ctx, workflow.tagIds)),
-  folderIds: await listSkillFolderIds(ctx, workflow._id),
-  modelNames: await listSkillModelNames(ctx, workflow._id),
-  stepCount: workflow.stepCount,
-  isPublic: workflow.isPublic,
-  isFeatured: workflow.isFeatured,
-  createdAt: workflow.createdAt,
-  updatedAt: workflow.updatedAt,
-  previewImages: await collectSkillPreviewMedia(ctx, workflow._id, previewLimit),
-});
+) => {
+  const steps = await listSkillSteps(ctx, workflow._id);
+  return {
+    _id: workflow._id,
+    title: workflow.title,
+    description: workflow.description,
+    excerpt: markdownExcerpt(workflow.body ?? workflow.agentInstructions),
+    pillar: workflow.pillar,
+    tagNames: tagNames ?? (await resolveTagNames(ctx, workflow.tagIds)),
+    folderIds: await listSkillFolderIds(ctx, workflow._id),
+    modelNames: modelNamesOf(steps),
+    stepCount: workflow.stepCount,
+    isPublic: workflow.isPublic,
+    isFeatured: workflow.isFeatured,
+    createdAt: workflow.createdAt,
+    updatedAt: workflow.updatedAt,
+    previewImages: await collectSkillPreviewMedia(ctx, workflow, steps, previewLimit),
+  };
+};
 
 const slimSkillCard = (card: Awaited<ReturnType<typeof buildSkillCard>>) => ({
   ...card,
@@ -294,10 +305,9 @@ const collectSkillSteps = async (
 };
 
 const collectSkillPreviewMedia = async (
-  ctx: QueryCtx, skillId: Id<"skills">, previewLimit: number,
+  ctx: QueryCtx, skill: Doc<"skills">, steps: Doc<"prompts">[], previewLimit: number,
 ) => {
-  const skill = await ctx.db.get(skillId);
-  if (!skill || previewLimit <= 0) return [];
+  if (previewLimit <= 0) return [];
   const actor = (await ctx.auth.getUserIdentity())?.subject ?? "";
   const media: Array<{ id: Id<"assets">; kind: "image" | "video"; url?: string; thumbUrl?: string; contentType?: string; width?: number; height?: number; description?: string }> = [];
   const seen = new Set<string>();
@@ -310,11 +320,12 @@ const collectSkillPreviewMedia = async (
       width: asset.width, height: asset.height, description: asset.description });
   };
   if (skill.coverAssetId) await add(await ctx.db.get(skill.coverAssetId));
-  for (const prompt of await ctx.db.query("prompts")
-    .withIndex("by_skill_stepOrder", (q) => q.eq("skillId", skillId)).order("asc").collect()) {
+  for (const prompt of steps) {
     if (media.length >= previewLimit) break;
-    for (const asset of await ctx.db.query("assets")
-      .withIndex("by_prompt_createdAt", (q) => q.eq("promptId", prompt._id).gte("createdAt", 0)).order("asc").collect()) {
+    // Streamed, so a step with many frames stops being read once the card
+    // has its previews (same frames, same order as reading them all).
+    for await (const asset of ctx.db.query("assets")
+      .withIndex("by_prompt_createdAt", (q) => q.eq("promptId", prompt._id).gte("createdAt", 0)).order("asc")) {
       await add(asset);
       if (media.length >= previewLimit) break;
     }

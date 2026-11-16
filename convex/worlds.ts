@@ -490,7 +490,7 @@ const applyFileState = async (ctx: MutationCtx, asset: Doc<"assets">, next: File
   if (!setsEqual(asset.tagIds, next.tagIds)) {
     await replaceAssetTagLinks(ctx, asset, next.tagIds);
     patch.tagIds = next.tagIds;
-    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id, textEdit: true });
   }
   if (Object.keys(patch).length > 0) await ctx.db.patch(asset._id, patch);
   return touched;

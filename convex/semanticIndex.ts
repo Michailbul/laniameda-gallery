@@ -28,6 +28,7 @@ import {
   pixelLaneHash,
   semanticStorageMode,
   sha256Hex,
+  textEditDefersPixel,
   textLaneHash,
   toStoredVector,
 } from "./semanticStorage";
@@ -71,6 +72,9 @@ const recordFailureMutationRef = makeFunctionReference<"mutation">(
 );
 const resolveFailureMutationRef = makeFunctionReference<"mutation">(
   "semanticIndex:resolveSemanticIndexFailure",
+);
+const getFailureStateQueryRef = makeFunctionReference<"query">(
+  "semanticIndex:getSemanticIndexFailureState",
 );
 const refreshAssetKeywordsMutationRef = makeFunctionReference<"mutation">(
   "assetKeywords:refreshAssetKeywords",
@@ -370,6 +374,7 @@ const assetSourceValidator = v.union(
     modelName: v.optional(v.string()),
     isPublic: v.boolean(),
     sourceUpdatedAt: v.number(),
+    createdAt: v.optional(v.number()),
   }),
 );
 
@@ -1099,6 +1104,7 @@ export const getAssetSourceForReindex = internalQuery({
       modelName: asset.modelName,
       isPublic: Boolean(asset.isPublic),
       sourceUpdatedAt: asset.curatedAt ?? asset.createdAt,
+      createdAt: asset.createdAt,
     };
   },
 });
@@ -1486,6 +1492,27 @@ export const deleteSemanticDocumentForSource = internalMutation({
   },
 });
 
+// Slim read for the text-edit pixel rule: is a retry chain already on it?
+export const getSemanticIndexFailureState = internalQuery({
+  args: {
+    sourceType: semanticSourceTypeValidator,
+    sourceId: v.string(),
+  },
+  returns: v.union(
+    v.null(),
+    v.object({ status: semanticFailureStatusValidator, updatedAt: v.number() }),
+  ),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("semantic_index_failures")
+      .withIndex("by_source", (q) =>
+        q.eq("sourceType", args.sourceType).eq("sourceId", args.sourceId),
+      )
+      .unique();
+    return row ? { status: row.status, updatedAt: row.updatedAt } : null;
+  },
+});
+
 export const recordSemanticIndexFailure = internalMutation({
   args: {
     ownerUserId: v.optional(v.string()),
@@ -1636,6 +1663,10 @@ const reindexAssetSource = async (
   // Refresh the text lane only; never call the multimodal model. Used by
   // backfills so they don't drain the pixel lane's small quota.
   textOnly = false,
+  // The caller changed words or scope, not the picture. A current pixel
+  // vector is always reused; a missing one is fetched only when no other
+  // reindex owns it (textEditDefersPixel).
+  textEdit = false,
 ): Promise<ReindexResult> => {
   // The keyword row comes first and needs no provider, so a piece stays
   // findable by its words and tags while embeddings are off or failing.
@@ -1756,12 +1787,28 @@ const reindexAssetSource = async (
       splitText = null;
     }
 
-    // Pixel lane.
-    const shouldReuseEmbedding = Boolean(
+    // Pixel lane. The legacy hash folds in visibility and pillar, but the
+    // vector embeds the picture's bytes only, so a row whose hash matches
+    // under its own stored scope still holds the current picture. Without
+    // this, starring, curating or re-filing an asset downloaded the original
+    // and embedded the same pixels again.
+    const legacyModelCurrent = Boolean(
       existing?.embedding &&
-        existing.contentHash === contentHash &&
         existing.embeddingModel === model &&
         existing.embeddingDimensions === dimensions,
+    );
+    const shouldReuseEmbedding = legacyModelCurrent && (
+      existing!.contentHash === contentHash ||
+      (shouldUseMultimodal &&
+        (existing!.isPublic !== source.isPublic || existing!.pillar !== source.pillar) &&
+        existing!.contentHash === await legacyPixelHash({
+          modality,
+          searchText: primaryText,
+          storageId: source.storageId,
+          storageUrl: source.storageUrl,
+          isPublic: existing!.isPublic,
+          pillar: existing!.pillar,
+        }))
     );
     const splitPixelHash = shouldUseMultimodal
       ? await pixelLaneHash({ model, storageId: source.storageId, storageUrl: source.storageUrl })
@@ -1771,8 +1818,15 @@ const reindexAssetSource = async (
     let pixelValues = shouldUseMultimodal && shouldReuseEmbedding ? existing?.embedding : undefined;
     let embedding: number[] | undefined;
     let pixelError: string | undefined;
-    if (shouldUseMultimodal && source.storageUrl && !textOnly &&
-        ((writesLegacy && !shouldReuseEmbedding) || (splitNeedsPixel && !pixelValues))) {
+    let pixelDeferred = false;
+    const pixelWanted = shouldUseMultimodal && Boolean(source.storageUrl) && !textOnly &&
+      ((writesLegacy && !shouldReuseEmbedding) || (splitNeedsPixel && !pixelValues));
+    if (pixelWanted && textEdit && attempt === 0) {
+      const failure = await ctx.runQuery(getFailureStateQueryRef, { sourceType: "asset", sourceId }) as
+        { status: string; updatedAt: number } | null;
+      pixelDeferred = textEditDefersPixel({ now: Date.now(), assetCreatedAt: source.createdAt, failure });
+    }
+    if (pixelWanted && !pixelDeferred && source.storageUrl) {
       try {
         pixelValues = (await embedWithGemini([
           await fetchInlineImagePart(source.storageUrl, source.contentType),
@@ -1830,7 +1884,9 @@ const reindexAssetSource = async (
         // A pending pixel lane keeps the previous hash, so the next reindex
         // still sees it as stale and retries it.
         searchText,
-        contentHash: embedding ? contentHash : (existing?.contentHash ?? "pixel-pending"),
+        contentHash: embedding || shouldReuseEmbedding
+          ? contentHash
+          : (existing?.contentHash ?? "pixel-pending"),
         embeddingModel: model,
         embeddingDimensions: dimensions,
         embedding,
@@ -1877,10 +1933,13 @@ const reindexAssetSource = async (
         retryScheduled: await scheduleRetry(ctx, "asset", sourceId, attempt, textOnly),
       };
     }
-    await ctx.runMutation(resolveFailureMutationRef, {
-      sourceType: "asset",
-      sourceId,
-    });
+    // A deferred pixel lane is still owed: leave its retry record open.
+    if (!pixelDeferred) {
+      await ctx.runMutation(resolveFailureMutationRef, {
+        sourceType: "asset",
+        sourceId,
+      });
+    }
 
     return {
       status: "indexed" as const,
@@ -2303,6 +2362,8 @@ export const reindexAsset = internalAction({
     assetId: v.id("assets"),
     attempt: v.optional(v.number()),
     textOnly: v.optional(v.boolean()),
+    // Set by callers that changed words or scope, never the picture.
+    textEdit: v.optional(v.boolean()),
   },
   returns: reindexResultValidator,
   handler: async (ctx, args): Promise<ReindexResult> => {
@@ -2311,6 +2372,7 @@ export const reindexAsset = internalAction({
       args.assetId,
       args.attempt ?? 0,
       args.textOnly === true,
+      args.textEdit === true,
     );
   },
 });

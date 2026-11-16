@@ -143,6 +143,8 @@ export const saveAutoDescription = internalMutation({
     replaceAuto: v.optional(v.boolean()),
     // Backfill: refresh only the text lane, never the multimodal model.
     textOnlyReindex: v.optional(v.boolean()),
+    // A re-describe of a live asset: words changed, the picture did not.
+    textEdit: v.optional(v.boolean()),
   },
   returns: v.boolean(),
   handler: async (ctx, args) => {
@@ -166,6 +168,7 @@ export const saveAutoDescription = internalMutation({
     await ctx.scheduler.runAfter(0, reindexAssetActionRef, {
       assetId: asset._id,
       ...(args.textOnlyReindex ? { textOnly: true } : {}),
+      ...(args.textEdit ? { textEdit: true } : {}),
     });
     return true;
   },
@@ -356,6 +359,8 @@ export const describeAsset = internalAction({
         agentDescription,
         replaceAuto: args.replaceAuto,
         ...(args.backfill ? { textOnlyReindex: true } : {}),
+        // A new asset's describe step owns its first full index.
+        ...(args.reindexAfter ? {} : { textEdit: true }),
       })) as boolean;
       if (!saved) await indexAnyway();
       return { status: "described" as const };

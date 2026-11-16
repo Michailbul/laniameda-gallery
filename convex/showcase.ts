@@ -51,8 +51,9 @@ const SELECTED_WORKS_LIMIT = 120;
 // Membership reads over-fetch by this factor before the isPublic filter, so a
 // set whose recent members are private still fills its limit.
 const PUBLIC_OVERFETCH = 3;
-// Public assets read to find the featured ones. The reel itself is uncapped:
-// every piece the owner featured is on the page, in their order.
+// Ceiling on featured public assets read for the reel. The reel itself is
+// uncapped below this: every piece the owner featured is on the page, in
+// their order.
 const FEATURED_SCAN_LIMIT = 2000;
 
 const previewAssetValidator = v.object({
@@ -595,11 +596,14 @@ export const getShowcaseHome = query({
     // --- Featured reel: the pieces that lead the page. Public + flagged
     // featured, owner-ordered (orderPriority) with videos winning ties so the
     // reel opens on motion. ---
+    // Read through the featured index: only featured public pieces, newest
+    // first, never the unfeatured public assets around them (Nov 2026: the
+    // 2,000-row scan was most of this query's ~7 MB a call).
     const featuredReelAssets = (
       await ctx.db
         .query("assets")
-        .withIndex("by_isPublic_createdAt", (q) =>
-          q.eq("isPublic", true).gte("createdAt", 0),
+        .withIndex("by_isPublic_isFeatured_createdAt", (q) =>
+          q.eq("isPublic", true).eq("isFeatured", true).gte("createdAt", 0),
         )
         .order("desc")
         .take(FEATURED_SCAN_LIMIT)

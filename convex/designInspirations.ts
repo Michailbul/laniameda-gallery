@@ -297,6 +297,7 @@ export const createDesignInspiration = ownerMutation({
     if (linked.assetId) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, {
         assetId: linked.assetId,
+        textEdit: true,
       });
     }
 
@@ -433,11 +434,13 @@ export const updateDesignInspiration = ownerMutation({
     if (existing.assetId) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, {
         assetId: existing.assetId,
+        textEdit: true,
       });
     }
     if (linked.assetId && linked.assetId !== existing.assetId) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, {
         assetId: linked.assetId,
+        textEdit: true,
       });
     }
 
@@ -753,6 +756,7 @@ export const deleteDesignInspiration = ownerMutation({
     if (inspiration.assetId) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, {
         assetId: inspiration.assetId,
+        textEdit: true,
       });
     }
     return null;

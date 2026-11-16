@@ -7,6 +7,7 @@ import {
   resolveUserIdCandidates,
 } from "./authz";
 import { ownerMutation, ownerQuery } from "./actor";
+import { publicCollectionCountsReady } from "./publicCollectionCounts";
 
 // Curated filter pills for the main gallery menu. The owner decides which
 // filters surface (the raw tag cloud never renders directly). Two kinds:
@@ -177,29 +178,48 @@ const buildMenuFilters = async (
 
     // Counting never touches the fat asset documents in the owner ("mine")
     // scope — every count comes from the small assetTags / assetFolders join
-    // rows. That keeps this query's read bandwidth roughly two orders of
-    // magnitude below the previous full-vault scan AND stops it re-running
-    // on unrelated asset edits (only tag / membership changes invalidate it
-    // now). The public scope still reads assets, but only the isPublic slice
-    // via its index.
-    const publicAssetIds = isPublic
-      ? new Set(
-          (
-            await ctx.db
-              .query("assets")
-              .withIndex("by_isPublic_createdAt", (q) => q.eq("isPublic", true))
-              .collect()
-          ).map((asset) => asset._id),
-        )
-      : null;
-
-    const countInScope = (assetIds: Set<Id<"assets">>) => {
-      if (!publicAssetIds) return assetIds.size;
+    // rows, and a collection's count from the folder's own stored memberCount
+    // (kept exact by every membership write, see folderHelpers). That keeps
+    // this query's read bandwidth far below a full-vault scan AND stops it
+    // re-running on unrelated asset edits.
+    // The public scope reads the isPublic slice once, only when a pill needs
+    // it, and counts tag pills off those rows' tagIds: the very field the
+    // grid filter matches on, so no tag link rows are read on top.
+    let publicAssets: Array<{ _id: Id<"assets">; tagIds: Id<"tags">[] }> | null = null;
+    const loadPublicAssets = async () => {
+      publicAssets ??= (
+        await ctx.db
+          .query("assets")
+          .withIndex("by_isPublic_createdAt", (q) => q.eq("isPublic", true))
+          .collect()
+      ).map((asset) => ({ _id: asset._id, tagIds: asset.tagIds }));
+      return publicAssets;
+    };
+    const countPublicTagged = async (tagIds: Id<"tags">[]) => {
+      const wanted = new Set(tagIds);
       let count = 0;
-      for (const assetId of assetIds) {
-        if (publicAssetIds.has(assetId)) count += 1;
+      for (const asset of await loadPublicAssets()) {
+        if (asset.tagIds.some((tagId) => wanted.has(tagId))) count += 1;
       }
       return count;
+    };
+    const countPublicMembers = async (assetIds: Set<Id<"assets">>) => {
+      let count = 0;
+      for (const asset of await loadPublicAssets()) {
+        if (assetIds.has(asset._id)) count += 1;
+      }
+      return count;
+    };
+    const publicCountsReady = isPublic ? await publicCollectionCountsReady(ctx) : false;
+    const countFolder = async (folder: Doc<"folders">) => {
+      if (!isPublic) {
+        return folder.memberCount ??
+          (await collectFolderMemberAssetIds(ctx, folder._id)).size;
+      }
+      if (publicCountsReady && folder.publicMemberCount !== undefined) {
+        return folder.publicMemberCount;
+      }
+      return await countPublicMembers(await collectFolderMemberAssetIds(ctx, folder._id));
     };
 
     const results = [];
@@ -209,7 +229,9 @@ const buildMenuFilters = async (
         const count =
           tagIds.length === 0
             ? 0
-            : countInScope(await collectTaggedAssetIds(ctx, tagIds));
+            : isPublic
+              ? await countPublicTagged(tagIds)
+              : (await collectTaggedAssetIds(ctx, tagIds)).size;
         results.push({
           _id: entry._id,
           label: entry.label,
@@ -225,9 +247,7 @@ const buildMenuFilters = async (
       }
 
       const folder = entry.folderId ? await ctx.db.get(entry.folderId) : null;
-      const count = folder
-        ? countInScope(await collectFolderMemberAssetIds(ctx, folder._id))
-        : 0;
+      const count = folder ? await countFolder(folder) : 0;
       results.push({
         _id: entry._id,
         label: entry.label,

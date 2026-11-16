@@ -153,7 +153,7 @@ export const upsertBookmarkRecord = internalMutation({
         await ctx.db.patch(linkedAssetId, { bookmarkId });
       }
       // The post text is part of the asset's search text lane.
-      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: linkedAssetId });
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: linkedAssetId, textEdit: true });
     }
 
     return { bookmarkId, created };
@@ -245,7 +245,7 @@ export const updateBookmarkNote = ownerMutation({
     const userNote = args.userNote?.trim().slice(0, MAX_NOTE_LENGTH) || undefined;
     await ctx.db.patch(bookmark._id, { userNote, updatedAt: Date.now() });
     if (bookmark.assetId) {
-      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: bookmark.assetId });
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: bookmark.assetId, textEdit: true });
     }
     return null;
   },
@@ -322,7 +322,7 @@ export const linkAssetsToBookmark = internalMutation({
           createdAt: asset.createdAt,
         });
       }
-      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id, textEdit: true });
       linked.push(asset._id);
     }
     return { linked };
