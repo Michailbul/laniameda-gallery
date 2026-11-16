@@ -361,18 +361,18 @@ export default function Lightbox(props: Props) {
 
         {isOwner && onArchive ? (
           // The art director: approve into the next round, discard, comment.
-          <div className="rv-lb-acts rv-pills">
+          <div className="rv-lb-acts rv-lb-oacts">
             {approved !== undefined ? (
-              <button type="button" className="rv-pill approve" aria-pressed={approved && !archived} onClick={onApprove}>
+              <button type="button" className="rv-act approve" aria-pressed={approved && !archived} onClick={onApprove}>
                 <kbd>1</kbd>
                 <span>{approved && !archived ? "Approved" : "Approve"}</span>
               </button>
             ) : null}
-            <button type="button" className="rv-pill discard" aria-pressed={Boolean(archived)} onClick={onArchive}>
+            <button type="button" className="rv-act discard" aria-pressed={Boolean(archived)} onClick={onArchive}>
               <kbd>2</kbd>
               <span>{archived ? "Restore" : "Discard"}</span>
             </button>
-            <button type="button" className="rv-pill" onClick={() => areaRef.current?.focus()}>
+            <button type="button" className="rv-act" onClick={() => areaRef.current?.focus()}>
               <kbd>C</kbd>
               <span>Comment</span>
             </button>
