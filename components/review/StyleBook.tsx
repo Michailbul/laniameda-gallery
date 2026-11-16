@@ -6,7 +6,7 @@ import {
   mediaUrl, shortDate, srcSetOf, thumbAtLeast,
   type GridSize, type ReviewItem, type ReviewVersion, type Verdict,
 } from "@/lib/review-client";
-import { OwnerPills, StyleVote, type StyleMark, type TileAction } from "./Grid";
+import { OwnerActs, StyleVote, type StyleMark, type TileAction } from "./Grid";
 import { Check, ChevronDown } from "./icons";
 import { Floating, usePopover } from "./Floating";
 import { BookPdf } from "./BookPdf";
@@ -378,8 +378,8 @@ const BookTile = memo(function BookTile({ item, mediaBase, sizes, eager, high, p
       ) : null}
       {approved && !archived ? <span className="rv-t-ok">Approved</span> : null}
       {archived ? <span className="rv-bk-mark">Discarded</span> : null}
-      {/* The owner's pills take the bottom edge, so the place and code move to the top. */}
-      {owner ? <OwnerPills approving={approving} approved={approved} archived={archived} /> : null}
+      {/* The owner's actions take the bottom edge, so the place and code move to the top. */}
+      {owner ? <OwnerActs approving={approving} approved={approved} archived={archived} /> : null}
       <div className="rv-bk-cap" data-top={owner ? "" : undefined}>
         <span className="pl">{place}</span>
         <button type="button" className="rv-code" data-act="copy" title="Copy this frame's code">{item.code}</button>

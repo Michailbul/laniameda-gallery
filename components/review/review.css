@@ -1221,60 +1221,68 @@ button.rv-note:hover { background: var(--hover); color: var(--text); }
 @media (max-width: 640px) { .rv-recipe-line { grid-template-columns: minmax(0, 1fr) auto; } .rv-recipe-line .k { grid-column: 1 / -1; } }
 
 /* Approve / Discard (owner, Michael 15 Nov 2026). A frame waiting for his
-   decision carries no mark at all; an approved one carries this one quiet,
-   filled pill, bottom left, which the hover pills replace in place. */
+   decision carries no mark at all; an approved one carries one small word in
+   the like colour, bottom left, which the hover actions replace in place.
+   No pills anywhere (Michael, 16 Nov 2026: "too large ... they should be no
+   pills"). */
 .rv-t-ok {
   position: absolute;
-  left: 10px;
+  left: 11px;
   bottom: 10px;
   display: inline-flex;
   align-items: center;
-  height: 18px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--like) 86%, transparent);
-  color: var(--bg);
-  font: 600 9px/1 var(--mono);
-  letter-spacing: 0.14em;
+  gap: 6px;
+  color: var(--like);
+  font: 600 8.5px/1 var(--mono);
+  letter-spacing: 0.16em;
   text-transform: uppercase;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
   pointer-events: none;
   transition: opacity 0.15s;
 }
+.rv-t-ok::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: currentColor; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
 .rv-t:hover .rv-t-ok, .rv-t[data-active] .rv-t-ok { opacity: 0; }
 
-/* The owner's hover hint as clickable text pills: 1 APPROVE · 2 DISCARD · C COMMENT. */
-.rv-t-acts.rv-pills { left: 10px; right: 10px; bottom: 10px; gap: 6px; flex-wrap: wrap; }
-.rv-pill {
+/* The owner's hover hint: 1 APPROVE · 2 DISCARD · C COMMENT, small text
+   with tiny keycaps over its own low shade, so it reads on bright frames.
+   (The tile's ::before scrim paints under the image, so it can't carry it.) */
+.rv-t-acts.rv-oacts { left: 11px; right: 11px; bottom: 9px; gap: 14px; z-index: 1; }
+.rv-oacts::before {
+  content: "";
+  position: absolute;
+  left: -11px;
+  right: -11px;
+  bottom: -9px;
+  height: 60px;
+  background: linear-gradient(to top, rgba(var(--ground), 0.7), rgba(var(--ground), 0.28) 55%, transparent);
+  z-index: -1;
+  pointer-events: none;
+}
+.rv-oact {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  height: 26px;
-  padding: 0 11px 0 5px;
-  border-radius: 999px;
-  border: 1px solid rgba(var(--ink), 0.2);
-  background: rgba(var(--ground), 0.62);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  font: 600 10px/1 var(--sans);
-  letter-spacing: 0.12em;
+  gap: 5px;
+  padding: 3px 0;
+  font: 600 9px/1 var(--sans);
+  letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: rgba(var(--ink), 0.86);
+  color: rgba(var(--ink), 0.78);
   white-space: nowrap;
-  transition: color 0.12s, border-color 0.12s, background 0.12s;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  transition: color 0.12s;
 }
-.rv-pill kbd { min-width: 16px; height: 16px; border-color: rgba(var(--ink), 0.28); font-size: 9.5px; }
-.rv-pill:hover { color: var(--text); border-color: rgba(var(--ink), 0.5); }
-.rv-pill.approve[aria-pressed="true"] { background: var(--like); border-color: var(--like); color: var(--bg); }
-.rv-pill.approve[aria-pressed="true"] kbd { border-color: rgba(var(--ground), 0.35); color: var(--bg); }
-.rv-pill.discard[aria-pressed="true"] { background: rgba(var(--ink), 0.9); border-color: transparent; color: var(--bg); }
-.rv-pill.discard[aria-pressed="true"] kbd { border-color: rgba(var(--ground), 0.35); color: var(--bg); }
-.rv[data-size="s"] .rv-pills .rv-pill { padding-right: 5px; }
-.rv[data-size="s"] .rv-pills .rv-pill span { display: none; }
-.rv-lb-acts.rv-pills { gap: 8px; }
-.rv-lb-acts.rv-pills .rv-pill { background: transparent; backdrop-filter: none; -webkit-backdrop-filter: none; }
-.rv-lb-acts.rv-pills .rv-pill.approve[aria-pressed="true"] { background: var(--like); }
-.rv-lb-acts.rv-pills .rv-pill.discard[aria-pressed="true"] { background: rgba(var(--ink), 0.9); }
-.rv-lb-acts.rv-pills .rv-act { margin-left: auto; }
+.rv-oact kbd { min-width: 13px; height: 13px; padding: 0 3px; border-radius: 3px; font-size: 8px; border-color: rgba(var(--ink), 0.3); background: rgba(var(--ground), 0.3); color: inherit; }
+.rv-oact:hover { color: var(--text); }
+.rv-oact:hover kbd { border-color: rgba(var(--ink), 0.6); }
+.rv-oact.approve[aria-pressed="true"] { color: var(--like); }
+.rv-oact.approve[aria-pressed="true"] kbd { border-color: var(--like); }
+.rv-oact.discard[aria-pressed="true"] { color: var(--text); }
+.rv[data-size="s"] .rv-oacts { gap: 8px; }
+.rv[data-size="s"] .rv-oact span { display: none; }
+.rv-lb-oacts .rv-act.approve[aria-pressed="true"] { color: var(--like); }
+.rv-lb-oacts .rv-act.approve[aria-pressed="true"] kbd { border-color: var(--like); color: var(--like); }
+.rv-lb-oacts .rv-act.discard[aria-pressed="true"] { color: var(--text); }
+.rv-lb-oacts .rv-act:last-child { margin-left: auto; }
 
 /* The owner strip's numbers: what is approved and not sent, then the quiet rest. */
 .rv-strip-sum { display: inline-flex; align-items: baseline; flex-wrap: wrap; gap: 4px 0; }
@@ -1393,12 +1401,11 @@ button.rv-bk-round:hover, .rv-bk-round[aria-expanded="true"] { color: var(--text
 /* Discarded (owner): small and quiet, top right, over the grayed frame. */
 .rv-bk-mark { position: absolute; top: 7px; right: 7px; display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 3px; background: rgba(var(--ground), 0.5); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); font: 500 8.5px/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: rgba(var(--ink), 0.55); }
 .rv-bk .rv-t-ok { left: 8px; bottom: 8px; }
-.rv-bk .rv-t-acts.rv-pills { left: 8px; right: 8px; bottom: 8px; }
-/* The owner's pills hold the bottom edge, so the place and code sit on top. */
+.rv-bk .rv-t-acts.rv-oacts { left: 9px; right: 9px; bottom: 8px; }
+/* The owner's actions hold the bottom edge, so the place and code sit on top. */
 .rv-bk-cap[data-top] { top: 8px; bottom: auto; transform: translateY(-2px); }
 .rv-bk-t:hover .rv-bk-cap[data-top], .rv-bk-t[data-active] .rv-bk-cap[data-top] { transform: none; }
-.rv-bk[data-size="s"] .rv-pills .rv-pill { padding-right: 5px; }
-.rv-bk[data-size="s"] .rv-pills .rv-pill span { display: none; }
+.rv-bk[data-size="s"] .rv-oact span { display: none; }
 .rv-bk-check { position: absolute; top: 7px; right: 7px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--text); color: var(--bg); }
 
 @media (max-width: 1100px) {
@@ -1430,7 +1437,7 @@ button.rv-bk-round:hover, .rv-bk-round[aria-expanded="true"] { color: var(--text
     print-color-adjust: exact;
   }
   .rv[data-mode="styles"] { min-height: 0; }
-  .rv[data-mode="styles"] :is(.rv-bk-head, .rv-bulk, .rv-dock, .rv-toasts, .rv-flash, .rv-preview, .rv-box, .rv-bk-mark, .rv-bk-cap, .rv-bk-check, .rv-svote, .rv-bk-tag, .rv-t-ok, .rv-pills, .rv-bk-pdf) { display: none !important; }
+  .rv[data-mode="styles"] :is(.rv-bk-head, .rv-bulk, .rv-dock, .rv-toasts, .rv-flash, .rv-preview, .rv-box, .rv-bk-mark, .rv-bk-cap, .rv-bk-check, .rv-svote, .rv-bk-tag, .rv-t-ok, .rv-oacts, .rv-bk-pdf) { display: none !important; }
   .rv-bk { --bk-gap: 5px; }
   .rv-bk, .rv-bk[data-size="m"] { --cols: 4; }
   .rv-bk[data-size="s"] { --cols: 6; }
@@ -1469,6 +1476,6 @@ button.rv-bk-round:hover, .rv-bk-round[aria-expanded="true"] { color: var(--text
   transition: opacity 0.15s, transform 0.15s;
   pointer-events: none;
 }
-.rv-t-style.up { bottom: 41px; }
+.rv-t-style.up { bottom: 32px; z-index: 2; }
 .rv-t:hover .rv-t-style, .rv-t[data-active] .rv-t-style { opacity: 1; transform: none; }
 @media (hover: none) { .rv-t-style { display: none; } }

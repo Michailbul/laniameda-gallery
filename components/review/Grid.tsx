@@ -341,7 +341,8 @@ export function Grid(props: GridProps) {
                   selected={selected.has(item.assetId)}
                   canVote={canVote}
                   isOwner={isOwner}
-                  styleName={item.styleId ? styleNames?.get(item.styleId) : undefined}
+                  // A section that is one style already says it in its heading.
+                  styleName={item.styleId && !group.styleId ? styleNames?.get(item.styleId) : undefined}
                 />
               );
             })}
@@ -504,7 +505,7 @@ const Tile = memo(function Tile(props: TileProps) {
       {approved && !archived ? <span className="rv-t-ok">Approved</span> : null}
 
       {isOwner ? (
-        <OwnerPills approving={approving} approved={approved} archived={archived} />
+        <OwnerActs approving={approving} approved={approved} archived={archived} />
       ) : canVote ? (
         <div className="rv-t-acts">
           <button type="button" className="rv-act like" data-act="like" aria-pressed={mine === "like"}>
@@ -526,25 +527,26 @@ const Tile = memo(function Tile(props: TileProps) {
 });
 
 /**
- * The art director's hover hint on a frame, as clickable text pills:
- * 1 APPROVE (APPROVED, filled, once approved) · 2 DISCARD (RESTORE once
- * discarded) · C COMMENT. Approve shows only in the round he is preparing.
- * The style book's tiles use it too.
+ * The art director's hover hint on a frame, as small plain text with tiny
+ * keycaps, no pills (Michael, 16 Nov 2026): 1 APPROVE (APPROVED, in the like
+ * colour, once approved) · 2 DISCARD (RESTORE once discarded) · C COMMENT.
+ * Approve shows only in the round he is preparing. The style book's tiles
+ * use it too.
  */
-export function OwnerPills({ approving, approved, archived }: { approving: boolean; approved: boolean; archived: boolean }) {
+export function OwnerActs({ approving, approved, archived }: { approving: boolean; approved: boolean; archived: boolean }) {
   return (
-    <div className="rv-t-acts rv-pills">
+    <div className="rv-t-acts rv-oacts">
       {approving ? (
-        <button type="button" className="rv-pill approve" data-act="approve" aria-pressed={approved && !archived} title={approved && !archived ? "Approved: it goes out when you send the round. 1 takes it back." : "Approve: it goes out when you send the round"}>
+        <button type="button" className="rv-oact approve" data-act="approve" aria-pressed={approved && !archived} title={approved && !archived ? "Approved: it goes out when you send the round. 1 takes it back." : "Approve: it goes out when you send the round"}>
           <kbd>1</kbd>
           <span>{approved && !archived ? "Approved" : "Approve"}</span>
         </button>
       ) : null}
-      <button type="button" className="rv-pill discard" data-act="archive" aria-pressed={archived} title={archived ? "Bring it back" : "Discard: producers never see it; the gallery's Archive keeps it"}>
+      <button type="button" className="rv-oact discard" data-act="archive" aria-pressed={archived} title={archived ? "Bring it back" : "Discard: producers never see it; the gallery's Archive keeps it"}>
         <kbd>2</kbd>
         <span>{archived ? "Restore" : "Discard"}</span>
       </button>
-      <button type="button" className="rv-pill" data-act="comment">
+      <button type="button" className="rv-oact" data-act="comment">
         <kbd>C</kbd>
         <span>Comment</span>
       </button>
