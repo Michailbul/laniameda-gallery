@@ -212,6 +212,11 @@ carousel on top, the filter, size and rounds where they are.
   place, or one per style inside a single place. Old `?mode=styles` links
   open Styles.
 
+The heading names the grouping (Michael, 17 Nov 2026): in Styles it reads
+"By style · N looks / All styles", a place's name with "All styles · N
+looks", or a style's name with "Style · <place>"; in Locations it reads
+"Locations / All locations" or the place.
+
 The carousel: arrows and a soft fade on a side with more styles, the mouse
 wheel scrolls it sideways, the chosen style slides into view, and the keys
 `,` and `.` step to the previous or next style (`−` / `+` change the frame

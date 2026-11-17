@@ -1309,12 +1309,28 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     </>
   );
 
+  // The heading says which way the frames are grouped (Michael, 17 Nov
+  // 2026: "when we click the location/styles badge we should also change
+  // the name, from All locations to All styles"). Styles: "All styles", a
+  // place in every style, or one style; Locations: as before.
+  const looks = groups.filter((group) => group.styleId).length;
+  const looksLabel = `${looks} ${looks === 1 ? "look" : "looks"}`;
   const headKick = listView
     ? "Your list"
-    : folder
-      ? `${folder.area ? `${folder.area} · ` : ""}${SECTION_SINGULAR[view.section]}`
-      : sectionLabel;
-  const headTitle = listView ? lists.names[listView] : folder ? folder.name : `All ${sectionLabel.toLowerCase()}`;
+    : byStyleView
+      ? style
+        ? `Style · ${folder ? folder.name : `every ${SECTION_SINGULAR[view.section].toLowerCase()}`}`
+        : folder
+          ? `All styles · ${looksLabel}`
+          : `By style · ${looksLabel}${view.section === "locations" ? "" : ` · ${sectionLabel.toLowerCase()}`}`
+      : folder
+        ? `${folder.area ? `${folder.area} · ` : ""}${SECTION_SINGULAR[view.section]}`
+        : sectionLabel;
+  const headTitle = listView
+    ? lists.names[listView]
+    : byStyleView
+      ? style ? style.label : folder ? folder.name : "All styles"
+      : folder ? folder.name : `All ${sectionLabel.toLowerCase()}`;
   // The PDF of the Locations view: its sections, in the order on screen.
   const viewPdfGroups = groups.map((group) => ({
     key: group.key,
