@@ -73,8 +73,8 @@ const fileSlug = (value: string, keep = "") =>
     .replace(/^-+|-+$/g, "");
 
 /** cassandra-style-book-v0.2.pdf (the round keeps its dot), plus the style when it is one. */
-export const pdfFileName = (project: string, round: string, style?: string) =>
-  [fileSlug(project) || "review", "style-book", fileSlug(round, "."), style ? fileSlug(style) : ""].filter(Boolean).join("-") + ".pdf";
+export const pdfFileName = (project: string, round: string, style?: string, kind = "style-book") =>
+  [fileSlug(project) || "review", style && !kind ? fileSlug(style) : kind, fileSlug(round, "."), style && kind ? fileSlug(style) : ""].filter(Boolean).join("-") + ".pdf";
 
 // ------------------------------------------------------------ images
 

@@ -971,6 +971,7 @@ button.rv-chip:hover { color: var(--text); }
   .rv-ms { max-width: 100%; }
   .rv-stylebar { flex-wrap: wrap; padding: 4px 10px 8px; }
   .rv-styles { order: 2; flex-basis: 100%; }
+  .rv-carousel { order: 2; flex-basis: 100%; }
   .rv-tools { margin-left: auto; }
   .rv-content { padding: 16px 12px 120px; }
   .rv-head h2 { font-size: 24px; }
@@ -1481,7 +1482,8 @@ button.rv-bk-round:hover, .rv-bk-round[aria-expanded="true"] { color: var(--text
 @media (hover: none) { .rv-t-style { display: none; } }
 
 /* ---------------------------------------------------------- style comments (17 Nov 2026) */
-.rv-styles[data-vote] .rv-style .lb { min-width: 214px; }
+.rv-styles[data-vote] .rv-style-wrap .rv-style .lb { min-width: 168px; }
+.rv-styles[data-vote] > .rv-style .lb { min-width: 0; }
 .rv-style-vote .talk, .rv-svote .talk { color: var(--faint); }
 .rv-pop.rv-stalk { width: min(400px, calc(100vw - 16px)); padding: 14px 14px 12px; }
 .rv-stalk .rv-chat-log { max-height: min(46vh, 420px); }
@@ -1540,3 +1542,22 @@ button.rv-bk-round:hover, .rv-bk-round[aria-expanded="true"] { color: var(--text
 .rv-keys-tour:hover { background: rgba(var(--ink), 0.12); }
 .rv-keys-tour b { font: 700 12px/1.2 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text); }
 .rv-keys-tour span { font-size: 12px; color: var(--muted); }
+.rv-head-pdf { flex: none; margin-bottom: 2px; }
+.rv-head > .rv-head-pdf:nth-child(2) { margin-left: auto; }
+.rv-sec-line { margin: -4px 0 12px; max-width: 82ch; font: 400 13px/1.5 var(--sans); color: var(--muted); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* ---------------------------------------------------------- style carousel navigation (17 Nov 2026) */
+.rv-carousel { position: relative; flex: 1; min-width: 0; display: flex; }
+.rv-carousel .rv-styles { flex: 1; }
+.rv-carousel[data-l] .rv-styles { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 56px); mask-image: linear-gradient(90deg, transparent 0, #000 56px); }
+.rv-carousel[data-r] .rv-styles { -webkit-mask-image: linear-gradient(270deg, transparent 0, #000 56px); mask-image: linear-gradient(270deg, transparent 0, #000 56px); }
+.rv-carousel[data-l][data-r] .rv-styles { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 56px, #000 calc(100% - 56px), transparent 100%); mask-image: linear-gradient(90deg, transparent 0, #000 56px, #000 calc(100% - 56px), transparent 100%); }
+.rv-car-arrow {
+  position: absolute; top: 50%; z-index: 2; width: 28px; height: 28px; margin-top: -14px; border-radius: 50%;
+  display: grid; place-items: center; color: var(--text); background: rgba(var(--raised), 0.92);
+  box-shadow: 0 0 0 1px var(--line), 0 4px 14px rgba(0, 0, 0, 0.35); opacity: 0.85; transition: opacity 0.15s, transform 0.15s;
+}
+.rv-car-arrow:hover { opacity: 1; transform: scale(1.06); }
+.rv-car-arrow.l { left: 0; }
+.rv-car-arrow.r { right: 0; }
+@media (hover: none) { .rv-car-arrow { display: none; } }
