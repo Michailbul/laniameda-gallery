@@ -2,7 +2,7 @@ import { ConvexError, v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
-import { REVIEWER_SUBJECT_PREFIX, TEASER_SUBJECT_PREFIX, actorMatchesUserId, signedOwnerMutation, signedOwnerQuery } from "./actor";
+import { REVIEWER_SUBJECT_PREFIX, TEASER_SUBJECT_PREFIX, actorMatchesUserId, signedOwnerArgs, signedOwnerMutation, signedOwnerQuery } from "./actor";
 import { canActorAccessOwnerUserId } from "./authz";
 import { buildR2PublicUrl } from "./r2_url";
 import { archiveAsset, archiveEntryOf, restoreAsset } from "./assetArchiveCore";
@@ -103,6 +103,31 @@ const requireViewer = async (ctx: Ctx, slug: string) => {
   if (!viewer) throw new ConvexError("This account has no access to this review.");
   return { project, viewer };
 };
+
+// Owner tools on the review page itself (send the round, throw it away,
+// show an earlier one, move or remove frames, remove a style). Michael opens
+// the public address (mishabuloichyk.com/cassandra) with the review sign-in,
+// a "reviewer:<email>" token for one of the project's ownerEmails, which the
+// signedOwner* builders refuse ("A review sign-in cannot open the gallery";
+// Michael hit it on Send round, 17 Nov 2026). On that path the project's own
+// viewer check decides, as for Approve and Discard: only the owner passes,
+// never his director preview, and the handler runs as the project's owner.
+// Every other caller (gallery session, agent token) goes through the usual
+// signed-owner check.
+/* eslint-disable @typescript-eslint/no-explicit-any */
+const reviewOwnerMutation = ((definition: any) => mutation({
+  ...definition,
+  handler: async (ctx: MutationCtx, args: any) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (identity?.subject?.startsWith(REVIEWER_SUBJECT_PREFIX)) {
+      const { project, viewer } = await requireViewer(ctx, args.slug);
+      if (viewer.role !== "owner") throw new ConvexError("Only the art director can do this.");
+      return definition.handler(ctx, { ...args, ownerUserId: project.ownerUserId });
+    }
+    return definition.handler(ctx, await signedOwnerArgs(ctx, args ?? {}));
+  },
+})) as typeof mutation;
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // Owner-scoped management: the caller's ownerUserId (filled in by
 // signedOwner* from the token) must own the project.
@@ -2187,7 +2212,7 @@ const draftItems = async (ctx: MutationCtx, project: Project, itemIds: Id<"revie
 };
 
 /** Move items (draft round) to another folder or style, or set their note. */
-export const updateItems = signedOwnerMutation({
+export const updateItems = reviewOwnerMutation({
   args: {
     ...ownerArgs,
     itemIds: v.array(v.id("reviewItems")),
@@ -2221,7 +2246,7 @@ export const updateItems = signedOwnerMutation({
 });
 
 /** Take items out of the draft round (earlier rounds keep them). */
-export const removeItems = signedOwnerMutation({
+export const removeItems = reviewOwnerMutation({
   args: { ...ownerArgs, itemIds: v.array(v.id("reviewItems")) },
   returns: v.object({ draftLabel: v.string(), removed: v.number() }),
   handler: async (ctx, args) => {
@@ -2281,7 +2306,7 @@ export const createDraft = signedOwnerMutation({
 });
 
 /** Publish the draft: it becomes the round the director sees. */
-export const publishDraft = signedOwnerMutation({
+export const publishDraft = reviewOwnerMutation({
   args: {
     ...ownerArgs, title: v.optional(v.string()), note: v.optional(v.string()), label: v.optional(v.string()),
     // Send the frames still waiting for approval too: everything not
@@ -2364,7 +2389,7 @@ export const publishDraft = signedOwnerMutation({
 });
 
 /** Roll back (or forward): show an earlier published round as the current one. */
-export const setCurrentVersion = signedOwnerMutation({
+export const setCurrentVersion = reviewOwnerMutation({
   args: { ...ownerArgs, version: v.string() },
   returns: v.object({ versionId: v.id("reviewVersions"), label: v.string() }),
   handler: async (ctx, args) => {
@@ -2377,7 +2402,7 @@ export const setCurrentVersion = signedOwnerMutation({
 });
 
 /** Throw the draft away (its items go; published rounds are untouched). */
-export const discardDraft = signedOwnerMutation({
+export const discardDraft = reviewOwnerMutation({
   args: { ...ownerArgs },
   returns: v.object({ removed: v.number() }),
   handler: async (ctx, args) => {
@@ -2696,7 +2721,7 @@ export const restyleInRound = signedOwnerMutation({
  * style also leaves the project's carousel. The gallery's world style and its
  * frames are untouched.
  */
-export const removeStyle = signedOwnerMutation({
+export const removeStyle = reviewOwnerMutation({
   args: {
     ...ownerArgs,
     styleId: v.id("worldStyles"),

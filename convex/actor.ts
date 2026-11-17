@@ -117,6 +117,11 @@ const withSignedOwner = (definition: AnyDefinition): AnyDefinition => ({
     return definition.handler(ctx, await resolveOwnerArgs(ctx, args ?? {}));
   },
 });
+/** The signedOwner* check on its own, for wrappers that add a second way in. */
+export const signedOwnerArgs = async <Args extends Record<string, unknown>>(ctx: AuthCtx, args: Args): Promise<Args> => {
+  if (!await readIdentitySubject(ctx)) throw new ConvexError("Not authenticated.");
+  return resolveOwnerArgs(ctx, args);
+};
 export const signedOwnerQuery = ((definition: any) =>
   query(withSignedOwner(definition) as any)) as typeof query;
 export const signedOwnerMutation = ((definition: any) =>
