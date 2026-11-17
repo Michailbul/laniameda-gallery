@@ -2317,6 +2317,11 @@ export const publishDraft = reviewOwnerMutation({
     showStyles: v.optional(v.boolean()),
     // Email the reviewers that a new round is up.
     notify: v.optional(v.boolean()),
+    // Put the draft into the round they see now instead of a new one: the
+    // current round keeps its label, comments and likes and shows the new
+    // frames (Michael, 17 Nov 2026: "let me as owner update the current
+    // version instead of making a new one").
+    intoCurrent: v.optional(v.boolean()),
   },
   returns: v.object({
     versionId: v.id("reviewVersions"),
@@ -2366,15 +2371,34 @@ export const publishDraft = reviewOwnerMutation({
       });
       if (shownStyles) await ctx.db.patch(project._id, { styles });
     }
-    const label = args.label?.trim() || draft.label;
-    await ctx.db.patch(draft._id, {
-      status: "published",
-      publishedAt: now,
-      label,
-      ...(args.title !== undefined ? { title: args.title.trim() || undefined } : {}),
-      ...(args.note !== undefined ? { note: args.note.trim() || undefined } : {}),
-    });
-    await ctx.db.patch(project._id, { currentVersionId: draft._id, draftVersionId: undefined, updatedAt: now });
+    const current = args.intoCurrent && project.currentVersionId ? await ctx.db.get(project.currentVersionId) : null;
+    if (args.intoCurrent && !current) throw new ConvexError("There is no round shown yet to update. Send this one as a new round.");
+    let label = args.label?.trim() || draft.label;
+    let publishedId = draft._id;
+    if (current) {
+      // Update in place: the current round's frames become the draft's,
+      // the draft itself goes away, the round keeps its id and label.
+      for (const row of await itemsOf(ctx, current._id)) await ctx.db.delete(row._id);
+      for (const row of sent) await ctx.db.patch(row._id, { versionId: current._id });
+      await ctx.db.patch(current._id, {
+        publishedAt: now,
+        ...(args.title !== undefined ? { title: args.title.trim() || undefined } : {}),
+        ...(args.note !== undefined ? { note: args.note.trim() || undefined } : {}),
+      });
+      await ctx.db.delete(draft._id);
+      label = current.label;
+      publishedId = current._id;
+      await ctx.db.patch(project._id, { currentVersionId: current._id, draftVersionId: undefined, updatedAt: now });
+    } else {
+      await ctx.db.patch(draft._id, {
+        status: "published",
+        publishedAt: now,
+        label,
+        ...(args.title !== undefined ? { title: args.title.trim() || undefined } : {}),
+        ...(args.note !== undefined ? { note: args.note.trim() || undefined } : {}),
+      });
+      await ctx.db.patch(project._id, { currentVersionId: draft._id, draftVersionId: undefined, updatedAt: now });
+    }
     if (carried.length) {
       const next = await ensureDraft(ctx, (await ctx.db.get(project._id))!);
       for (const row of carried) await ctx.db.insert("reviewItems", { ...row, versionId: next._id, held: true });
@@ -2382,9 +2406,9 @@ export const publishDraft = reviewOwnerMutation({
     const discarded = outRows.filter((row) => archived.has(row.assetId)).length;
     const recipients = args.notify ? project.reviewers.filter((row) => row.email) : [];
     if (recipients.length) {
-      await ctx.scheduler.runAfter(0, internal.reviewMail.roundPublished, { projectId: project._id, versionId: draft._id });
+      await ctx.scheduler.runAfter(0, internal.reviewMail.roundPublished, { projectId: project._id, versionId: publishedId });
     }
-    return { versionId: draft._id, label, items, held: carried.length - discarded, discarded, shownStyles, emailed: recipients.length };
+    return { versionId: publishedId, label, items, held: carried.length - discarded, discarded, shownStyles, emailed: recipients.length };
   },
 });
 

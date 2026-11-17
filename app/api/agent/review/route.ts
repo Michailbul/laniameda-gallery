@@ -709,7 +709,7 @@ export async function POST(request: Request) {
       if (action === "publish") {
         const result = await client.mutation(api.review.publishDraft, {
           ownerUserId, slug: input.project, title: input.title, note: input.note, label: input.label,
-          includeWaiting: input.includeWaiting, showStyles: input.showStyles, notify: input.notify,
+          includeWaiting: input.includeWaiting, showStyles: input.showStyles, notify: input.notify, intoCurrent: input.intoCurrent,
         });
         const overview = await overviewOf(input.project);
         return NextResponse.json({

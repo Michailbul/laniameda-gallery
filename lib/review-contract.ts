@@ -194,6 +194,7 @@ export const reviewRoundSchema = z.object({
   includeWaiting: z.boolean().optional().describe("publish: also send the frames still waiting for Michael's approval (everything not discarded). Only on his word."),
   showStyles: z.boolean().optional().describe("publish: make every hidden style that has a frame in the sent round visible to the director."),
   notify: z.boolean().optional().describe("publish: email the reviewers that the round is up (from Michael's Gmail)."),
+  intoCurrent: z.boolean().optional().describe("publish: update the round the director sees now (keeps its label, comments and likes) instead of publishing a new round."),
   confirmed,
 });
 
