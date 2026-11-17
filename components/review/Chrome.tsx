@@ -1,14 +1,14 @@
 "use client";
 /* eslint-disable @next/next/no-img-element -- this page is also served on another domain through a rewrite, so it uses plain <img>, never next/image. */
 
-import { memo, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   SECTION_LABEL, mediaUrl,
   type FeedbackFilter, type GridSize, type ReviewFolder, type ReviewMode, type ReviewSection, type ReviewStyle, type ReviewVersion, type Verdict,
 } from "@/lib/review-client";
 import { Faces, type Person } from "./people";
 import type { StyleMark } from "./Grid";
-import { Check, ChevronDown, Menu } from "./icons";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Menu } from "./icons";
 import { AllFoldersIcon, FolderIcon } from "./folder-icons";
 import { Floating, usePopover } from "./Floating";
 import { StyleTalk } from "./StyleTalk";
@@ -194,6 +194,59 @@ type TopBarProps = {
   onTour?: () => void;
 };
 
+/**
+ * The style carousel's navigation (Michael, 17 Nov 2026: "improve the styles
+ * thumbnail carousel for better and more convenient navigation", same
+ * layout): arrows and a soft fade on a side with more styles, the mouse
+ * wheel scrolls it sideways, and the chosen style slides into view.
+ */
+function useCarousel(selected: string, count: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+  const measure = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const left = el.scrollLeft > 4;
+    const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+    setEdges((current) => (current.left === left && current.right === right ? current : { left, right }));
+  }, []);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    measure();
+    const onWheel = (event: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      event.preventDefault();
+      el.scrollLeft += event.deltaY;
+    };
+    el.addEventListener("scroll", measure, { passive: true });
+    el.addEventListener("wheel", onWheel, { passive: false });
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      el.removeEventListener("wheel", onWheel);
+      observer.disconnect();
+    };
+  }, [measure, count]);
+  // The chosen style slides into view (keys , and . step through them).
+  useEffect(() => {
+    const el = ref.current;
+    const chip = el?.querySelector<HTMLElement>('.rv-style[aria-pressed="true"]');
+    if (!el || !chip) return;
+    const box = el.getBoundingClientRect();
+    const at = chip.getBoundingClientRect();
+    if (at.left < box.left + 40 || at.right > box.right - 40) {
+      el.scrollTo({ left: el.scrollLeft + at.left - box.left - (box.width - at.width) / 2, behavior: "smooth" });
+    }
+  }, [selected]);
+  const page = (direction: number) => {
+    const el = ref.current;
+    if (el) el.scrollBy({ left: direction * el.clientWidth * 0.8, behavior: "smooth" });
+  };
+  return { ref, edges, page };
+}
+
 export const TopBar = memo(function TopBar(props: TopBarProps) {
   const {
     mediaBase, styles, style, allCount, onStyle, filter, filterCounts, onFilter, isOwner, directorName,
@@ -212,6 +265,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
   const draftShown = Boolean(props.versions.find((row) => row.id === props.versionId)?.isDraft);
   const options = filterOptions(isOwner, directorName, draftShown);
   const covers = styles.filter((row) => row.cover).slice(0, 4);
+  const { ref: carouselRef, edges: carouselEdges, page: pageCarousel } = useCarousel(style, styles.length);
 
   return (
     <header className="rv-top">
@@ -252,6 +306,8 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
                 <dt><kbd>O</kbd><kbd>↵</kbd></dt><dd>Open large</dd>
                 <dt><kbd>←</kbd><kbd>→</kbd></dt><dd>Next and previous frame</dd>
                 <dt><kbd>[</kbd><kbd>]</kbd></dt><dd>Earlier or later round</dd>
+                <dt><kbd>,</kbd><kbd>.</kbd></dt><dd>Previous and next style</dd>
+                <dt><kbd>−</kbd><kbd>+</kbd></dt><dd>Smaller or larger frames</dd>
                 <dt><kbd>⌘</kbd><kbd>click</kbd></dt><dd>Select frames</dd>
                 <dt><kbd>⇧</kbd><kbd>drag</kbd></dt><dd>Select with a box</dd>
                 <dt><kbd>⌘</kbd><kbd>A</kbd></dt><dd>Select all on screen</dd>
@@ -271,7 +327,18 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
 
       <div className="rv-stylebar">
         {styles.length > 0 ? (
-          <div className="rv-styles" role="group" aria-label="Styles" data-vote={onStyleVerdict ? "" : undefined}>
+          <div className="rv-carousel" data-l={carouselEdges.left ? "" : undefined} data-r={carouselEdges.right ? "" : undefined}>
+          {carouselEdges.left ? (
+            <button type="button" className="rv-car-arrow l" aria-label="Earlier styles" onClick={() => pageCarousel(-1)}>
+              <ChevronLeft size={14} />
+            </button>
+          ) : null}
+          {carouselEdges.right ? (
+            <button type="button" className="rv-car-arrow r" aria-label="More styles" onClick={() => pageCarousel(1)}>
+              <ChevronRight size={14} />
+            </button>
+          ) : null}
+          <div ref={carouselRef} className="rv-styles" role="group" aria-label="Styles" data-vote={onStyleVerdict ? "" : undefined}>
             {styles.length > 1 ? (
               <button type="button" className="rv-style" aria-pressed={style === ""} onClick={() => onStyle("")}>
                 <span className="cv mosaic">
@@ -330,7 +397,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
                         title={mark?.mine === "like" ? "Click again to clear" : `Like ${row.label} as a style`}
                         onClick={() => onStyleVerdict(row.id, "like")}
                       >
-                        Like style
+                        Like
                       </button>
                       <button
                         type="button"
@@ -339,7 +406,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
                         title={mark?.mine === "dislike" ? "Click again to clear" : `Dislike ${row.label} as a style`}
                         onClick={() => onStyleVerdict(row.id, "dislike")}
                       >
-                        Dislike style
+                        Dislike
                       </button>
                       <StyleTalk styleId={row.id} label={row.label} tourTarget={chipIndex === 0} />
                     </span>
@@ -358,6 +425,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
                 </div>
               );
             })}
+          </div>
           </div>
         ) : (
           <div className="rv-styles" />

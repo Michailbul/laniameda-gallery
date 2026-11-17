@@ -5,8 +5,8 @@ import { ConvexProvider, ConvexReactClient, useMutation, useQuery } from "convex
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
-  LIST_COLORS, LIST_KEYS, SECTION_LABEL, SECTION_SINGULAR, downloadFrames, copyText, emptyLists, isTyping, plural, readBookSize, readLists,
-  readViewState, reviewBase, slugOf, writeBookSize, writeLists, writeViewState,
+  LIST_COLORS, LIST_KEYS, SECTION_LABEL, SECTION_SINGULAR, downloadFrames, copyText, emptyLists, isTyping, plural, readLists,
+  readViewState, reviewBase, slugOf, writeLists, writeViewState,
   type FeedbackFilter, type GridSize, type ListKey, type Lists, type ReviewFeedback, type ReviewFolder, type ReviewItem, type ReviewMode,
   type ReviewPage, type ReviewSection, type ReviewVersion, type Verdict, type ViewState,
 } from "@/lib/review-client";
@@ -15,7 +15,6 @@ import { reviewTheme } from "@/lib/review-theme";
 import { Grid, type GridGroup, type StyleMark, type TileAction, type TileMark } from "./Grid";
 import { ModeSwitch, Sidebar, TopBar, type AreaGroup, type StyleChip } from "./Chrome";
 import { Milestones } from "./Milestones";
-import type { BookGroup } from "./StyleBook";
 import { ReviewRecipe } from "./Recipe";
 import { BulkBar } from "./BulkBar";
 import { Bell } from "./Bell";
@@ -24,6 +23,7 @@ import type { LightboxVerdict } from "./Lightbox";
 import type { Audience } from "./OwnerTools";
 import { StyleTalkContext, type StyleTalkInfo } from "./StyleTalk";
 import { Tour, markTourSeen, tourSeen, type TourStep } from "./Tour";
+import { BookPdf } from "./BookPdf";
 
 // The review page's client app. The server hands it the first round and the
 // feedback (so the first paint has every frame); from then on it subscribes
@@ -33,7 +33,6 @@ import { Tour, markTourSeen, tourSeen, type TourStep } from "./Tour";
 
 const Lightbox = lazy(() => import("./Lightbox"));
 // The style book (?mode=styles) loads only when shown; a link to it still renders on the server.
-const StyleBook = lazy(() => import("./StyleBook").then((module) => ({ default: module.StyleBook })));
 // Michael's tools load only for him (never for a director, never in "view as director").
 const OwnerStrip = lazy(() => import("./OwnerTools").then((module) => ({ default: module.OwnerStrip })));
 const FeedbackPanel = lazy(() => import("./OwnerTools").then((module) => ({ default: module.FeedbackPanel })));
@@ -160,8 +159,11 @@ function initialView(search: string, page: ReviewPage): ViewState {
       : index.sections.find((value) => index.sectionCounts[value] > 0) ?? index.sections[0]!;
   const inSection = index.folders.filter((row) => row.section === section);
   const firstFull = landingFolder(index, section);
+  const mode = parsed.mode ?? "styles";
   let folder = parsed.folder;
-  if (folder === undefined || (folder && !inSection.some((row) => row.slug === folder))) folder = firstFull?.slug ?? "";
+  // Styles (the default) opens on every place; Locations on the first full folder.
+  if (folder === undefined) folder = mode === "styles" ? "" : firstFull?.slug ?? "";
+  else if (folder && !inSection.some((row) => row.slug === folder)) folder = firstFull?.slug ?? "";
   const style = parsed.style && index.styleBySlug.has(parsed.style) ? parsed.style : "";
   return {
     section,
@@ -171,11 +173,11 @@ function initialView(search: string, page: ReviewPage): ViewState {
     size: parsed.size,
     round: parsed.round ?? "",
     open: parsed.open && index.byCode.has(parsed.open) ? parsed.open : "",
-    mode: parsed.mode ?? "folders",
+    mode,
   };
 }
 
-const BOOK_SIZES: GridSize[] = ["s", "m", "l"];
+const SIZE_STEPS: GridSize[] = ["s", "m", "l"];
 
 type Flash = { key: string; x: number; y: number; label: string; tone: "like" | "dislike" | "list" | "plain"; color?: string };
 type Toast = { key: number; text: string; error?: boolean };
@@ -402,7 +404,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     const onPop = () => {
       pushedOpen.current = false;
       const parsed = readViewState(window.location.search, "m");
-      setView((current) => ({ ...current, open: parsed.open ?? "", mode: parsed.mode ?? "folders" }));
+      setView((current) => ({ ...current, open: parsed.open ?? "", mode: parsed.mode ?? "styles" }));
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -471,7 +473,40 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
 
   const visible = useMemo(() => styled.filter((item) => passes(item, view.filter)), [styled, passes, view.filter]);
 
+  // Styles (the default view, Michael 17 Nov 2026: one layout, the frames
+  // grouped by style): one section per style in carousel order, across the
+  // places on screen. Inside a style the frames run in folder order (script
+  // order of the places), so every style reads in the same place sequence.
+  const byStyleView = view.mode === "styles" && !listView;
   const groups = useMemo<GridGroup[]>(() => {
+    if (byStyleView) {
+      const folderRank = new Map(index.folders.map((row, position) => [row.id as string, position]));
+      const sorted = [...visible].sort((a, b) => (folderRank.get(a.folderId) ?? 999) - (folderRank.get(b.folderId) ?? 999) || a.order - b.order);
+      const byStyle = new Map<string, ReviewItem[]>();
+      const seen = new Set<string>();
+      for (const item of sorted) {
+        const key = item.styleId && index.styleOrder.has(item.styleId) ? item.styleId : "none";
+        // A frame in two folders (a place and a person) shows once per style.
+        if (seen.has(`${key}|${item.assetId}`)) continue;
+        seen.add(`${key}|${item.assetId}`);
+        const list = byStyle.get(key) ?? [];
+        list.push(item);
+        byStyle.set(key, list);
+      }
+      const out: GridGroup[] = page.styles
+        .filter((row) => byStyle.has(row.id))
+        .map((row) => ({
+          key: row.id as string,
+          title: row.label,
+          styleId: row.id as string,
+          kicker: isOwner && row.hidden ? "hidden" : undefined,
+          line: isOwner ? row.line?.trim() || templateWords(recipeByStyle.get(row.id)?.recipes[0]?.prompt) || undefined : undefined,
+          items: byStyle.get(row.id)!,
+        }));
+      const loose = byStyle.get("none");
+      if (loose) out.push({ key: "none", title: "No style", items: loose });
+      return out;
+    }
     if (listView) {
       return index.folders
         .map((row) => ({ key: row.id as string, title: row.name, kicker: SECTION_SINGULAR[row.section], items: visible.filter((item) => item.folderId === row.id) }))
@@ -493,96 +528,32 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         .filter((group) => group.items.length > 0);
     }
     return [{ key: "frames", items: visible }];
-  }, [listView, folder, style, visible, page.styles, index, view.section]);
+  }, [byStyleView, listView, folder, style, visible, page.styles, index, view.section, isOwner, recipeByStyle]);
 
-  // ---------------------------------------------------------- the style book (?mode=styles)
-  // Every frame of the round grouped by style, across all folders. Inside a
-  // style the frames run in folder order (script order of the places, then
-  // the characters), then item order, so every style reads in the same place
-  // sequence. Styles in carousel order; frames with no style last. The page's
-  // own items, so held frames, hidden styles and archived frames follow the
-  // same rules as the folder view (archived ones show only while the page
-  // that archived them is open).
-  const isBook = view.mode === "styles";
-  const bookGroups = useMemo<BookGroup[]>(() => {
-    if (!isBook) return [];
-    const folderRank = new Map(index.folders.map((row, position) => [row.id as string, position]));
-    const shown = page.items
-      .filter((item) => !isArchived(item.assetId) || keptInPlace.has(item.assetId))
-      .sort((a, b) => (folderRank.get(a.folderId) ?? 999) - (folderRank.get(b.folderId) ?? 999) || a.order - b.order);
-    const byStyle = new Map<string, ReviewItem[]>();
-    const seen = new Set<string>();
-    for (const item of shown) {
-      const key = item.styleId && index.styleOrder.has(item.styleId) ? item.styleId : "none";
-      // A frame in two folders (a place and a person) shows once per style.
-      if (seen.has(`${key}|${item.assetId}`)) continue;
-      seen.add(`${key}|${item.assetId}`);
-      const list = byStyle.get(key) ?? [];
-      list.push(item);
-      byStyle.set(key, list);
-    }
-    const out: BookGroup[] = page.styles
-      .filter((row) => byStyle.has(row.id))
-      .map((row) => ({
-        key: row.id as string,
-        styleId: row.id as string,
-        title: row.label,
-        hidden: row.hidden,
-        line: isOwner ? row.line?.trim() || templateWords(recipeByStyle.get(row.id)?.recipes[0]?.prompt) || undefined : undefined,
-        items: byStyle.get(row.id)!,
-      }));
-    const loose = byStyle.get("none");
-    if (loose) out.push({ key: "none", title: "No style", items: loose });
-    return out;
-  }, [isBook, index, page.items, page.styles, isArchived, keptInPlace, isOwner, recipeByStyle]);
-  const bookTotal = useMemo(() => bookGroups.reduce((sum, group) => sum + group.items.length, 0), [bookGroups]);
   // The open view steps through the style a frame was opened in.
   const bookScope = useMemo(() => {
     const map = new Map<string, string[]>();
-    for (const group of bookGroups) {
+    if (!byStyleView) return map;
+    for (const group of groups) {
       const ids = group.items.map((item) => item.assetId as string);
       for (const id of ids) if (!map.has(id)) map.set(id, ids);
     }
     return map;
-  }, [bookGroups]);
-  const folderName = useMemo(() => new Map(index.folders.map((row) => [row.id as string, row.name])), [index]);
-
-  // Density (S / M / L, keys − and +), remembered per viewer.
-  const [bookSize, setBookSize] = useState<GridSize>("m");
-  useEffect(() => {
-    // Read after the first paint, so the server render and the browser agree.
-    const handle = window.requestAnimationFrame(() => {
-      const stored = readBookSize();
-      if (stored) setBookSize(stored);
-    });
-    return () => window.cancelAnimationFrame(handle);
-  }, []);
-  const onBookSize = useCallback((size: GridSize) => {
-    setBookSize(size);
-    writeBookSize(size);
-  }, []);
-  const stepBookSize = useCallback((delta: number) => {
-    setBookSize((current) => {
-      const next = BOOK_SIZES[Math.max(0, Math.min(BOOK_SIZES.length - 1, BOOK_SIZES.indexOf(current) + delta))]!;
-      if (next !== current) writeBookSize(next);
-      return next;
-    });
-  }, []);
+  }, [byStyleView, groups]);
 
   // Frames of several styles on screen (All locations, a folder in all
   // styles, a list): each tile names its style on hover. The owner reads the
   // world style's name, everyone else the review label (page.styles.name is
   // already that split). Never in the style book: its headings say it.
   const styleNames = useMemo(() => {
-    if (isBook) return undefined;
     const used = new Set(visible.map((item) => item.styleId ?? ""));
     if (used.size < 2) return undefined;
     return new Map(page.styles.map((row) => [row.id as string, row.name]));
-  }, [isBook, visible, page.styles]);
+  }, [visible, page.styles]);
 
   const flatIds = useMemo(
-    () => (isBook ? bookGroups : groups).flatMap((group) => group.items.map((item) => item.assetId as string)),
-    [isBook, bookGroups, groups],
+    () => groups.flatMap((group) => group.items.map((item) => item.assetId as string)),
+    [groups],
   );
 
   // ---------------------------------------------------------- feedback UI
@@ -828,11 +799,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   // Producers and the director get a short tour the first time they open
   // the review; "How it works" plays it again. Michael sees it only on ask.
   const [touring, setTouring] = useState(false);
-  const startTour = useCallback(() => {
-    if (view.mode !== "folders") onMode("folders");
-    // Let the folder view paint before the tour measures it.
-    window.setTimeout(() => setTouring(true), view.mode !== "folders" ? 450 : 0);
-  }, [view.mode, onMode]);
+  const startTour = useCallback(() => setTouring(true), []);
   const endTour = useCallback(() => {
     setTouring(false);
     markTourSeen(slug);
@@ -856,8 +823,8 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     },
     {
       target: '[data-tour="mode"]',
-      title: "Locations or styles",
-      body: "Two ways to read the round. Locations groups the frames by place. Styles gives every look its own page, with the places in the same order, so looks compare side by side.",
+      title: "Styles or locations",
+      body: "Two ways to read the same frames. Styles groups them by look, every place in the same order, so looks compare side by side. Locations groups them by place.",
     },
     {
       target: ".rv-styles",
@@ -868,7 +835,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       target: '[data-tour="style-vote"]',
       reveal: true,
       title: "Keep a style or drop it",
-      body: "Hover a style card. Like style tells us to keep developing that look and bring it into the next rounds. Dislike style tells us to stop.",
+      body: "Hover a style card. Like tells us to keep developing that look and bring it into the next rounds. Dislike tells us to stop.",
     },
     {
       target: '[data-tour="style-talk"]',
@@ -990,7 +957,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     }
     const folder = index.folderById.get(item.folderId);
     setViewingList(null);
-    if (folder) changeView({ section: folder.section, folder: folder.slug, style: "", filter: "all", mode: "folders" }, { clear: true });
+    if (folder) changeView({ section: folder.section, folder: folder.slug, style: "", filter: "all" }, { clear: true });
     window.setTimeout(() => openFrame(assetId, comment), 40);
   }, [index, changeView, openFrame, toast]);
   const onNoteStyle = useCallback((styleId: string) => {
@@ -999,7 +966,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       toast("That style is not in the round on screen.");
       return;
     }
-    changeView({ style: slugOf(row.label), filter: "all", mode: "folders" });
+    changeView({ style: slugOf(row.label), filter: "all" });
     window.scrollTo({ top: 0 });
   }, [page.styles, index, changeView, toast]);
   const onNoteRound = useCallback((versionId: string) => {
@@ -1050,7 +1017,6 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     const idle = (window as Window & { requestIdleCallback?: (callback: () => void) => number }).requestIdleCallback;
     const run = () => {
       void import("./Lightbox");
-      void import("./StyleBook");
     };
     if (idle) idle(run);
     else window.setTimeout(run, 1500);
@@ -1139,7 +1105,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
   // Keys on the hovered frame (the open view handles its own keys).
   const keys = useRef({
     open: false, isOwner: false, targets, applyVerdict, applyApprove, applyArchive, openFrame, clearSelection, moveActive, toggleList, stepRound,
-    selectedSize: 0, selectAll: () => {}, compose: () => {}, isBook: false, stepBookSize,
+    selectedSize: 0, selectAll: () => {}, compose: () => {}, stepSize: (delta: number) => { void delta; }, stepStyle: (delta: number) => { void delta; },
   });
   useEffect(() => {
     keys.current = {
@@ -1157,8 +1123,16 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       selectedSize: selected.size,
       selectAll: () => setSelected(new Set(flatRef.current)),
       compose: () => setComposeSignal((value) => value + 1),
-      isBook,
-      stepBookSize,
+      // − smaller frames, + larger (S / M / L).
+      stepStyle: (delta: number) => {
+        const order = ["", ...styleChips.map((row) => row.slug)];
+        const at = Math.max(0, order.indexOf(style ? view.style : ""));
+        onStyle(order[(at + delta + order.length) % order.length]!);
+      },
+      stepSize: (delta: number) => {
+        const next = SIZE_STEPS[Math.max(0, Math.min(SIZE_STEPS.length - 1, SIZE_STEPS.indexOf(view.size) + delta))]!;
+        if (next !== view.size) onSize(next);
+      },
     };
   });
   useEffect(() => {
@@ -1179,9 +1153,10 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         return;
       }
       if (event.metaKey || event.ctrlKey) return;
-      if (state.isBook && (key === "-" || key === "_" || key === "+" || key === "=")) {
-        // The style book's density: − smaller frames, + larger.
-        state.stepBookSize(key === "-" || key === "_" ? -1 : 1);
+      if (key === "," || key === ".") {
+        state.stepStyle(key === "." ? 1 : -1);
+      } else if (key === "-" || key === "_" || key === "+" || key === "=") {
+        state.stepSize(key === "-" || key === "_" ? -1 : 1);
       } else if (key === "[" || key === "]") {
         state.stepRound(key === "]" ? 1 : -1);
       } else if (key === "?") {
@@ -1340,6 +1315,14 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       ? `${folder.area ? `${folder.area} · ` : ""}${SECTION_SINGULAR[view.section]}`
       : sectionLabel;
   const headTitle = listView ? lists.names[listView] : folder ? folder.name : `All ${sectionLabel.toLowerCase()}`;
+  // The PDF of the Locations view: its sections, in the order on screen.
+  const viewPdfGroups = groups.map((group) => ({
+    key: group.key,
+    title: group.title ?? `${headTitle}${style ? ` · ${style.label}` : ""}`,
+    styleId: group.styleId,
+    line: group.line,
+    items: group.items,
+  }));
   const modeSwitch = useMemo(() => <ModeSwitch mode={view.mode} folderLabel={sectionLabel} onMode={onMode} />, [view.mode, sectionLabel, onMode]);
 
   return (
@@ -1347,44 +1330,9 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       className="rv"
       data-theme={reviewTheme(slug)}
       data-size={view.size}
-      data-mode={isBook ? "styles" : undefined}
-      data-nav={navOpen && !isBook ? "" : undefined}
+      data-nav={navOpen ? "" : undefined}
     >
       <StyleTalkContext.Provider value={styleTalk}>
-      {isBook ? (
-        <Suspense fallback={null}>
-        <StyleBook
-          title={page.project.title}
-          groups={bookGroups}
-          total={bookTotal}
-          folderName={folderName}
-          mediaBase={page.mediaBase}
-          isOwner={isOwner}
-          canVote={canVote}
-          archived={isArchived}
-          approved={approving ? isApproved : undefined}
-          selected={selected}
-          size={bookSize}
-          onSize={onBookSize}
-          modeSwitch={modeSwitch}
-          rounds={roundOrder}
-          shownId={page.versionId}
-          onRound={onPickRound}
-          loading={loadingRound}
-          targetRef={targetRef}
-          onAct={onAct}
-          onOpen={openFrame}
-          onToggle={toggleSelect}
-          onRange={rangeSelect}
-          onClear={clearSelection}
-          styleMarks={styleMarks}
-          people={people}
-          onStyleVerdict={canVote ? applyStyleVerdict : undefined}
-          onToast={toast}
-          onTour={startTour}
-        />
-        </Suspense>
-      ) : (
       <>
       <Sidebar
         title={page.project.title}
@@ -1460,6 +1408,20 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
                 directorName={audience.name}
                 onPick={onPickRound}
               />
+              {visible.length ? (
+                <div className="rv-head-pdf">
+                  <BookPdf
+                    kind={byStyleView ? "styles" : "view"}
+                    title={page.project.title}
+                    round={shownVersion?.label ?? ""}
+                    groups={viewPdfGroups}
+                    active={viewPdfGroups[0]?.key ?? ""}
+                    archived={isArchived}
+                    onToast={toast}
+                    viewName={`${headTitle}${style ? ` ${style.label}` : ""}`}
+                  />
+                </div>
+              ) : null}
               {listView ? (
                 <button type="button" className="x" onClick={() => onViewList(null)}>Back to folders</button>
               ) : null}
@@ -1509,7 +1471,6 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
         </main>
       </div>
       </>
-      )}
 
       {selected.size > 0 ? (
         <BulkBar

@@ -194,42 +194,47 @@ parameters, moodboards, codes and the other recipes ("near:", exceptions)
 sit behind a closed Details toggle (Michael, 15 Nov 2026: the recipe cards
 cluttered the page).
 
-## Two ways to read a round: Locations and Styles
+## Two ways to read a round: Styles and Locations
 
-The page's top bar has a quiet switch, "Locations · Styles" (Michael, 15 Nov
-2026). Locations is the folder view above. Styles (`?mode=styles` on the
-page's address) is the style book: every frame of the shown round grouped by
-style across all folders, one page per style in carousel order (frames with
-no style last, under "No style"). Inside a style the frames run in folder
-order, so every style shows the places in the same sequence and styles
-compare side by side. It strips the chrome: a thin top line (title, round,
-the switch, S / M / L density, keys − and +), a sticky index of styles with
-counts, then per style its label, count and, for the owner only, the style's
-one-line look, over a uniform grid of 16:9 frames. The owner also sees the
-frames waiting for him (no mark), approved ones (APPROVED pill) and hidden
-styles (a "hidden" tag); a reviewer sees none of these. Every key and the
-open view work as in the folder view; the open view steps through the style
-it was opened in. Link a director straight to it with `<address>?mode=styles`.
+The top bar's switch, "Locations · Styles", regroups the same frames in the
+same layout (Michael, 17 Nov 2026: "styles should be default now ... I don't
+want to change the layout"). The folder list stays on the left, the style
+carousel on top, the filter, size and rounds where they are.
 
-**PDF** in the book's top line saves the book as a real PDF (Michael, 15 Nov
-2026: "no margins, images are occupying 90%"): all styles or only the one on
-screen, 1 / 4 / 9 frames per page (default 4), one click, built in the
-browser and downloaded as `<project>-style-book-<round>.pdf`. Pages are
-full bleed: an even grid of 16:9 frames edge to edge with hairline gaps fills
-the width and 90 % of the height (so the page is 16:10), and a 10 % strip on
-top carries the style's name, frame count and its page number ("2 / 6"),
-plus the owner's one-line look on the style's first page; each style starts
-on a new page, Obsidian ground, Linen type. Frames are JPEG-compressed at
-their cell's size (the whole CASSANDRA owner round at 4 per page is tens of
-MB, not the ~110 MB of browser Print). It holds exactly what the viewer may
-see, never discarded frames. Thumbnails come through the page's own
-`api/download?thumb=<key>` (the R2 bucket sends no CORS for the review's
-addresses).
+- **Styles** is the default view. It puts one section per style in carousel
+  order, across the places on screen. Pick a place in the folder list to see
+  only that place in every style. Inside a style the frames run in folder
+  order (script order of the places), so every style reads in the same place
+  sequence. A frame in two folders shows once per style. For the owner, each
+  heading carries the style's one-line look and a "hidden" tag on hidden
+  styles.
+- **Locations** (`?mode=locations`) is the folder view: one section per
+  place, or one per style inside a single place. Old `?mode=styles` links
+  open Styles.
 
-In the Locations view, where frames of several styles share the screen
-(All locations, a folder in all styles), hovering a frame shows its style
-bottom-left: the world style's name for the owner, the review label for a
-reviewer.
+The carousel: arrows and a soft fade on a side with more styles, the mouse
+wheel scrolls it sideways, the chosen style slides into view, and the keys
+`,` and `.` step to the previous or next style (`−` / `+` change the frame
+size).
+
+**PDF** in the header saves what is on screen, in the same order (Michael,
+17 Nov 2026: "make sure that the pdf packages in the same view as we have on
+the app, in the same sorting way"). In Styles it is the style book: one
+section per style. In Locations it is one section per place (or per style
+inside a place), honoring the folder, style and filter on screen. Options:
+all sections or only the first, and 1 / 4 / 9 frames per page (default 4).
+Each section starts on a new page. Pages are full bleed: an even grid of
+16:9 frames edge to edge fills the width and 90 % of the height (a 16:10
+page), and a 10 % strip on top carries the section's name, frame count and
+page number, plus the owner's one-line look for a style. Obsidian ground,
+Linen type. Frames are JPEG-compressed at their cell's size. It never holds
+discarded frames. Files are `<project>-style-book-<round>.pdf` or
+`<project>-<view>-<round>.pdf`. Thumbnails come through the page's own
+`api/download?thumb=<key>`.
+
+In the Locations view, where frames of several styles share the screen,
+hovering a frame shows its style bottom-left: the world style's name for
+the owner, the review label for a reviewer.
 
 ## The tour
 
@@ -241,8 +246,8 @@ and Dislike style, comments on a whole style, one frame and its keys, the
 rounds, and where help lives. Next, Back, Skip, arrows and Esc work. Steps
 whose part this person does not have (no voting for a guest) are left out;
 on a phone the folder button stands in for the folder list. "How it works"
-plays it again: in the "?" menu of the top bar, and as a button in the style
-book's top line. Michael gets it only from there. It is
+plays it again from the "?" menu of the top bar. Michael gets it only from
+there. It is
 remembered per browser (`rv-tour:<slug>:1`). `components/review/Tour.tsx`.
 
 ## People

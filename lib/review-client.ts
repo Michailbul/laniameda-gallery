@@ -97,7 +97,9 @@ export const readViewState = (search: string, fallbackSize: GridSize): Partial<V
     size: size && SIZES.includes(size) ? size : fallbackSize,
     round: params.get("r") ?? undefined,
     open: params.get("open") ?? undefined,
-    mode: params.get("mode") === "styles" ? "styles" : undefined,
+    // Styles is the default view (Michael, 17 Nov 2026); ?mode=locations
+    // opens the folder view. Old ?mode=styles links still land on styles.
+    mode: params.get("mode") === "locations" || params.get("mode") === "folders" ? "folders" : params.get("mode") === "styles" ? "styles" : undefined,
   };
 };
 
@@ -109,19 +111,14 @@ export const writeViewState = (state: ViewState, mode: "replace" | "push" = "rep
     if (!value || value === empty) params.delete(key);
     else params.set(key, value);
   };
-  if (state.mode === "styles") {
-    // The style book's address is short (?mode=styles): folder, style,
-    // filter and size belong to the folder view, which keeps them in memory.
-    params.set("mode", "styles");
-    for (const key of ["s", "f", "style", "show", "size"]) params.delete(key);
-  } else {
-    params.delete("mode");
-    set("s", state.section, "");
-    params.set("f", state.folder || "all");
-    set("style", state.style, "");
-    set("show", state.filter, "all");
-    set("size", state.size, "");
-  }
+  // Both views share one layout and keep folder, style, filter and size.
+  if (state.mode === "folders") params.set("mode", "locations");
+  else params.delete("mode");
+  set("s", state.section, "");
+  params.set("f", state.folder || "all");
+  set("style", state.style, "");
+  set("show", state.filter, "all");
+  set("size", state.size, "");
   set("r", state.round, "");
   set("open", state.open, "");
   params.delete("draft");

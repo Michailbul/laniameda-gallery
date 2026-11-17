@@ -19,6 +19,8 @@ export type GridGroup = {
   kicker?: string;
   // Set when the section is one style (a folder shown in all styles).
   styleId?: string;
+  /** Owner only: the style's one-line look, under its heading. */
+  line?: string;
   items: ReviewItem[];
 };
 
@@ -317,6 +319,7 @@ export function Grid(props: GridProps) {
               ) : null}
             </div>
           ) : null}
+          {group.line ? <p className="rv-sec-line" title={group.line}>{group.line}</p> : null}
           <div className="rv-grid" style={{ "--base": base.toFixed(4) } as React.CSSProperties}>
             {items.map(({ item, position }) => {
               const mark = marks.get(item.assetId);

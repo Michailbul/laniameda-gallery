@@ -3,12 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { reviewBase } from "@/lib/review-client";
 import { Floating, usePopover } from "./Floating";
-import type { BookGroup } from "./StyleBook";
+import type { ReviewItem } from "@/lib/review-client";
 import type { PerPage } from "./stylebook-pdf";
 
 // "PDF" in the style book's top line: the whole book or the style on
 // screen, 1 / 4 / 9 frames per page, one click to build and download.
 // The builder (pdf-lib and the canvas work) loads only on that click.
+
+export type BookGroup = { key: string; title: string; styleId?: string; line?: string; items: ReviewItem[] };
 
 type Props = {
   title: string;
@@ -19,12 +21,23 @@ type Props = {
   /** Discarded frames never go into the PDF. */
   archived: (assetId: string) => boolean;
   onToast?: (text: string, error?: boolean) => void;
+  /**
+   * "styles" (the style book) or "view": the Locations view as it is on
+   * screen, its sections in the same order (Michael, 17 Nov 2026: "make sure
+   * that the pdf packages in the same view as we have on the app, in the same
+   * sorting way").
+   */
+  kind?: "styles" | "view";
+  /** The view's name for the file ("All locations", "School"). */
+  viewName?: string;
 };
 
 const PER_PAGE: PerPage[] = [1, 4, 9];
 const megabytes = (bytes: number) => `${(bytes / 1048576).toFixed(bytes > 10 * 1048576 ? 0 : 1)} MB`;
 
-export function BookPdf({ title, round, groups, active, archived, onToast }: Props) {
+export function BookPdf({ title, round, groups, active, archived, onToast, kind = "styles", viewName }: Props) {
+  const isView = kind === "view";
+  const unit = isView ? "Sections" : "Styles";
   const [open, setOpen, anchorRef, popRef] = usePopover();
   const [scope, setScope] = useState<"all" | "one">("all");
   const [perPage, setPerPage] = useState<PerPage>(4);
@@ -63,7 +76,7 @@ export function BookPdf({ title, round, groups, active, archived, onToast }: Pro
         signal: controller.signal,
         onProgress: (done, total) => setProgress({ done, total }),
       });
-      const name = pdfFileName(title, round, scope === "one" ? activeGroup?.title : undefined);
+      const name = pdfFileName(title, round, scope === "one" ? activeGroup?.title : isView ? viewName : undefined, isView ? "" : "style-book");
       saveBlob(result.blob, name);
       const note = result.skipped ? ` · ${result.skipped} frames could not be read` : "";
       onToast?.(`Saved ${name} · ${result.pages} pages · ${megabytes(result.blob.size)}${note}`, result.skipped > 0);
@@ -95,25 +108,27 @@ export function BookPdf({ title, round, groups, active, archived, onToast }: Pro
         aria-expanded={open}
         data-busy={building ? "" : undefined}
         onClick={() => setOpen(!open)}
-        title="Save the style book as a PDF"
+        title={isView ? "Save what is on screen as a PDF, in the same order" : "Save the style book as a PDF"}
       >
         {building ? `PDF · ${progress.done} / ${progress.total}` : "PDF"}
       </button>
       {open ? (
-        <Floating anchorRef={anchorRef} popRef={popRef} placement="bottom-end" label="Style book PDF">
+        <Floating anchorRef={anchorRef} popRef={popRef} placement="bottom-end" label={isView ? "PDF of this view" : "Style book PDF"}>
           <div className="rv-pdf">
-            <div className="rv-pop-h">Style book PDF</div>
+            <div className="rv-pop-h">{isView ? "PDF of this view · same order" : "Style book PDF"}</div>
+            {groups.length > 1 ? (
             <div className="rv-pdf-row">
-              <span className="k">Styles</span>
-              <div className="rv-size" role="group" aria-label="Which styles">
+              <span className="k">{unit}</span>
+              <div className="rv-size" role="group" aria-label={`Which ${unit.toLowerCase()}`}>
                 <button type="button" aria-pressed={scope === "all"} disabled={building} onClick={() => setScope("all")}>
                   All {groups.length}
                 </button>
                 <button type="button" aria-pressed={scope === "one"} disabled={building || !activeGroup} onClick={() => setScope("one")} title={activeGroup?.title}>
-                  <span className="nm">{activeGroup?.title ?? "This style"}</span>
+                  <span className="nm">{activeGroup?.title ?? (isView ? "The first" : "This style")}</span>
                 </button>
               </div>
             </div>
+            ) : null}
             <div className="rv-pdf-row">
               <span className="k">Per page</span>
               <div className="rv-size" role="group" aria-label="Frames per page">
@@ -125,7 +140,7 @@ export function BookPdf({ title, round, groups, active, archived, onToast }: Pro
               </div>
             </div>
             <p className="rv-pdf-sum">
-              {frames} {frames === 1 ? "frame" : "frames"} · {pages} {pages === 1 ? "page" : "pages"} · full bleed, each style from a new page
+              {frames} {frames === 1 ? "frame" : "frames"} · {pages} {pages === 1 ? "page" : "pages"} · full bleed, each {isView ? "section" : "style"} from a new page
             </p>
             {building ? (
               <div className="rv-pdf-run" role="status">
