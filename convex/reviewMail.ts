@@ -89,12 +89,12 @@ const sendGmail = async (to: string, subject: string, body: string, isHtml: bool
       arguments: { user_id: "me", recipient_email: to, subject, body, is_html: isHtml },
     }),
   });
-  const body = await response.text();
+  const reply = await response.text();
   let parsed: unknown;
-  try { parsed = JSON.parse(body); } catch { parsed = undefined; }
+  try { parsed = JSON.parse(reply); } catch { parsed = undefined; }
   const result = (parsed as { result?: { successful?: boolean; error?: string } } | undefined)?.result;
   const ok = response.ok && result?.successful !== false;
-  return { ok, reason: ok ? undefined : `${response.status} ${body.slice(0, 300)}` };
+  return { ok, reason: ok ? undefined : `${response.status} ${reply.slice(0, 300)}` };
 };
 
 /** A round was sent: one email to each reviewer. */
