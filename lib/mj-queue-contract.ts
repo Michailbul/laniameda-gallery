@@ -73,6 +73,28 @@ export const mjQueueRequeueSchema = z.object({
     .describe("Prompts to queue again (mjq:<id> or bare ids), usually sent ones. Each becomes a new queued copy at the end of its thread; the original keeps its job."),
 });
 
+export const mjQueueForkSchema = z.object({
+  itemId: z.string().trim().min(1).describe("The prompt to copy (mjq:<id> or the bare id)."),
+  batch: z.string().trim().min(1).max(MJ_QUEUE_LIMITS.batch).describe("The new thread's name; a taken name gets · 2, · 3 …"),
+  createdBy: z.string().trim().max(80).optional(),
+  variants: z.array(z.object({
+    title: z.string().trim().max(MJ_QUEUE_LIMITS.title),
+    profileCodes: z.array(z.string().trim().min(1).max(40)).max(MJ_QUEUE_LIMITS.profileCodes),
+    params: z.string().max(MJ_QUEUE_LIMITS.params).optional(),
+  })).min(1).max(MJ_QUEUE_LIMITS.itemsPerCall),
+});
+
+export const mjQueueParamsSchema = z.object({
+  items: z.array(z.object({
+    itemId: z.string().trim().min(1),
+    params: z.string().max(MJ_QUEUE_LIMITS.params),
+  })).min(1).max(MJ_QUEUE_LIMITS.itemsPerBatch),
+});
+
+export const mjQueueDeleteThreadSchema = z.object({
+  batch: z.string().trim().min(1).max(MJ_QUEUE_LIMITS.batch).describe("The thread's label, batch key or id thr-xxxxxxxx."),
+});
+
 export type MjQueueUpdateInput = z.infer<typeof mjQueueUpdateSchema>;
 
 /** Refs as the Convex mutation takes them: asset ids bare-or-prefixed, as given. */

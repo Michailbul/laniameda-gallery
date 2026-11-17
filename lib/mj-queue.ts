@@ -3,7 +3,34 @@
 // twin of composeMjCommand (extension/mj-queue-compose.js); the parity test
 // (tests/mj-queue-compose.test.ts) keeps the two identical.
 
-import { enforceMjVersion, mjVersionWarning } from "./mj-version";
+import { MJ_VERSION, enforceMjVersion, mjVersionWarning } from "./mj-version";
+
+// Never used in any queued command (Michael, 11 Nov 2026: AndromedaCartoon).
+export const MJ_BANNED_PROFILE_CODES = ["n9iqix8"] as const;
+const BANNED_TOKEN = /(^|\s)n9iqix8(?=\s|$)/gi;
+const BARE_PROFILE_FLAG = /(^|\s)(?:--profile|--p|-p)(?=\s+--|\s*$)/gi;
+// "--niji", "--niji 6", "—niji 7": Niji is not used either; every job is V8.2.
+const NIJI_FLAG = /(^|\s)(?:--|[–—])niji(?:\s+(\d+(?:\.\d+)?))?(?=\s|$)/gi;
+const HAS_VERSION = /(^|\s)--(?:v|version)\s+\d/i;
+export const MJ_BANNED_PROFILE_WARNING = "AndromedaCartoon profile left out: it is never used.";
+
+/** Text without the banned profile code (and a profile flag it leaves empty). */
+export function withoutBannedCodes(text: string) {
+  const out = text.replace(BANNED_TOKEN, "$1").replace(BARE_PROFILE_FLAG, "$1");
+  return { text: space(out), removed: space(out) !== space(text) };
+}
+
+/** Params with --niji replaced by --v 8.2, and the niji it replaced ("niji 6"). */
+export function withoutNiji(params: string) {
+  let niji = "";
+  const out = params.replace(NIJI_FLAG, (_whole: string, lead: string, value: string | undefined) => {
+    niji ||= value ? `niji ${value}` : "niji";
+    return lead;
+  });
+  if (!niji) return { text: params, niji };
+  const text = space(out);
+  return { text: HAS_VERSION.test(text) ? text : space(`${text} --v ${MJ_VERSION}`), niji };
+}
 
 export const MJ_QUEUE_STATUSES = ["queued", "injected", "sent", "skipped"] as const;
 export type MjQueueStatus = (typeof MJ_QUEUE_STATUSES)[number];
@@ -84,23 +111,29 @@ export function threadIdOf(batchKey: string) {
  * Image prompts first, then the prose, then the reference flags, the profile
  * codes and the params as written, except the version: every job is --v 8.2
  * (lib/mj-version.ts), so --v 8.1, --v 7 and older become --v 8.2 with a
- * warning. V8.2 has no omni or character reference (the Edit model replaced
- * both): --oref is never added, --cref only for --niji 6.
+ * warning; --niji is not used either and becomes --v 8.2 the same way. V8.2
+ * has no omni or character reference (the Edit model replaced both): --oref
+ * and --cref are never added. The AndromedaCartoon profile (n9iqix8) is left
+ * out of every command.
  */
 export function composeMjCommand(item: MjQueueComposable) {
   const warnings: string[] = [];
   const enforced = enforceMjVersion(space(item.params));
-  const params = space(enforced.text);
+  const nijiFree = withoutNiji(space(enforced.text));
+  const cleanParams = withoutBannedCodes(nijiFree.text);
+  const params = cleanParams.text;
   for (const from of [item.replacedVersion, ...enforced.replaced]) {
     const note = from ? mjVersionWarning(from) : "";
     if (note && !warnings.includes(note)) warnings.push(note);
   }
+  if (nijiFree.niji) warnings.push(`${nijiFree.niji} is not used: switched to v${MJ_VERSION}`);
   const version = pinnedVersion(params);
   const parts: string[] = [];
 
   const images = (item.imagePrompts ?? []).map((ref) => space(ref.url)).filter(Boolean);
   parts.push(...images);
-  const prose = space(item.prompt);
+  const cleanProse = withoutBannedCodes(space(item.prompt));
+  const prose = cleanProse.text;
   if (prose) parts.push(prose);
 
   const srefs = (item.styleRefs ?? [])
@@ -118,19 +151,12 @@ export function composeMjCommand(item: MjQueueComposable) {
 
   if (space(item.omniRef?.url)) warnings.push("Omni reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
 
-  const character = space(item.characterRef?.url);
-  if (character) {
-    if (version.startsWith("niji") && major(version) === 6) {
-      parts.push(`--cref ${character}`);
-      const weight = num(item.characterRef?.weight);
-      if (weight) parts.push(`--cw ${weight}`);
-    } else {
-      warnings.push("Character reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
-    }
-  }
+  if (space(item.characterRef?.url)) warnings.push("Character reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
 
-  const codes = [...new Set((item.profileCodes ?? []).map(space).filter(Boolean))];
+  const allCodes = [...new Set((item.profileCodes ?? []).map(space).filter(Boolean))];
+  const codes = allCodes.filter((code) => !(MJ_BANNED_PROFILE_CODES as readonly string[]).includes(code.toLowerCase()));
   if (codes.length) parts.push(`--profile ${codes.join(" ")}`);
+  if (codes.length < allCodes.length || cleanParams.removed || cleanProse.removed) warnings.push(MJ_BANNED_PROFILE_WARNING);
   if (params) parts.push(params);
 
   const edits = (item.editRefs ?? []).map((ref) => space(ref.url)).filter(Boolean).slice(0, 4);

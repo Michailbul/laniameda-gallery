@@ -1,11 +1,24 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import {
-  EXPAND_PRESETS, buildExpandMessages, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
+  EXPAND_PRESETS, buildExpandMessages, cleanPrevious, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
 } from "../lib/mj-expand";
 import { composeBrief } from "../lib/writer-brief";
 
 type Made = { title?: string; words: string; prompt: string; text?: string; rest: string; profiles: string[]; srefs: Array<{ code?: string; url?: string; weight?: number }>; images: string[] };
+type Item = Made & { change?: string; queued?: boolean; edits?: string[] };
 type ExpandApi = {
+  ATTACH: Array<{ key: string }>;
+  moveForCode: (code: string) => { key: string; hot: string } | null;
+  varyMoodboards: (items: Item[], pool: { boards: string[]; names?: Record<string, string> }, options?: { rng?: () => number }) => Item[];
+  previousPrompts: (rows: unknown[], read?: (row: unknown) => string, count?: number) => string[];
+  historyDecision: (input: { cache: { at: number } | null; lastReadAt: number; now: number }) => string;
+  runRequest: (input: Record<string, unknown>) => Record<string, unknown>;
+  historyKey: (tile: { jobId: string; index: number } | null, url: string) => string;
+  recordRun: (list: unknown[], source: Record<string, unknown>, run: Record<string, unknown>) => Array<{ key: string; runs: Array<{ id: string; items: Item[] }> }>;
+  updateRun: (list: unknown[], key: string, runId: string, fn: (run: { items: Item[] }) => unknown) => Array<{ key: string; runs: Array<{ id: string; items: Item[] }> }>;
+  entryOf: (list: unknown[], key: string) => { key: string; runs: Array<{ id: string; items: Item[] }> } | null;
+  recentRows: (list: unknown[], count?: number) => Array<{ key: string; set: string; count: number; queued: number; runs: number }>;
+  pillText: (count: number, busy?: boolean) => string;
   MOVES: Array<{ key: string; label: string; count: number }>;
   placeBeside: (rect: { left: number; right: number; top: number; bottom: number }, view: { width: number; height: number }, size: { width: number; height: number }) => { x: number; y: number; side: string };
   threadLabel: (world: string, set: string, fallback?: string) => string;
@@ -16,6 +29,7 @@ type ExpandApi = {
 const page = () => (globalThis as typeof globalThis & { SaveToGalleryExpand: ExpandApi }).SaveToGalleryExpand;
 
 beforeAll(async () => {
+  await import("../extension/mj-randomize.js");
   await import("../extension/mj-expand.js");
 });
 
@@ -59,8 +73,8 @@ describe("mj-expand: the source command", () => {
 });
 
 describe("mj-expand: the writer", () => {
-  test("seven moves, each with a count and a brief", () => {
-    expect(EXPAND_PRESETS.map((preset) => preset.key)).toEqual(["angles", "close", "wide", "cast", "details", "story", "world"]);
+  test("eleven moves, each with a count and a brief", () => {
+    expect(EXPAND_PRESETS.map((preset) => preset.key)).toEqual(["angles", "close", "wide", "cast", "details", "story", "world", "scene", "place", "replay", "location"]);
     expect(expandPreset("story")?.count).toBe(6);
     expect(expandPreset("nope")).toBeNull();
     // The extension's chips are the same moves in the same order.
@@ -171,5 +185,170 @@ describe("mj-expand: the card", () => {
     expect(line.profiles).toEqual(["h2eu2z6", "m7510"]);
     expect(line.rest).toBe("--ar 21:9 --stylize 250 --sw 300 --v 8.2 --hd");
     expect(line.images).toEqual(["https://s.mj.run/abc"]);
+  });
+});
+
+describe("mj-expand: use this image as", () => {
+  const source = splitCommand(COMMAND);
+  const url = "https://cdn.midjourney.com/job/0_1.png";
+
+  test("a style reference goes first in --sref; an image ref leads the command; edit adds --edit", () => {
+    expect(composeExpanded("t", "Words.", source, { attach: "sref", attachUrl: url }).srefs[0]).toEqual({ url });
+    const image = composeExpanded("t", "Words.", source, { attach: "image", attachUrl: url });
+    expect(image.prompt.startsWith(`${url} Words. `)).toBe(true);
+    expect(image.images).toEqual([url]);
+    const edit = composeExpanded("t", "Words.", source, { attach: "edit", attachUrl: url });
+    expect(edit.prompt.endsWith(`--edit ${url}`)).toBe(true);
+    expect(edit.edits).toEqual([url]);
+    // Codes and params stay in every mode.
+    for (const made of [image, edit]) {
+      expect(made.prompt).toContain("--profile h2eu2z6 m7510");
+      expect(made.prompt).toContain("--sref 123456::2");
+      expect(made.prompt).toContain("--stylize 250");
+    }
+    expect(composeExpanded("t", "Words.", source, { attach: "none", attachUrl: url }).prompt).not.toContain(url.replace(".png", ""));
+    // No link: nothing is attached.
+    expect(composeExpanded("t", "Words.", source, { attach: "edit" }).edits).toEqual([]);
+  });
+
+  test("AndromedaCartoon never rides along, and old versions become 8.2", () => {
+    const old = splitCommand("a fox --profile n9iqix8 abc --v 8.1");
+    expect(old.profiles).toEqual(["abc"]);
+    expect(old.rest).toBe("--v 8.2");
+    expect(composeExpanded("t", "Words.", old).prompt).toBe("Words. --v 8.2 --profile abc");
+  });
+
+  test("the writer is told what the attachment carries", () => {
+    const [, user] = buildExpandMessages({ image: "https://x/y.png", preset: expandPreset("location"), count: 6, attach: "edit" });
+    const text = (user!.content as Array<{ text?: string }>)[1]!.text!;
+    expect(text).toContain("EDIT MODEL");
+    expect(text).toContain("PLACE LINE:");
+    expect(text).toContain("LIGHT LINE:");
+    expect(expandPreset("location")!.brief).toContain("word for word");
+  });
+
+  test("the queue carries the edit frame in the params", () => {
+    const made = composeExpanded("t", "Words.", source, { attach: "edit", attachUrl: url });
+    const item = page().queueItemOf({ ...made, text: made.prompt }, {}, "k");
+    expect(item.params).toBe(`--ar 21:9 --stylize 250 --sw 300 --v 8.2 --hd --edit ${url}`);
+    expect(page().ATTACH.map((entry) => entry.key)).toEqual(["none", "sref", "image", "edit"]);
+  });
+});
+
+describe("mj-expand: cinematic rules and previous prompts", () => {
+  test("every move carries the cinematic rules; Dear Annete adds its addendum", () => {
+    const plain = buildExpandMessages({ image: "https://x/y.png", count: 3, worldKey: "cassandra" })[0]!.content as string;
+    expect(plain).toContain("CINEMATIC RULES");
+    expect(plain).not.toContain("DEAR ANNETE ADDENDUM");
+    const da = buildExpandMessages({ image: "https://x/y.png", count: 3, worldKey: "dear-annete-art-deco" })[0]!.content as string;
+    expect(da).toContain("DEAR ANNETE ADDENDUM");
+    expect(da).toContain("real cinematography comes first");
+    expect(plain).not.toMatch(/mechanical hand/i);
+  });
+
+  test("previous prompts are cleaned and handed over newest first; Replay rewrites them one by one", () => {
+    const previous = ["A lane at dawn --ar 16:9 https://cdn.midjourney.com/a.png", "a lane at dawn --ar 1:1", "", "A kitchen at noon"];
+    expect(cleanPrevious(previous)).toEqual(["A lane at dawn --ar 16:9", "A kitchen at noon"]);
+    const [, user] = buildExpandMessages({ image: "https://x/y.png", preset: expandPreset("replay"), count: 2, previous });
+    const text = (user!.content as Array<{ text?: string }>)[1]!.text!;
+    expect(text).toContain("PREVIOUS PROMPTS");
+    expect(text).toContain("1. A lane at dawn");
+    expect(text).toContain("rewrite each one as the move says");
+    const [, steer] = buildExpandMessages({ image: "https://x/y.png", idea: "a wide", count: 3, previous });
+    expect((steer!.content as Array<{ text?: string }>)[1]!.text).toContain("visual DNA of the source image");
+  });
+});
+
+describe("mj-expand card: moves, moodboards, history", () => {
+  test("keys 1–9, 0 and L pick moves", () => {
+    expect(page().moveForCode("Digit8")?.key).toBe("scene");
+    expect(page().moveForCode("Digit9")?.key).toBe("place");
+    expect(page().moveForCode("Digit0")?.key).toBe("replay");
+    expect(page().moveForCode("KeyL")?.key).toBe("location");
+    expect(page().moveForCode("KeyQ")).toBeNull();
+  });
+
+  test("vary moodboards swaps one moodboard per result and keeps taste profiles", () => {
+    const made = composeExpanded("t", "Words.", splitCommand("A lane. --ar 16:9 --profile m1 taste1 --stylize 750"));
+    const items = [made, made, made].map((item) => ({ ...item, text: item.prompt }));
+    const pool = { boards: ["m1", "m2", "m3", "n9iqix8"], names: { m1: "FOG", m2: "ROSE", m3: "ASH" } };
+    const varied = page().varyMoodboards(items, pool, { rng: () => 0 });
+    for (const item of varied) {
+      expect(item.profiles).toContain("taste1");
+      expect(item.profiles.filter((code) => pool.boards.includes(code))).toHaveLength(1);
+      expect(item.profiles).not.toContain("n9iqix8");
+      expect(item.prompt).toContain("--stylize 750");
+      expect(item.text).toBe(item.prompt);
+    }
+    expect(varied.map((item) => item.change)).toEqual(["FOG → ROSE", "FOG → ASH", "FOG → ROSE"]);
+    // No moodboard of the world in the source: one is added.
+    const bare = composeExpanded("t", "Words.", splitCommand("A lane. --profile taste1"));
+    const added = page().varyMoodboards([{ ...bare, text: bare.prompt }], { boards: ["m2"], names: { m2: "ROSE" } });
+    expect(added[0]!.profiles).toEqual(["m2", "taste1"]);
+    expect(added[0]!.change).toBe("+ ROSE");
+    // An empty pool changes nothing.
+    expect(page().varyMoodboards([{ ...bare }], { boards: [] })[0]!.change).toBeUndefined();
+  });
+
+  test("previous prompts come newest first, repeats dropped, at most ten", () => {
+    const rows = [
+      { enqueue_time: "2026-11-17T10:00:00Z", full_command: "old prompt --ar 1:1" },
+      { enqueue_time: "2026-11-17T12:00:00Z", full_command: "new prompt --ar 16:9" },
+      { enqueue_time: "2026-11-17T11:00:00Z", full_command: "New prompt --ar 2:3" },
+      { enqueue_time: "2026-11-17T09:00:00Z", prompt: { full_command: "nested prompt" } },
+      { enqueue_time: "2026-11-17T08:00:00Z" },
+    ];
+    expect(page().previousPrompts(rows)).toEqual(["new prompt --ar 16:9", "old prompt --ar 1:1", "nested prompt"]);
+    const many = Array.from({ length: 15 }, (_, i) => ({ enqueue_time: new Date(2026, 10, 17, i).toISOString(), full_command: `prompt ${i}` }));
+    expect(page().previousPrompts(many)).toHaveLength(10);
+    expect(page().previousPrompts(many)[0]).toBe("prompt 14");
+  });
+
+  test("Midjourney's history is read gently", () => {
+    const now = 1_000_000;
+    expect(page().historyDecision({ cache: { at: now - 30_000 }, lastReadAt: now - 30_000, now })).toBe("reuse");
+    expect(page().historyDecision({ cache: { at: now - 90_000 }, lastReadAt: now - 90_000, now })).toBe("read");
+    expect(page().historyDecision({ cache: null, lastReadAt: now - 5_000, now })).toBe("wait");
+    expect(page().historyDecision({ cache: { at: now - 90_000 }, lastReadAt: now - 5_000, now })).toBe("reuse");
+    expect(page().historyDecision({ cache: null, lastReadAt: 0, now })).toBe("read");
+  });
+
+  test("the run request carries the attachment and the previous prompts only when asked", () => {
+    const source = { command: "a lane --profile m1", srefUrl: "https://cdn.midjourney.com/j/0_1.png" };
+    const image = { dataUrl: "data:image/jpeg;base64,AAAA", width: 1024, height: 768 };
+    const previous = ["a", "b"];
+    const off = page().runRequest({ image, source, move: { key: "wide" }, world: "auto", attach: "edit", previous, replay: false });
+    expect(off).toMatchObject({ preset: "wide", attach: "edit", attachUrl: source.srefUrl, world: "auto", width: 1024 });
+    expect(off.previous).toBeUndefined();
+    expect(page().runRequest({ image, source, move: null, idea: " a door ", replay: true, previous }).previous).toEqual(previous);
+    expect(page().runRequest({ image, source, move: { key: "replay" }, previous }).previous).toEqual(previous);
+    expect(page().runRequest({ image, source: { command: "" }, attach: "sref" }).attach).toBeUndefined();
+    expect(page().runRequest({ image, source, world: "none" }).world).toBeUndefined();
+  });
+
+  test("every run is kept per picture: newest first, capped, queued marks saved", () => {
+    expect(page().historyKey({ jobId: "job", index: 2 }, "https://x")).toBe("job-2");
+    expect(page().historyKey(null, " https://x/y.png ")).toBe("https://x/y.png");
+    const source = { key: "job-2", rendered: "https://cdn/x.webp", imageUrl: "https://cdn/x.webp", srefUrl: "https://cdn/x.png", command: "a lane" };
+    const item = { title: "T", words: "W", prompt: "W --ar 1:1", text: "W --ar 1:1", rest: "--ar 1:1", profiles: [], srefs: [], images: [] };
+    let list: unknown[] = [];
+    for (let i = 0; i < 10; i += 1) list = page().recordRun(list, source, { id: `r${i}`, at: i, set: `Set ${i}`, items: [item, item] });
+    const entry = page().entryOf(list, "job-2")!;
+    expect(entry.runs).toHaveLength(8);
+    expect(entry.runs[0]!.id).toBe("r9");
+    // An unedited item is stored without its duplicate text.
+    expect(entry.runs[0]!.items[0]).not.toHaveProperty("text");
+    list = page().updateRun(list, "job-2", "r9", (run) => ({ ...run, items: run.items.map((one, index) => ({ ...one, queued: index === 0 })) }));
+    expect(page().entryOf(list, "job-2")!.runs[0]!.items[0]!.queued).toBe(true);
+    for (let i = 0; i < 45; i += 1) list = page().recordRun(list, { ...source, key: `p${i}` }, { id: "x", at: 100 + i, items: [item] });
+    expect(list).toHaveLength(40);
+    expect(page().entryOf(list, "p44")).not.toBeNull();
+    expect(page().entryOf(list, "job-2")).toBeNull();
+    const rows = page().recentRows(list, 3);
+    expect(rows.map((row) => row.key)).toEqual(["p44", "p43", "p42"]);
+    expect(rows[0]).toMatchObject({ count: 1, runs: 1, queued: 0 });
+    expect(page().pillText(6)).toBe("6 prompts");
+    expect(page().pillText(1)).toBe("1 prompt");
+    expect(page().pillText(0, true)).toBe("writing…");
   });
 });

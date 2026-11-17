@@ -49,7 +49,7 @@
           id: "middle-districts",
           label: "Middle districts",
           phrase:
-            "the middle districts, faceted facades folded like cut glass, angled bay windows framed in cut brass, a glazed arcade.",
+            "the middle districts, tall narrow houses of pale limestone with long lancet windows, a covered stone arcade along the street.",
         },
         {
           id: "upper-towers",
@@ -84,19 +84,19 @@
           id: "bridge",
           label: "Bridge",
           phrase:
-            "the long bridge on tall pointed arches of black basalt, crystal-column flower lamps along its parapet.",
+            "the long stone bridge on tall pointed arches, plain iron lamps along its parapet.",
         },
         {
           id: "room-low",
           label: "Low room",
           phrase:
-            "a lived-in low-city room, oxblood walls and green tile, walnut, brass and frosted glass, peonies in mismatched glass.",
+            "a lived-in low-city room, oxblood walls and green tile, worn walnut and frosted glass, peonies in mismatched glass.",
         },
         {
           id: "room-high",
-          label: "Tower salon",
+          label: "High room",
           phrase:
-            "a tower salon of black marble and gilt, crimson velvet, tall cold windows, lemon trees in brass tubs.",
+            "a high stone room with plain plaster walls, crimson velvet curtains, tall cold windows, lemon trees in clay tubs.",
         },
       ],
     },
@@ -117,7 +117,7 @@
         {
           id: "fog",
           label: "Fog",
-          phrase: "a cold slate day, fog between the spires, basalt against a white sky.",
+          phrase: "a cold slate day, fog between the spires, dark stone against a white sky.",
         },
         {
           id: "flower-lamp",
@@ -157,13 +157,13 @@
           id: "court",
           label: "Court",
           phrase:
-            "black lacquer and gold filigree at full strength, a sculpted collar lined with crimson silk, a stiff ivory ruff.",
+            "a high-collared black silk dress lined with crimson silk, a plain ivory lace collar.",
         },
         {
           id: "middle-class",
           label: "Middle",
           phrase:
-            "tailored black with filigree at the cuffs, a high ruffled lace collar, a brass hand inlaid with gold worn like a bracelet.",
+            "a tailored black suit, a white shirt with a high collar, plain silver cufflinks.",
         },
         {
           id: "low-city-wardrobe",
@@ -175,7 +175,7 @@
           id: "patrol",
           label: "Patrol",
           phrase:
-            "black lacquered plate fitted like tailoring, a red coat, a helmet shaped like a closed black tulip with one brass eye.",
+            "a long dark red wool greatcoat over a black uniform buttoned to the throat, a plain black helmet.",
         },
         {
           id: "dari",
@@ -187,7 +187,7 @@
           id: "mike",
           label: "Mike",
           phrase:
-            "a slate-blue shirt, ochre trousers, a black-and-brass mechanical right arm engraved like jewellery.",
+            "a slate-blue shirt with the sleeves rolled to the elbow, ochre trousers, worn boots.",
         },
       ],
     },
@@ -199,18 +199,18 @@
           id: "cable-car",
           label: "Cable car",
           phrase:
-            "a brass-and-walnut cable car hanging from a thick steel wire by a clamp on its roof.",
+            "a dark wooden cable car hanging from a thick steel wire by a clamp on its roof.",
         },
         {
           id: "sled",
           label: "Sled",
           phrase:
-            "the patrol's long low hover sled of black lacquer and brass, its hull closed like a sleigh's, a hand above the cobbles, amber light from its belly.",
+            "a long low hover sled of black lacquer, its hull closed like a sleigh's, a hand above the cobbles, amber light from its belly.",
         },
         {
           id: "saint",
           label: "Saint",
-          phrase: "a bronze saint holding a lantern over a plinth heaped with flowers.",
+          phrase: "a weathered stone saint holding a lantern over a plinth heaped with flowers.",
         },
         {
           id: "flowers",

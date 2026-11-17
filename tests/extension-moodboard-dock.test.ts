@@ -46,8 +46,30 @@ const getApi = () =>
     .SaveToGalleryMoodboardDock;
 
 beforeAll(async () => {
+  await import("../extension/mj-randomize.js");
   await import("../extension/moodboard-dock.js");
 });
+
+// The functions added on 17 Nov 2026 (presets applied themselves, the dock's
+// pieces did not go away, ⌥R reroll).
+type DockApi2 = {
+  cleanSticky: (stored: unknown) => Record<string, { board: string | null; boards: string[]; profiles: string[] }>;
+  promptChange: (before: string | null, after: string, event: Record<string, unknown> | null) => string;
+  presetOnto: (text: string, preset: { codes?: string[]; params?: string; packs?: string[] }, options?: Record<string, unknown>) => string;
+  mixPool: (profiles: { name: string; code: string }[], moodboards: Board[]) => { profiles: string[]; boards: string[]; names: Record<string, string> };
+  mixLabel: (mix: { profiles: string[]; boards: string[] }, names: Record<string, string>) => string;
+  rerollPrompt: (
+    prompt: string,
+    current: string[],
+    pool: { profiles: string[]; boards: string[] },
+    mode: string,
+    rng?: () => number,
+  ) => { mix: { profiles: string[]; boards: string[]; codes: string[] }; text: string | null } | null;
+  hotkeyVeto: (event: Record<string, unknown>, prompt: unknown, options?: { mac?: boolean }) => string;
+  escapePlan: (open: Record<string, boolean>) => string[];
+  removeStaleNodes: (root: unknown, instance: string) => number;
+};
+const api2 = () => getApi() as unknown as DockApi2;
 
 const CODES = ["gms8ial", "88ji6bg", "5no6b1c"];
 const apply = (prompt: string, code: string) =>
@@ -336,5 +358,197 @@ describe("prompt block edges", () => {
   test("a strip above the text box moves the top edge up", () => {
     const above = [{ top: 900, bottom: 960, width: 300, height: 60 }];
     expect(getApi().blockEdges({ top: 970, bottom: 1024 }, above)).toEqual({ top: 900, bottom: 1024 });
+  });
+});
+
+describe("remembered selection (17 Nov 2026)", () => {
+  test("old stored settings and packs of a preset are dropped; boards and profiles stay", () => {
+    const stored = {
+      "dear-annete": { board: "88ji6bg", profiles: ["h2eu2z6"], params: "--ar 16:9 --s 750", packs: ["film"] },
+      andromeda: { boards: ["m1", "m2"], profiles: [] },
+      broken: "x",
+    };
+    expect(api2().cleanSticky(stored)).toEqual({
+      "dear-annete": { board: "88ji6bg", boards: ["88ji6bg"], profiles: ["h2eu2z6"] },
+      andromeda: { board: "m1", boards: ["m1", "m2"], profiles: [] },
+    });
+    expect(api2().cleanSticky(null)).toEqual({});
+  });
+
+  test("two remembered moodboards (an extreme mix) both come back", () => {
+    expect(getApi().stickyCodes({ boards: ["88ji6bg", "5no6b1c"], profiles: ["h2eu2z6"] } as never, CODES, ["h2eu2z6"])).toEqual([
+      "88ji6bg",
+      "5no6b1c",
+      "h2eu2z6",
+    ]);
+  });
+});
+
+describe("promptChange: only Michael's own typing starts a prompt", () => {
+  const typed = { isTrusted: true, inputType: "insertText" };
+  test("a trusted keystroke into an empty prompt", () => {
+    expect(api2().promptChange("", "a", typed)).toBe("typed");
+    expect(api2().promptChange("-p 88ji6bg", "a -p 88ji6bg", typed)).toBe("typed");
+  });
+  test("pasted, dropped, autocorrected text is a whole prompt", () => {
+    for (const inputType of ["insertFromPaste", "insertFromDrop", "insertReplacementText", "insertFromYank"]) {
+      expect(api2().promptChange("", "a tram at dusk --ar 2:3", { isTrusted: true, inputType })).toBe("injected");
+    }
+  });
+  test("text the extension writes (synthetic input, no inputType) gets nothing", () => {
+    expect(api2().promptChange(null, "a tram --ar 2:3", { isTrusted: false })).toBe("injected");
+    expect(api2().promptChange("", "a tram", { isTrusted: false, inputType: "insertText" })).toBe("injected");
+  });
+  test("typing into a prompt that already has words is an edit", () => {
+    expect(api2().promptChange("a tram", "a trams", typed)).toBe("edit");
+  });
+  test("an input method still composing is not a start", () => {
+    expect(api2().promptChange("", "a", { ...typed, isComposing: true })).toBe("injected");
+    expect(api2().promptChange("", "", typed)).toBe("empty");
+  });
+});
+
+describe("presetOnto", () => {
+  const packsApi = {
+    hasPack: (text: string, phrase: string) => text.includes(phrase),
+    insertPack: (text: string, phrase: string) => ({ text: text.replace(/^(\S+(?: \S+)*?)( -p| --|$)/, `$1. ${phrase}$2`) }),
+  };
+  test("sets the codes and settings; leaves the words", () => {
+    expect(api2().presetOnto("A tram -p old1 --ar 1:1", { codes: ["m1", "p1"], params: "--ar 16:9 --s 750" })).toBe(
+      "A tram -p m1 p1 --ar 16:9 --s 750",
+    );
+  });
+  test("packs only when the packs are at hand", () => {
+    expect(api2().presetOnto("A tram", { codes: [], packs: ["film"] })).toBe("A tram");
+    const find = (id: string) => (id === "film" ? { phrase: "Shot on film" } : null);
+    expect(api2().presetOnto("A tram", { codes: [], packs: ["film"] }, { packsApi, findPack: find })).toContain("Shot on film");
+  });
+});
+
+describe("reroll (⌥R)", () => {
+  const profiles = [
+    { name: "CINEMATIC", code: "p1" },
+    { name: "DA4", code: "p2" },
+    { name: "DA5", code: "p3" },
+    { name: "AndromedaCartoon", code: "n9iqix8" },
+    { name: "CAS COAST (deleted in MJ)", code: "gone1" },
+  ];
+  const boards = [
+    { name: "DA FILM · Night", shortName: "Night", mjCode: "m1" },
+    { name: "DA FILM · Gold", shortName: "Gold", mjCode: "m2" },
+  ];
+  function seeded(seed: number) {
+    let s = seed >>> 0;
+    return () => {
+      s = (s * 1664525 + 1013904223) >>> 0;
+      return s / 2 ** 32;
+    };
+  }
+
+  test("the pool is the world's live profiles and moodboards with their names", () => {
+    const pool = api2().mixPool(profiles, boards);
+    expect(pool.profiles).toEqual(["p1", "p2", "p3", "n9iqix8"]);
+    expect(pool.boards).toEqual(["m1", "m2"]);
+    expect(pool.names.m1).toBe("Night");
+    expect(pool.names.p1).toBe("CINEMATIC");
+  });
+
+  test("the note names the mix", () => {
+    const names = { p1: "CINEMATIC", p2: "DA4", m1: "Night", m2: "Gold" };
+    expect(api2().mixLabel({ profiles: ["p1", "p2"], boards: ["m1"] }, names)).toBe("CINEMATIC + DA4 · moodboard Night");
+    expect(api2().mixLabel({ profiles: ["p1"], boards: ["m1", "m2"] }, names)).toBe("CINEMATIC · moodboards Night + Gold");
+    expect(api2().mixLabel({ profiles: ["p2"], boards: [] }, names)).toBe("DA4");
+  });
+
+  test("words and every other setting stay; only the codes change; never AndromedaCartoon", () => {
+    const pool = api2().mixPool(profiles, boards);
+    const prompt = "A tram at dawn --sref https://cdn.example/a.png --ar 3:2 -p m1 p1 --s 750 --v 8.2";
+    const rng = seeded(7);
+    let current = ["m1", "p1"];
+    for (let i = 0; i < 200; i += 1) {
+      const result = api2().rerollPrompt(prompt, current, pool, "random", rng)!;
+      expect(result.text).toBe(`A tram at dawn --sref https://cdn.example/a.png --ar 3:2 -p ${result.mix.codes.join(" ")} --s 750 --v 8.2`);
+      expect(result.mix.codes).not.toContain("n9iqix8");
+      expect(result.mix.profiles.length).toBeGreaterThanOrEqual(1);
+      expect(result.mix.profiles.length).toBeLessThanOrEqual(2);
+      expect(result.mix.boards.length).toBeLessThanOrEqual(1);
+      // Each press gives a different mix.
+      expect([...result.mix.codes].sort().join(" ")).not.toBe([...current].sort().join(" "));
+      current = result.mix.codes;
+    }
+  });
+
+  test("extreme takes up to 3 profiles and 2 moodboards", () => {
+    const pool = api2().mixPool(profiles, boards);
+    const rng = seeded(3);
+    let most = 0;
+    for (let i = 0; i < 200; i += 1) {
+      const result = api2().rerollPrompt("A tram", [], pool, "extreme", rng)!;
+      expect(result.mix.profiles.length).toBeLessThanOrEqual(3);
+      expect(result.mix.boards.length).toBeLessThanOrEqual(2);
+      most = Math.max(most, result.mix.boards.length);
+    }
+    expect(most).toBe(2);
+  });
+
+  test("a prompt with no flag gets one before its settings", () => {
+    const pool = api2().mixPool(profiles, boards);
+    const result = api2().rerollPrompt("A tram --ar 3:2", [], pool, "random", seeded(5))!;
+    expect(result.text).toBe(`A tram --profile ${result.mix.codes.join(" ")} --ar 3:2`);
+  });
+
+  test("an empty prompt gets no text: the mix is armed", () => {
+    const pool = api2().mixPool(profiles, boards);
+    const result = api2().rerollPrompt("", [], pool, "random", seeded(1))!;
+    expect(result.text).toBeNull();
+    expect(result.mix.codes.length).toBeGreaterThan(0);
+  });
+});
+
+describe("hotkeyVeto", () => {
+  const prompt = { nodeType: 1, tagName: "TEXTAREA" };
+  const key = (extra: Record<string, unknown> = {}) => ({ isTrusted: true, key: "1", code: "Digit1", altKey: true, target: prompt, ...extra });
+  test("Michael's own press in the prompt runs", () => {
+    expect(api2().hotkeyVeto(key(), prompt)).toBe("");
+  });
+  test("synthetic presses, input methods and AltGr never run", () => {
+    expect(api2().hotkeyVeto(key({ isTrusted: false }), prompt)).toBe("synthetic");
+    expect(api2().hotkeyVeto(key({ isComposing: true }), prompt)).toBe("composing");
+    expect(api2().hotkeyVeto(key({ keyCode: 229 }), prompt)).toBe("composing");
+    const altGr = key({ getModifierState: (name: string) => name === "AltGraph" });
+    expect(api2().hotkeyVeto(altGr, prompt)).toBe("altgraph");
+    // On a Mac, Option is the dock's own modifier.
+    expect(api2().hotkeyVeto(altGr, prompt, { mac: true })).toBe("");
+  });
+  test("typing in any other box (also inside a shadow root) never runs", () => {
+    const search = { nodeType: 1, tagName: "INPUT", type: "text" };
+    expect(api2().hotkeyVeto(key({ target: search }), prompt)).toBe("typing");
+    const shadowHost = { nodeType: 1, tagName: "DIV" };
+    const inner = { nodeType: 1, tagName: "INPUT", type: "search" };
+    expect(api2().hotkeyVeto(key({ target: shadowHost, composedPath: () => [inner, shadowHost] }), prompt)).toBe("typing");
+    const editable = { nodeType: 1, tagName: "DIV", isContentEditable: true };
+    expect(api2().hotkeyVeto(key({ target: editable }), prompt)).toBe("typing");
+    const checkbox = { nodeType: 1, tagName: "INPUT", type: "checkbox" };
+    expect(api2().hotkeyVeto(key({ target: checkbox }), prompt)).toBe("");
+  });
+});
+
+describe("escapePlan", () => {
+  test("Esc closes the open pieces first, all at once", () => {
+    expect(api2().escapePlan({ menu: true, snapshot: true, dock: true })).toEqual(["menu", "snapshot"]);
+  });
+  test("with nothing open, Esc puts the dock away; a note always goes", () => {
+    expect(api2().escapePlan({ dock: true, note: true })).toEqual(["dock", "note"]);
+    expect(api2().escapePlan({ dock: false })).toEqual([]);
+  });
+});
+
+describe("removeStaleNodes", () => {
+  test("nodes of an older copy go, ours stay", () => {
+    const removed: string[] = [];
+    const node = (name: string, instance?: string) => ({ name, dataset: instance ? { stgInstance: instance } : {}, remove: () => removed.push(name) });
+    const root = { querySelectorAll: () => [node("old dock", "aaa"), node("our dock", "me"), node("old packs bar"), node("old sheet", "bbb")] };
+    expect(api2().removeStaleNodes(root, "me")).toBe(3);
+    expect(removed).toEqual(["old dock", "old packs bar", "old sheet"]);
   });
 });

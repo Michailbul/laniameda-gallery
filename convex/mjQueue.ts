@@ -6,7 +6,7 @@ import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { resolveAssetThumbUrl, resolveAssetUrl } from "./r2_url";
 import { resolveWorld } from "./worldCore";
 import { mjQueueDescribeValidator, mjQueueItemFields, mjQueueRefValidator, mjQueueStatusValidator } from "./mjQueueValidators";
-import { MJ_QUEUE_LIMITS, batchKeyOf, composeMjCommand } from "../lib/mj-queue";
+import { MJ_QUEUE_LIMITS, MJ_THREAD_ID, batchKeyOf, composeMjCommand, threadIdOf } from "../lib/mj-queue";
 import { versionedParams } from "../lib/mj-version";
 
 // Midjourney prompt queue. Agents queue prompts with their references set;
@@ -157,6 +157,18 @@ async function itemFor(ctx: Ctx, owner: string, ref: string) {
   return row;
 }
 
+// A label no thread uses yet: "Test · a fox" or else "Test · a fox · 2", "· 3" …
+async function freshBatch(ctx: Ctx, owner: string, label: string) {
+  const base = label.slice(0, MJ_QUEUE_LIMITS.batch - 5).trim();
+  for (let n = 1; n <= 50; n += 1) {
+    const candidate = n === 1 ? base : `${base} · ${n}`;
+    if ((await batchRows(ctx, owner, batchKeyOf(candidate))).length === 0) return candidate;
+  }
+  throw new ConvexError(`Too many threads named "${base}".`);
+}
+
+const isOpenRow = (row: Item) => row.status === "queued" || row.status === "injected";
+
 export const listQueue = ownerQuery({
   args: {
     ownerUserId: v.string(),
@@ -212,6 +224,8 @@ export const queueItems = ownerMutation({
     batch: v.string(),
     world: v.optional(v.string()),
     createdBy: v.optional(v.string()),
+    // true: never join an existing thread; a taken label gets " · 2", " · 3" …
+    fresh: v.optional(v.boolean()),
     items: v.array(itemInput),
   },
   returns: v.object({
@@ -225,11 +239,12 @@ export const queueItems = ownerMutation({
   }),
   handler: async (ctx, args) => {
     const owner = args.ownerUserId;
-    const batch = text(args.batch, MJ_QUEUE_LIMITS.batch, "A batch label")?.replace(/\s+/g, " ");
-    if (!batch) throw new ConvexError("Name the batch (e.g. Dear Annete · name lettering studies).");
+    const label = text(args.batch, MJ_QUEUE_LIMITS.batch, "A batch label")?.replace(/\s+/g, " ");
+    if (!label) throw new ConvexError("Name the batch (e.g. Dear Annete · name lettering studies).");
     if (args.items.length === 0 || args.items.length > MJ_QUEUE_LIMITS.itemsPerCall) {
       throw new ConvexError(`Queue 1 to ${MJ_QUEUE_LIMITS.itemsPerCall} prompts per call.`);
     }
+    const batch = args.fresh ? await freshBatch(ctx, owner, label) : label;
     const batchKey = batchKeyOf(batch);
     const world = args.world?.trim() ? await resolveWorld(ctx, owner, args.world) : null;
     const existing = await batchRows(ctx, owner, batchKey);
@@ -427,6 +442,137 @@ export const requeueItems = ownerMutation({
       out.push(toOut((await ctx.db.get(id))!));
     }
     return { items: out };
+  },
+});
+
+/**
+ * Test and Random: one queued prompt copied into a new thread once per
+ * variant, each with its own profile codes (and params when given) and the
+ * variant's label as its title. The copies keep the words, references,
+ * attached frames, seed and world; nothing is sent.
+ */
+export const forkItem = ownerMutation({
+  args: {
+    ownerUserId: v.string(),
+    itemId: v.string(),
+    batch: v.string(),
+    createdBy: v.optional(v.string()),
+    variants: v.array(v.object({ title: v.string(), profileCodes: v.array(v.string()), params: v.optional(v.string()) })),
+  },
+  returns: v.object({ batch: v.string(), batchKey: v.string(), items: v.array(mjQueueItemOutValidator) }),
+  handler: async (ctx, args) => {
+    const owner = args.ownerUserId;
+    if (args.variants.length === 0 || args.variants.length > MJ_QUEUE_LIMITS.itemsPerCall) {
+      throw new ConvexError(`Make 1 to ${MJ_QUEUE_LIMITS.itemsPerCall} variants per call.`);
+    }
+    const source = await itemFor(ctx, owner, args.itemId);
+    const label = text(args.batch, MJ_QUEUE_LIMITS.batch, "A thread name")?.replace(/\s+/g, " ");
+    if (!label) throw new ConvexError("Name the new thread.");
+    const batch = await freshBatch(ctx, owner, label);
+    const batchKey = batchKeyOf(batch);
+    const createdBy = text(args.createdBy, 80, "createdBy") ?? "extension · test";
+    const {
+      _id, _creationTime, status: _s, injectedAt: _i, sentAt: _t, sentCommand: _c, jobId: _j, ingestKey: _k,
+      requeuedFrom: _r, runId: _run, presetId: _p, presetLabel: _pl, variantKey: _vk, variantLabel: _vl, screen: _sc,
+      styleId: _st, styleLabel: _stl, title: _title, note: _note, ...fields
+    } = source;
+    void _id; void _creationTime; void _s; void _i; void _t; void _c; void _j; void _k; void _r; void _run; void _p;
+    void _pl; void _vk; void _vl; void _sc; void _st; void _stl; void _title; void _note;
+    const now = Date.now();
+    const out = [];
+    for (const [index, variant] of args.variants.entries()) {
+      const versioned = variant.params === undefined
+        ? { params: fields.params, replacedVersion: fields.replacedVersion }
+        : versionedParams(text(variant.params, MJ_QUEUE_LIMITS.params, "Params"));
+      const id = await ctx.db.insert("mjQueueItems", {
+        ...fields,
+        batch, batchKey,
+        order: index + 1,
+        title: text(variant.title, MJ_QUEUE_LIMITS.title, "A title"),
+        profileCodes: cleanCodes(variant.profileCodes),
+        params: versioned.params,
+        replacedVersion: versioned.replacedVersion,
+        status: "queued" as const,
+        createdBy,
+        createdAt: now,
+        updatedAt: now,
+      });
+      out.push(toOut((await ctx.db.get(id))!));
+    }
+    return { batch, batchKey, items: out };
+  },
+});
+
+/**
+ * Params for many prompts in one call (the thread's stylize, Raw/Standard and
+ * params editor). Only prompts still to send change; sent and skipped ones
+ * keep theirs and are counted as left alone.
+ */
+export const setItemsParams = ownerMutation({
+  args: {
+    ownerUserId: v.string(),
+    items: v.array(v.object({ itemId: v.string(), params: v.string() })),
+  },
+  returns: v.object({ items: v.array(mjQueueItemOutValidator), leftAlone: v.number() }),
+  handler: async (ctx, args) => {
+    const owner = args.ownerUserId;
+    if (args.items.length === 0 || args.items.length > MJ_QUEUE_LIMITS.itemsPerBatch) {
+      throw new ConvexError(`Change 1 to ${MJ_QUEUE_LIMITS.itemsPerBatch} prompts per call.`);
+    }
+    const now = Date.now();
+    const out = [];
+    let leftAlone = 0;
+    for (const entry of args.items) {
+      const row = await itemFor(ctx, owner, entry.itemId);
+      if (!isOpenRow(row)) {
+        leftAlone += 1;
+        continue;
+      }
+      const versioned = versionedParams(text(entry.params, MJ_QUEUE_LIMITS.params, "Params"));
+      if (versioned.params !== row.params) {
+        await ctx.db.patch(row._id, { params: versioned.params, replacedVersion: versioned.replacedVersion, updatedAt: now });
+      }
+      out.push(toOut((await ctx.db.get(row._id))!));
+    }
+    return { items: out, leftAlone };
+  },
+});
+
+/**
+ * Delete a thread: every prompt in it, sent ones too (Michael, 17 Nov 2026).
+ * Deletes at most `limit` rows per call; `more` says to call again.
+ */
+export const deleteThread = ownerMutation({
+  args: { ownerUserId: v.string(), batch: v.string(), limit: v.optional(v.number()) },
+  returns: v.object({ batchKey: v.string(), deleted: v.number(), more: v.boolean() }),
+  handler: async (ctx, args) => {
+    const owner = args.ownerUserId;
+    const raw = args.batch.trim();
+    if (!raw) throw new ConvexError("Name the thread to delete.");
+    const limit = Math.max(1, Math.min(400, Math.round(args.limit ?? 250)));
+    let batchKey = batchKeyOf(raw);
+    // A thread id thr-xxxxxxxx stands for its batch key.
+    if (MJ_THREAD_ID.test(raw)) {
+      const match = (await ownedRows(ctx, owner)).find((row) => threadIdOf(row.batchKey) === raw);
+      if (!match) return { batchKey: raw, deleted: 0, more: false };
+      batchKey = match.batchKey;
+    }
+    let deleted = 0;
+    let more = false;
+    for (const candidate of resolveUserIdCandidates(owner)) {
+      const room = limit - deleted;
+      if (room <= 0) {
+        more = true;
+        break;
+      }
+      const rows = await ctx.db.query("mjQueueItems")
+        .withIndex("by_owner_batchKey_order", (q) => q.eq("ownerUserId", candidate).eq("batchKey", batchKey))
+        .take(room + 1);
+      for (const row of rows.slice(0, room)) await ctx.db.delete(row._id);
+      deleted += Math.min(rows.length, room);
+      if (rows.length > room) more = true;
+    }
+    return { batchKey, deleted, more };
   },
 });
 

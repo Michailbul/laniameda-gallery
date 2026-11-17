@@ -1,7 +1,7 @@
 # laniameda writer bridge
 
 Runs the Save to Gallery extension's writer on your own Mac with Claude Code, so
-Grow, quick edit and Make it ours need no provider credit.
+Grow, quick edit and the describer need no provider credit.
 
 ## Install (once per Mac)
 

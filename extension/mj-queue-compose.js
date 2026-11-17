@@ -28,6 +28,30 @@
   };
   const mjVersionWarning = (from) => `v${from} is not used: switched to v${MJ_VERSION}`;
 
+  // Twin of lib/mj-queue.ts: AndromedaCartoon is never used, nor --niji.
+  const MJ_BANNED_PROFILE_CODES = ["n9iqix8"];
+  const BANNED_TOKEN = /(^|\s)n9iqix8(?=\s|$)/gi;
+  const BARE_PROFILE_FLAG = /(^|\s)(?:--profile|--p|-p)(?=\s+--|\s*$)/gi;
+  const NIJI_FLAG = /(^|\s)(?:--|[–—])niji(?:\s+(\d+(?:\.\d+)?))?(?=\s|$)/gi;
+  const HAS_VERSION = /(^|\s)--(?:v|version)\s+\d/i;
+  const MJ_BANNED_PROFILE_WARNING = "AndromedaCartoon profile left out: it is never used.";
+
+  function withoutBannedCodes(text) {
+    const out = text.replace(BANNED_TOKEN, "$1").replace(BARE_PROFILE_FLAG, "$1");
+    return { text: space(out), removed: space(out) !== space(text) };
+  }
+
+  function withoutNiji(params) {
+    let niji = "";
+    const out = params.replace(NIJI_FLAG, (_whole, lead, value) => {
+      niji ||= value ? `niji ${value}` : "niji";
+      return lead;
+    });
+    if (!niji) return { text: params, niji };
+    const text = space(out);
+    return { text: HAS_VERSION.test(text) ? text : space(`${text} --v ${MJ_VERSION}`), niji };
+  }
+
   function enforceMjVersion(text) {
     const input = String(text == null ? "" : text);
     const replaced = [];
@@ -45,18 +69,22 @@
   function composeMjCommand(item) {
     const warnings = [];
     const enforced = enforceMjVersion(space(item && item.params));
-    const params = space(enforced.text);
+    const nijiFree = withoutNiji(space(enforced.text));
+    const cleanParams = withoutBannedCodes(nijiFree.text);
+    const params = cleanParams.text;
     for (const from of [item && item.replacedVersion, ...enforced.replaced]) {
       const note = from ? mjVersionWarning(from) : "";
       if (note && !warnings.includes(note)) warnings.push(note);
     }
+    if (nijiFree.niji) warnings.push(`${nijiFree.niji} is not used: switched to v${MJ_VERSION}`);
     const version = pinnedVersion(params);
     const parts = [];
 
     const imageRefs = (item && item.imagePrompts) || [];
     const images = imageRefs.map((ref) => space(ref && ref.url)).filter(Boolean);
     parts.push(...images);
-    const prose = space(item && item.prompt);
+    const cleanProse = withoutBannedCodes(space(item && item.prompt));
+    const prose = cleanProse.text;
     if (prose) parts.push(prose);
 
     const srefs = ((item && item.styleRefs) || [])
@@ -74,19 +102,12 @@
 
     if (space(item && item.omniRef && item.omniRef.url)) warnings.push("Omni reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
 
-    const character = space(item && item.characterRef && item.characterRef.url);
-    if (character) {
-      if (version.startsWith("niji") && major(version) === 6) {
-        parts.push(`--cref ${character}`);
-        const weight = num(item.characterRef.weight);
-        if (weight) parts.push(`--cw ${weight}`);
-      } else {
-        warnings.push("Character reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
-      }
-    }
+    if (space(item && item.characterRef && item.characterRef.url)) warnings.push("Character reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
 
-    const codes = [...new Set(((item && item.profileCodes) || []).map(space).filter(Boolean))];
+    const allCodes = [...new Set(((item && item.profileCodes) || []).map(space).filter(Boolean))];
+    const codes = allCodes.filter((code) => !MJ_BANNED_PROFILE_CODES.includes(code.toLowerCase()));
     if (codes.length) parts.push(`--profile ${codes.join(" ")}`);
+    if (codes.length < allCodes.length || cleanParams.removed || cleanProse.removed) warnings.push(MJ_BANNED_PROFILE_WARNING);
     if (params) parts.push(params);
 
     const edits = ((item && item.editRefs) || []).map((ref) => space(ref && ref.url)).filter(Boolean).slice(0, 4);
@@ -120,5 +141,5 @@
     return `thr-${hash.toString(16).padStart(8, "0")}`;
   }
 
-  globalScope.SaveToGalleryMjQueueCompose = { composeMjCommand, enforceMjVersion, pinnedVersion, sameCommand, threadIdOf };
+  globalScope.SaveToGalleryMjQueueCompose = { composeMjCommand, enforceMjVersion, pinnedVersion, sameCommand, threadIdOf, withoutNiji, withoutBannedCodes };
 })(typeof globalThis !== "undefined" ? globalThis : self);

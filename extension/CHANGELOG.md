@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.36.0 (17 Nov 2026)
+
+Midjourney bar
+- Presets no longer add themselves to your prompts. A preset goes in only when
+  you click it or press its key, and only into the prompt in the bar. Picked on
+  an empty bar it shows NEXT and goes into the next prompt you type, once.
+  Saving a preset no longer turns it on.
+- Pasted prompts and prompts from the queue, Grow or quick edit stay exactly as
+  they came. Only what you type yourself gets the remembered moodboard and
+  profiles.
+- Bar keys no longer fire while you type in another box; holding a key runs it
+  once.
+- Esc, a click elsewhere, a page change or leaving the window closes the world
+  list, hover pictures, Other worlds and the name box. After the extension
+  reloads, the old bar and its leftovers are removed.
+- New: ⌥R gives the prompt a random mix of this world's profiles and moodboard
+  (1–2 profiles, up to 1 moodboard); ⌥⇧R a bigger one (up to 3 and 2). The
+  ⟳ Random button does the same.
+
+MJ Queue
+- Sending with the mouse works: your click on Midjourney's send button marks
+  the prompt sent, like Enter.
+- Keyboard flow: ⌥⇧N puts the next prompt in the bar; after your Enter the
+  next prompt of the thread goes in by itself, unsent. ⌥⇧S skips to the next.
+  The extension never presses, clicks or submits anything on Midjourney.
+- Test (⌥⇧T): one prompt once per profile plus once with none, as a new
+  thread. Random ×N and Extreme ×N make N profile mixes of one prompt.
+- Raw/Standard, stylize, aspect, chaos, weird and exp for a whole thread.
+- Delete thread removes its prompts from the gallery.
+- `--niji` goes out as `--v 8.2`; the AndromedaCartoon profile is stripped.
+
+Grow (⌥X) and the describer
+- Make it ours is gone.
+- Describe takes a picture apart like a cinematographer (subject, shot, lens,
+  composition, light, palette, materials, setting, mood) and builds a V8.2
+  prompt from it.
+- Use the picture as nothing, style ref, image ref or Edit. Each result varies
+  one moodboard of the world and says which; your profiles stay.
+- New moves: Location (L, six wide views of the same place), Cinematic scene
+  (8), Cinematic location (9), Replay (0).
+- "Replay previous prompts" gives the writer your last 10 Midjourney prompts to
+  rewrite in this picture's look.
+- The card stays open while you work in the bar; a click elsewhere folds it to
+  a pill, and ⌥X on the same picture brings its runs back. Recent lists the
+  pictures you grew before.
+- The writer frames shots like a real film: one lens and one real light,
+  locations always wide, close-ups part of the world. Dear Annete is half real,
+  half new, with no brass, crystal lamps, mechanical hands or clocks.
+
+Fast edit (⌥F), new
+- Edit a Midjourney picture without leaving the page: Seedream 5.5, Krea 3,
+  GPT Flare or Nano 2.1 on fal, 1–4 takes, price shown first. Keep saves to the
+  gallery with its source; F sends a take to Fantasy Studio as a Seedance 2.5
+  draft.
+
+Phrase packs
+- Twelve Dear Annete packs no longer carry brass, gilt, filigree, crystal lamps,
+  armour or a mechanical arm. "Tower salon" is now "High room".
+
 ## 0.35.0 (15 Nov 2026)
 
 - MJ Queue: never Midjourney v8.1 (Michael: "never use mj v8.1, do not let it

@@ -9,11 +9,13 @@ import {
   QUICK_EDIT_LIMITS, QUICK_EDIT_ROUTES, buildQuickEditMessages, cleanModelText, restoreUrls, type QuickEditModel,
 } from "../lib/mj-quick-edit";
 import {
-  DESCRIBE_LIMITS, aspectOf, buildDescribeMessages, describeParams, parseDescribeAnswer, type DescribeStyle,
+  DESCRIBE_LIMITS, aspectOf, buildDescribeMessages, describeParams, parseDescribeAnswer,
 } from "../lib/mj-describe";
 import {
-  EXPAND_LIMITS, buildExpandMessages, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
+  EXPAND_ATTACH, EXPAND_LIMITS, buildExpandMessages, cleanPrevious, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
+  type ExpandAttach,
 } from "../lib/mj-expand";
+import { MJ_BANNED_PROFILE_WARNING, withoutBannedCodes } from "../lib/mj-queue";
 import { LOCAL_WRITER_LIMITS, localAnswer } from "../lib/local-writer";
 import { enforceMjVersion, mjVersionWarning } from "../lib/mj-version";
 import type { BriefTier } from "../lib/writer-brief";
@@ -92,9 +94,9 @@ const briefMeta = (brief: WorldBrief | null): BriefMeta => (brief?.world
   : brief?.tie.length ? { worldTie: brief.tie } : {});
 async function worldBriefOf(
   ctx: Pick<ActionCtx, "runQuery">,
-  args: { ownerUserId: string; world?: string; fallbackWorld?: string; command?: string; frame?: string; style?: string; tier: BriefTier },
+  args: { ownerUserId: string; world?: string; fallbackWorld?: string; command?: string; frame?: string; tier: BriefTier },
 ): Promise<WorldBrief | null> {
-  if (!args.style && (!args.world?.trim() || args.world.trim() === "none")) return null;
+  if (!args.world?.trim() || args.world.trim() === "none") return null;
   try { return await ctx.runQuery(internal.writerBrief.forWriter, args); } catch { return null; }
 }
 
@@ -132,14 +134,18 @@ export const rewrite = ownerAction({
     const brief = await worldBriefOf(ctx, {
       ownerUserId: args.ownerUserId, world: args.world, fallbackWorld: args.fallbackWorld, command: prompt, tier: "short",
     });
-    const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system, worldBrief: brief?.text });
+    const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system, worldBrief: brief?.text, worldKey: brief?.world?.key });
     if (args.local?.stage === "messages") return { local: { messages, maxTokens: 1500 } };
     const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, args.model as QuickEditModel, messages, "Could not edit");
     const { raw, ...meta } = answer;
     // Every job is V8.2: an edit that still pins --v 8.1 or 7 comes back as --v 8.2.
     const versioned = enforceMjVersion(restoreUrls(cleanModelText(raw), urls));
-    const notes = versioned.replaced.length ? [...meta.notes, mjVersionWarning(versioned.replaced[0]!)] : meta.notes;
-    return { ...meta, notes, text: versioned.text, ...briefMeta(brief) };
+    // AndromedaCartoon (n9iqix8) never survives an edit either.
+    const unbanned = withoutBannedCodes(versioned.text);
+    const notes = [...meta.notes];
+    if (versioned.replaced.length) notes.push(mjVersionWarning(versioned.replaced[0]!));
+    if (unbanned.removed) notes.push(MJ_BANNED_PROFILE_WARNING);
+    return { ...meta, notes, text: unbanned.removed ? unbanned.text : versioned.text, ...briefMeta(brief) };
   },
 });
 
@@ -170,23 +176,20 @@ async function runRoutes(ctx: Parameters<typeof resolveProviderKey>[0], owner: s
   throw new ConvexError(`${failure}: ${notes.join(" · ") || "no provider answered"}.`);
 }
 
-const describeFields = {
-  prompt: v.string(), words: v.string(), params: v.string(),
-  rest: v.string(), profiles: v.array(v.string()), srefs: v.array(v.string()),
-};
-type Made = { prompt: string; words: string; params: string; rest: string; profiles: string[]; srefs: string[] };
+const describeField = v.object({ key: v.string(), label: v.string(), text: v.string() });
 type DescribeResult = {
   title?: string;
-  keep?: Made;
-  ours?: Made & { style: string };
+  fields: Array<{ key: string; label: string; text: string }>;
+  prompt: string; words: string; params: string;
   model: string; provider: string; ms: number; notes: string[];
-} & BriefMeta;
+};
 
 /**
- * A picture into our Midjourney prompt: the quick-edit agent with the image
- * (Haiku sees it), Midjourney's Describe lines when the extension caught them,
- * the world's system prompt and, for "ours", a world style from the gallery.
- * Returns the prompt(s) with their parameter line. Nothing goes to Midjourney.
+ * A picture into a cinematographer's description and one Midjourney V8.2
+ * prompt: the writer (Haiku sees the image) with Midjourney's Describe lines
+ * when the extension caught them. Returns labelled lines (subject, shot, lens,
+ * composition, light, palette, materials, setting, mood, medium) and the
+ * prompt with its aspect. Nothing goes to Midjourney.
  */
 export const describe = ownerAction({
   args: {
@@ -196,61 +199,48 @@ export const describe = ownerAction({
     aspect: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
-    mode: v.union(v.literal("keep"), v.literal("ours"), v.literal("both")),
-    style: v.optional(v.string()),
     system: v.optional(v.string()),
     note: v.optional(v.string()),
     local: localArg,
   },
   returns: v.union(v.object({
     title: v.optional(v.string()),
-    keep: v.optional(v.object(describeFields)),
-    ours: v.optional(v.object({ ...describeFields, style: v.string() })),
+    fields: v.array(describeField),
+    prompt: v.string(),
+    words: v.string(),
+    params: v.string(),
     model: v.string(),
     provider: v.string(),
     ms: v.number(),
     notes: v.array(v.string()),
-    ...briefFields,
   }), localMessages),
   handler: async (ctx, args): Promise<DescribeResult | LocalMessages> => {
     const image = args.image.trim();
     if (!/^(https:\/\/|data:image\/(png|jpe?g|webp|gif);base64,)/i.test(image)) throw new ConvexError("Send the picture as an https link or a data URL.");
     if (image.length > DESCRIBE_LIMITS.image) throw new ConvexError("The picture is too large: send it at 1024 px.");
     const descriptions = (args.descriptions ?? []).map((line) => line.trim().slice(0, DESCRIBE_LIMITS.description)).filter(Boolean).slice(0, DESCRIBE_LIMITS.descriptions);
-    let style: DescribeStyle | undefined;
-    if (args.mode !== "keep") {
-      if (!args.style?.trim()) throw new ConvexError("Pick a style for \"in our style\".");
-      const found: DescribeStyle | null = await ctx.runQuery(internal.styleRecipes.describeStyleOf, { ownerUserId: args.ownerUserId, style: args.style });
-      if (!found) throw new ConvexError("That style is not in the gallery any more. Pick another.");
-      style = found;
-    }
-    // The chosen style belongs to a world: its files shape the "ours" prompt.
-    const brief = style && args.style ? await worldBriefOf(ctx, { ownerUserId: args.ownerUserId, style: args.style, tier: "full" }) : null;
     const messages = buildDescribeMessages({
-      image, descriptions, style, mode: args.mode,
+      image, descriptions,
       system: args.system?.slice(0, DESCRIBE_LIMITS.system), note: args.note?.slice(0, DESCRIBE_LIMITS.note),
-      worldBrief: brief?.text,
     }) as Message[];
     // Haiku reads images; DeepSeek does not, so the describer always runs on Haiku.
-    if (args.local?.stage === "messages") return { local: { messages, maxTokens: 2000 } };
-    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, "haiku", messages, "Could not describe", 2000);
+    if (args.local?.stage === "messages") return { local: { messages, maxTokens: 2200 } };
+    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, "haiku", messages, "Could not describe", 2200);
     const parsed = parseDescribeAnswer(answer.raw);
-    const aspect = aspectOf(args.aspect, args.width, args.height);
-    const finish = (words: string, mode: "keep" | "ours"): Made => {
-      const line = describeParams(mode, aspect, style);
-      return { words, ...line, prompt: [words, line.params].filter(Boolean).join(" ") };
+    if (!parsed.prompt && !parsed.fields.length) throw new ConvexError(`${answer.model} answered without a description. Try again.`);
+    const words = parsed.prompt ?? "";
+    const params = describeParams(aspectOf(args.aspect, args.width, args.height));
+    return {
+      title: parsed.title, fields: parsed.fields, words, params, prompt: [words, params].filter(Boolean).join(" "),
+      model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes,
     };
-    const keep = args.mode !== "ours" && parsed.keep ? finish(parsed.keep, "keep") : undefined;
-    const ours = args.mode !== "keep" && parsed.ours && style ? { ...finish(parsed.ours, "ours"), style: style.name } : undefined;
-    if (!keep && !ours) throw new ConvexError(`${answer.model} answered without a prompt. Try again.`);
-    return { title: parsed.title, keep, ours, model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes, ...briefMeta(brief) };
   },
 });
 
 const expandRef = v.object({ code: v.optional(v.string()), url: v.optional(v.string()), weight: v.optional(v.number()) });
 type ExpandResult = {
   set?: string; logline?: string;
-  items: Array<{ title: string; words: string; prompt: string; rest: string; profiles: string[]; srefs: Array<{ code?: string; url?: string; weight?: number }>; images: string[] }>;
+  items: Array<{ title: string; words: string; prompt: string; rest: string; profiles: string[]; srefs: Array<{ code?: string; url?: string; weight?: number }>; images: string[]; edits: string[] }>;
   source: { words: string; params: string; hadImages: number };
   model: string; provider: string; ms: number; notes: string[];
 } & BriefMeta;
@@ -277,6 +267,9 @@ export const expand = ownerAction({
     system: v.optional(v.string()),
     keepImages: v.optional(v.boolean()),
     srefUrl: v.optional(v.string()),
+    attach: v.optional(v.string()),
+    attachUrl: v.optional(v.string()),
+    previous: v.optional(v.array(v.string())),
     aspect: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
@@ -287,7 +280,7 @@ export const expand = ownerAction({
     logline: v.optional(v.string()),
     items: v.array(v.object({
       title: v.string(), words: v.string(), prompt: v.string(), rest: v.string(),
-      profiles: v.array(v.string()), srefs: v.array(expandRef), images: v.array(v.string()),
+      profiles: v.array(v.string()), srefs: v.array(expandRef), images: v.array(v.string()), edits: v.array(v.string()),
     })),
     source: v.object({ words: v.string(), params: v.string(), hadImages: v.number() }),
     ...briefFields,
@@ -305,8 +298,14 @@ export const expand = ownerAction({
     if (args.preset && !preset) throw new ConvexError("That move does not exist.");
     const idea = args.idea?.trim().slice(0, EXPAND_LIMITS.idea) || undefined;
     if (!preset && !idea) throw new ConvexError("Pick a move or say an idea.");
-    const count = Math.min(EXPAND_LIMITS.maxCount, Math.max(1, Math.round(args.count ?? preset?.count ?? 3)));
+    const previous = cleanPrevious(args.previous);
+    if (preset?.replay && !previous.length) throw new ConvexError("No previous prompts to replay. Make a few in Midjourney first.");
+    const count = preset?.replay
+      ? previous.length
+      : Math.min(EXPAND_LIMITS.maxCount, Math.max(1, Math.round(args.count ?? preset?.count ?? 3)));
     if (args.srefUrl && !/^https:\/\/\S+$/.test(args.srefUrl)) throw new ConvexError("The style reference must be an https link.");
+    const attach: ExpandAttach = (EXPAND_ATTACH as readonly string[]).includes(args.attach ?? "") ? args.attach as ExpandAttach : "none";
+    if (attach !== "none" && !/^https:\/\/\S+$/.test(args.attachUrl ?? "")) throw new ConvexError("The picture to attach must be an https link.");
 
     // The world's own files, when a world is chosen or its codes name one.
     const brief = await worldBriefOf(ctx, {
@@ -316,7 +315,8 @@ export const expand = ownerAction({
     const source = splitCommand(command);
     const messages = buildExpandMessages({
       image, sourceWords: source.words, lookNote: lookNoteOf(source), preset, idea, count,
-      system: args.system?.slice(0, EXPAND_LIMITS.system), worldBrief: brief?.text,
+      system: args.system?.slice(0, EXPAND_LIMITS.system), worldBrief: brief?.text, worldKey: brief?.world?.key,
+      attach, previous,
     }) as Message[];
     const maxTokens = 600 + count * 520;
     if (args.local?.stage === "messages") return { local: { messages, maxTokens } };
@@ -324,7 +324,7 @@ export const expand = ownerAction({
     const parsed = parseExpandAnswer(answer.raw);
     if (!parsed.items.length) throw new ConvexError(`${answer.model} answered without a prompt. Try again.`);
     const options = {
-      keepImages: Boolean(args.keepImages), srefUrl: args.srefUrl || undefined,
+      keepImages: Boolean(args.keepImages), srefUrl: args.srefUrl || undefined, attach, attachUrl: args.attachUrl || undefined,
       fallbackAspect: aspectOf(args.aspect, args.width, args.height), iw: imageWeightOf(command),
     };
     return {

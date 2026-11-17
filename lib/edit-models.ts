@@ -42,6 +42,12 @@ export const EDIT_MODELS: readonly EditModel[] = [
     ],
   },
   {
+    // fal only (Michael, 17 Nov 2026: "Seedream 5.5 Pro"); $0.03 a take on fal, any size.
+    id: "seedream-5.5", name: "Seedream 5.5", maxRefs: 9,
+    hint: "The newest Seedream. Edit and style transfer that keeps the concept style.",
+    routes: [{ provider: "fal", endpoint: "bytedance/seedream/v5.5/edit" }],
+  },
+  {
     id: "gpt-flare", name: "GPT Image 2.5 Flare", maxRefs: 7,
     hint: "Targeted edit of one thing. Never for composing scenes.",
     routes: [
@@ -143,6 +149,10 @@ const FLAT_USD: Record<string, number> = {
   "openai/gpt-image-2.5-sunburst/image-to-image": 0.049,
   "google/gemini-nano-banana-2.1/image-to-image": 0.045,
   "fal-ai/flux-pro/kontext/max": 0.08,
+  // fal, 17 Nov 2026: $0.03 an image at any size.
+  "bytedance/seedream/v5.5/edit": 0.03,
+  // fal bills Nano Banana 2.1 by tokens; about $0.08 a 1K image (an estimate, never a quote).
+  "google/nano-banana-2.1/edit": 0.08,
   // fal, 5 Nov 2026: $0.008 very_low, $0.03 low, $0.06 medium, $0.22 high, any size.
   "ideogram/v4.5/edit": 0.06,
 };
@@ -185,6 +195,13 @@ export function buildEditInput(endpoint: string, prompt: string, urls: string[],
   }
   if (endpoint === "bytedance/seedream/v5/pro/edit") {
     return { prompt, image_urls: urls, image_size: editSize(w, h, (1536 * 1536) / 1e6) };
+  }
+  if (endpoint === "bytedance/seedream/v5.5/edit") {
+    // Up to 10 images; the frame first. auto_2K keeps the frame's aspect at about 2K.
+    return { prompt, image_urls: urls.slice(0, 10), image_size: "auto_2K", output_format: "png" };
+  }
+  if (endpoint === "google/nano-banana-2.1/edit") {
+    return { prompt, image_urls: urls, aspect_ratio: aspectOf(w, h), resolution: "1K", output_format: "png" };
   }
   if (endpoint === "bytedance/seedream-5.0-pro/image-to-image") {
     return { prompt, image_urls: urls, size: "1.5K", aspect_ratio: aspectOf(w, h) };

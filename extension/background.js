@@ -22,7 +22,6 @@ const MOODBOARDS_ROUTE_PATH = "/api/extension/moodboards";
 const MJ_QUEUE_ROUTE_PATH = "/api/extension/mj-queue";
 const QUICK_EDIT_ROUTE_PATH = "/api/extension/prompt-edit";
 const DESCRIBE_ROUTE_PATH = "/api/extension/prompt-describe";
-const STYLES_ROUTE_PATH = "/api/extension/styles";
 const EXPAND_ROUTE_PATH = "/api/extension/prompt-expand";
 const WORLD_ROUTE_PATH = "/api/extension/prompt-world";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
@@ -1243,7 +1242,7 @@ async function mjQueueRequest(message) {
 }
 
 // ── The local writer ──
-// Every writer call (quick edit, Make it ours, Grow) can run on this Mac
+// Every writer call (quick edit, the describer, Grow) can run on this Mac
 // instead of a paid provider: the laniameda writer bridge (extension-writer/
 // in the repo, a LaunchAgent on 127.0.0.1) runs `claude -p` on Haiku 5.5 or
 // Sonnet 5.5. The gallery still builds the messages and reads the answer:
@@ -1444,19 +1443,16 @@ async function describeRequest(message) {
       const res = await listMoodboards();
       return res?.ok ? { ok: true, worlds: (res.worlds || []).map((w) => ({ key: w.key, name: w.name, worldId: w.worldId })) } : res;
     }
-    case "styles":
-      return describeFetchJson(`${STYLES_ROUTE_PATH}?world=${encodeURIComponent(String(message.world || ""))}`, { method: "GET" });
     case "prepare":
       return prepareDescribeImage(message);
     case "run":
+      // The cinematographer's description and one V8.2 prompt (no world style laid over it).
       return writerCall(DESCRIBE_ROUTE_PATH, {
         image: message.image,
         descriptions: Array.isArray(message.descriptions) ? message.descriptions.slice(0, 4) : undefined,
         aspect: message.aspect || undefined,
         width: message.width || undefined,
         height: message.height || undefined,
-        mode: message.mode,
-        style: message.style || undefined,
         system: message.system || undefined,
         note: message.note || undefined,
       });
@@ -1514,6 +1510,10 @@ async function expandRequest(message, sender) {
         system: message.system || undefined,
         keepImages: message.keepImages || undefined,
         srefUrl: message.srefUrl || undefined,
+        // "Use this image as" and "Replay previous prompts" (17 Nov 2026).
+        attach: message.attach || undefined,
+        attachUrl: message.attachUrl || undefined,
+        previous: Array.isArray(message.previous) && message.previous.length ? message.previous.slice(0, 10).map((text) => String(text).slice(0, 3000)) : undefined,
         width: message.width || undefined,
         height: message.height || undefined,
       });
@@ -2031,4 +2031,183 @@ chrome.commands.onCommand.addListener((command) => {
   run.catch((err) => {
     console.warn("[Save to Gallery] shortcut failed:", err);
   });
+});
+
+// ---- fast: the Midjourney fast helper (mj-fast-helper.js, ⌥F) ----
+// One frame, one instruction, a fal model, 1–4 takes, through the gallery
+// (/api/extension/quick-run, which runs fal on the owner's key). The worker
+// reads the frame once from Midjourney's CDN (the gallery's server cannot),
+// uploads it to R2 and hands the gallery its key. "To Fantasy" puts a take into
+// the local Fantasy Studio app as a waiting Seedance 2.5 draft: never a run,
+// and no key of ours goes there.
+
+const FAST_ROUTE_PATH = "/api/extension/quick-run";
+const FAST_FANTASY_BASES = ["http://127.0.0.1:5273", "http://localhost:5273"];
+const FAST_FANTASY_MODEL = "seedance-2.5";
+// Fantasy refuses a draft without words; Michael rewrites it in the Drafts tab.
+const FAST_FANTASY_DEFAULT_MOTION = "A slow, steady push-in. Small natural movement in the scene: light, air, fabric.";
+const FAST_UPLOADS_KEY = "fastUploads";
+const fastUploads = new Map(); // picture URL → { r2Key, width, height }
+
+async function fastRemembered(imageUrl) {
+  if (fastUploads.has(imageUrl)) return fastUploads.get(imageUrl);
+  try {
+    const stored = (await chrome.storage.session.get(FAST_UPLOADS_KEY))?.[FAST_UPLOADS_KEY] || {};
+    if (stored[imageUrl]) fastUploads.set(imageUrl, stored[imageUrl]);
+    return stored[imageUrl] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function fastRemember(imageUrl, upload) {
+  fastUploads.set(imageUrl, upload);
+  try {
+    const stored = (await chrome.storage.session.get(FAST_UPLOADS_KEY))?.[FAST_UPLOADS_KEY] || {};
+    stored[imageUrl] = upload;
+    const keys = Object.keys(stored);
+    for (const key of keys.slice(0, Math.max(0, keys.length - 60))) delete stored[key];
+    await chrome.storage.session.set({ [FAST_UPLOADS_KEY]: stored });
+  } catch {
+    /* session storage is a cache only */
+  }
+}
+
+// The frame (or a reference frame) as an R2 key fal can read. The PNG original
+// first, then the lighter variants. One download per picture, remembered.
+async function fastUploadPicture({ urls }) {
+  const list = (Array.isArray(urls) ? urls : []).filter((url) => typeof url === "string" && /^https:\/\//.test(url)).slice(0, 3);
+  if (!list.length) return { ok: false, error: "No picture." };
+  for (const url of list) {
+    const known = await fastRemembered(url);
+    if (known?.r2Key) return { ok: true, ...known };
+  }
+  let lastError = "Could not read the picture.";
+  for (const url of list) {
+    const captured = await fetchCapturedImage({ imageUrl: url, preferredContentType: /\.png(\?|$)/.test(url) ? "image/png" : undefined });
+    if (!captured.ok) { lastError = captured.error || lastError; continue; }
+    const uploaded = await uploadCapturedImageToR2(url, captured);
+    if (!uploaded.ok) return { ok: false, error: uploaded.error || "Could not upload the picture." };
+    const upload = { r2Key: uploaded.r2Key, width: uploaded.imageWidth, height: uploaded.imageHeight };
+    await fastRemember(list[0], upload);
+    return { ok: true, ...upload };
+  }
+  return { ok: false, error: lastError };
+}
+
+async function fastFantasyFetch(path, init = {}) {
+  let lastError = "";
+  for (const base of FAST_FANTASY_BASES) {
+    let response;
+    try {
+      response = await fetch(`${base}${path}`, { ...init, signal: AbortSignal.timeout(init.timeoutMs || 8000) });
+    } catch (err) {
+      lastError = err?.message || String(err);
+      continue;
+    }
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data || data.error) return { ok: false, error: data?.error || `Fantasy Studio answered ${response.status}.` };
+    return { ok: true, data };
+  }
+  return { ok: false, offline: true, error: "Open Fantasy Studio first.", detail: lastError };
+}
+
+async function fastFantasyProjects() {
+  const res = await fastFantasyFetch("/api/projects", { method: "GET", timeoutMs: 3000 });
+  if (!res.ok) return res;
+  const projects = (res.data.projects || [])
+    .filter((project) => project && project.id && !project.missing)
+    .map((project) => ({ id: String(project.id), name: String(project.name || project.id), waiting: Number(project.drafts_waiting) || 0 }));
+  return { ok: true, projects };
+}
+
+// The take's picture into the project's references/, then one waiting draft.
+async function fastFantasySend(message) {
+  const project = String(message.project || "");
+  const imageUrl = String(message.imageUrl || "");
+  if (!project || !/^https:\/\//.test(imageUrl)) return { ok: false, error: "Pick a Fantasy project and a take." };
+  let bytes;
+  try {
+    const response = await fetch(imageUrl, { cache: "force-cache" });
+    if (!response.ok) return { ok: false, error: `The take answered ${response.status}.` };
+    bytes = await response.blob();
+  } catch (err) {
+    return { ok: false, error: `Could not read the take: ${err.message}` };
+  }
+  const ext = /jpe?g/.test(bytes.type) ? "jpg" : /webp/.test(bytes.type) ? "webp" : "png";
+  const name = `mj-fast-${String(message.runId || "take").slice(-8)}-${Number(message.index) + 1 || 1}.${ext}`;
+  const uploaded = await fastFantasyFetch(`/api/projects/${encodeURIComponent(project)}/references?name=${encodeURIComponent(name)}`, {
+    method: "POST", body: bytes, timeoutMs: 30000,
+  });
+  if (!uploaded.ok) return uploaded;
+  const file = { file: String(uploaded.data.file), bucket: "references", name };
+  const draft = {
+    model: FAST_FANTASY_MODEL,
+    prompt: (String(message.prompt || "").trim() || FAST_FANTASY_DEFAULT_MOTION).slice(0, 1500),
+    ...(message.asReference ? { refs: [file] } : { startFrame: file }),
+    note: String(message.note || "From Midjourney").slice(0, 200),
+    thread: String(message.thread || "From Midjourney").slice(0, 80),
+  };
+  const added = await fastFantasyFetch(`/api/projects/${encodeURIComponent(project)}/drafts`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // review: true holds it in the Drafts tab. Nothing is sent or charged.
+    body: JSON.stringify({ drafts: [draft], review: true, author: { kind: "agent", name: "Midjourney fast helper" } }),
+    timeoutMs: 15000,
+  });
+  if (!added.ok) return added;
+  const draftId = added.data.drafts?.[0]?.id;
+  if (!draftId) return { ok: false, error: "Fantasy Studio added no draft." };
+  let marked = null;
+  if (message.runId) {
+    marked = await describeFetchJson(FAST_ROUTE_PATH, {
+      method: "POST",
+      body: JSON.stringify({ action: "fantasy", runId: message.runId, index: Number(message.index) || 0, draftId, project: message.projectName || project }),
+    });
+  }
+  return { ok: true, draftId, mode: added.data.mode, run: marked?.ok ? marked.run : undefined };
+}
+
+async function fastRequest(message) {
+  const op = String(message.action || "").slice("fast:".length);
+  switch (op) {
+    case "catalog": {
+      const q = new URLSearchParams({ catalog: "1" });
+      if (message.width) q.set("w", String(Math.round(message.width)));
+      if (message.height) q.set("h", String(Math.round(message.height)));
+      if (message.refs) q.set("refs", String(message.refs));
+      return describeFetchJson(`${FAST_ROUTE_PATH}?${q}`, { method: "GET" });
+    }
+    case "worlds": {
+      const res = await listMoodboards();
+      return res?.ok ? { ok: true, worlds: (res.worlds || []).map((w) => ({ key: w.key, name: w.name, worldId: w.worldId })) } : res;
+    }
+    case "upload":
+      return fastUploadPicture(message);
+    case "start":
+      return describeFetchJson(FAST_ROUTE_PATH, { method: "POST", body: JSON.stringify({ ...message.run, action: "start" }) });
+    case "runs": {
+      const ids = (Array.isArray(message.ids) ? message.ids : []).map(String).filter(Boolean).slice(0, 30);
+      return describeFetchJson(`${FAST_ROUTE_PATH}?ids=${encodeURIComponent(ids.join(","))}`, { method: "GET" });
+    }
+    case "recent":
+      return describeFetchJson(`${FAST_ROUTE_PATH}?recent=1`, { method: "GET" });
+    case "save":
+    case "review":
+      return describeFetchJson(FAST_ROUTE_PATH, { method: "POST", body: JSON.stringify({ ...message.body, action: op }) });
+    case "fantasyProjects":
+      return fastFantasyProjects();
+    case "fantasySend":
+      return fastFantasySend(message);
+    default:
+      return { ok: false, error: "Unknown fast helper step." };
+  }
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (typeof message?.action !== "string" || !message.action.startsWith("fast:")) return false;
+  fastRequest(message)
+    .then(sendResponse)
+    .catch((err) => sendResponse({ ok: false, error: err?.message || String(err) }));
+  return true;
 });

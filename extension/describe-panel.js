@@ -1,8 +1,10 @@
 // The side panel's Describe tab: drop a picture (a file, or an image dragged
 // from any page), paste one, pick one of the last Midjourney describes, or
 // right-click an image anywhere → "Describe to a prompt". The describer
-// (mj-describe-core.js) writes our prompt; Put in bar goes to the open
-// Midjourney tab, never further.
+// (mj-describe-core.js) takes the shot apart (subject, shot, lens, light …)
+// and writes a Midjourney prompt; Put in bar goes to the open Midjourney tab,
+// never further. Below it, Grow's recent pictures: a click reopens that
+// picture's Grow card in the Midjourney tab.
 
 (function registerDescribePanel(globalScope) {
   const root = document.getElementById("dsRoot");
@@ -24,12 +26,18 @@
         <div class="dsp-recent"></div>
       </div>
       <div class="dsp-ui"></div>
+      <div class="dsp-grow-wrap" hidden>
+        <p class="qe-label">Grow · recent pictures</p>
+        <div class="dsp-recent dsp-grow"></div>
+      </div>
     </div>`;
 
   const drop = root.querySelector(".dsp-drop");
   const fileInput = root.querySelector(".dsp-file");
   const recentWrap = root.querySelector(".dsp-recent-wrap");
   const recent = root.querySelector(".dsp-recent");
+  const growWrap = root.querySelector(".dsp-grow-wrap");
+  const grow = root.querySelector(".dsp-grow");
 
   async function midjourneyTab() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -113,6 +121,42 @@
     }));
   }
 
+  // A describe Midjourney just answered opens here by itself when nothing else is loaded.
+  async function takeFresh() {
+    if (ui.hasSource?.()) return;
+    const [entry] = await core.recentDescribes();
+    if (entry && Date.now() - (entry.at || 0) < 15_000) show(entry);
+  }
+
+  // Grow's recent pictures (mj-expand.js keeps them): a click reopens the card there.
+  async function paintGrow() {
+    let stored = {};
+    try { stored = await chrome.storage.local.get("growHistory"); } catch { return; }
+    const list = (Array.isArray(stored?.growHistory) ? stored.growHistory : []).slice(0, 8);
+    growWrap.hidden = !list.length;
+    grow.replaceChildren(...list.map((entry) => {
+      const run = entry.runs?.[0];
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "dsp-recent-item";
+      button.title = `${run?.set || "Grown"} · ${run?.items?.length || 0} prompts. Click to open its Grow card in Midjourney.`;
+      const img = document.createElement("img");
+      img.src = entry.thumb || entry.imageUrl || "";
+      img.alt = "";
+      img.loading = "lazy";
+      button.appendChild(img);
+      button.addEventListener("click", async () => {
+        const tab = await midjourneyTab();
+        if (!tab?.id) return;
+        chrome.tabs.sendMessage(tab.id, { action: "grow:open", key: entry.key }, () => {
+          void chrome.runtime.lastError;
+          chrome.tabs.update(tab.id, { active: true });
+        });
+      });
+      return button;
+    }));
+  }
+
   // Right-click → "Describe to a prompt" leaves the picture here.
   async function takePending() {
     let stored = {};
@@ -125,9 +169,11 @@
   }
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && changes[core.STORE.recent]) void paintRecent();
+    if (area === "local" && changes[core.STORE.recent]) { void paintRecent(); void takeFresh(); }
+    if (area === "local" && changes.growHistory) void paintGrow();
     if (area === "session" && changes.describePending?.newValue) void takePending();
   });
   void paintRecent();
+  void paintGrow();
   void takePending();
 })(typeof globalThis !== "undefined" ? globalThis : self);

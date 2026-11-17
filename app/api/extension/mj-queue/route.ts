@@ -4,13 +4,19 @@ import { getServerConvexClient } from "@/lib/server/convex";
 import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/server/extension-auth";
 import { clientErrorMessage } from "@/lib/server/route-error";
 import { etagJson } from "@/lib/server/etag-json";
-import { mjQueueAddSchema, mjQueueListSchema, mjQueueRequeueSchema, mjQueueUpdateSchema } from "@/lib/mj-queue-contract";
+import {
+  mjQueueAddSchema, mjQueueDeleteThreadSchema, mjQueueForkSchema, mjQueueListSchema, mjQueueParamsSchema,
+  mjQueueRequeueSchema, mjQueueUpdateSchema,
+} from "@/lib/mj-queue-contract";
 
 // The extension's MJ Queue tab (side panel): GET reads the batches and
 // their prompts with the composed commands; POST saves an edit, a skip, a
 // reorder or the record of a send Michael made himself, or (action "queue")
 // adds the describer's prompt as a new item, or (action "requeue") queues
-// sent prompts again as new copies.
+// sent prompts again as new copies, (action "fork") copies one prompt into a
+// new Test or Random thread once per profile mix, (action "params") sets the
+// params of many prompts still to send at once, and (action "deleteThread")
+// deletes every prompt of a thread.
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -43,15 +49,45 @@ export async function POST(request: Request) {
     const ownerUserId = resolveExtensionOwnerUserId();
     const body = await request.json().catch(() => null);
     // {action: "queue"} adds prompts (the describer's "Queue"); anything else is an update.
-    if (body && typeof body === "object" && (body as { action?: unknown }).action === "queue") {
-      const { action: _action, ...rest } = body as Record<string, unknown>;
+    const action = body && typeof body === "object" ? (body as { action?: unknown }).action : undefined;
+    if (action === "queue") {
+      const { action: _action, fresh, createdBy, ...rest } = body as Record<string, unknown>;
       void _action;
       const add = mjQueueAddSchema.parse(rest);
-      const result = await getServerConvexClient(ownerUserId).mutation(api.mjQueue.queueItems, { ownerUserId, createdBy: "extension describer", ...add });
+      const result = await getServerConvexClient(ownerUserId).mutation(api.mjQueue.queueItems, {
+        ownerUserId,
+        createdBy: typeof createdBy === "string" && createdBy.trim() ? createdBy.trim().slice(0, 80) : "extension describer",
+        fresh: fresh === true ? true : undefined,
+        ...add,
+      });
       return corsJson({ ok: true, ...result });
     }
+    if (action === "fork") {
+      const input = mjQueueForkSchema.parse(body);
+      const result = await getServerConvexClient(ownerUserId).mutation(api.mjQueue.forkItem, { ownerUserId, ...input });
+      return corsJson({ ok: true, ...result });
+    }
+    if (action === "params") {
+      const { items } = mjQueueParamsSchema.parse(body);
+      const result = await getServerConvexClient(ownerUserId).mutation(api.mjQueue.setItemsParams, { ownerUserId, items });
+      return corsJson({ ok: true, ...result });
+    }
+    if (action === "deleteThread") {
+      const { batch } = mjQueueDeleteThreadSchema.parse(body);
+      const client = getServerConvexClient(ownerUserId);
+      // Paged: a big thread is deleted 250 prompts per call.
+      let deleted = 0;
+      let batchKey = batch;
+      for (let page = 0; page < 20; page += 1) {
+        const step = await client.mutation(api.mjQueue.deleteThread, { ownerUserId, batch });
+        deleted += step.deleted;
+        batchKey = step.batchKey;
+        if (!step.more || step.deleted === 0) break;
+      }
+      return corsJson({ ok: true, batchKey, deleted });
+    }
     // {action: "requeue", itemIds}: sent prompts queued again as new copies.
-    if (body && typeof body === "object" && (body as { action?: unknown }).action === "requeue") {
+    if (action === "requeue") {
       const { itemIds } = mjQueueRequeueSchema.parse(body);
       const result = await getServerConvexClient(ownerUserId).mutation(api.mjQueue.requeueItems, { ownerUserId, itemIds });
       return corsJson({ ok: true, ...result });

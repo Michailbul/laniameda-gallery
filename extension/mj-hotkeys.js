@@ -1,5 +1,6 @@
 // Keys for the Midjourney dock: add or remove the Nth moodboard, profile or
-// preset, step through worlds, open the world list, save a preset. Shared by
+// preset, step through worlds, open the world list, save a preset, reroll the
+// prompt's profiles and moodboard. Shared by
 // the dock (content script) and the settings tab of the side panel.
 // A combo is "Ctrl+Alt+Shift+Meta+<KeyboardEvent.code>", modifiers in that
 // order; event.code keeps Option+1 readable on a Mac (its key is "¡").
@@ -17,6 +18,8 @@
     { id: "world:next", group: "Dock", label: "Next world" },
     { id: "world:pick", group: "Dock", label: "Open world list" },
     { id: "preset:save", group: "Dock", label: "Save as preset" },
+    { id: "mix:random", group: "Randomize", label: "Random profiles + moodboard" },
+    { id: "mix:extreme", group: "Randomize", label: "Extreme mix" },
   );
 
   const DEFAULTS = {};
@@ -30,10 +33,19 @@
     "world:next": "Alt+BracketRight",
     "world:pick": "Alt+KeyW",
     "preset:save": "Alt+KeyS",
+    "mix:random": "Alt+KeyR",
+    "mix:extreme": "Alt+Shift+KeyR",
   });
 
   // Taken by other parts of the extension on midjourney.com.
-  const RESERVED = { "Alt+KeyE": "Quick edit", "Alt+KeyX": "Grow from a picture", "Alt+Shift+KeyN": "Queue: new prompt" };
+  const RESERVED = {
+    "Alt+KeyE": "Quick edit",
+    "Alt+KeyX": "Grow from a picture",
+    "Alt+KeyF": "Fast edit of a picture",
+    "Alt+Shift+KeyN": "Queue: next prompt in the bar",
+    "Alt+Shift+KeyS": "Queue: skip to next",
+    "Alt+Shift+KeyT": "Queue: test the prompt on every profile",
+  };
 
   const MODIFIER_CODES = new Set([
     "AltLeft", "AltRight", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight", "MetaLeft", "MetaRight", "CapsLock", "Fn",
@@ -96,7 +108,10 @@
     const bindings = {};
     for (const action of ACTIONS) {
       const value = Object.prototype.hasOwnProperty.call(saved, action.id) ? saved[action.id] : DEFAULTS[action.id];
-      bindings[action.id] = typeof value === "string" && (value === "" || isUsableCombo(value)) ? value : DEFAULTS[action.id] || "";
+      // A key saved before another part of the extension took it (⌥F, ⌥⇧S,
+      // ⌥⇧T) goes back to the default, so the two never both answer.
+      const usable = typeof value === "string" && (value === "" || (isUsableCombo(value) && !RESERVED[value]));
+      bindings[action.id] = usable ? value : DEFAULTS[action.id] || "";
     }
     return { enabled: source.enabled !== false, bindings };
   }

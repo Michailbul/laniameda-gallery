@@ -2,7 +2,7 @@
 // bar, ⌥E, say what to change). Client-safe helpers shared by the Convex
 // runner (convex/promptEditRunner.ts) and the extension route.
 
-import { MJ_PROMPT_KNOWLEDGE } from "./mj-prompt-knowledge";
+import { CINEMATIC_RULES_GENERAL, DEAR_ANNETE_CINEMATIC, MJ_PROMPT_KNOWLEDGE } from "./mj-prompt-knowledge";
 import { SHOT_SCALE_RULES } from "./writer-scale";
 
 export const QUICK_EDIT_LIMITS = {
@@ -77,10 +77,15 @@ export const ORDINARY_PROMPT_ASK = /\b(?:ordinary|normal|plain|regular|simple|te
 
 const ORDINARY_REMINDER = "This asks for an ordinary prompt: follow the ordinary-prompt steps. A person, room or place seen only in an attachment is described with what this prompt writes about it and nothing more: no hair, skin, eyes, walls or furniture the prompt does not name.";
 
-export function buildQuickEditMessages({ prompt, selection, instruction, system, worldBrief }: {
+// The cinematic rules bind what the edit writes; the rest of the prompt stays as it is.
+const CINEMATIC_LEAD = "When you write or rewrite description, write it by these rules. Words the instruction does not touch stay as they are.";
+
+export function buildQuickEditMessages({ prompt, selection, instruction, system, worldBrief, worldKey }: {
   prompt: string; selection?: string; instruction: string; system?: string;
   /** The world's files, already laid out (lib/writer-brief.ts composeBrief). */
   worldBrief?: string;
+  /** The world the brief belongs to: a dear-annete world adds its cinematic addendum. */
+  worldKey?: string;
 }) {
   const full = protectUrls(prompt);
   const part = selection ? protectUrls(selection) : null;
@@ -94,6 +99,8 @@ export function buildQuickEditMessages({ prompt, selection, instruction, system,
   }
   const systemText = [
     QUICK_EDIT_BASE_RULES,
+    `${CINEMATIC_LEAD}\n\n${CINEMATIC_RULES_GENERAL}`,
+    /^dear-annete/.test(worldKey ?? "") ? DEAR_ANNETE_CINEMATIC : "",
     worldBrief?.trim() ? `${worldBrief.trim()}\n\nThe edit stays inside this world. Still change only what the instruction asks, and still return the edited text and nothing else.` : "",
     system?.trim() ? `Project context (what we like, what to avoid):\n${system.trim()}` : "",
   ].filter(Boolean).join("\n\n");

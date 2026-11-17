@@ -260,8 +260,6 @@ const briefArgs = {
   command: v.optional(v.string()),
   /** The Midjourney frame the work grows from (its CDN or job link): a saved frame names its own world. */
   frame: v.optional(v.string()),
-  /** A named style (Make it ours): its world is the world. */
-  style: v.optional(v.string()),
   tier: v.optional(v.union(v.literal("full"), v.literal("short"))),
 };
 const briefShape = {
@@ -276,7 +274,7 @@ const briefShape = {
   read: v.array(v.string()),
   chars: v.number(),
 };
-type BriefArgs = { ownerUserId: string; world?: string; fallbackWorld?: string; command?: string; frame?: string; style?: string; tier?: BriefTier };
+type BriefArgs = { ownerUserId: string; world?: string; fallbackWorld?: string; command?: string; frame?: string; tier?: BriefTier };
 
 async function buildBrief(ctx: Ctx, args: BriefArgs) {
   const owner = args.ownerUserId;
@@ -292,20 +290,8 @@ async function buildBrief(ctx: Ctx, args: BriefArgs) {
   let auto = false;
   let by: "frame" | "codes" | undefined;
   let tie: string[] = [];
-  // Make it ours names the style itself and lays its lock out in its own
-  // message, so the brief leaves the style part to it.
-  const styleGiven = Boolean(args.style?.trim());
-  if (args.style?.trim()) {
-    const id = ctx.db.normalizeId("worldStyles", args.style.trim().replace(/^style:/, ""));
-    const row = id ? await ctx.db.get(id) : null;
-    if (owned(owner, row)) {
-      style = row;
-      const world = await ctx.db.get(row.worldFolderId);
-      root = owned(owner, world) && world.worldKey ? world : null;
-    }
-  }
   const wanted = args.world?.trim();
-  if (!root && wanted === "auto") {
+  if (wanted === "auto") {
     const saved = await worldOfFrame(ctx, owner, args.frame);
     if (saved.world) {
       root = saved.world;
@@ -319,13 +305,13 @@ async function buildBrief(ctx: Ctx, args: BriefArgs) {
     }
     auto = Boolean(root);
     if (!root) root = await named(args.fallbackWorld);
-  } else if (!root) {
+  } else {
     root = await named(wanted);
   }
   if (!root?.worldKey) return { ...none, tie };
 
   if (!style) style = await styleOfCommand(ctx, owner, root._id, args.command);
-  const brief = composeBrief(root.name, await partsOf(ctx, owner, root, styleGiven ? null : style), args.tier ?? "full");
+  const brief = composeBrief(root.name, await partsOf(ctx, owner, root, style), args.tier ?? "full");
   return {
     world: { key: root.worldKey, name: root.name }, auto, by, tie: root ? [] : tie, style: style?.name,
     read: brief.read, chars: brief.chars, text: brief.text,

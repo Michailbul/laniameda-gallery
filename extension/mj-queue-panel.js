@@ -1,12 +1,16 @@
 // MJ Queue tab of the extension's side panel. Agents queue Midjourney prompts in
 // the gallery, grouped in threads (one per direction or round, each with a
 // copyable id thr-xxxxxxxx). Here Michael picks a thread and sends it:
-// "Next" puts the next queued prompt in the Imagine bar of the Midjourney tab;
-// Michael sends it with his own Enter in the bar. The extension never presses
-// Enter for him: Midjourney flagged the scripted Enter as a bot (14 Nov 2026).
-// One job per Enter, never a timer or a loop. Nothing caps his own sends; the
-// counter shows the account's last hour. The Midjourney page side (mj-queue.js) does the
-// bar work and reads the account's pace.
+// "Next" (⌥⇧N) puts the next queued prompt in the Imagine bar of the
+// Midjourney tab; Michael sends it himself: Enter in the bar or a click on
+// Midjourney's send button. Then the next prompt goes in the bar, unsent
+// ("Next in bar after send", on by default). Skip (⌥⇧S) skips the one in the
+// bar and puts the next in. The extension never presses, clicks or submits:
+// Midjourney flagged a scripted Enter as a bot (14 Nov 2026), and a scripted
+// click is just as untrusted. One job per press, never a timer or a loop. Nothing caps his own sends; the counter shows the account's
+// last hour. Test, Random and Extreme copy a prompt into a new thread once per
+// profile mix of its world; nothing is sent. The Midjourney page side
+// (mj-queue.js) does the bar work and reads the account's pace.
 //
 // Layout follows the panel's width: narrow is one column (threads, then a
 // thread); wide shows the threads on the left and the open thread on the
@@ -23,7 +27,8 @@
   const C = () => globalScope.SaveToGalleryMjQueueCompose;
   const KEYS = {
     view: "stgMjqView", batch: "stgMjqBatch", scope: "stgMjqScope",
-    collapsed: "stgMjqCollapsed", lastSend: "stgMjqLastSend",
+    collapsed: "stgMjqCollapsed", lastSend: "stgMjqLastSend", variantCount: "stgMjqVariantCount",
+    autoNext: "stgMjqAutoNext", // read by mj-queue.js on the page too
     pins: "stgMjqPins", // sync
   };
   // New prompts from agents (MCP queue_mj_prompts) show within 15 seconds; focusing
@@ -33,6 +38,10 @@
   // The account's pace is read at most this often (gentle reading).
   const RATE_MS = 30000;
   const WIDE_PX = 680;
+  // The dock's world (moodboard-dock.js), for Test on a prompt with no world.
+  const DOCK_WORLD_KEY = "stgMoodboardWorld";
+  // "Sending…" never sticks: a page that reloads mid-send never answers.
+  const SENDING_STALE_MS = 10000;
   const CREATE_URL = "https://www.midjourney.com/imagine";
   const STATUS_LABEL = { queued: "Queued", injected: "In the bar", sent: "Sent", skipped: "Skipped" };
   const FILTER_LABEL = { open: "To send", sent: "Sent", skipped: "Skipped", all: "All" };
@@ -63,8 +72,18 @@
     rateError: "",
     rateAt: 0,
     stylizing: false,
+    flash: "",
     sliding: false,
     requeuing: false,
+    sendingAt: 0,
+    barValue: "",
+    varying: "",
+    variantCount: 4,
+    autoNext: true,
+    confirmDelete: "",
+    deleting: false,
+    paramsDraft: null,
+    applyingParams: false,
   };
 
   const space = (value) => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
@@ -150,8 +169,20 @@
       state.batchKey = railOrder()[0] || H().threadOrder(state.batches, "all")[0] || "";
       if (state.view === "thread" && !state.batchKey) state.view = "threads";
     }
-    if ((state.editingId || state.sliding || state.stylizing) && quiet) return;
+    if ((state.editingId || state.sliding || state.stylizing || state.applyingParams) && quiet) return;
     render();
+  }
+
+  // A burst of saves from the page (sent, injected, job id) reads the queue once.
+  let refreshSoonTimer = null;
+  function refreshSoon() {
+    clearTimeout(refreshSoonTimer);
+    refreshSoonTimer = setTimeout(() => void refresh({ quiet: true }), 1200);
+  }
+
+  function setSending(on) {
+    state.sending = on;
+    state.sendingAt = on ? Date.now() : 0;
   }
 
   async function save(item, patch) {
@@ -194,6 +225,182 @@
     void refresh({ quiet: true });
   }
 
+  // ── Test, Random, Extreme: one prompt × the world's profiles (17 Nov 2026) ──
+
+  function readLocal(keys) {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.local.get(keys, (stored) => resolve(stored || {}));
+      } catch {
+        resolve({});
+      }
+    });
+  }
+
+  function listMoodboards(world) {
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ action: "listMoodboards", world }, (res) => resolve(chrome.runtime.lastError ? null : res));
+      } catch {
+        resolve(null);
+      }
+    });
+  }
+
+  const VARIANT_WORD = { test: "Test", random: "Random", extreme: "Extreme" };
+
+  // kind: test | random | extreme. item: a queued prompt (copied as it is,
+  // unless it is in the bar edited); fromBar: the prompt in the bar (or, with
+  // an empty bar, the thread's first prompt to send). The new thread opens;
+  // from the bar, its first prompt goes in the bar. Nothing is sent.
+  async function runVariants(kind, { item = null, fromBar = false, barValue = null } = {}) {
+    if (state.varying) return { ok: false, error: "Already making one." };
+    let source = item;
+    let bar = "";
+    if (fromBar) {
+      if (barValue == null) await readTab();
+      bar = barValue != null ? String(barValue) : state.barValue;
+      const inBar = activeItem();
+      source = inBar && H().belongsToItem(bar, inBar) ? inBar : null;
+      if (!space(bar)) {
+        bar = "";
+        source = H().nextQueued(threadItems(), null) || threadItems()[0] || null;
+      }
+    } else if (item && item.id === state.activeId) {
+      bar = state.readback;
+    }
+    const batch = state.batches.find((entry) => entry.batchKey === state.batchKey);
+    const dock = String((await readLocal([DOCK_WORLD_KEY]))[DOCK_WORLD_KEY] || "");
+    state.varying = kind;
+    state.message = `Making the ${VARIANT_WORD[kind].toLowerCase()} thread…`;
+    render();
+    const res = await H().makeVariantThread({
+      kind,
+      n: state.variantCount,
+      item: source,
+      barValue: bar,
+      worldKey: (source && source.worldKey) || (batch && batch.worldKey) || dock,
+      composeCommand: (entry) => C().composeMjCommand(entry).command,
+      io: { listMoodboards, post: (body) => call({ method: "POST", body }) },
+    });
+    state.varying = "";
+    if (!res.ok) {
+      state.message = res.error;
+      render();
+      return res;
+    }
+    state.batchKey = res.batchKey;
+    state.view = "thread";
+    state.filter = "open";
+    remember({ [KEYS.view]: "thread", [KEYS.batch]: res.batchKey });
+    await refresh({ quiet: false });
+    const first = threadItems()[0];
+    let inBar = false;
+    if (fromBar && first && state.tab.reachable) inBar = await inject(first, { quietRender: true });
+    state.message = `${VARIANT_WORD[kind]}: ${res.count} prompts, nothing sent.${inBar ? " The first is in the bar: Enter on Midjourney sends it." : " ⌥⇧N puts the first in the bar."}`;
+    render();
+    return { ok: true, count: res.count, batchKey: res.batchKey };
+  }
+
+  // ── Delete a thread (every prompt in it, sent ones too) ──
+
+  async function deleteThread(batchKey) {
+    if (state.deleting) return;
+    state.deleting = true;
+    render();
+    const res = await call({ method: "POST", body: { action: "deleteThread", batch: batchKey } });
+    state.deleting = false;
+    state.confirmDelete = "";
+    if (!res.ok) {
+      state.message = `Not deleted. ${String(res.error || "").slice(0, 120)}`;
+      render();
+      return;
+    }
+    const gone = (entry) => entry.batchKey === batchKey;
+    if (state.items.some((entry) => gone(entry) && entry.id === state.activeId)) state.activeId = null;
+    state.items = state.items.filter((entry) => !gone(entry));
+    state.batches = state.batches.filter((entry) => !gone(entry));
+    if (isPinnedThread(batchKey)) togglePin("threads", batchKey);
+    state.batchKey = railOrder()[0] || "";
+    state.view = state.wide && state.batchKey ? "thread" : "threads";
+    remember({ [KEYS.view]: state.view, [KEYS.batch]: state.batchKey });
+    state.signature = "";
+    state.message = "";
+    state.error = "";
+    flash(`Deleted ${res.deleted} prompt${res.deleted === 1 ? "" : "s"}.`);
+    void refresh({ quiet: true });
+  }
+
+  // A short line on top that goes by itself (after a delete the thread is gone).
+  let flashTimer = null;
+  function flash(text) {
+    state.flash = text;
+    render();
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+      state.flash = "";
+      render();
+    }, 3500);
+  }
+
+  // ── Params for the whole thread (prompts still to send) ──
+
+  // Saves new params on many prompts in one call (falls back to one call per
+  // prompt when the gallery is older than the bulk call).
+  async function saveParams(entries) {
+    let done = 0;
+    let failed = 0;
+    let bulk = true;
+    for (let at = 0; at < entries.length && bulk; at += 200) {
+      const chunk = entries.slice(at, at + 200);
+      const res = await call({ method: "POST", body: { action: "params", items: chunk.map((entry) => ({ itemId: entry.item.id, params: entry.params })) } });
+      if (!res.ok) {
+        if (at === 0 && /itemId|expected|required/i.test(String(res.error || ""))) {
+          bulk = false;
+          break;
+        }
+        failed += chunk.length;
+        continue;
+      }
+      for (const saved of res.items || []) {
+        const index = state.items.findIndex((entry) => entry.id === saved.id);
+        if (index !== -1) state.items[index] = saved;
+      }
+      done += (res.items || []).length;
+    }
+    if (!bulk) {
+      const queue = [...entries];
+      const worker = async () => {
+        while (queue.length) {
+          const entry = queue.shift();
+          if (await save(entry.item, { params: entry.params })) done += 1;
+          else failed += 1;
+        }
+      };
+      await Promise.all([worker(), worker(), worker()]);
+    }
+    state.batches = H().recount(state.batches, state.items);
+    return { done, failed };
+  }
+
+  // changes as in applyThreadParams; label says what changed, for the message.
+  async function applyParams(changes, label) {
+    const entries = H().applyThreadParams(threadItems(), changes);
+    if (!entries.length) {
+      state.message = `Every prompt to send already has ${label}.`;
+      render();
+      return;
+    }
+    state.applyingParams = true;
+    state.message = `Setting ${label} on ${entries.length} prompts…`;
+    render();
+    const { done, failed } = await saveParams(entries);
+    state.applyingParams = false;
+    state.message = failed ? `${capital(label)} on ${done} prompts; ${failed} not saved, try again.` : `${capital(label)} on ${done} prompts. Sent ones keep theirs.`;
+    if (state.activeId && entries.some((entry) => entry.item.id === state.activeId)) state.message += " Put the one in the bar in again for the new version.";
+    render();
+  }
+
   // ── The Midjourney tab ──
 
   // ?mjqTab=<tab id> pins the panel to one tab (testing the panel as a page).
@@ -212,6 +419,7 @@
       const res = await toTab({ action: "mjQueuePing", queue: pillQueue() }, tab.id);
       next.reachable = Boolean(res && res.ok);
       next.bar = Boolean(res && res.bar);
+      state.barValue = res && res.ok ? String(res.value || "") : "";
       if (res && res.ok && res.activeId && res.activeId === state.activeId) state.readback = res.value;
     }
     const changed = JSON.stringify(next) !== JSON.stringify(state.tab);
@@ -279,7 +487,11 @@
       node.disabled = state.sending || !open || !now.ok || !state.tab.bar;
       node.textContent = state.sending ? "Sending…" : left > 0 ? `${left}s` : "Next";
       node.classList.toggle("mjq-btn--waiting", left > 0);
-      node.title = !state.tab.bar ? "Open Midjourney Create in this tab." : now.reason || "Put the next prompt in the bar; press Enter on Midjourney to send it (⌥⇧S).";
+      node.title = !state.tab.bar ? "Open Midjourney Create in this tab." : now.reason || "Put the next prompt in the bar (⌥⇧N). Enter or Midjourney's send button sends it.";
+    }
+    for (const node of root.querySelectorAll("[data-skip-next]")) {
+      const item = activeItem();
+      node.disabled = state.sending || !state.tab.bar || !(item && item.batchKey === state.batchKey);
     }
     for (const node of root.querySelectorAll("[data-pace-reason]")) {
       node.textContent = now.reason || "";
@@ -327,26 +539,43 @@
     return true;
   }
 
-  function injectNext() {
-    if (!state.batchKey) return;
-    const next = H().nextQueued(threadItems(), state.activeId);
-    if (!next) {
-      state.message = "Nothing left to send in this thread.";
-      render();
-      return;
+  // The next prompt to send in a thread (the open one unless named), skipping
+  // the one just sent. Answers with the thread's count for the page's note.
+  async function injectNext({ batchKey = "", sentId = "", skippedId = "", exclude = [] } = {}) {
+    const key = batchKey || state.batchKey;
+    if (!key) return { ok: false, error: "Open a thread in the MJ Queue panel first." };
+    for (const [id, status] of [[sentId, "sent"], [skippedId, "skipped"]]) {
+      if (!id) continue;
+      const done = state.items.find((entry) => entry.id === id);
+      if (done) done.status = status;
+      if (state.activeId === id) state.activeId = null;
     }
-    void inject(next);
+    if (!state.items.some((entry) => entry.batchKey === key)) {
+      state.batchKey = key;
+      await refresh({ quiet: true });
+    }
+    const skip = new Set([sentId, skippedId, ...exclude].filter(Boolean));
+    const items = state.items.filter((entry) => entry.batchKey === key).sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
+    const counts = H().filterCounts(items);
+    const next = H().nextQueued(items.filter((entry) => !skip.has(entry.id)), sentId || skippedId || state.activeId);
+    if (!next) {
+      state.message = sentId ? "Sent. That was the last one in this thread." : "Nothing left to send in this thread.";
+      render();
+      return { ok: true, done: true, sent: counts.sent, total: counts.all };
+    }
+    const ok = await inject(next);
+    return ok ? { ok: true, sent: counts.sent, total: counts.all } : { ok: false, error: state.message || "Not put in the bar." };
   }
 
   // After the gate: readies the bar for his Enter (the page never presses it).
   async function doSend(item) {
-    state.sending = true;
+    setSending(true);
     render();
     const res = await toTab({ action: "mjQueueSend", itemId: item.id });
-    state.sending = false;
+    setSending(false);
     if (res.ok && res.waitingForEnter) {
       // The page never presses Enter for him (Midjourney flags it as a bot).
-      state.message = "In the bar. Next time use Next prompt on the Midjourney page: it keeps the keyboard there, so Enter sends. Now click the bar and press Enter.";
+      state.message = "In the bar. Press Enter on Midjourney or click its send button to send it.";
       render();
       return false;
     }
@@ -391,16 +620,40 @@
       render();
       return;
     }
-    state.sending = true;
+    setSending(true);
     paintPace();
     if (state.activeId !== item.id) {
       const ok = await inject(item, { quietRender: true });
-      if (!ok) { state.sending = false; render(); return; }
+      if (!ok) { setSending(false); render(); return; }
       // Midjourney can rewrite the bar a moment after it is filled.
       await sleep(450);
     }
-    state.sending = false;
+    setSending(false);
     await doSend(item);
+  }
+
+  // Skip (⌥⇧S): the prompt in the bar is skipped (Restore brings it back)
+  // and the next one goes in. Sends nothing.
+  async function skipNext(event) {
+    if (event && event.isTrusted === false) return;
+    if (state.sending) return;
+    await readTab();
+    if (!state.tab.reachable) {
+      state.message = state.tab.onMidjourney ? "Reload the Midjourney tab once so the extension can reach it." : "Open Midjourney Create in this tab first.";
+      render();
+      return;
+    }
+    const res = await toTab({ action: "mjQueueSkipNext" });
+    if (res && !res.ok && !res.ignored && res.error) {
+      state.message = res.error;
+      render();
+    }
+  }
+
+  function setAutoNext(on) {
+    state.autoNext = on;
+    remember({ [KEYS.autoNext]: on });
+    render();
   }
 
   function openThread(batchKey) {
@@ -840,6 +1093,20 @@
         render();
       }));
     }
+    if (item.status !== "skipped") {
+      const mixes = el("span", "mjq-mixes");
+      const busy = Boolean(state.varying);
+      for (const kind of ["test", "random", "extreme"]) {
+        const label = kind === "test" ? "Test" : `${capital(kind)} ×${state.variantCount}`;
+        const node = button(label, "mjq-btn--small mjq-btn--ghostline", () => runVariants(kind, { item }),
+          kind === "test" ? "This prompt once per profile of its world, plus once with no profile, as a new thread. Nothing is sent."
+            : kind === "random" ? "This prompt with random profile mixes (1–2 profiles, up to 1 moodboard), as a new thread."
+              : "This prompt with wilder mixes (up to 3 profiles, 2 moodboards), as a new thread.");
+        node.disabled = busy;
+        mixes.appendChild(node);
+      }
+      actions.appendChild(mixes);
+    }
     const up = button("↑", "mjq-btn--icon", async () => {
       await save(item, { position: Math.max(0, index - 1) });
       await refresh({ quiet: true });
@@ -864,7 +1131,7 @@
     slider.max = "1000";
     slider.step = "25";
     slider.value = String(start);
-    slider.disabled = !info.count || state.stylizing;
+    slider.disabled = !info.count || state.stylizing || state.applyingParams;
     slider.setAttribute("aria-label", "Stylize for every prompt in this thread");
     const readout = el("b", "mjq-stylize-value", info.value == null ? "—" : String(start));
     const meta = el("span", "mjq-stylize-meta", !info.count
@@ -890,33 +1157,157 @@
   }
 
   async function applyStylize(value) {
-    const { items } = H().threadStylize(threadItems());
-    const todo = items.filter((item) => H().stylizeOf(item.params) !== value || /--s\s/.test(item.params || ""));
-    if (!todo.length) {
-      state.message = `Every prompt to send is already at stylize ${value}.`;
-      render();
-      return;
-    }
     state.stylizing = true;
-    state.message = `Setting stylize ${value} on ${todo.length} prompts…`;
-    render();
-    let done = 0;
-    let failed = 0;
-    const queue = [...todo];
-    const worker = async () => {
-      while (queue.length) {
-        const item = queue.shift();
-        const saved = await save(item, { params: H().withStylize(item.params, value) });
-        if (saved) done += 1;
-        else failed += 1;
+    try {
+      await applyParams({ stylize: value }, `stylize ${value}`);
+    } finally {
+      state.stylizing = false;
+    }
+  }
+
+  // Raw / Standard and the other params for every prompt still to send.
+  // A field shows the shared value, or "mixed"; Apply sets only the fields
+  // he changed (an emptied field removes that flag).
+  const PARAM_FIELDS = [
+    { key: "ar", label: "Aspect", placeholder: "16:9", width: 64 },
+    { key: "chaos", label: "Chaos", placeholder: "0", width: 48 },
+    { key: "weird", label: "Weird", placeholder: "0", width: 56 },
+    { key: "exp", label: "Exp", placeholder: "0", width: 44 },
+  ];
+
+  function paramsBar(items) {
+    const info = H().threadParams(items);
+    const box = el("div", "mjq-params");
+    const disabled = !info.count || state.applyingParams;
+    const raw = el("div", "mjq-seg");
+    raw.setAttribute("role", "group");
+    raw.setAttribute("aria-label", "Raw or Standard for every prompt to send");
+    const rawOn = !info.raw.mixed && info.raw.value === true;
+    const stdOn = !info.raw.mixed && info.raw.value === false;
+    const standard = button("Standard", `mjq-seg-btn${stdOn ? " mjq-seg-btn--on" : ""}`, () => applyParams({ raw: false }, "Standard"), "Leave --raw out of every prompt still to send");
+    const rawBtn = button("Raw", `mjq-seg-btn${rawOn ? " mjq-seg-btn--on" : ""}`, () => applyParams({ raw: true }, "--raw"), "Add --raw to every prompt still to send");
+    standard.disabled = disabled;
+    rawBtn.disabled = disabled;
+    raw.append(standard, rawBtn);
+    const head = el("div", "mjq-params-head");
+    head.append(raw, el("span", "mjq-stylize-meta", !info.count ? "nothing left to send" : `${info.raw.mixed ? "mixed · " : ""}${info.count} to send`));
+    box.appendChild(head);
+
+    const draft = state.paramsDraft && state.paramsDraft.batchKey === state.batchKey ? state.paramsDraft.values : {};
+    const fields = el("div", "mjq-pfields");
+    const inputs = {};
+    const apply = button("Apply", "mjq-btn--small mjq-btn--primary", () => submit(), "Set these on every prompt still to send");
+    // Keep the caret in the field: a click on Apply must not blur it (a blur redraws).
+    apply.addEventListener("mousedown", (event) => event.preventDefault());
+    const dirty = () => Object.keys(draft).length > 0;
+    apply.disabled = disabled || !dirty();
+    const error = el("span", "mjq-perror");
+    for (const field of PARAM_FIELDS) {
+      const wrap = el("label", "mjq-pfield");
+      const current = info[field.key];
+      const input = el("input", "mjq-pinput");
+      input.type = "text";
+      input.inputMode = field.key === "ar" ? "text" : "numeric";
+      input.style.width = `${field.width}px`;
+      input.value = field.key in draft ? draft[field.key] : current.mixed ? "" : current.value || "";
+      input.placeholder = current.mixed ? "mixed" : "—";
+      input.disabled = disabled;
+      input.dataset.paramKey = field.key;
+      input.addEventListener("input", () => {
+        const next = { ...draft, [field.key]: input.value };
+        Object.assign(draft, next);
+        state.paramsDraft = { batchKey: state.batchKey, values: draft };
+        apply.disabled = disabled || !dirty();
+        error.textContent = "";
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          submit();
+        } else if (event.key === "Escape") {
+          state.paramsDraft = null;
+          input.blur();
+          render();
+        }
+      });
+      inputs[field.key] = input;
+      wrap.append(el("span", "mjq-plabel", field.label), input);
+      fields.appendChild(wrap);
+    }
+    fields.append(apply, error);
+    box.appendChild(fields);
+
+    function submit() {
+      if (apply.disabled) return;
+      const changes = {};
+      const words = [];
+      for (const key of Object.keys(draft)) {
+        const clean = H().cleanParamValue(key, draft[key]);
+        if (!clean.ok) {
+          error.textContent = clean.error;
+          inputs[key]?.focus();
+          return;
+        }
+        changes[key] = clean.value;
+        words.push(clean.value == null ? `no --${key}` : `--${key} ${clean.value}`);
       }
-    };
-    await Promise.all([worker(), worker(), worker()]);
-    state.stylizing = false;
-    state.message = failed
-      ? `Stylize ${value} on ${done} prompts; ${failed} not saved, try again.`
-      : `Stylize ${value} on ${done} prompts.`;
-    render();
+      state.paramsDraft = null;
+      document.activeElement?.blur?.();
+      void applyParams(changes, words.join(" "));
+    }
+    return box;
+  }
+
+  // Test / Random / Extreme on the bar prompt, and Delete thread.
+  function toolsBar(items, batch) {
+    const bar = el("div", "mjq-tools");
+    if (state.confirmDelete === batch.batchKey) {
+      const total = Math.max(batch.total || 0, items.length);
+      bar.classList.add("mjq-tools--confirm");
+      const yes = button(state.deleting ? "Deleting…" : "Delete", "mjq-btn--small mjq-btn--danger", () => deleteThread(batch.batchKey));
+      yes.disabled = state.deleting;
+      const no = button("Cancel", "mjq-btn--small", () => {
+        state.confirmDelete = "";
+        render();
+      });
+      no.disabled = state.deleting;
+      bar.append(el("span", "mjq-confirm-text", `Delete ${total} prompt${total === 1 ? "" : "s"}? This can't be undone.`), yes, no);
+      setTimeout(() => no.isConnected && !state.deleting && no.focus(), 0);
+      return bar;
+    }
+    const inBar = activeItem();
+    const sourceText = space(state.barValue)
+      ? (inBar && H().belongsToItem(state.barValue, inBar) ? inBar.title || state.barValue : state.barValue)
+      : (H().nextQueued(items, null) || items[0] || {}).prompt || "";
+    const busy = Boolean(state.varying);
+    const test = button(state.varying === "test" ? "Making…" : "Test", "mjq-btn--small", () => runVariants("test", { fromBar: true }),
+      "The prompt in the bar (or this thread's next one) once per profile of its world, plus once with no profile, as a new thread. Nothing is sent (⌥⇧T on Midjourney).");
+    const random = button(state.varying === "random" ? "Making…" : `Random ×${state.variantCount}`, "mjq-btn--small", () => runVariants("random", { fromBar: true }),
+      "The same words with random profile mixes (1–2 profiles, up to 1 moodboard), as a new thread. Nothing is sent.");
+    const extreme = button(state.varying === "extreme" ? "Making…" : `Extreme ×${state.variantCount}`, "mjq-btn--small", () => runVariants("extreme", { fromBar: true }),
+      "Wilder mixes: up to 3 profiles and 2 moodboards, as a new thread. Nothing is sent.");
+    for (const node of [test, random, extreme]) node.disabled = busy || (!items.length && !space(state.barValue));
+    const count = el("select", "mjq-count-select");
+    count.setAttribute("aria-label", "How many random prompts");
+    for (let n = 1; n <= 12; n += 1) {
+      const option = el("option", "", `×${n}`);
+      option.value = String(n);
+      if (n === state.variantCount) option.selected = true;
+      count.appendChild(option);
+    }
+    count.disabled = busy;
+    count.addEventListener("change", () => {
+      state.variantCount = H().clampCount(count.value);
+      remember({ [KEYS.variantCount]: state.variantCount });
+      render();
+    });
+    const on = el("span", "mjq-tools-on", sourceText ? `on: ${space(sourceText).split(" ").slice(0, 6).join(" ")}` : "");
+    const del = button("Delete thread", "mjq-btn--small mjq-btn--ghost mjq-del", () => {
+      state.confirmDelete = batch.batchKey;
+      render();
+    }, "Delete this thread and every prompt in it, sent ones too");
+    bar.append(test, random, extreme, count, on, del);
+    return bar;
   }
 
   function renderThread(box) {
@@ -939,17 +1330,30 @@
     box.appendChild(el("h2", "mjq-ttitle", capital(H().threadName(batch))));
     const counts = H().filterCounts(items);
 
-    // The send bar: one click puts the next prompt in the bar; his Enter sends it.
+    // The send bar: Next puts the next prompt in the bar; Send sends what the
+    // bar holds (his click, one job) and puts the next one in.
     const sendBar = el("div", "mjq-sendbar");
     const next = button("Next", "mjq-btn--next", nextSend);
     next.dataset.nextSend = "1";
+    const skipBtn = button("Skip", "mjq-btn--sendnow", skipNext, "Skip the prompt in the bar (Restore brings it back) and put the next one in (⌥⇧S on Midjourney). Sends nothing.");
+    skipBtn.dataset.skipNext = "1";
+    const auto = el("label", "mjq-switch");
+    const autoBox = el("input");
+    autoBox.type = "checkbox";
+    autoBox.checked = state.autoNext;
+    autoBox.addEventListener("change", () => setAutoNext(autoBox.checked));
+    auto.title = "After you send with Enter or Midjourney's send button, the next prompt of this thread goes in the bar (not sent).";
+    auto.append(autoBox, el("span", "", "Next in bar after send"));
+    const keys = el("span", "mjq-keys", "Enter sends · ⌥⇧N next · ⌥⇧S skip");
     const pace = el("div", "mjq-pacebox");
     const count = el("b", "mjq-pace-count");
     count.dataset.paceCount = "1";
     pace.append(count, el("span", "mjq-pace-label", "jobs in the last hour"));
-    sendBar.append(next, pace);
+    sendBar.append(next, skipBtn, auto, keys, pace);
     box.appendChild(sendBar);
+    box.appendChild(toolsBar(items, batch));
     box.appendChild(stylizeBar(items));
+    box.appendChild(paramsBar(items));
     const reason = el("p", "mjq-pace-reason");
     reason.dataset.paceReason = "1";
     reason.hidden = true;
@@ -982,16 +1386,24 @@
     box.appendChild(list);
   }
 
+  // A redraw waits while he types in a field of the panel (it would drop the
+  // caret); it runs when the field loses focus.
+  let renderPending = false;
   function render() {
     if (!state.visible || state.sliding) return;
-    const focused = document.activeElement && root.contains(document.activeElement) && document.activeElement.matches("input, textarea");
-    if (focused && state.editingId) return;
+    const focused = document.activeElement && root.contains(document.activeElement) && document.activeElement.matches("input:not([type=range]), textarea");
+    if (focused) {
+      renderPending = true;
+      return;
+    }
+    renderPending = false;
     const railScroll = root.querySelector(".mjq-rail")?.scrollTop || 0;
     const mainScroll = root.querySelector(".mjq-main")?.scrollTop || 0;
     root.textContent = "";
     root.classList.toggle("mjq--wide", state.wide);
     root.appendChild(tabStrip());
     if (state.error) root.appendChild(el("p", "mjq-error", state.error));
+    if (state.flash) root.appendChild(el("p", "mjq-message", state.flash));
     if (state.wide) {
       const split = el("div", "mjq-split");
       const rail = el("div", "mjq-rail");
@@ -1008,61 +1420,107 @@
       else renderRail(box);
       root.appendChild(box);
     }
-    root.appendChild(el("p", "mjq-hint", "On the Midjourney page: Next prompt (or ⌥⇧N), then Enter sends · ⌥⇧↑↓ threads"));
+    root.appendChild(el("p", "mjq-hint", "On Midjourney: Enter or the send button sends · ⌥⇧N next in bar · ⌥⇧S skip to next · ⌥⇧T test the bar prompt · ⌥⇧↑↓ threads"));
     paintPace();
   }
 
   // ── Wiring ──
 
-  chrome.runtime.onMessage.addListener((message) => {
+  const countsLine = (left) => (left ? `Sent. ${left} left${state.autoNext ? ": the next goes in the bar, Enter sends it." : ": ⌥⇧N puts the next in the bar."}` : "Sent. That was the last one in this thread.");
+
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (!message || !state.visible) return false;
+    // Only this extension's own Midjourney page script talks to the panel.
+    if (sender && sender.id && sender.id !== chrome.runtime.id) return false;
     if (message.action === "mjQueueBar" && message.itemId === state.activeId) {
       state.readback = message.value || "";
+      state.barValue = message.value || "";
       const box = root.querySelector(".mjq-item--active .mjq-readback");
       if (box) {
         const item = state.items.find((entry) => entry.id === state.activeId);
         if (item) box.replaceWith(readbackBox(item));
       }
-    } else if (message.action === "mjQueueSent" && message.itemId === state.activeId) {
-      // Midjourney took it (the bar emptied); the gallery save follows on its own.
-      const item = state.items.find((entry) => entry.id === state.activeId);
-      if (item) item.status = "sent";
-      state.activeId = null;
-      state.sending = false;
+    } else if (message.action === "mjQueueSent") {
+      // Midjourney took it (his Enter, his click on its send button, or the feed showed
+      // the job); the gallery save follows on its own.
+      const item = state.items.find((entry) => entry.id === message.itemId);
+      if (!item) return false;
+      item.status = "sent";
+      if (state.activeId === item.id) {
+        state.activeId = null;
+        state.readback = "";
+      }
+      setSending(false);
       state.lastSendAt = Date.now();
       remember({ [KEYS.lastSend]: state.lastSendAt });
       state.batches = H().recount(state.batches, state.items);
-      const left = threadItems().filter((entry) => entry.status === "queued" || entry.status === "injected").length;
-      state.message = left ? `Sent. ${left} left: Next prompt on the page, then Enter.` : "Sent. That was the last one in this thread.";
+      if (item.batchKey === state.batchKey) {
+        state.message = countsLine(threadItems().filter((entry) => entry.status === "queued" || entry.status === "injected").length);
+      }
       render();
       void readTab();
     } else if (message.action === "mjQueueChanged") {
-      if (message.itemId === state.activeId) {
-        const item = state.items.find((entry) => entry.id === state.activeId);
-        if (item && item.status === "injected") {
-          // A send he made with his own Enter in the bar.
-          state.activeId = null;
-          state.lastSendAt = Date.now();
-          remember({ [KEYS.lastSend]: state.lastSendAt });
-          state.message = "Sent. The next one is ready when you are.";
-        }
-      }
-      void refresh({ quiet: true });
+      refreshSoon();
     } else if (message.action === "mjQueueSending" && message.itemId === state.activeId) {
-      state.sending = true;
+      setSending(true);
       render();
     } else if (message.action === "mjQueueNotSent" && message.itemId === state.activeId) {
-      state.sending = false;
-      state.message = message.error || "Not sent.";
+      setSending(false);
+      if (message.error) state.message = message.error;
       render();
+    } else if (message.action === "mjQueueSkipped") {
+      const item = state.items.find((entry) => entry.id === message.itemId);
+      if (item) item.status = "skipped";
+      if (state.activeId === message.itemId) {
+        state.activeId = null;
+        state.readback = "";
+      }
+      state.batches = H().recount(state.batches, state.items);
+      render();
+    } else if (message.action === "mjQueueReleased" && message.itemId === state.activeId) {
+      state.activeId = null;
+      state.readback = "";
+      setSending(false);
+      state.message = "The bar holds another prompt now. This one stays to send.";
+      render();
+    } else if (message.action === "mjQueueInjected" && message.item) {
+      // The page put a prompt in the bar by itself (no panel answered then).
+      const index = state.items.findIndex((entry) => entry.id === message.item.id);
+      const item = { ...message.item, status: "injected" };
+      if (index === -1) state.items.push(item);
+      else state.items[index] = item;
+      state.activeId = item.id;
+      state.readback = message.readback || "";
+      state.batches = H().recount(state.batches, state.items);
+      render();
+    } else if (message.action === "mjQueueOpenThread" && message.batchKey) {
+      state.batchKey = message.batchKey;
+      state.view = "thread";
+      state.filter = "open";
+      remember({ [KEYS.view]: "thread", [KEYS.batch]: message.batchKey });
+      void refresh({ quiet: false });
     } else if (message.action === "mjQueueNext") {
-      injectNext();
+      // ⌥⇧N / ⌥⇧S / after a send / the pill on the page. With reply, answer once the prompt
+      // is in the bar so the page can show the thread's count.
+      const run = injectNext({ batchKey: message.batchKey || "", sentId: message.sentId || "", skippedId: message.skippedId || "", exclude: message.exclude || [] });
+      if (!message.reply) return false;
+      run.then((res) => sendResponse({ handled: true, ...res }));
+      return true;
+    } else if (message.action === "mjQueueTestBar") {
+      if (!message.reply) return false;
+      runVariants("test", { fromBar: true, barValue: message.value || "" }).then((res) => sendResponse({ handled: true, ...res }));
+      return true;
     }
     return false;
   });
 
   document.addEventListener("keydown", (event) => {
     if (!state.visible) return;
+    if (event.key === "Escape" && state.confirmDelete) {
+      state.confirmDelete = "";
+      render();
+      return;
+    }
     if (event.key === "Escape" && state.view === "thread" && !state.editingId && !state.wide) {
       showThreads();
       return;
@@ -1070,14 +1528,27 @@
     if (!event.altKey || !event.shiftKey || event.metaKey || event.ctrlKey) return;
     if (event.code === "KeyN") {
       event.preventDefault();
-      injectNext();
+      if (!event.repeat) void injectNext();
     } else if (event.code === "KeyS") {
       event.preventDefault();
-      void nextSend(event);
+      if (!event.repeat) void skipNext(event);
+    } else if (event.code === "KeyT") {
+      event.preventDefault();
+      if (!event.repeat) void runVariants("test", { fromBar: true });
     } else if (event.code === "ArrowDown" || event.code === "ArrowUp") {
       event.preventDefault();
       stepThread(event.code === "ArrowDown" ? 1 : -1);
     }
+  });
+
+  // A redraw held while he typed runs once the caret leaves the panel's fields
+  // (a click on one of its own buttons redraws by itself).
+  root.addEventListener("focusout", (event) => {
+    if (!renderPending) return;
+    if (event.relatedTarget && root.contains(event.relatedTarget)) return;
+    setTimeout(() => {
+      if (renderPending) render();
+    }, 0);
   });
 
   chrome.tabs.onActivated.addListener(() => void readTab());
@@ -1120,6 +1591,7 @@
     void readTab();
     void refresh({ quiet: !state.loading });
     timer = setInterval(() => {
+      if (state.sending && Date.now() - state.sendingAt > SENDING_STALE_MS) setSending(false);
       if (document.visibilityState === "visible" && !state.editingId && !state.sending) {
         void refresh({ quiet: true });
         void readTab();
@@ -1132,7 +1604,9 @@
     return { worlds: list(value?.worlds), threads: list(value?.threads) };
   }
 
-  chrome.storage.local.get([KEYS.view, KEYS.batch, KEYS.scope, KEYS.collapsed, KEYS.lastSend], (stored) => {
+  chrome.storage.local.get([KEYS.view, KEYS.batch, KEYS.scope, KEYS.collapsed, KEYS.lastSend, KEYS.variantCount, KEYS.autoNext], (stored) => {
+    state.autoNext = stored?.[KEYS.autoNext] !== false;
+    state.variantCount = H().clampCount(stored?.[KEYS.variantCount] || 4);
     state.view = stored?.[KEYS.view] === "thread" ? "thread" : "threads";
     state.batchKey = String(stored?.[KEYS.batch] || "");
     state.scope = stored?.[KEYS.scope] === "all" ? "all" : "open";

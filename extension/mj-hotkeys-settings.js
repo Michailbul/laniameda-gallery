@@ -73,7 +73,7 @@
     const how = document.createElement("p");
     how.className = "qe-how";
     how.innerHTML =
-      "While you write a prompt on midjourney.com, a key adds or removes the moodboard, profile or preset in that place in the dock. Hold <kbd>⌥</kbd> there to see each one's key.";
+      "While you write a prompt on midjourney.com, a key adds or removes the moodboard, profile or preset in that place in the dock. Randomize gives the prompt a new mix of the world's profiles and moodboards. Hold <kbd>⌥</kbd> there to see each one's key.";
     box.append(head, how);
 
     const groups = [];

@@ -47,7 +47,7 @@ describe("prompt pack data", () => {
     ).toEqual([
       ["Film 35mm", "3D", "Deco dark", "Deco bright"],
       ["Lower city", "Middle districts", "Upper towers", "Far city", "Beyond the walls"],
-      ["Street", "Bridge", "Low room", "Tower salon"],
+      ["Street", "Bridge", "Low room", "High room"],
       ["Golden", "Night", "Fog", "Flower lamp"],
       ["Close", "Wide", "Reverse"],
       ["Court", "Middle", "Low city", "Patrol", "Dari", "Mike"],
