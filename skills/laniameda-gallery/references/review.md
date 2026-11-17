@@ -76,6 +76,12 @@ rolling back and choosing who may look stay Michael's calls.
 - **Style verdict**: one like or dislike per style per person, on the look as
   a whole ("Like style" on the style's header or chip). It belongs to the
   style, not to any frame, and records the round it was given in.
+- **Style comment**: text on a whole style ("the look in general"), written
+  from "Comment" next to "Like style · Dislike style" on a style card or a
+  style's heading (Michael, 17 Nov 2026). It belongs to the style, never to a
+  frame. `review_feedback` lists them under `styleComments` (style, body, by,
+  round) and counts them in `counts.styleComments`. Michael resolves or
+  deletes them on the page.
 - **Comment**: text on a frame by the director, a viewer, Michael or an agent
   ("Studio agent"). One comment written on several frames at once is one row
   per frame. A comment can be resolved (handled) and reopened.
@@ -113,7 +119,17 @@ world style's name, any case; a round as `"draft"`, `"current"`, `"v0.2"` or
    (or `review_round {op: "draft"}` starts it now; `round` copies an older
    one instead). Everything an agent changes lands in the draft. The director
    sees nothing of it. Michael approves or discards the frames that wait.
-2. **Publish.** `review_round {op: "publish", title, note, confirmed: true}`
+2. **Publish.** On the page Michael's "Send round to producers" offers three
+   ticks, all on by default (Michael, 17 Nov 2026: "promote to the version
+   public that producers can see when I'm done with discardings"): send the
+   frames still waiting too (everything he did not discard, approved as they
+   go out; `includeWaiting`), show the hidden styles those frames are in
+   (`showStyles`), and email the reviewers (`notify`). The email goes from
+   Michael's Gmail through ClawLink (Convex env `CLAWLINK_API_KEY` and
+   `REVIEW_MAIL_CONNECTION`), one plain-text note per reviewer with a link to the
+   project's public address (an HTML card went to Spam in the test); `convex/reviewMail.ts`. Agents pass the same
+   three flags only on his word.
+   `review_round {op: "publish", title, note, confirmed: true}`
    makes the draft the current round (on the page: "Send round to
    producers"). Only approved frames go out; the answer's `held` and
    `discarded` count the frames that stayed with Michael in the next draft.
@@ -214,6 +230,20 @@ In the Locations view, where frames of several styles share the screen
 (All locations, a folder in all styles), hovering a frame shows its style
 bottom-left: the world style's name for the owner, the review label for a
 reviewer.
+
+## The tour
+
+A producer, the director or a guest opening the review for the first time
+gets a short tour (Michael, 17 Nov 2026): the page dims and one part at a
+time is lit, with a card saying what it is and what to do there: locations
+in the left list, the Locations · Styles switch, the style cards, Like style
+and Dislike style, comments on a whole style, one frame and its keys, the
+rounds, and where help lives. Next, Back, Skip, arrows and Esc work. Steps
+whose part this person does not have (no voting for a guest) are left out;
+on a phone the folder button stands in for the folder list. "How it works"
+plays it again: in the "?" menu of the top bar, and as a button in the style
+book's top line. Michael gets it only from there. It is
+remembered per browser (`rv-tour:<slug>:1`). `components/review/Tour.tsx`.
 
 ## People
 

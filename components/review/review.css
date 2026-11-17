@@ -1479,3 +1479,64 @@ button.rv-bk-round:hover, .rv-bk-round[aria-expanded="true"] { color: var(--text
 .rv-t-style.up { bottom: 32px; z-index: 2; }
 .rv-t:hover .rv-t-style, .rv-t[data-active] .rv-t-style { opacity: 1; transform: none; }
 @media (hover: none) { .rv-t-style { display: none; } }
+
+/* ---------------------------------------------------------- style comments (17 Nov 2026) */
+.rv-styles[data-vote] .rv-style .lb { min-width: 214px; }
+.rv-style-vote .talk, .rv-svote .talk { color: var(--faint); }
+.rv-pop.rv-stalk { width: min(400px, calc(100vw - 16px)); padding: 14px 14px 12px; }
+.rv-stalk .rv-chat-log { max-height: min(46vh, 420px); }
+.rv-stalk .rv-lb-h { margin-bottom: 10px; }
+
+/* ---------------------------------------------------------- send options */
+.rv-sendopts { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 4px; }
+.rv-dialog label.rv-check {
+  flex-direction: row; align-items: flex-start; gap: 11px; padding: 10px 10px; border-radius: 8px;
+  font: inherit; letter-spacing: normal; text-transform: none; color: var(--text); cursor: pointer; transition: background 0.15s;
+}
+.rv-dialog label.rv-check:hover { background: var(--hover); }
+.rv-check input { appearance: none; flex: none; width: 16px; height: 16px; margin: 1px 0 0; border-radius: 4px; box-shadow: inset 0 0 0 1.5px rgba(var(--ink), 0.35); display: grid; place-items: center; cursor: pointer; transition: background 0.15s, box-shadow 0.15s; }
+.rv-check input:checked { background: var(--accent); box-shadow: none; }
+.rv-check input:checked::after { content: ""; width: 8px; height: 4px; margin-top: -2px; border: solid var(--on-accent); border-width: 0 0 2px 2px; transform: rotate(-45deg); }
+.rv-check input:focus-visible { outline: 2px solid rgba(var(--ink), 0.6); outline-offset: 2px; }
+.rv-check span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.rv-check b { font: 600 13px/1.35 var(--sans); }
+.rv-check i { font: 400 12px/1.45 var(--sans); font-style: normal; color: var(--muted); }
+
+/* ---------------------------------------------------------- tour */
+.rv-tour-btn { font-size: 11.5px; }
+.rv-tour { position: fixed; inset: 0; z-index: 120; }
+.rv-tour-hole {
+  position: fixed; border-radius: 12px; pointer-events: none;
+  box-shadow: 0 0 0 1.5px rgba(242, 97, 87, 0.95), 0 0 0 6px rgba(242, 97, 87, 0.18), 0 0 0 200vmax rgba(var(--ground), 0.76);
+  transition: top 0.38s cubic-bezier(0.22, 1, 0.36, 1), left 0.38s cubic-bezier(0.22, 1, 0.36, 1), width 0.38s cubic-bezier(0.22, 1, 0.36, 1), height 0.38s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s;
+}
+.rv-tour-hole[data-none] { top: 50%; left: 50%; width: 0; height: 0; box-shadow: 0 0 0 200vmax rgba(var(--ground), 0.8); }
+.rv-tour-card {
+  position: fixed; width: min(340px, calc(100vw - 32px)); padding: 18px 18px 14px; border-radius: 14px;
+  background: rgb(var(--raised)); box-shadow: 0 0 0 1px var(--line), 0 24px 60px rgba(0, 0, 0, 0.5);
+  color: var(--text); display: flex; flex-direction: column; gap: 10px;
+  transition: top 0.38s cubic-bezier(0.22, 1, 0.36, 1), left 0.38s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: rv-tour-in 0.28s ease-out;
+}
+@keyframes rv-tour-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.rv-tour-card .k { display: flex; justify-content: space-between; font: 500 9.5px/1 var(--mono); letter-spacing: 0.16em; text-transform: uppercase; color: var(--faint); }
+.rv-tour-card h4 { margin: 2px 0 0; font: 800 15px/1.25 var(--sans); letter-spacing: 0.06em; text-transform: uppercase; }
+.rv-tour-card p { margin: 0; font-size: 13.5px; line-height: 1.55; color: var(--muted); }
+.rv-tour-card .dots { display: flex; gap: 5px; margin-top: 2px; }
+.rv-tour-card .dots span { width: 5px; height: 5px; border-radius: 50%; background: rgba(var(--ink), 0.18); transition: background 0.2s, width 0.2s; }
+.rv-tour-card .dots span[data-done] { background: rgba(var(--ink), 0.5); }
+.rv-tour-card .dots span[data-on] { width: 16px; border-radius: 3px; background: var(--accent); }
+.rv-tour-card .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.rv-tour-card .row .go { display: flex; gap: 8px; }
+.rv-tour-card .skip { font: 500 10px/1 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--faint); }
+.rv-tour-card .skip:hover { color: var(--text); }
+/* A lit style card shows its hover-only controls. */
+.rv-style-wrap.rv-tour-on .rv-style-vote { opacity: 1; pointer-events: auto; }
+.rv-styles[data-vote] .rv-style-wrap.rv-tour-on .rv-style .lb .ct { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .rv-tour-hole, .rv-tour-card { transition: none; animation: none; }
+}
+.rv-keys-tour { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; width: 100%; margin: 0 0 10px; padding: 10px 10px; border-radius: 8px; background: var(--sel); text-align: left; transition: background 0.15s; }
+.rv-keys-tour:hover { background: rgba(var(--ink), 0.12); }
+.rv-keys-tour b { font: 700 12px/1.2 var(--sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text); }
+.rv-keys-tour span { font-size: 12px; color: var(--muted); }

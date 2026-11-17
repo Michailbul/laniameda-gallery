@@ -6,6 +6,7 @@ import { LIST_COLORS, mediaUrl, srcSetOf, thumbAtLeast, type ListKey, type Revie
 import { Check } from "./icons";
 import { CopyText } from "./Recipe";
 import { Avatar, Faces, facesTitle, type Person } from "./people";
+import { StyleTalk } from "./StyleTalk";
 
 // The frames. Rows are justified in CSS (review.css, .rv-grid/.rv-t): every
 // frame keeps its aspect ratio, a row shares one height, and the server
@@ -364,7 +365,6 @@ export function StyleVote({ styleId, label, mark, people, onVote }: {
   onVote?: (styleId: string, verdict: Verdict) => void;
 }) {
   const mine = mark?.mine;
-  if (!onVote && !mark?.faces) return null;
   return (
     <span className="rv-svote" data-nodrag="">
       {onVote ? (
@@ -389,6 +389,7 @@ export function StyleVote({ styleId, label, mark, people, onVote }: {
           </button>
         </>
       ) : null}
+      <StyleTalk styleId={styleId} label={label} />
       {mark?.faces ? <Faces people={people} faces={mark.faces} small /> : null}
     </span>
   );

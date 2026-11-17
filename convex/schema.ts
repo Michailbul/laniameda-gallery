@@ -19,7 +19,7 @@ import { promptRunFields, promptSetFields, stylePresetFields } from "./promptGri
 import { folderScopeValidator, productionBriefFields, projectDetailsValidator } from "./projectValidators";
 import { worldStyleRecipeValidator, worldStyleStatusValidator } from "./worldStyleValidators";
 import {
-  reviewCommentFields, reviewFeedbackFields, reviewFolderFields, reviewItemFields,
+  reviewCommentFields, reviewStyleCommentFields, reviewFeedbackFields, reviewFolderFields, reviewItemFields,
   reviewProjectFields, reviewStyleFeedbackFields, reviewVersionFields,
 } from "./reviewValidators";
 import {
@@ -112,6 +112,9 @@ export default defineSchema({
   reviewStyleFeedback: defineTable(reviewStyleFeedbackFields)
     .index("by_project_style_reviewer", ["projectId", "styleId", "reviewerEmail"])
     .index("by_project_updatedAt", ["projectId", "updatedAt"]),
+  reviewStyleComments: defineTable(reviewStyleCommentFields)
+    .index("by_project_style_createdAt", ["projectId", "styleId", "createdAt"])
+    .index("by_project_createdAt", ["projectId", "createdAt"]),
   reviewComments: defineTable(reviewCommentFields)
     .index("by_project_asset_createdAt", ["projectId", "assetId", "createdAt"])
     .index("by_project_createdAt", ["projectId", "createdAt"]),
