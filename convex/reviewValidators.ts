@@ -167,6 +167,20 @@ export const reviewStyleFeedbackFields = {
   updatedAt: v.number(),
 };
 
+// A comment on a whole style ("the look in general"), not on one frame.
+export const reviewStyleCommentFields = {
+  projectId: v.id("reviewProjects"),
+  styleId: v.id("worldStyles"),
+  versionId: v.optional(v.id("reviewVersions")),
+  authorEmail: v.optional(v.string()),
+  authorName: v.string(),
+  authorRole: v.union(v.literal("director"), v.literal("viewer"), v.literal("owner"), v.literal("agent")),
+  body: v.string(),
+  resolvedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  updatedAt: v.number(),
+};
+
 export const reviewCommentFields = {
   projectId: v.id("reviewProjects"),
   assetId: v.id("assets"),

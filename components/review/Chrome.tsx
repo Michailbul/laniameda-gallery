@@ -11,6 +11,7 @@ import type { StyleMark } from "./Grid";
 import { Check, ChevronDown, Menu } from "./icons";
 import { AllFoldersIcon, FolderIcon } from "./folder-icons";
 import { Floating, usePopover } from "./Floating";
+import { StyleTalk } from "./StyleTalk";
 
 // The page chrome: the folder nav on the left and the bar on top (rounds as
 // milestones in the middle, then styles, the feedback filter and frame
@@ -111,7 +112,7 @@ export const Sidebar = memo(function Sidebar(props: SidebarProps) {
 /** "Locations · Styles": the two ways to read a round. */
 export function ModeSwitch({ mode, folderLabel, onMode }: { mode: ReviewMode; folderLabel: string; onMode: (mode: ReviewMode) => void }) {
   return (
-    <div className="rv-mode" role="group" aria-label="View the round by">
+    <div className="rv-mode" role="group" aria-label="View the round by" data-tour="mode">
       <button type="button" aria-pressed={mode === "folders"} onClick={() => onMode("folders")}>{folderLabel}</button>
       <button type="button" aria-pressed={mode === "styles"} onClick={() => onMode("styles")}>Styles</button>
     </div>
@@ -189,12 +190,14 @@ type TopBarProps = {
   bell?: ReactNode;
   // "Locations · Styles": the folder view or the style book.
   modeSwitch?: ReactNode;
+  /** "How it works": plays the tour. */
+  onTour?: () => void;
 };
 
 export const TopBar = memo(function TopBar(props: TopBarProps) {
   const {
     mediaBase, styles, style, allCount, onStyle, filter, filterCounts, onFilter, isOwner, directorName,
-    roundMessage, size, onSize, onMenu, menuLabel, onRemoveStyle, styleMarks, people, onStyleVerdict, bell, modeSwitch,
+    roundMessage, size, onSize, onMenu, menuLabel, onRemoveStyle, styleMarks, people, onStyleVerdict, bell, modeSwitch, onTour,
   } = props;
   const [styleMenu, setStyleMenu, styleMenuRef, styleMenuPop] = usePopover();
   const [menuStyle, setMenuStyle] = useState<StyleChip | null>(null);
@@ -226,7 +229,8 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
             type="button"
             ref={keysRef}
             className="rv-btn round"
-            aria-label="Keyboard keys"
+            data-tour="help"
+            aria-label="How it works and keys"
             aria-expanded={keysOpen}
             onClick={() => setKeysOpen(!keysOpen)}
           >
@@ -234,6 +238,12 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
           </button>
           {keysOpen ? (
             <Floating anchorRef={keysRef} popRef={keysPop} placement="bottom-end" className="rv-keysheet" label="Keys">
+              {onTour ? (
+                <button type="button" className="rv-keys-tour" onClick={() => { setKeysOpen(false); onTour(); }}>
+                  <b>How it works</b>
+                  <span>A one-minute tour of the page</span>
+                </button>
+              ) : null}
               <div className="rv-pop-h" style={{ padding: "4px 0 12px" }}>Keys on the frame under the pointer</div>
               <dl>
                 <dt><kbd>1</kbd></dt><dd>Like</dd>
@@ -275,7 +285,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
                 </span>
               </button>
             ) : null}
-            {styles.map((row) => {
+            {styles.map((row, chipIndex) => {
               const short = onRemoveStyle && row.roundCount < STYLE_MIN_FRAMES;
               const mark = styleMarks.get(row.id);
               return (
@@ -312,7 +322,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
                     </span>
                   </button>
                   {onStyleVerdict ? (
-                    <span className="rv-style-vote">
+                    <span className="rv-style-vote" data-tour={chipIndex === 0 ? "style-vote" : undefined}>
                       <button
                         type="button"
                         className="like"
@@ -331,6 +341,7 @@ export const TopBar = memo(function TopBar(props: TopBarProps) {
                       >
                         Dislike style
                       </button>
+                      <StyleTalk styleId={row.id} label={row.label} tourTarget={chipIndex === 0} />
                     </span>
                   ) : null}
                   {onRemoveStyle ? (

@@ -22,6 +22,8 @@ import { Bell } from "./Bell";
 import type { Person } from "./people";
 import type { LightboxVerdict } from "./Lightbox";
 import type { Audience } from "./OwnerTools";
+import { StyleTalkContext, type StyleTalkInfo } from "./StyleTalk";
+import { Tour, markTourSeen, tourSeen, type TourStep } from "./Tour";
 
 // The review page's client app. The server hands it the first round and the
 // feedback (so the first paint has every frame); from then on it subscribes
@@ -87,7 +89,7 @@ export function ReviewApp(props: Props) {
 
 const SECTIONS: ReviewSection[] = ["locations", "characters", "scenes"];
 const SECTION_ORDER: Record<ReviewSection, number> = { locations: 0, characters: 1, scenes: 2 };
-const EMPTY_FEEDBACK: ReviewFeedback = { people: [], verdicts: [], styleVerdicts: [], comments: [], reviewers: [], openSignIn: undefined };
+const EMPTY_FEEDBACK: ReviewFeedback = { people: [], verdicts: [], styleVerdicts: [], comments: [], styleComments: [], reviewers: [], openSignIn: undefined };
 const FILTER_KEYS: FeedbackFilter[] = ["all", "liked", "disliked", "commented", "todo", "new", "feedback", "archived", "approved", "waiting"];
 
 const errorText = (error: unknown) =>
@@ -821,6 +823,104 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     window.scrollTo({ top: 0 });
   }, [changeView, view.mode]);
   const onSize = useCallback((size: GridSize) => changeView({ size }), [changeView]);
+
+  // ---------------------------------------------------------- tour (first visit)
+  // Producers and the director get a short tour the first time they open
+  // the review; "How it works" plays it again. Michael sees it only on ask.
+  const [touring, setTouring] = useState(false);
+  const startTour = useCallback(() => {
+    if (view.mode !== "folders") onMode("folders");
+    // Let the folder view paint before the tour measures it.
+    window.setTimeout(() => setTouring(true), view.mode !== "folders" ? 450 : 0);
+  }, [view.mode, onMode]);
+  const endTour = useCallback(() => {
+    setTouring(false);
+    markTourSeen(slug);
+  }, [slug]);
+  useEffect(() => {
+    if (isOwner || isPreview || tourSeen(slug)) return;
+    const timer = window.setTimeout(startTour, 900);
+    return () => window.clearTimeout(timer);
+    // Once per page load.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const tourSteps = useMemo<TourStep[]>(() => [
+    {
+      title: `Welcome to ${page.project.title}`,
+      body: "This page holds the art direction of the film, round by round. A one-minute tour shows how to find your way and how to tell us what you think.",
+    },
+    {
+      target: ".rv-nav, .rv-menu-btn",
+      title: "Grouped by location",
+      body: "Every place of the film, grouped by area. Pick one to see that place in all the styles we are trying.",
+    },
+    {
+      target: '[data-tour="mode"]',
+      title: "Locations or styles",
+      body: "Two ways to read the round. Locations groups the frames by place. Styles gives every look its own page, with the places in the same order, so looks compare side by side.",
+    },
+    {
+      target: ".rv-styles",
+      title: "Grouped by style",
+      body: "Each card is one look. Click a card to see only that style; click it again to see them all.",
+    },
+    {
+      target: '[data-tour="style-vote"]',
+      reveal: true,
+      title: "Keep a style or drop it",
+      body: "Hover a style card. Like style tells us to keep developing that look and bring it into the next rounds. Dislike style tells us to stop.",
+    },
+    {
+      target: '[data-tour="style-talk"]',
+      reveal: true,
+      title: "Comment on a whole style",
+      body: "Say what works in a look as a whole, or what doesn't. Everyone on the review reads it, and we answer right there.",
+    },
+    {
+      target: ".rv-groups .rv-t",
+      title: "One frame",
+      body: canVote
+        ? "Hover a frame and press 1 to like it, 2 to dislike it, C to comment on it, O to open it large. The buttons on the frame do the same."
+        : "Hover a frame to see what it is, and press O to open it large.",
+    },
+    {
+      target: ".rv-ms",
+      title: "Rounds",
+      body: "New work arrives as a new round. Earlier rounds stay exactly as they were sent; click one to look back.",
+    },
+    {
+      target: '[data-tour="help"]',
+      title: "Any time",
+      body: "This button plays the tour again and lists the keys.",
+    },
+  ], [page.project.title, canVote]);
+
+  // ---------------------------------------------------------- style comments
+  const styleTalk = useMemo<StyleTalkInfo>(() => ({
+    slug,
+    canComment: canVote,
+    isOwner,
+    people,
+    counts: new Map((feedback.styleComments ?? []).map((row) => [row.styleId as string, { count: row.count, open: row.open }])),
+    onToast: toast,
+  }), [slug, canVote, isOwner, people, feedback.styleComments, toast]);
+
+  // ---------------------------------------------------------- send options (owner)
+  const sendInfo = useMemo(() => {
+    if (!isOwner) return { hiddenStyles: { all: [], approved: [] }, recipients: [] as string[] };
+    const hidden = new Map(page.styles.filter((row) => row.hidden).map((row) => [row.id as string, row.name || row.label]));
+    const all = new Set<string>();
+    const approved = new Set<string>();
+    for (const item of page.items) {
+      if (!item.styleId || !hidden.has(item.styleId) || item.archived) continue;
+      all.add(item.styleId);
+      if (!item.held) approved.add(item.styleId);
+    }
+    const label = (id: string) => hidden.get(id)!;
+    const recipients = feedback.reviewers
+      .map((row) => firstName(row.name || row.email.split("@")[0]!));
+    return { hiddenStyles: { all: [...all].map(label), approved: [...approved].map(label) }, recipients };
+  }, [isOwner, page.styles, page.items, feedback.reviewers]);
   const onViewList = useCallback((key: ListKey | null) => {
     setViewingList(key);
     // A list is shown in the folder view.
@@ -1065,7 +1165,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     const onKey = (event: KeyboardEvent) => {
       const state = keys.current;
       if (state.open || isTyping(event.target)) return;
-      if (document.querySelector(".rv-dialog-back")) return;
+      if (document.querySelector(".rv-dialog-back, .rv-tour")) return;
       const key = event.key.toLowerCase();
       if (event.altKey && (key === "arrowleft" || key === "arrowright")) {
         event.preventDefault();
@@ -1250,6 +1350,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
       data-mode={isBook ? "styles" : undefined}
       data-nav={navOpen && !isBook ? "" : undefined}
     >
+      <StyleTalkContext.Provider value={styleTalk}>
       {isBook ? (
         <Suspense fallback={null}>
         <StyleBook
@@ -1280,6 +1381,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           people={people}
           onStyleVerdict={canVote ? applyStyleVerdict : undefined}
           onToast={toast}
+          onTour={startTour}
         />
         </Suspense>
       ) : (
@@ -1326,6 +1428,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           onStyleVerdict={canVote ? applyStyleVerdict : undefined}
           bell={isPreview ? undefined : bell}
           modeSwitch={modeSwitch}
+          onTour={startTour}
         />
 
         <main className="rv-content" data-loading={loadingRound ? "" : undefined}>
@@ -1339,6 +1442,8 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
                 itemCount={page.items.length}
                 onShowRound={onRound}
                 onToast={toast}
+                hiddenStyles={sendInfo.hiddenStyles}
+                recipients={sendInfo.recipients}
               />
             </Suspense>
           ) : null}
@@ -1522,6 +1627,9 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           ))}
         </div>
       ) : null}
+
+      {touring ? <Tour steps={tourSteps} onClose={endTour} /> : null}
+      </StyleTalkContext.Provider>
 
       {lostAccess ? (
         <div className="rv-dialog-back">

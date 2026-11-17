@@ -75,10 +75,10 @@ type Target = {
   suggestions: Suggestion[];
 };
 type FeedEvent = {
-  type: "verdict" | "comment" | "style_verdict"; asset?: string; code?: string; style?: string; verdict?: "like" | "dislike"; commentId?: string; body?: string;
+  type: "verdict" | "comment" | "style_verdict" | "style_comment"; asset?: string; code?: string; style?: string; verdict?: "like" | "dislike"; commentId?: string; body?: string;
   by: string; role: string; at: number; resolved?: boolean; version?: string; folder?: string; styleId?: string;
 };
-type Feed = { feedbackSeenAt?: number; counts: { likes: number; dislikes: number; comments: number; styleLikes?: number; styleDislikes?: number }; events: FeedEvent[] };
+type Feed = { feedbackSeenAt?: number; counts: { likes: number; dislikes: number; comments: number; styleComments?: number; styleLikes?: number; styleDislikes?: number }; events: FeedEvent[] };
 
 class ReviewInputError extends Error {}
 const fail = (message: string): never => {
@@ -338,8 +338,17 @@ export async function POST(request: Request) {
         if (event.verdict === "dislike") row.dislikes.push(event.by);
         styleSummary.set(key, row);
       }
+      // Comments on a whole style.
+      const styleComments = visible
+        .filter((row) => row.type === "style_comment")
+        .map((row) => ({
+          style: row.styleId ? styles.get(row.styleId) ?? row.style : row.style,
+          styleHandle: row.styleId ? styleHandle(row.styleId) : undefined,
+          body: row.body, commentId: row.commentId, resolved: row.resolved,
+          by: row.by, role: row.role, round: row.version, at: row.at, when: iso(row.at),
+        }));
       const events = visible
-        .filter((row) => row.type !== "style_verdict" && row.asset && row.code)
+        .filter((row) => row.type !== "style_verdict" && row.type !== "style_comment" && row.asset && row.code)
         .map((row) => ({
           type: row.type, code: row.code!, asset: row.asset!, folder: row.folder,
           style: row.styleId ? styles.get(row.styleId) ?? styleHandle(row.styleId) : undefined,
@@ -363,7 +372,7 @@ export async function POST(request: Request) {
         row.lastAt = Math.max(row.lastAt, event.at);
         frames.set(event.asset, row);
       }
-      const latest = [...events, ...styleEvents].reduce((max, row) => Math.max(max, row.at), 0);
+      const latest = [...events, ...styleEvents, ...styleComments].reduce((max, row) => Math.max(max, row.at), 0);
       return NextResponse.json({
         project: input.project,
         feedbackSeenAt: iso(feed.feedbackSeenAt ?? seenAt),
@@ -376,12 +385,14 @@ export async function POST(request: Request) {
           openComments: events.filter((row) => row.type === "comment" && !row.resolved).length,
           styleLikes: styleEvents.filter((row) => row.verdict === "like").length,
           styleDislikes: styleEvents.filter((row) => row.verdict === "dislike").length,
+          styleComments: styleComments.length,
         },
         styles: [...styleSummary.values()],
         styleVerdicts: styleEvents,
+        styleComments,
         frames: [...frames.values()].sort((a, b) => b.lastAt - a.lastAt).map(({ lastAt: _lastAt, ...row }) => row),
         events,
-        next: events.length || styleEvents.length
+        next: events.length || styleEvents.length || styleComments.length
           ? "Act on what the director said, reply with review_comment {op: \"add\"} saying what was done, and resolve the comment once handled. Pass cursor as since next time to read only what is new."
           : "Nothing new.",
       });
@@ -698,10 +709,12 @@ export async function POST(request: Request) {
       if (action === "publish") {
         const result = await client.mutation(api.review.publishDraft, {
           ownerUserId, slug: input.project, title: input.title, note: input.note, label: input.label,
+          includeWaiting: input.includeWaiting, showStyles: input.showStyles, notify: input.notify,
         });
         const overview = await overviewOf(input.project);
         return NextResponse.json({
           ok: true, project: input.project, current: result.label, frames: result.items, held: result.held, discarded: result.discarded,
+          shownStyles: result.shownStyles, emailed: result.emailed,
           url: reviewUrl(input.project), publicUrl: overview.project.publicUrl,
           next: `The director now sees this round.${result.held ? ` ${result.held} frames still waiting for Michael's approval stayed with him in the next draft.` : ""}${result.discarded ? ` ${result.discarded} discarded frames were left out.` : ""} review_round {op: "set_current", round} rolls back.`,
         });

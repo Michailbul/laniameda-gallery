@@ -52,6 +52,8 @@ type Props = {
   size: GridSize;
   onSize: (size: GridSize) => void;
   modeSwitch: ReactNode;
+  /** "How it works": plays the tour (in the Locations view). */
+  onTour?: () => void;
   rounds: ReviewVersion[];
   shownId?: string;
   onRound: (version: ReviewVersion) => void;
@@ -82,7 +84,7 @@ const pageId = (key: string) => `rv-bk-${key}`;
 export function StyleBook(props: Props) {
   const {
     title, groups, total, folderName, mediaBase, isOwner, canVote, archived, approved, selected, size, onSize, modeSwitch,
-    rounds, shownId, onRound, loading, targetRef, onAct, onOpen, onToggle, onRange, onClear, styleMarks, people, onStyleVerdict, onToast,
+    rounds, shownId, onRound, loading, targetRef, onAct, onOpen, onToggle, onRange, onClear, styleMarks, people, onStyleVerdict, onToast, onTour,
   } = props;
   const headRef = useRef<HTMLElement>(null);
   const indexRef = useRef<HTMLDivElement>(null);
@@ -238,6 +240,7 @@ export function StyleBook(props: Props) {
             {groups.length > 0 ? (
               <BookPdf title={title} round={shown?.label ?? ""} groups={groups} active={active} archived={archived} onToast={onToast} />
             ) : null}
+            {onTour ? <button type="button" className="rv-btn ghost rv-tour-btn" onClick={onTour}>How it works</button> : null}
             {modeSwitch}
             <div className="rv-size rv-bk-size" role="group" aria-label="Frame size">
               {(["s", "m", "l"] as GridSize[]).map((value) => (

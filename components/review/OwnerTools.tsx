@@ -32,9 +32,16 @@ type StripProps = {
   itemCount: number;
   onShowRound: (version: ReviewVersion | null) => void;
   onToast: (text: string, error?: boolean) => void;
+  /** Hidden styles that hold frames of this round, by label (all of them, and those with approved frames). */
+  hiddenStyles?: { all: string[]; approved: string[] };
+  /** Who gets the round email, by first name. */
+  recipients?: string[];
 };
 
-export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRound, onToast }: StripProps) {
+const names = (list: string[]) =>
+  list.length <= 1 ? list.join("") : `${list.slice(0, -1).join(", ")} and ${list[list.length - 1]}`;
+
+export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRound, onToast, hiddenStyles, recipients = [] }: StripProps) {
   const publish = useMutation(api.review.publishDraft);
   const discard = useMutation(api.review.discardDraft);
   const makeCurrent = useMutation(api.review.setCurrentVersion);
@@ -42,6 +49,11 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
   const [title, setTitle] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  // Send options (Michael, 17 Nov 2026): send everything he did not discard,
+  // make its styles visible, and email the producers.
+  const [withWaiting, setWithWaiting] = useState(true);
+  const [showStyles, setShowStyles] = useState(true);
+  const [notify, setNotify] = useState(true);
 
   if (!shown || (shown.isCurrent && !shown.isDraft)) return null;
 
@@ -89,8 +101,8 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
             <button
               type="button"
               className="rv-btn accent"
-              disabled={busy || sending === 0}
-              title={sending === 0 ? "Approve the frames to send first" : undefined}
+              disabled={busy || sending + waiting === 0}
+              title={sending + waiting === 0 ? "Nothing to send yet" : undefined}
               onClick={() => {
                 setTitle(shown.title ?? "");
                 setNote(shown.note ?? "");
@@ -127,9 +139,46 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
               <>
                 <h4>Send {shown.label} to producers</h4>
                 <p>
-                  {changes}. {plural(sending, "approved frame")} in all. {audience.name} and the producers see it as soon as you send it.
-                  {later ? ` ${later[0]!.toUpperCase()}${later.slice(1)} stay with you in the next round.` : ""}
+                  {withWaiting && waiting
+                    ? `${plural(sending + waiting, "frame")} go out: every frame you didn't discard.`
+                    : `${changes}. ${plural(sending, "approved frame")} in all.`}
+                  {" "}{audience.name} and the producers see it as soon as you send it.
+                  {withWaiting
+                    ? discarded ? ` The ${discarded} discarded stay with you.` : ""
+                    : later ? ` ${later[0]!.toUpperCase()}${later.slice(1)} stay with you in the next round.` : ""}
                 </p>
+                <div className="rv-sendopts">
+                  {waiting ? (
+                    <label className="rv-check">
+                      <input type="checkbox" checked={withWaiting} onChange={(event) => setWithWaiting(event.target.checked)} />
+                      <span>
+                        <b>Send the {plural(waiting, "waiting frame")} too</b>
+                        <i>Approves them all as they go out. Discarded frames never go.</i>
+                      </span>
+                    </label>
+                  ) : null}
+                  {(() => {
+                    const toShow = (withWaiting ? hiddenStyles?.all : hiddenStyles?.approved) ?? [];
+                    return toShow.length ? (
+                      <label className="rv-check">
+                        <input type="checkbox" checked={showStyles} onChange={(event) => setShowStyles(event.target.checked)} />
+                        <span>
+                          <b>Show {plural(toShow.length, "hidden style")} to them</b>
+                          <i>{toShow.slice(0, 8).join(", ")}{toShow.length > 8 ? ` and ${toShow.length - 8} more` : ""}. Unticked, those frames go out but stay out of sight.</i>
+                        </span>
+                      </label>
+                    ) : null;
+                  })()}
+                  {recipients.length ? (
+                    <label className="rv-check">
+                      <input type="checkbox" checked={notify} onChange={(event) => setNotify(event.target.checked)} />
+                      <span>
+                        <b>Email {names(recipients)}</b>
+                        <i>A short note from your Gmail with a link to the review.</i>
+                      </span>
+                    </label>
+                  ) : null}
+                </div>
                 <label>
                   Title, optional
                   <input className="rv-input" value={title} placeholder={`Round ${shown.number}`} onChange={(event) => setTitle(event.target.value)} autoFocus />
@@ -144,9 +193,16 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
                     type="button"
                     className="rv-btn accent"
                     disabled={busy}
-                    onClick={() => void run(() => publish({ slug, title, note }), () => {
+                    onClick={() => void run(async () => {
+                      const result = await publish({
+                        slug, title, note,
+                        includeWaiting: withWaiting && waiting > 0,
+                        showStyles,
+                        notify: notify && recipients.length > 0,
+                      });
+                      onToast(`Sent ${plural(result.items, "frame")}. ${sees(audience)} ${shown.label} now.${result.emailed ? ` Email on its way to ${names(recipients)}.` : ""}`);
+                    }, () => {
                       setDialog(null);
-                      onToast(`Sent. ${sees(audience)} ${shown.label} now.`);
                       onShowRound(null);
                     })}
                   >

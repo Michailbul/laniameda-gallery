@@ -1,6 +1,7 @@
 import { ConvexError, v, type Infer } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internalQuery, mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { REVIEWER_SUBJECT_PREFIX, TEASER_SUBJECT_PREFIX, actorMatchesUserId, signedOwnerMutation, signedOwnerQuery } from "./actor";
 import { canActorAccessOwnerUserId } from "./authz";
 import { buildR2PublicUrl } from "./r2_url";
@@ -517,6 +518,10 @@ export const feedback = query({
       assetId: v.id("assets"), count: v.number(), open: v.number(), lastAt: v.number(),
       lastByOwner: v.boolean(),
     })),
+    // Comments on whole styles, counted per style.
+    styleComments: v.optional(v.array(v.object({
+      styleId: v.id("worldStyles"), count: v.number(), open: v.number(), lastAt: v.number(),
+    }))),
     reviewers: v.array(v.object({
       email: v.string(), name: v.optional(v.string()), role: v.string(), lastSeenAt: v.optional(v.number()),
       aliases: v.optional(v.array(v.string())),
@@ -542,6 +547,18 @@ export const feedback = query({
       .query("reviewComments")
       .withIndex("by_project_createdAt", (q) => q.eq("projectId", project._id))
       .collect();
+    const styleCommentRows = await ctx.db
+      .query("reviewStyleComments")
+      .withIndex("by_project_createdAt", (q) => q.eq("projectId", project._id))
+      .collect();
+    const byStyle = new Map<string, { styleId: Id<"worldStyles">; count: number; open: number; lastAt: number }>();
+    for (const row of styleCommentRows) {
+      const entry = byStyle.get(row.styleId) ?? { styleId: row.styleId, count: 0, open: 0, lastAt: 0 };
+      entry.count += 1;
+      if (!row.resolvedAt) entry.open += 1;
+      entry.lastAt = Math.max(entry.lastAt, row.createdAt);
+      byStyle.set(row.styleId, entry);
+    }
     const byAsset = new Map<string, { assetId: Id<"assets">; count: number; open: number; lastAt: number; lastByOwner: boolean }>();
     for (const row of commentRows) {
       const entry = byAsset.get(row.assetId) ?? { assetId: row.assetId, count: 0, open: 0, lastAt: 0, lastByOwner: false };
@@ -583,6 +600,7 @@ export const feedback = query({
         role: row.role, verdict: row.verdict, updatedAt: row.updatedAt,
       })),
       comments: [...byAsset.values()],
+      styleComments: [...byStyle.values()],
       reviewers: viewer.role === "owner"
         ? project.reviewers.map((row) => ({
             email: row.email, name: row.name, role: row.role, lastSeenAt: row.lastSeenAt,
@@ -882,6 +900,113 @@ export const deleteComment = mutation({
 /** Owner: mark a comment handled (or reopen it). */
 export const resolveComment = mutation({
   args: { slug: v.string(), commentId: v.id("reviewComments"), resolved: v.boolean() },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role !== "owner") throw new ConvexError("Only the owner can resolve comments.");
+    const row = await ctx.db.get(args.commentId);
+    if (!row || row.projectId !== project._id) return null;
+    await ctx.db.patch(row._id, { resolvedAt: args.resolved ? Date.now() : undefined, updatedAt: Date.now() });
+    return null;
+  },
+});
+
+// ---------------------------------------------------------------- style comments
+
+// A comment on a whole style ("the look in general"), next to "Like style ·
+// Dislike style" (Michael, 17 Nov 2026: "make sure they can add comment to
+// whole style"). It belongs to the style, never to a frame.
+
+const styleCommentValidator = v.object({
+  id: v.id("reviewStyleComments"),
+  styleId: v.id("worldStyles"),
+  who: v.optional(v.string()),
+  authorName: v.string(),
+  authorEmail: v.optional(v.string()),
+  authorRole: v.string(),
+  body: v.string(),
+  versionLabel: v.optional(v.string()),
+  resolvedAt: v.optional(v.number()),
+  createdAt: v.number(),
+  mine: v.boolean(),
+});
+
+/** One style's comment thread, oldest first. */
+export const styleComments = query({
+  args: { slug: v.string(), styleId: v.id("worldStyles") },
+  returns: v.array(styleCommentValidator),
+  handler: async (ctx, args) => {
+    const project = await projectBySlug(ctx, args.slug);
+    if (!project) return [];
+    const viewer = await resolveViewer(ctx, project);
+    if (!viewer) return [];
+    const rows = await ctx.db
+      .query("reviewStyleComments")
+      .withIndex("by_project_style_createdAt", (q) => q.eq("projectId", project._id).eq("styleId", args.styleId))
+      .collect();
+    const labels = new Map((await versionsOf(ctx, project._id)).map((row) => [row._id as string, row.label]));
+    const whoOf = peopleIds(project);
+    return rows.map((row) => ({
+      id: row._id,
+      styleId: row.styleId,
+      who: row.authorRole === "agent" ? "agent" : whoOf(row.authorEmail ?? "owner"),
+      authorName: row.authorName,
+      authorEmail: viewer.role === "owner" ? row.authorEmail : undefined,
+      authorRole: row.authorRole,
+      body: row.body,
+      versionLabel: row.versionId ? labels.get(row.versionId) : undefined,
+      resolvedAt: row.resolvedAt,
+      createdAt: row.createdAt,
+      mine: viewer.email ? row.authorEmail === viewer.email : viewer.role === "owner" && row.authorRole === "owner",
+    }));
+  },
+});
+
+/** Comment on a whole style of the project. */
+export const addStyleComment = mutation({
+  args: { slug: v.string(), styleId: v.id("worldStyles"), body: v.string() },
+  returns: v.object({ id: v.id("reviewStyleComments") }),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    if (viewer.role === "viewer") throw new ConvexError("This account can look but not comment.");
+    if (!project.styles.some((row) => row.styleId === args.styleId)) throw new ConvexError("That style is not in this review.");
+    const body = args.body.trim();
+    if (!body) throw new ConvexError("Write a comment first.");
+    if (body.length > COMMENT_MAX) throw new ConvexError(`At most ${COMMENT_MAX} characters.`);
+    const now = Date.now();
+    const id = await ctx.db.insert("reviewStyleComments", {
+      projectId: project._id,
+      styleId: args.styleId,
+      versionId: project.currentVersionId,
+      authorEmail: viewer.email,
+      authorName: viewer.name ?? viewer.email ?? "Michael",
+      authorRole: viewer.role,
+      body,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { id };
+  },
+});
+
+/** Delete your own style comment (the owner may delete any). */
+export const deleteStyleComment = mutation({
+  args: { slug: v.string(), commentId: v.id("reviewStyleComments") },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const { project, viewer } = await requireViewer(ctx, args.slug);
+    const row = await ctx.db.get(args.commentId);
+    if (!row || row.projectId !== project._id) return null;
+    const mine = viewer.email ? row.authorEmail === viewer.email : row.authorRole === "owner";
+    if (!mine && viewer.role !== "owner") throw new ConvexError("You can delete only your own comments.");
+    await ctx.db.delete(row._id);
+    return null;
+  },
+});
+
+/** Owner: mark a style comment handled (or reopen it). */
+export const resolveStyleComment = mutation({
+  args: { slug: v.string(), commentId: v.id("reviewStyleComments"), resolved: v.boolean() },
   returns: v.null(),
   handler: async (ctx, args) => {
     const { project, viewer } = await requireViewer(ctx, args.slug);
@@ -1460,6 +1585,11 @@ export const feedbackFeed = signedOwnerQuery({
       .withIndex("by_project_updatedAt", (q) => q.eq("projectId", project._id).gte("updatedAt", since))
       .order("desc")
       .take(limit);
+    const styleCommentRows = await ctx.db
+      .query("reviewStyleComments")
+      .withIndex("by_project_createdAt", (q) => q.eq("projectId", project._id).gte("createdAt", since))
+      .order("desc")
+      .take(limit);
     const folders = new Map((await foldersOf(ctx, project._id)).map((row) => [row._id as string, row]));
     const versions = new Map((await versionsOf(ctx, project._id)).map((row) => [row._id as string, row.label]));
     const styleLabels = new Map<string, string>();
@@ -1501,6 +1631,13 @@ export const feedbackFeed = signedOwnerQuery({
         ...(await place(row.assetId)),
       });
     }
+    for (const row of styleCommentRows) {
+      events.push({
+        type: "style_comment", styleId: row.styleId, style: styleLabels.get(row.styleId) ?? row.styleId, commentId: row._id,
+        body: row.body, by: row.authorEmail ?? row.authorName, role: row.authorRole, at: row.createdAt,
+        resolved: Boolean(row.resolvedAt), version: row.versionId ? versions.get(row.versionId) : undefined,
+      });
+    }
     events.sort((a, b) => b.at - a.at);
     return {
       feedbackSeenAt: project.feedbackSeenAt,
@@ -1508,6 +1645,7 @@ export const feedbackFeed = signedOwnerQuery({
         likes: verdicts.filter((row) => row.verdict === "like").length,
         dislikes: verdicts.filter((row) => row.verdict === "dislike").length,
         comments: commentRows.length,
+        styleComments: styleCommentRows.length,
         styleLikes: styleVerdicts.filter((row) => row.verdict === "like").length,
         styleDislikes: styleVerdicts.filter((row) => row.verdict === "dislike").length,
       },
@@ -2144,7 +2282,17 @@ export const createDraft = signedOwnerMutation({
 
 /** Publish the draft: it becomes the round the director sees. */
 export const publishDraft = signedOwnerMutation({
-  args: { ...ownerArgs, title: v.optional(v.string()), note: v.optional(v.string()), label: v.optional(v.string()) },
+  args: {
+    ...ownerArgs, title: v.optional(v.string()), note: v.optional(v.string()), label: v.optional(v.string()),
+    // Send the frames still waiting for approval too: everything not
+    // discarded goes out (Michael, 17 Nov 2026: "promote to the version
+    // public that producers can see when I'm done with discarding").
+    includeWaiting: v.optional(v.boolean()),
+    // Make every style that has a frame in the sent round visible to them.
+    showStyles: v.optional(v.boolean()),
+    // Email the reviewers that a new round is up.
+    notify: v.optional(v.boolean()),
+  },
   returns: v.object({
     versionId: v.id("reviewVersions"),
     label: v.string(),
@@ -2153,6 +2301,9 @@ export const publishDraft = signedOwnerMutation({
     held: v.number(),
     // Discarded (archived) frames left out of the round, carried as waiting.
     discarded: v.number(),
+    // Styles made visible, and reviewers who will get an email.
+    shownStyles: v.optional(v.number()),
+    emailed: v.optional(v.number()),
   }),
   handler: async (ctx, args) => {
     const project = await requireOwnedProject(ctx, args.ownerUserId!, args.slug);
@@ -2168,12 +2319,28 @@ export const publishDraft = signedOwnerMutation({
     // discarded (archived) leaves the round being published and waits in the
     // next draft, held, so a frame restored from the archive later comes back
     // as waiting for his approval, never straight into a sent round.
-    const outRows = rows.filter((row) => row.held || archived.has(row.assetId));
+    const outRows = rows.filter((row) => archived.has(row.assetId) || (row.held && !args.includeWaiting));
     const items = rows.length - outRows.length;
     if (items === 0) throw new ConvexError(outRows.length ? "Nothing is approved yet. Approve the frames to send first." : "The draft round is empty.");
     const now = Date.now();
     const carried = outRows.map(({ _id, _creationTime, versionId, ...rest }) => { void _creationTime; void versionId; void _id; return rest; });
     for (const row of outRows) await ctx.db.delete(row._id);
+    const outIds = new Set(outRows.map((row) => row._id as string));
+    const sent = rows.filter((row) => !outIds.has(row._id));
+    // Waiting frames sent along become approved frames of the round.
+    if (args.includeWaiting) for (const row of sent) if (row.held) await ctx.db.patch(row._id, { held: false });
+    let shownStyles = 0;
+    if (args.showStyles) {
+      const sentStyles = new Set(sent.map((row) => row.styleId).filter(Boolean) as string[]);
+      const styles = project.styles.map((entry) => {
+        if (!entry.hidden || !sentStyles.has(entry.styleId)) return entry;
+        shownStyles += 1;
+        const { hidden, ...rest } = entry;
+        void hidden;
+        return rest;
+      });
+      if (shownStyles) await ctx.db.patch(project._id, { styles });
+    }
     const label = args.label?.trim() || draft.label;
     await ctx.db.patch(draft._id, {
       status: "published",
@@ -2188,7 +2355,11 @@ export const publishDraft = signedOwnerMutation({
       for (const row of carried) await ctx.db.insert("reviewItems", { ...row, versionId: next._id, held: true });
     }
     const discarded = outRows.filter((row) => archived.has(row.assetId)).length;
-    return { versionId: draft._id, label, items, held: carried.length - discarded, discarded };
+    const recipients = args.notify ? project.reviewers.filter((row) => row.email) : [];
+    if (recipients.length) {
+      await ctx.scheduler.runAfter(0, internal.reviewMail.roundPublished, { projectId: project._id, versionId: draft._id });
+    }
+    return { versionId: draft._id, label, items, held: carried.length - discarded, discarded, shownStyles, emailed: recipients.length };
   },
 });
 
@@ -2554,5 +2725,35 @@ export const removeStyle = signedOwnerMutation({
       });
     }
     return { round: version.label, removed };
+  },
+});
+
+/** For the round email: who gets it and what to say. */
+export const roundMailData = internalQuery({
+  args: { projectId: v.id("reviewProjects"), versionId: v.id("reviewVersions") },
+  returns: v.any(),
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    const version = await ctx.db.get(args.versionId);
+    if (!project || !version) return null;
+    const rows = await itemsOf(ctx, version._id);
+    const visibleStyles = new Set(project.styles.filter((row) => !row.hidden).map((row) => row.styleId as string));
+    const shown = rows.filter((row) => !row.styleId || visibleStyles.has(row.styleId));
+    const previous = (await versionsOf(ctx, project._id))
+      .filter((row) => row.status === "published" && row.number < version.number)
+      .sort((a, b) => b.number - a.number)[0];
+    const before = previous ? new Set((await itemsOf(ctx, previous._id)).map((row) => row.assetId as string)) : new Set<string>();
+    return {
+      title: project.title,
+      publicUrl: project.publicUrl,
+      slug: project.slug,
+      label: version.label,
+      roundTitle: version.title,
+      note: version.note,
+      frames: shown.length,
+      fresh: shown.filter((row) => !before.has(row.assetId)).length,
+      styles: new Set(shown.map((row) => row.styleId).filter(Boolean)).size,
+      reviewers: project.reviewers.map((row) => ({ email: row.email, name: row.name })),
+    };
   },
 });

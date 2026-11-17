@@ -191,6 +191,9 @@ export const reviewRoundSchema = z.object({
   title: z.string().trim().max(120).optional().describe("publish: a short title for the round (\"New locations\")."),
   note: z.string().trim().max(1000).optional().describe("publish: a plain note to the director about what changed."),
   label: z.string().trim().max(20).optional().describe("publish: override the label (default v0.<number>)."),
+  includeWaiting: z.boolean().optional().describe("publish: also send the frames still waiting for Michael's approval (everything not discarded). Only on his word."),
+  showStyles: z.boolean().optional().describe("publish: make every hidden style that has a frame in the sent round visible to the director."),
+  notify: z.boolean().optional().describe("publish: email the reviewers that the round is up (from Michael's Gmail)."),
   confirmed,
 });
 
