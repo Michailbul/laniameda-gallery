@@ -1561,3 +1561,5 @@ button.rv-bk-round:hover, .rv-bk-round[aria-expanded="true"] { color: var(--text
 .rv-car-arrow.l { left: 0; }
 .rv-car-arrow.r { right: 0; }
 @media (hover: none) { .rv-car-arrow { display: none; } }
+.rv-send-target { align-self: flex-start; }
+.rv-send-target button { padding: 0 14px; width: auto; letter-spacing: 0.08em; text-transform: uppercase; }

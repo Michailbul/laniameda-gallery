@@ -54,6 +54,8 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
   const [withWaiting, setWithWaiting] = useState(true);
   const [showStyles, setShowStyles] = useState(true);
   const [notify, setNotify] = useState(true);
+  // Update the round they see now, or send the draft as a new round.
+  const [target, setTarget] = useState<"current" | "new">("current");
 
   if (!shown || (shown.isCurrent && !shown.isDraft)) return null;
 
@@ -137,12 +139,24 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
           <div className="rv-pop rv-dialog" role="dialog" aria-modal="true" style={{ position: "static" }}>
             {dialog === "send" ? (
               <>
-                <h4>Send {shown.label} to producers</h4>
+                <h4>{current && target === "current" ? `Update ${current.label} for producers` : `Send ${shown.label} to producers`}</h4>
+                {current ? (
+                  <div className="rv-size rv-send-target" role="group" aria-label="Which round">
+                    <button type="button" aria-pressed={target === "current"} onClick={() => setTarget("current")}>
+                      Update {current.label}
+                    </button>
+                    <button type="button" aria-pressed={target === "new"} onClick={() => setTarget("new")}>
+                      New round {shown.label}
+                    </button>
+                  </div>
+                ) : null}
                 <p>
                   {withWaiting && waiting
                     ? `${plural(sending + waiting, "frame")} go out: every frame you didn't discard.`
                     : `${changes}. ${plural(sending, "approved frame")} in all.`}
-                  {" "}{audience.name} and the producers see it as soon as you send it.
+                  {" "}{current && target === "current"
+                    ? `${current.label} keeps its name, comments and likes, and shows these frames from now on.`
+                    : `${audience.name} and the producers see it as soon as you send it.`}
                   {withWaiting
                     ? discarded ? ` The ${discarded} discarded stay with you.` : ""
                     : later ? ` ${later[0]!.toUpperCase()}${later.slice(1)} stay with you in the next round.` : ""}
@@ -199,14 +213,15 @@ export function OwnerStrip({ slug, shown, current, audience, itemCount, onShowRo
                         includeWaiting: withWaiting && waiting > 0,
                         showStyles,
                         notify: notify && recipients.length > 0,
+                        intoCurrent: Boolean(current) && target === "current",
                       });
-                      onToast(`Sent ${plural(result.items, "frame")}. ${sees(audience)} ${shown.label} now.${result.emailed ? ` Email on its way to ${names(recipients)}.` : ""}`);
+                      onToast(`Sent ${plural(result.items, "frame")}. ${sees(audience)} ${result.label} now.${result.emailed ? ` Email on its way to ${names(recipients)}.` : ""}`);
                     }, () => {
                       setDialog(null);
                       onShowRound(null);
                     })}
                   >
-                    {busy ? "Sending…" : `Send ${shown.label}`}
+                    {busy ? "Sending…" : current && target === "current" ? `Update ${current.label}` : `Send ${shown.label}`}
                   </button>
                 </div>
               </>

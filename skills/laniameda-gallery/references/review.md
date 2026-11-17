@@ -128,7 +128,11 @@ world style's name, any case; a round as `"draft"`, `"current"`, `"v0.2"` or
    Michael's Gmail through ClawLink (Convex env `CLAWLINK_API_KEY` and
    `REVIEW_MAIL_CONNECTION`), one plain-text note per reviewer with a link to the
    project's public address (an HTML card went to Spam in the test); `convex/reviewMail.ts`. Agents pass the same
-   three flags only on his word.
+   three flags only on his word. A fourth choice at the top of the dialog
+   (Michael, 17 Nov 2026) is "Update v0.x", the default, or "New round":
+   updating puts the frames into the round the director sees now, which
+   keeps its label, comments and likes (`intoCurrent`); waiting and
+   discarded frames still stay with him in the next draft.
    `review_round {op: "publish", title, note, confirmed: true}`
    makes the draft the current round (on the page: "Send round to
    producers"). Only approved frames go out; the answer's `held` and
