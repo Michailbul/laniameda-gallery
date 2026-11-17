@@ -274,6 +274,9 @@
 
   async function run(instruction) {
     if (!target || busy || !instruction.trim()) return;
+    // The box can close while the writer works (Esc, a click outside, a new
+    // page): the answer still lands in the bar, with Undo on the next open.
+    const runTarget = target;
     const area = findTextarea();
     let prompt;
     let selection;
@@ -301,6 +304,7 @@
     busy = false;
     go.disabled = false;
     if (!res?.ok) { setLine(esc(res?.error || "Could not edit."), "err"); return; }
+    if (!target) target = runTarget;
 
     const text = String(res.text || "");
     // Which world's files the writer was given (read from the prompt's codes, else the chip's world).
@@ -392,11 +396,24 @@
     const hasBar = area && document.activeElement === area && area.selectionEnd > area.selectionStart;
     if (!hasBar && !pageSelection()) pill.style.display = "none";
   });
+  // It always goes away: a click outside, Esc anywhere, a new page, a reloaded extension.
   document.addEventListener("mousedown", (event) => {
     if (event.composedPath().includes(host)) return;
-    if (box.style.display === "block" && !busy) close();
+    if (box.style.display === "block") close();
   }, true);
   addEventListener("scroll", () => { pill.style.display = "none"; }, true);
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || event.composedPath().includes(host)) return;
+    if (box.style.display === "block") { event.preventDefault(); event.stopPropagation(); close(); }
+    else if (pill.style.display === "flex") pill.style.display = "none";
+  }, true);
+  let lastHref = location.href;
+  const watcher = setInterval(() => {
+    if (!alive()) { clearInterval(watcher); host.remove(); return; }
+    if (location.href === lastHref) return;
+    lastHref = location.href;
+    if (box.style.display === "block" || pill.style.display === "flex") close();
+  }, 600);
 
   // ⌥E opens it on the selection (or the whole prompt in the bar).
   document.addEventListener("keydown", (event) => {

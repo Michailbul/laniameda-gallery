@@ -415,6 +415,76 @@ export default defineSchema({
     .index("by_source_createdAt", ["sourceAssetId", "createdAt"])
     .index("by_owner_createdAt", ["ownerUserId", "createdAt"])
     .index("by_result", ["resultAssetId"]),
+  // The Midjourney fast helper (extension ⌥F): one frame, one instruction, a
+  // fal model, 1–4 takes, each one fal queue request on the owner's fal key
+  // (convex/mjQuickRuns.ts, convex/mjQuickRunner.ts). Takes stay here until
+  // Michael keeps one (saved to the gallery as an asset) or drops it; a take
+  // sent to Fantasy Studio records the draft it became there.
+  mjQuickRuns: defineTable({
+    ownerUserId: v.string(),
+    source: v.object({
+      // The frame as fal reads it: an R2 key the extension uploaded, or a public URL.
+      r2Key: v.optional(v.string()),
+      url: v.optional(v.string()),
+      storageId: v.optional(v.id("_storage")),
+      mjJobId: v.optional(v.string()),
+      mjIndex: v.optional(v.number()),
+      pageUrl: v.optional(v.string()),
+      // The Midjourney command that made the frame, for lineage.
+      prompt: v.optional(v.string()),
+      // A chained edit: the run and take it grew from.
+      parentRunId: v.optional(v.id("mjQuickRuns")),
+      parentIndex: v.optional(v.number()),
+      width: v.optional(v.number()),
+      height: v.optional(v.number()),
+    }),
+    refs: v.array(v.object({
+      r2Key: v.optional(v.string()),
+      url: v.optional(v.string()),
+      mjJobId: v.optional(v.string()),
+      mjIndex: v.optional(v.number()),
+    })),
+    model: v.string(),
+    modelName: v.string(),
+    endpoint: v.string(),
+    instruction: v.string(),
+    count: v.number(),
+    status: v.union(v.literal("queued"), v.literal("running"), v.literal("done"), v.literal("error")),
+    // One per take, in order.
+    takes: v.array(v.object({
+      status: v.union(v.literal("queued"), v.literal("submitting"), v.literal("running"), v.literal("done"), v.literal("error")),
+      requestId: v.optional(v.string()),
+      statusUrl: v.optional(v.string()),
+      responseUrl: v.optional(v.string()),
+      error: v.optional(v.string()),
+      // The landed picture, stored in R2 (the fal URL kept as `falUrl`).
+      falUrl: v.optional(v.string()),
+      r2Key: v.optional(v.string()),
+      thumbR2Key: v.optional(v.string()),
+      storageId: v.optional(v.id("_storage")),
+      contentType: v.optional(v.string()),
+      width: v.optional(v.number()),
+      height: v.optional(v.number()),
+      review: v.union(v.literal("pending"), v.literal("kept"), v.literal("dropped")),
+      savedAssetId: v.optional(v.id("assets")),
+      fantasyDraftIds: v.optional(v.array(v.string())),
+      fantasyProject: v.optional(v.string()),
+    })),
+    estimateUsd: v.number(),
+    costUsd: v.optional(v.number()),
+    error: v.optional(v.string()),
+    world: v.optional(v.object({
+      key: v.optional(v.string()),
+      name: v.optional(v.string()),
+      folderId: v.optional(v.id("folders")),
+    })),
+    sessionLabel: v.string(),
+    pollCount: v.number(),
+    submittedAt: v.optional(v.number()),
+    finishedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
   // Every picture an asset has been: its original and each approved in-place
   // edit, append-only. The asset row always shows one of them (matched by
   // media key); restoring a version copies its media back onto the same

@@ -4,12 +4,14 @@ import { api } from "@/convex/_generated/api";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/server/extension-auth";
 import { clientErrorMessage } from "@/lib/server/route-error";
-import { DESCRIBE_LIMITS, DESCRIBE_MODES } from "@/lib/mj-describe";
+import { DESCRIBE_LIMITS } from "@/lib/mj-describe";
 import { LOCAL_WRITER_LIMITS } from "@/lib/local-writer";
 
 // The extension's describer: a picture (and Midjourney's Describe lines when
-// it caught them) into our Midjourney prompt, by the quick-edit agent
-// (convex/promptEditRunner.ts describe). Nothing is sent to Midjourney.
+// it caught them) taken apart like a cinematographer would (subject, shot,
+// lens, composition, light, palette, materials, setting, mood, medium) and one
+// Midjourney V8.2 prompt built from it (convex/promptEditRunner.ts describe).
+// Nothing is sent to Midjourney.
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -25,8 +27,6 @@ const bodySchema = z.object({
   aspect: z.string().max(20).optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
-  mode: z.enum(DESCRIBE_MODES).default("both"),
-  style: z.string().max(120).optional(),
   system: z.string().max(DESCRIBE_LIMITS.system).optional(),
   note: z.string().max(DESCRIBE_LIMITS.note).optional(),
   local: z.object({

@@ -114,17 +114,153 @@
     return found;
   }
 
-  // The flag a new prompt gets from the remembered selection: the board code
-  // first, then the profiles, each only while it still exists in the world.
+  // The flag a new prompt gets from the remembered selection: the board codes
+  // first (one, or two after an extreme mix), then the profiles, each only
+  // while it still exists in the world.
   function stickyCodes(sticky, moodboardCodes, profileCodes) {
     const boards = new Set(moodboardCodes || []);
     const profiles = new Set(profileCodes || []);
     const codes = [];
-    if (sticky && sticky.board && boards.has(sticky.board)) codes.push(sticky.board);
+    const wanted = sticky && Array.isArray(sticky.boards) ? sticky.boards : sticky && sticky.board ? [sticky.board] : [];
+    for (const code of wanted) {
+      if (boards.has(code) && !codes.includes(code)) codes.push(code);
+    }
     for (const code of (sticky && sticky.profiles) || []) {
       if (profiles.has(code) && !codes.includes(code)) codes.push(code);
     }
     return codes;
+  }
+
+  // The remembered selection per world is the board(s) and profiles only.
+  // Older versions also kept the last preset's settings and packs there and
+  // added them to every new prompt (Michael, 17 Nov 2026: presets applied
+  // themselves); those are dropped when the stored value is read.
+  function cleanSticky(stored) {
+    const out = {};
+    if (!stored || typeof stored !== "object") return out;
+    const codesOf = (list) => (Array.isArray(list) ? list.filter((code) => typeof code === "string" && code) : []);
+    for (const [world, entry] of Object.entries(stored)) {
+      if (!entry || typeof entry !== "object") continue;
+      const boards = Array.isArray(entry.boards) ? codesOf(entry.boards) : entry.board ? codesOf([entry.board]) : [];
+      out[world] = { board: boards[0] || null, boards, profiles: codesOf(entry.profiles) };
+    }
+    return out;
+  }
+
+  const wordsOf = (value) => String(value || "").replace(PROFILE_FLAG_PATTERN, "").trim();
+
+  // How a change of the prompt came about. Only Michael's own keystrokes
+  // into an empty prompt start a new prompt ("typed"). Pasted or dropped
+  // text, autocorrect, and text the extension or Midjourney puts in the bar
+  // (queue, Grow, quick edit, packs, Use prompt) are "injected": they get
+  // nothing added. `before` is the prompt just before a trusted change (from
+  // beforeinput), or null when no trusted change was announced.
+  const TYPED_INPUT = /^insert(Text|CompositionText)$/;
+  function promptChange(before, after, event) {
+    if (!wordsOf(after)) return "empty";
+    if (before == null) return "injected";
+    if (wordsOf(before)) return "edit";
+    const info = event || {};
+    if (info.isTrusted === true && !info.isComposing && TYPED_INPUT.test(String(info.inputType || ""))) return "typed";
+    return "injected";
+  }
+
+  // The pool the randomizer (⌥R, ⟳ Random) picks from: the world's live
+  // profiles and its moodboards, with the names the dock shows.
+  function mixPool(profiles, moodboards) {
+    const names = {};
+    const profileList = [];
+    for (const profile of liveProfiles(profiles)) {
+      profileList.push(profile.code);
+      names[profile.code] = profile.name || profile.code;
+    }
+    const boards = [];
+    const boardList = Array.isArray(moodboards) ? moodboards.filter((board) => board && board.mjCode) : [];
+    for (const board of boardList) {
+      boards.push(board.mjCode);
+      names[board.mjCode] = chipLabel(board, boardList);
+    }
+    return { profiles: profileList, boards, names };
+  }
+
+  // "CINEMATIC + DA4 · moodboard Night"
+  function mixLabel(mix, names) {
+    const name = (code) => (names && names[code]) || code;
+    const parts = [];
+    if (mix && mix.profiles && mix.profiles.length) parts.push(mix.profiles.map(name).join(" + "));
+    if (mix && mix.boards && mix.boards.length) {
+      parts.push(`${mix.boards.length > 1 ? "moodboards" : "moodboard"} ${mix.boards.map(name).join(" + ")}`);
+    }
+    return parts.join(" · ") || "No profile";
+  }
+
+  // A new mix for the prompt: different from `currentCodes` when the pool
+  // allows it. The prompt keeps its words and every other setting; only its
+  // profile flag changes. An empty prompt gets no text (the mix is armed).
+  function rerollPrompt(promptText, currentCodes, pool, mode, rng) {
+    const api = globalScope.SaveToGalleryRandomize;
+    if (!api) return null;
+    const mix = api.pickMix(pool, mode, { avoid: api.signature(currentCodes || []), rng });
+    if (!mix.codes.length) return null;
+    if (!wordsOf(promptText)) return { mix, text: null };
+    // A flag already in the prompt keeps its place; a new one goes before the
+    // other settings.
+    const text = flagCodes(promptText).length ? setProfileFlag(promptText, mix.codes) : api.withCodes(promptText, mix.codes);
+    return { mix, text };
+  }
+
+  // Inputs, text areas and editable boxes, also inside another extension
+  // panel's shadow root (the key event's real target).
+  const NON_TEXT_INPUTS = new Set(["button", "checkbox", "radio", "range", "color", "file", "image", "reset", "submit"]);
+  function isTypingElement(node) {
+    if (!node || node.nodeType !== 1) return false;
+    if (node.isContentEditable) return true;
+    const tag = String(node.tagName || "").toUpperCase();
+    if (tag === "TEXTAREA" || tag === "SELECT") return true;
+    if (tag !== "INPUT") return false;
+    return !NON_TEXT_INPUTS.has(String(node.type || "text").toLowerCase());
+  }
+
+  // Why a key press must not run a dock action; "" when it may. Only
+  // Michael's own presses count, never while an input method is composing,
+  // never AltGr typing a letter (Windows), never while he types into any box
+  // other than the Imagine prompt (Midjourney's search, the queue, quick
+  // edit, Grow).
+  function hotkeyVeto(event, prompt, options = {}) {
+    if (!event) return "none";
+    if (event.isTrusted === false) return "synthetic";
+    if (event.isComposing || event.keyCode === 229) return "composing";
+    if (!options.mac && typeof event.getModifierState === "function" && event.getModifierState("AltGraph")) return "altgraph";
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    const target = path[0] || event.target;
+    if (target && target !== prompt && isTypingElement(target)) return "typing";
+    return "";
+  }
+
+  // What one Esc closes: every open piece of the dock (world list, preset
+  // name box, hover sheet, other worlds) at once; the dock itself only when
+  // none is open. A note always goes with it.
+  const ESC_PIECES = ["menu", "save", "snapshot", "others"];
+  function escapePlan(open) {
+    const state = open || {};
+    const pieces = ESC_PIECES.filter((piece) => state[piece]);
+    if (!pieces.length && state.dock) pieces.push("dock");
+    if (state.note) pieces.push("note");
+    return pieces;
+  }
+
+  // Nodes left by an older copy of this script (an extension reload or
+  // update injects a fresh copy into the open tab). Ours carry our instance.
+  const STALE_SELECTOR = ".stg-mb-dock, .stg-mb-snap, .stg-mb-wmenu, .stg-pp-bar";
+  function removeStaleNodes(root, instance) {
+    if (!root || typeof root.querySelectorAll !== "function") return 0;
+    let removed = 0;
+    for (const node of [...root.querySelectorAll(STALE_SELECTOR)]) {
+      if (instance && node.dataset && node.dataset.stgInstance === instance) continue;
+      node.remove();
+      removed += 1;
+    }
+    return removed;
   }
 
   // A prompt that was empty a moment ago and now has words but no profile
@@ -374,6 +510,24 @@
     );
   }
 
+  // A preset put into a prompt that has words, at Michael's click or key:
+  // exactly its codes in the profile flag, its settings at the end, its packs
+  // after the words. `packsApi` (prompt-packs.js) and `findPack` (id -> pack)
+  // are passed in; without them the packs are left out.
+  function presetOnto(text, preset, options = {}) {
+    let next = setProfileFlag(text, (preset && preset.codes) || []);
+    const params = (preset && preset.params) || "";
+    if (params && !hasParams(next, params)) next = setParams(next, params);
+    const api = options.packsApi;
+    const find = options.findPack;
+    if (!api || typeof find !== "function") return next;
+    for (const id of (preset && preset.packs) || []) {
+      const pack = find(id);
+      if (pack && !api.hasPack(next, pack.phrase)) next = api.insertPack(next, pack.phrase, { mode: "after" }).text;
+    }
+    return next;
+  }
+
   // A world with many boards shows them by family, one line each.
   const GROUP_FROM = 9;
 
@@ -479,7 +633,18 @@
     toggleProfileInPrompt,
     flagCodes,
     stickyCodes,
+    cleanSticky,
     withStickyFlag,
+    wordsOf,
+    promptChange,
+    presetOnto,
+    mixPool,
+    mixLabel,
+    rerollPrompt,
+    isTypingElement,
+    hotkeyVeto,
+    escapePlan,
+    removeStaleNodes,
     findPromptPanel,
     blockEdges,
     activeBoardCodes,
@@ -501,8 +666,12 @@
     // Every other world's profiles, for the "Other worlds" panel.
     otherProfiles: [],
     othersOpen: false,
-    // The board and profiles picked last, per world: every new prompt gets them.
+    // The board and profiles picked last, per world: every new typed prompt
+    // gets them. Never a preset's settings or packs.
     sticky: {},
+    // A preset picked on an empty prompt: { world, id }. It goes into the
+    // next typed prompt only, then ends; a second press ends it too.
+    armed: null,
     signature: "",
     worldsSignature: "",
     loading: true,
@@ -540,6 +709,7 @@
   let packs = null;
   let presetBox = null;
   let saveButton = null;
+  let randomButton = null;
   let saveInput = null;
   let note = null;
   let noteTimer = null;
@@ -547,8 +717,12 @@
   let layoutQueued = false;
   let snapshot = null;
   let wasShown = false;
-  // True while the prompt is empty: the next words typed get the remembered flag.
-  let freshPrompt = true;
+  // The prompt just before Michael's own change (beforeinput), and just
+  // before an input method started composing.
+  let beforeValue = null;
+  let composeBefore = null;
+  // Another part of the extension is putting text in the bar right now.
+  let heldUntil = 0;
 
   const el = (tag, className, text) => {
     const node = document.createElement(tag);
@@ -559,17 +733,19 @@
 
   // engaged: a click or a key in the prompt since this page opened. Midjourney
   // focuses the prompt on every page by itself, so focus alone means nothing.
-  const compose = { hover: new Set(), holdUntil: 0, engaged: false, href: "" };
+  // dismissed: Esc put the dock away until the next click or key in the prompt.
+  const compose = { hover: new Set(), holdUntil: 0, engaged: false, dismissed: false, href: "" };
   const COMPOSE_HOLD_MS = 350;
 
   // The dock shows only while a prompt is being written: the prompt or the
   // dock has focus, or the pointer rests on the dock. The rest of the time it
   // folds away and the page (the grid, a single image) is clear.
   function isComposing() {
-    if (location.href !== compose.href) {
-      compose.href = location.href;
-      compose.engaged = false;
-    }
+    checkRoute();
+    if (compose.dismissed) return false;
+    // A pointer that left while the dock was hidden or the tab was away
+    // never sent mouseleave: trust the live hover state.
+    if (compose.hover.has("dock") && dock && !dock.matches(":hover")) compose.hover.delete("dock");
     const active = document.activeElement;
     if (textarea && active === textarea && (compose.engaged || wordsOf(textarea.value))) return true;
     if (active && active.closest && active.closest(".stg-mb-dock")) return true;
@@ -591,16 +767,19 @@
     composeTimer = setTimeout(queueLayout, COMPOSE_HOLD_MS + 30);
   }
 
-  function engage() {
-    if (compose.engaged) return;
+  function engage(event) {
+    if (event && event.key === "Escape") return;
+    if (compose.engaged && !compose.dismissed) return;
     compose.engaged = true;
+    compose.dismissed = false;
     notifyCompose();
   }
 
-  // The queue panel injects a finished command: the remembered flag must not
-  // be added to it.
+  // The queue, Grow, quick edit and describe put finished text in the bar.
+  // Their events are not Michael's typing, so nothing is added to them
+  // anyway; this also covers the moment the text lands.
   globalScope.SaveToGalleryMoodboardDock.holdSticky = () => {
-    freshPrompt = false;
+    heldUntil = Date.now() + 600;
   };
   globalScope.SaveToGalleryMoodboardDock.isComposing = isComposing;
   globalScope.SaveToGalleryMoodboardDock.setHover = setHover;
@@ -733,15 +912,38 @@
   // an open tab keeps its dock, hidden by the rule below, so the two never
   // remove each other's dock in a loop.
   function dropDock() {
+    clearTimeout(noteTimer);
+    clearTimeout(hintTimer);
     dock?.remove();
     snapshot?.remove();
+    worldMenu?.remove();
     dock = null;
     snapshot = null;
+    worldMenu = null;
+    worldButton = null;
+    note = null;
     packs = null;
   }
 
-  // An update injects a fresh copy into open Midjourney tabs. Docks and quick
-  // edit boxes of older copies hide; the old packs bar (before 0.24) too.
+  // An update injects a fresh copy into open Midjourney tabs. This copy
+  // tells older ones to stop (a DOM event reaches every copy), removes what
+  // they left on the page, and keeps a rule that hides any that come back.
+  const RETIRE_EVENT = "stg-mb-dock:retire";
+  function takeOverFromOlderCopies() {
+    try {
+      document.documentElement.dataset.stgMbInstance = INSTANCE;
+      document.dispatchEvent(new Event(RETIRE_EVENT));
+    } catch {
+      // a page without a root element
+    }
+    removeStaleNodes(document, INSTANCE);
+    hideOlderCopies();
+  }
+
+  function onRetireEvent() {
+    if (document.documentElement.dataset.stgMbInstance !== INSTANCE) retire();
+  }
+
   function hideOlderCopies() {
     const rule = `.stg-mb-dock:not([data-stg-instance="${INSTANCE}"]),.stg-mb-snap:not([data-stg-instance="${INSTANCE}"]),.stg-pp-bar{display:none!important}`;
     let style = document.getElementById("stg-mb-retire");
@@ -757,21 +959,43 @@
   // The extension was reloaded or updated under this tab: this copy is dead.
   // Take its dock away and stop watching the page.
   let retired = false;
+  const listeners = [];
+  function listen(target, type, handler, options) {
+    target.addEventListener(type, handler, options);
+    listeners.push([target, type, handler, options]);
+  }
+
   function retire() {
     if (retired) return;
     retired = true;
     observer?.disconnect();
+    for (const [target, type, handler, options] of listeners.splice(0)) {
+      try {
+        target.removeEventListener(type, handler, options);
+      } catch {
+        // target gone
+      }
+    }
     window.removeEventListener("keydown", onHotkeyDown, true);
     window.removeEventListener("keyup", onHotkeyUp, true);
     window.removeEventListener("blur", onWindowBlur);
     window.removeEventListener("pointerdown", onPointerHideHints, true);
     window.removeEventListener("wheel", onPointerHideHints, true);
-    if (textarea) {
-      textarea.removeEventListener("input", onPromptInput);
-      textarea.removeEventListener("pointerdown", engage);
-      textarea.removeEventListener("keydown", engage);
+    try {
+      chrome.storage.onChanged.removeListener(onStorageChanged);
+    } catch {
+      // the extension context is gone
     }
+    unbindTextarea();
+    clearTimeout(composeTimer);
     dropDock();
+  }
+
+  function aliveOrRetire() {
+    if (retired) return false;
+    if (extensionAlive()) return true;
+    retire();
+    return false;
   }
 
   function askBackground(world) {
@@ -937,10 +1161,10 @@
     return [...state.profiles, ...state.otherProfiles].map((profile) => profile.code);
   }
 
-  // What every next prompt starts with: the board and profiles picked last,
-  // plus the settings and packs of the preset picked last.
+  // What every next typed prompt starts with: the board(s) and profiles
+  // picked last. A preset is never part of it.
   function stickyFor(key = state.worldKey) {
-    return state.sticky[key] || { board: null, profiles: [], params: "", packs: [] };
+    return state.sticky[key] || { board: null, boards: [], profiles: [] };
   }
 
   function saveSticky() {
@@ -951,21 +1175,41 @@
     }
   }
 
-  const wordsOf = (value) => String(value || "").replace(PROFILE_FLAG_PATTERN, "").trim();
-
-  // The flag given here becomes what every next prompt starts with.
+  // The flag given here becomes what every next typed prompt starts with.
   function rememberSelection(value) {
     const codes = flagCodes(value);
     const boards = new Set(boardCodes());
     const profiles = new Set(profileCodes());
-    const previous = stickyFor();
+    const picked = codes.filter((code) => boards.has(code));
     state.sticky[state.worldKey] = {
-      board: codes.find((code) => boards.has(code)) || null,
+      board: picked[0] || null,
+      boards: picked,
       profiles: codes.filter((code) => profiles.has(code)),
-      params: previous.params || "",
-      packs: previous.packs || [],
     };
     saveSticky();
+  }
+
+  // The preset armed for the next prompt in this world, if any.
+  function armedPreset() {
+    const armed = state.armed;
+    if (!armed || armed.world !== state.worldKey) return null;
+    return allPresets().find((entry) => entry.id === armed.id) || null;
+  }
+
+  function disarm(message) {
+    if (!state.armed) return;
+    const preset = armedPreset();
+    state.armed = null;
+    if (message && preset) showNote(message.replace("{name}", preset.name));
+    syncActive();
+  }
+
+  // The codes the next typed prompt gets: the armed preset's, else the
+  // remembered ones.
+  function nextCodes() {
+    const preset = armedPreset();
+    if (preset) return (preset.codes || []).slice();
+    return stickyCodes(stickyFor(), boardCodes(), profileCodes());
   }
 
   // The current selection as a flag: the prompt's own when it has words,
@@ -979,8 +1223,10 @@
 
   function applySelection(next, live) {
     rememberSelection(next);
+    // A chip on an empty prompt changes what comes next: the armed preset
+    // would override it, so it ends.
+    if (!live) state.armed = null;
     if (live) writeTextareaValue(textarea, next);
-    else freshPrompt = true;
     textarea.focus();
     syncActive();
   }
@@ -991,42 +1237,74 @@
     applySelection(applyMoodboardToPrompt(source.value, board.mjCode, boardCodes()), source.live);
   }
 
-  // Midjourney empties the prompt after a submit. The first words of the next
-  // prompt bring the remembered board and profiles back.
+  // A trusted change is about to happen: keep the prompt as it was.
+  function onBeforeInput(event) {
+    beforeValue = event.isTrusted && textarea ? textarea.value : null;
+  }
+
+  function onCompositionStart(event) {
+    composeBefore = event.isTrusted && textarea ? textarea.value : null;
+  }
+
+  // An input method (or a dead key) finished the first word of an empty
+  // prompt: the same as typing it.
+  function onCompositionEnd(event) {
+    const before = composeBefore;
+    composeBefore = null;
+    if (!event.isTrusted || !textarea || before == null || wordsOf(before)) return;
+    if (wordsOf(textarea.value)) startTypedPrompt();
+  }
+
+  // Midjourney empties the prompt after a submit. The first words Michael
+  // types into it bring the remembered board and profiles back, or the armed
+  // preset (once). Text that arrives any other way gets nothing.
   function onPromptInput(event) {
-    if (!textarea) return;
-    const value = textarea.value;
-    if (!wordsOf(value)) {
-      freshPrompt = true;
+    if (!textarea || retired) return;
+    // While an input method composes, compositionend decides.
+    if (event && event.isComposing) {
       syncActive();
       return;
     }
-    if (freshPrompt) {
-      freshPrompt = false;
-      const sticky = stickyFor();
-      const codes = stickyCodes(sticky, boardCodes(), profileCodes());
-      // Pasted or dropped text is a finished prompt: it keeps its own
-      // settings and gets no packs; only missing settings are filled in.
-      const typed = !/paste|drop|replacement/i.test((event && event.inputType) || "");
-      const options = { onlyMissing: true, packs: typed };
-      const extras = Boolean(sticky.params) || (typed && (sticky.packs || []).length > 0);
-      if (withStickyFlag(value, codes) || extras) {
-        // Runs after Midjourney has handled the keystroke. Uses the text as it
-        // is by then, so fast typing never loses the flag.
-        setTimeout(() => {
-          if (!textarea || !textarea.isConnected) return;
-          const base = textarea.value;
-          const next = withPresetExtras(withStickyFlag(base, codes) ?? base, sticky, options);
-          if (next === base) return;
-          const start = textarea.selectionStart;
-          const end = textarea.selectionEnd;
-          writeTextareaValue(textarea, next);
-          textarea.setSelectionRange(start, end);
-          syncActive();
-        }, 0);
-      }
-    }
+    const before = beforeValue;
+    beforeValue = null;
+    const change = promptChange(before, textarea.value, event);
+    if (change === "typed" && Date.now() >= heldUntil) startTypedPrompt();
+    else if (change === "injected") noticeInjected();
     syncActive();
+  }
+
+  // Words reached the bar without Michael typing them (pasted, queued, Use
+  // prompt): an armed preset is not added to them, and it ends.
+  function noticeInjected() {
+    if (state.armed) disarm("“{name}” was not added: the prompt came in whole. Press it again to add it.");
+  }
+
+  function startTypedPrompt() {
+    const preset = armedPreset();
+    state.armed = null;
+    const codes = preset ? null : stickyCodes(stickyFor(), boardCodes(), profileCodes());
+    if (!preset && !codes.length) return;
+    if (preset) showNote(`Added “${preset.name}”`);
+    // Runs after Midjourney has handled the keystroke. Uses the text as it
+    // is by then, so fast typing never loses the flag.
+    setTimeout(() => {
+      if (retired || !textarea || !textarea.isConnected) return;
+      const base = textarea.value;
+      if (!wordsOf(base)) return;
+      const next = preset ? presetIntoPrompt(base, preset) : withStickyFlag(base, codes);
+      if (!next || next === base) return;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      writeTextareaValue(textarea, next);
+      textarea.setSelectionRange(start, end);
+      syncActive();
+    }, 0);
+  }
+
+  // Called on every layout pass: words in the bar that came with no input
+  // event at all (Midjourney's own Use prompt, a restored draft).
+  function noticeBarValue() {
+    if (state.armed && textarea && wordsOf(textarea.value)) noticeInjected();
   }
 
   function onProfileClick(profile) {
@@ -1040,8 +1318,9 @@
     const value = textarea ? textarea.value : "";
     const active = activeBoardCodes(value, boardCodes());
     const codes = flagCodes(value);
-    const sticky = stickyCodes(stickyFor(), boardCodes(), profileCodes());
+    const sticky = nextCodes();
     const waiting = !wordsOf(value);
+    const armedOne = waiting ? armedPreset() : null;
     for (const chip of strip.querySelectorAll(".stg-mb-chip")) {
       const on = active.includes(chip.dataset.code);
       chip.classList.toggle("stg-mb-chip--on", on);
@@ -1054,23 +1333,24 @@
       chip.classList.toggle("stg-mb-pchip--armed", !on && sticky.includes(chip.dataset.code));
       chip.setAttribute("aria-pressed", on ? "true" : "false");
     }
-    const armed = stickyFor();
     let label = "";
     if (!waiting && codes.length) label = `-p ${codes.join(" ")}`;
-    else if (waiting && (sticky.length || armed.params)) {
-      label = ["next ·", sticky.length ? `-p ${sticky.join(" ")}` : "", armed.params || ""].filter(Boolean).join(" ");
-    }
+    else if (waiting && armedOne) label = `next · ${armedOne.name}`;
+    else if (waiting && sticky.length) label = `next · -p ${sticky.join(" ")}`;
     activeLabel.textContent = label;
     activeLabel.title = label;
     activeLabel.classList.toggle("stg-mb-active--next", waiting);
     for (const chip of presetBox.querySelectorAll(".stg-mb-preset")) {
       const preset = allPresets().find((entry) => entry.id === chip.dataset.id);
       const on = Boolean(preset) && !waiting && presetInPrompt(value, preset);
-      const isArmed = Boolean(preset) && waiting && presetArmed(preset);
+      const isArmed = Boolean(preset) && waiting && armedOne === preset;
       chip.classList.toggle("stg-mb-preset--on", on);
       chip.classList.toggle("stg-mb-preset--armed", isArmed);
       chip.setAttribute("aria-pressed", on || isArmed ? "true" : "false");
+      if (isArmed) chip.dataset.next = "next";
+      else delete chip.dataset.next;
     }
+    if (randomButton) randomButton.hidden = !state.profiles.length && !state.moodboards.length;
     const selection = currentSelection();
     const hasSelection = Boolean(selection.codes.length || selection.params || selection.packs.length);
     saveButton.classList.toggle("stg-mb-save--idle", !hasSelection);
@@ -1108,25 +1388,9 @@
     return null;
   }
 
-  // The settings and packs of a preset go into a prompt that has words: the
-  // settings at the end, the packs after the words. A click on a preset sets
-  // its values; carried into the next prompt (onlyMissing) it only fills in
-  // settings the prompt does not have yet.
-  function withPresetExtras(text, preset, options = {}) {
-    let next = text;
-    let params = preset.params || "";
-    if (options.onlyMissing && params) {
-      const have = new Set(parseParams(next).map((param) => param.key));
-      params = parseParams(params).filter((param) => !have.has(param.key)).map((param) => param.text).join(" ");
-    }
-    if (params && !hasParams(next, params)) next = setParams(next, params);
-    if (options.packs === false) return next;
-    const api = packsApi();
-    for (const id of preset.packs || []) {
-      const pack = packPhrase(id);
-      if (pack && api && !api.hasPack(next, pack.phrase)) next = api.insertPack(next, pack.phrase, { mode: "after" }).text;
-    }
-    return next;
+  // The preset into a prompt that has words, packs included.
+  function presetIntoPrompt(text, preset) {
+    return presetOnto(text, preset, { packsApi: packsApi(), findPack: packPhrase });
   }
 
   function sameCodes(a, b) {
@@ -1145,16 +1409,6 @@
     );
   }
 
-  function presetArmed(preset) {
-    const sticky = stickyFor();
-    const codes = stickyCodes(sticky, boardCodes(), profileCodes());
-    return (
-      sameCodes(codes, (preset.codes || []).filter((code) => boardCodes().includes(code) || profileCodes().includes(code))) &&
-      (sticky.params || "") === (preset.params || "") &&
-      sameCodes(sticky.packs || [], preset.packs || [])
-    );
-  }
-
   // What Save would keep: the prompt's own selection when it has words, else
   // what the next prompt is armed with.
   function currentSelection() {
@@ -1167,33 +1421,21 @@
       }
       return { codes: flagCodes(value), params: readParams(value), packs: packIds };
     }
-    const sticky = stickyFor();
-    return { codes: stickyCodes(sticky, boardCodes(), profileCodes()), params: sticky.params || "", packs: sticky.packs || [] };
+    const preset = armedPreset();
+    if (preset) return { codes: (preset.codes || []).slice(), params: preset.params || "", packs: (preset.packs || []).slice() };
+    return { codes: stickyCodes(stickyFor(), boardCodes(), profileCodes()), params: "", packs: [] };
   }
 
-  function armSticky(preset) {
-    const boards = new Set(boardCodes());
-    const profiles = new Set(profileCodes());
-    const codes = preset ? preset.codes || [] : [];
-    state.sticky[state.worldKey] = {
-      board: codes.find((code) => boards.has(code)) || null,
-      profiles: codes.filter((code) => profiles.has(code)),
-      params: preset ? preset.params || "" : "",
-      packs: preset ? preset.packs || [] : [],
-    };
-    saveSticky();
-  }
-
-  // One click sets the whole look; a second click on the lit preset takes it
-  // out again. An empty prompt is only armed: the first words bring it in.
+  // A click or key on a preset. With words in the prompt it goes into that
+  // prompt at once (a second press takes it out again) and nothing is
+  // remembered. On an empty prompt it is armed for the next prompt only; a
+  // second press ends that.
   function onPresetClick(preset) {
     if (!textarea || !textarea.isConnected) return;
     const value = textarea.value;
-    const live = Boolean(wordsOf(value));
-    const turningOff = live ? presetInPrompt(value, preset) : presetArmed(preset);
-    if (turningOff) {
-      armSticky(null);
-      if (live) {
+    if (wordsOf(value)) {
+      state.armed = null;
+      if (presetInPrompt(value, preset)) {
         let next = setProfileFlag(value, flagCodes(value).filter((code) => !(preset.codes || []).includes(code)));
         next = removeParams(next, preset.params || "");
         const api = packsApi();
@@ -1202,14 +1444,14 @@
           if (pack && api) next = api.removePack(next, pack.phrase).text;
         }
         writeTextareaValue(textarea, next);
-      }
-    } else {
-      armSticky(preset);
-      if (live) {
-        writeTextareaValue(textarea, withPresetExtras(setProfileFlag(value, preset.codes || []), preset));
       } else {
-        freshPrompt = true;
+        writeTextareaValue(textarea, presetIntoPrompt(value, preset));
       }
+    } else if (armedPreset() === preset) {
+      disarm("“{name}” is off");
+    } else {
+      state.armed = { world: state.worldKey, id: preset.id };
+      showNote(`“${preset.name}” goes into the next prompt you type`);
     }
     textarea.focus();
     syncActive();
@@ -1230,9 +1472,46 @@
       note.append(" ", button);
     }
     note.hidden = false;
-    noteTimer = setTimeout(() => {
-      note.hidden = true;
-    }, 6000);
+    noteTimer = setTimeout(hideNote, 6000);
+  }
+
+  function hideNote() {
+    clearTimeout(noteTimer);
+    if (note) note.hidden = true;
+  }
+
+  /* ── Random: a new mix of the world's profiles and moodboards ── */
+
+  // ⌥R / ⟳ Random (random limits), ⌥⇧R / shift-click (extreme). With words
+  // in the prompt only its profile flag changes; an empty prompt is armed
+  // with the mix, the same as picking chips. Each press avoids the mix the
+  // prompt has now.
+  function rerollMix(mode) {
+    if (!textarea || !textarea.isConnected) return;
+    const pool = mixPool(state.profiles, state.moodboards);
+    if (!pool.profiles.length && !pool.boards.length) {
+      showNote("No profiles or moodboards in this world yet");
+      return;
+    }
+    const value = textarea.value;
+    const live = Boolean(wordsOf(value));
+    const result = rerollPrompt(value, live ? flagCodes(value) : nextCodes(), pool, mode);
+    if (!result) {
+      showNote("Nothing to mix in this world yet");
+      return;
+    }
+    const flag = `-p ${result.mix.codes.join(" ")}`;
+    rememberSelection(flag);
+    state.armed = null;
+    if (live) writeTextareaValue(textarea, result.text);
+    textarea.focus();
+    syncActive();
+    const label = mixLabel(result.mix, pool.names);
+    showNote(`${mode === "extreme" ? "Extreme · " : ""}${live ? "" : "Next prompt · "}${label}`);
+    for (const code of result.mix.codes) {
+      const selector = `[data-code="${CSS.escape(code)}"]`;
+      flashChip(strip.querySelector(`.stg-mb-chip${selector}`) || profileStrip.querySelector(`.stg-mb-pchip${selector}`));
+    }
   }
 
   // Dock presets go to the gallery too (style presets of the world), so a
@@ -1308,7 +1587,7 @@
   }
 
   function closeSave(commit) {
-    if (saveInput.hidden) return;
+    if (!saveInput || saveInput.hidden) return;
     const name = saveInput.value.trim().slice(0, 40);
     saveInput.hidden = true;
     saveButton.hidden = false;
@@ -1323,7 +1602,6 @@
       };
       const others = state.presets.filter((entry) => entry.name.toLowerCase() !== name.toLowerCase());
       storePresets([...others, preset].slice(-PRESET_LIMIT));
-      armSticky(preset);
       showNote(`Saved “${name}”`);
     }
     textarea?.focus();
@@ -1366,6 +1644,8 @@
     const signature = JSON.stringify([state.worldKey, state.presets, state.galleryPresets]);
     if (presetBox.dataset.signature === signature) return;
     presetBox.dataset.signature = signature;
+    // A hovered chip that goes away never sends mouseleave: close its card.
+    hideSnapshot();
     presetBox.textContent = "";
     for (const preset of allPresets()) {
       const chip = el("button", `stg-mb-preset${preset.gallery ? " stg-mb-preset--gallery" : ""}`);
@@ -1513,6 +1793,8 @@
     }
     state.presets = [];
     state.pins = null;
+    state.armed = null;
+    hideSnapshot();
     const cached = worldCache.get(key);
     if (cached) {
       state.loading = false;
@@ -1590,6 +1872,7 @@
     profileStrip.querySelectorAll(".stg-mb-pchip").forEach((chip, index) => setKeyBadge(chip, `profile:${index + 1}`));
     presetBox.querySelectorAll(".stg-mb-preset").forEach((chip, index) => setKeyBadge(chip, `preset:${index + 1}`));
     setKeyBadge(saveButton, "preset:save");
+    if (randomButton) setKeyBadge(randomButton, "mix:random");
   }
 
   function dockOnScreen() {
@@ -1609,6 +1892,8 @@
     if (action === "world:next") return stepWorld(1);
     if (action === "world:pick") return worldMenuOpen() ? closeWorldMenu() : openWorldMenu();
     if (action === "preset:save") return openSave();
+    if (action === "mix:random") return rerollMix("random");
+    if (action === "mix:extreme") return rerollMix("extreme");
     const [kind, arg] = action.split(":");
     const slot = Number(arg);
     if (kind === "board") {
@@ -1653,12 +1938,12 @@
     return true;
   }
 
-  const TYPING_TARGET = "input, textarea, select, [contenteditable=''], [contenteditable='true']";
   const HINT_KEYS = new Set(["Alt", "Control", "Meta", "Shift"]);
   // The key badges show only while ⌥ is held on its own for a moment, never
   // during ⌘C, ⌘V, ⌘A and other everyday combos (Michael, 14 Nov 2026: the
   // badges kept popping up and ruined the dock).
   const HINT_DELAY_MS = 700;
+  const IS_MAC = /Mac|iPhone|iPad/i.test(String(globalScope.navigator?.userAgentData?.platform || globalScope.navigator?.platform || ""));
 
   function showKeyHints(on) {
     clearTimeout(hintTimer);
@@ -1668,13 +1953,60 @@
       return;
     }
     hintTimer = setTimeout(() => {
-      if (dockOnScreen() && hotkeyMap.size) dock.classList.add("stg-mb-dock--keys");
+      if (!retired && dockOnScreen() && hotkeyMap.size) dock.classList.add("stg-mb-dock--keys");
     }, HINT_DELAY_MS);
+  }
+
+  // What is open of the dock right now (for Esc).
+  function openPieces() {
+    return {
+      menu: worldMenuOpen(),
+      save: Boolean(saveInput && !saveInput.hidden),
+      snapshot: Boolean(snapshot && !snapshot.hidden),
+      others: Boolean(state.othersOpen && othersBox && !othersBox.hidden),
+      note: Boolean(note && !note.hidden),
+      dock: dockOnScreen(),
+    };
+  }
+
+  // Esc closes what is open, else puts the dock away until the next click or
+  // key in the prompt. The key still reaches Midjourney.
+  function onEscape() {
+    for (const piece of escapePlan(openPieces())) {
+      if (piece === "menu") closeWorldMenu();
+      else if (piece === "save") closeSave(false);
+      else if (piece === "snapshot") hideSnapshot();
+      else if (piece === "others") closeOthers();
+      else if (piece === "note") hideNote();
+      else if (piece === "dock") dismissDock();
+    }
+  }
+
+  function dismissDock() {
+    compose.dismissed = true;
+    compose.engaged = false;
+    compose.hover.clear();
+    compose.holdUntil = 0;
+    closeTransient();
+    queueLayout();
+  }
+
+  // Everything that floats over or next to the dock goes away.
+  function closeTransient() {
+    closeWorldMenu();
+    closeSave(false);
+    hideSnapshot();
+    hideNote();
+    showKeyHints(false);
   }
 
   function onHotkeyDown(event) {
     if (retired || !dock) return;
     if (worldMenuOpen() && dockOnScreen() && handleWorldMenuKey(event)) return;
+    if (event.key === "Escape") {
+      if (event.isTrusted) onEscape();
+      return;
+    }
     if (HINT_KEYS.has(event.key)) {
       // Only ⌥ (with or without Shift or Ctrl) arms the badges; ⌘ cancels them.
       if (event.repeat) return;
@@ -1682,23 +2014,25 @@
       return;
     }
     showKeyHints(false);
-    if (!hotkeyMap.size || event.isComposing) return;
+    if (!hotkeyMap.size) return;
     const combo = hotkeysApi()?.comboFromEvent(event);
     const action = combo && hotkeyMap.get(combo);
     if (!action || !dockOnScreen() || !textarea || !textarea.isConnected) return;
-    const active = document.activeElement;
-    if (active && active !== textarea && active.matches && active.matches(TYPING_TARGET)) return;
-    if (!extensionAlive()) {
-      retire();
-      return;
-    }
+    if (hotkeyVeto(event, textarea, { mac: IS_MAC })) return;
+    if (!aliveOrRetire()) return;
     event.preventDefault();
     event.stopImmediatePropagation();
+    // Holding a key down runs it once.
     if (!event.repeat) runHotkey(action);
   }
 
   function onWindowBlur() {
     showKeyHints(false);
+    hideSnapshot();
+    closeWorldMenu();
+    // The pointer may come back elsewhere; mouseleave never came.
+    compose.hover.clear();
+    queueLayout();
   }
 
   function onPointerHideHints() {
@@ -1707,6 +2041,35 @@
 
   function onHotkeyUp(event) {
     if (HINT_KEYS.has(event.key) && !event.altKey) showKeyHints(false);
+  }
+
+  // A press anywhere outside the dock closes its open pieces. A press in the
+  // Imagine prompt keeps "Other worlds" and the note (its Undo) open.
+  function onOutsidePointer(event) {
+    if (retired || !dock) return;
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [event.target];
+    if (path.includes(dock) || (worldMenu && path.includes(worldMenu))) return;
+    closeWorldMenu();
+    hideSnapshot();
+    if (textarea && path.includes(textarea)) return;
+    hideNote();
+    closeOthers();
+  }
+
+  // Midjourney is one page: a route change closes everything and ends the
+  // writing (the prompt has to be clicked or typed into again).
+  function checkRoute() {
+    if (typeof location === "undefined" || location.href === compose.href) return false;
+    const first = !compose.href;
+    compose.href = location.href;
+    if (first) return false;
+    compose.engaged = false;
+    compose.dismissed = false;
+    compose.hover.clear();
+    compose.holdUntil = 0;
+    closeTransient();
+    closeOthers();
+    return true;
   }
 
   // The prompt packs are Dear Annete's lexicon: the Packs button shows only
@@ -1785,6 +2148,7 @@
   // world with its profiles. A chip adds that profile to this prompt (the
   // dock stays on its world); the world's name opens that world in the dock.
   function renderOthers() {
+    hideSnapshot();
     othersBox.textContent = "";
     const lines = groupOtherProfiles(state.otherProfiles, dockWorlds(), state.worldKey);
     if (!lines.length) {
@@ -1826,6 +2190,18 @@
       row.append(label, chips);
       othersBox.appendChild(row);
     }
+  }
+
+  function closeOthers() {
+    if (!state.othersOpen) return;
+    state.othersOpen = false;
+    try {
+      chrome.storage.local.set({ [OTHERS_STORAGE_KEY]: false });
+    } catch {
+      // storage unavailable after an extension reload
+    }
+    render();
+    queueLayout();
   }
 
   function profileChip(profile, pinned, quiet, foreign) {
@@ -1907,6 +2283,12 @@
     saveButton.title = "Save the moodboard, profiles, settings (--ar, --s …) and packs in this prompt as a preset";
     saveButton.addEventListener("mousedown", (event) => event.preventDefault());
     saveButton.addEventListener("click", openSave);
+    randomButton = el("button", "stg-mb-random", "⟳ Random");
+    randomButton.type = "button";
+    randomButton.hidden = true;
+    randomButton.title = "New random profiles + moodboard for this prompt\nShift-click: extreme mix (more profiles, up to two moodboards)";
+    randomButton.addEventListener("mousedown", (event) => event.preventDefault());
+    randomButton.addEventListener("click", (event) => rerollMix(event.shiftKey ? "extreme" : "random"));
     saveInput = el("input", "stg-mb-save-input");
     saveInput.type = "text";
     saveInput.maxLength = 40;
@@ -1929,7 +2311,7 @@
     saveInput.addEventListener("blur", () => closeSave(false));
     note = el("span", "stg-mb-note");
     note.hidden = true;
-    meta.append(world, presetBox, saveButton, saveInput, note, activeLabel);
+    meta.append(world, presetBox, saveButton, saveInput, randomButton, note, activeLabel);
     if (packs) meta.appendChild(packs.toggle);
 
     snapshot = el("div", "stg-mb-snap");
@@ -1949,35 +2331,39 @@
     if (node.style[name] !== value) node.style[name] = value;
   }
 
+  const TEXTAREA_EVENTS = [
+    ["beforeinput", onBeforeInput],
+    ["input", onPromptInput],
+    ["compositionstart", onCompositionStart],
+    ["compositionend", onCompositionEnd],
+    ["pointerdown", engage],
+    ["keydown", engage],
+  ];
+
+  function bindTextarea() {
+    if (!textarea) return;
+    for (const [type, handler] of TEXTAREA_EVENTS) textarea.addEventListener(type, handler);
+  }
+
+  function unbindTextarea() {
+    if (!textarea) return;
+    for (const [type, handler] of TEXTAREA_EVENTS) textarea.removeEventListener(type, handler);
+    beforeValue = null;
+    composeBefore = null;
+  }
+
   function layout() {
     layoutQueued = false;
-    if (retired) return;
-    if (!extensionAlive()) {
-      retire();
-      return;
-    }
+    if (!aliveOrRetire()) return;
     const area = findTextarea();
     if (area !== textarea) {
-      if (textarea) {
-        textarea.removeEventListener("input", onPromptInput);
-        textarea.removeEventListener("pointerdown", engage);
-        textarea.removeEventListener("keydown", engage);
-      }
+      unbindTextarea();
       textarea = area;
-      if (textarea) {
-        textarea.addEventListener("input", onPromptInput);
-        textarea.addEventListener("pointerdown", engage);
-        textarea.addEventListener("keydown", engage);
-      }
-      freshPrompt = !textarea || !wordsOf(textarea.value);
+      bindTextarea();
       forgetPanel();
       syncActive();
     }
-    // A submit empties the prompt without an input event: notice it here.
-    if (textarea && !wordsOf(textarea.value) && !freshPrompt) {
-      freshPrompt = true;
-      syncActive();
-    }
+    noticeBarValue();
     const bar = findBar(textarea);
     if (!bar) {
       if (dock) dock.hidden = true;
@@ -2050,14 +2436,67 @@
     requestAnimationFrame(layout);
   }
 
+  function onMutations(records) {
+    if (!aliveOrRetire()) return;
+    if (dock && records.every((record) => dock.contains(record.target))) return;
+    if (checkRoute()) queueLayout();
+    if (textarea && textarea.isConnected && dock && dock.hidden && !isComposing()) {
+      noticeBarValue();
+      return;
+    }
+    queueLayout();
+  }
+
+  function onResize() {
+    forgetPanel();
+    queueLayout();
+  }
+
+  function onFocusIn() {
+    if (!aliveOrRetire()) return;
+    forgetPanel();
+    notifyCompose();
+  }
+
+  function onFocusOut(event) {
+    // Leaving the prompt for the page (not for the dock) ends the writing.
+    const next = event.relatedTarget;
+    if (event.target === textarea && !(next && next.closest && next.closest(".stg-mb-dock"))) {
+      compose.engaged = false;
+    }
+    compose.holdUntil = Date.now() + COMPOSE_HOLD_MS;
+    notifyCompose();
+  }
+
+  function onVisibility() {
+    if (document.visibilityState === "visible") refreshIfStale();
+    else onWindowBlur();
+  }
+
+  function onStorageChanged(changes, area) {
+    if (retired || area !== "sync") return;
+    const hotkeysKey = hotkeysApi()?.STORAGE_KEY;
+    if (hotkeysKey && changes[hotkeysKey]) applyHotkeys(changes[hotkeysKey].newValue);
+    if (changes[pinKey()]) {
+      const pins = changes[pinKey()].newValue;
+      state.pins = Array.isArray(pins) ? pins : null;
+      render();
+    }
+    if (!changes[presetKey()]) return;
+    const list = changes[presetKey()].newValue;
+    state.presets = Array.isArray(list) ? list : [];
+    renderPresets();
+    syncActive();
+  }
+
   function start() {
-    hideOlderCopies();
+    takeOverFromOlderCopies();
+    compose.href = location.href;
     try {
       chrome.storage.local.get([WORLD_STORAGE_KEY, STICKY_STORAGE_KEY, OTHERS_STORAGE_KEY], (stored) => {
         state.worldKey = String(stored?.[WORLD_STORAGE_KEY] || "");
         state.othersOpen = stored?.[OTHERS_STORAGE_KEY] === true;
-        const sticky = stored?.[STICKY_STORAGE_KEY];
-        state.sticky = sticky && typeof sticky === "object" ? sticky : {};
+        state.sticky = cleanSticky(stored?.[STICKY_STORAGE_KEY]);
         refresh().then(loadPresets);
       });
     } catch {
@@ -2066,70 +2505,27 @@
     // Midjourney changes the page all the time (the grid loads, jobs
     // progress). While no prompt is being written and the prompt box is still
     // there, those changes need no work at all.
-    observer = new MutationObserver((records) => {
-      if (dock && records.every((record) => dock.contains(record.target))) return;
-      if (textarea && textarea.isConnected && dock && dock.hidden && !isComposing()) {
-        if (!freshPrompt && !wordsOf(textarea.value)) freshPrompt = true;
-        return;
-      }
-      queueLayout();
-    });
+    observer = new MutationObserver(onMutations);
     observer.observe(document.body, { childList: true, subtree: true });
     loadHotkeys();
+    listen(document, RETIRE_EVENT, onRetireEvent);
     window.addEventListener("keydown", onHotkeyDown, true);
     window.addEventListener("keyup", onHotkeyUp, true);
     window.addEventListener("blur", onWindowBlur);
     window.addEventListener("pointerdown", onPointerHideHints, true);
     window.addEventListener("wheel", onPointerHideHints, { capture: true, passive: true });
-    document.addEventListener(
-      "pointerdown",
-      (event) => {
-        if (!worldMenuOpen()) return;
-        if (worldMenu.contains(event.target) || worldButton.contains(event.target)) return;
-        closeWorldMenu();
-      },
-      true,
-    );
+    listen(document, "pointerdown", onOutsidePointer, true);
+    listen(window, "popstate", queueLayout);
+    listen(window, "resize", onResize);
+    listen(document, "pointerup", forgetPanel, true);
+    listen(document, "focusin", onFocusIn);
+    listen(document, "focusout", onFocusOut);
+    listen(document, "visibilitychange", onVisibility);
     try {
-      chrome.storage.onChanged.addListener((changes, area) => {
-        if (area !== "sync") return;
-        const hotkeysKey = hotkeysApi()?.STORAGE_KEY;
-        if (hotkeysKey && changes[hotkeysKey]) applyHotkeys(changes[hotkeysKey].newValue);
-        if (changes[pinKey()]) {
-          const pins = changes[pinKey()].newValue;
-          state.pins = Array.isArray(pins) ? pins : null;
-          render();
-        }
-        if (!changes[presetKey()]) return;
-        const list = changes[presetKey()].newValue;
-        state.presets = Array.isArray(list) ? list : [];
-        renderPresets();
-        syncActive();
-      });
+      chrome.storage.onChanged.addListener(onStorageChanged);
     } catch {
       // extension reloaded
     }
-    window.addEventListener("resize", () => {
-      forgetPanel();
-      queueLayout();
-    });
-    document.addEventListener("pointerup", forgetPanel, true);
-    document.addEventListener("focusin", () => {
-      forgetPanel();
-      notifyCompose();
-    });
-    document.addEventListener("focusout", (event) => {
-      // Leaving the prompt for the page (not for the dock) ends the writing.
-      const next = event.relatedTarget;
-      if (event.target === textarea && !(next && next.closest && next.closest(".stg-mb-dock"))) {
-        compose.engaged = false;
-      }
-      compose.holdUntil = Date.now() + COMPOSE_HOLD_MS;
-      notifyCompose();
-    });
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") refreshIfStale();
-    });
     queueLayout();
   }
 

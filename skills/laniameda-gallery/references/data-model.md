@@ -465,7 +465,7 @@ only plain collections may be children. One level deep.
   - Indexes: `by_owner_batchKey_order`, `by_owner_ingestKey` (idempotent queueing), `by_owner_updatedAt`.
   - Functions: `mjQueue:listQueue`, `mjQueue:queueItems`, `mjQueue:updateItem` (signed owner). Agent route `/api/agent/mj-queue` (actions list/queue/update; MCP queue_mj_prompts, list_mj_queue, update_mj_queue_item); extension route `/api/extension/mj-queue` (GET list, POST update, POST `{action:"queue"}` adds items: the extension describer).
   - `describe` (optional, 9 Nov 2026): set by the extension's describer. `{sourceUrl?, pageUrl?, descriptions[] (Midjourney's Describe lines, up to 4), mode: keep | ours}`: the picture a prompt was written from, for lineage.
-  - The composed command (`lib/mj-queue.ts` `composeMjCommand`, twin in `extension/mj-queue-compose.js`): image prompts, prose, `--sref`, `--iw`, `--cref/--cw` only with `--niji 6` (never `--oref`: V8.2 has none), `--profile`, params. The version is always `--v 8.2` (`lib/mj-version.ts`): `--v 8.1`, `--v 7` and older are stored and composed as `--v 8.2`, the row keeps `replacedVersion` (the version asked for) and the item warns. Nothing in the backend submits to Midjourney; `sent` is recorded by the extension after Michael's own click.
+  - The composed command (`lib/mj-queue.ts` `composeMjCommand`, twin in `extension/mj-queue-compose.js`): image prompts, prose, `--sref`, `--iw`, no `--cref`, `--cw` or `--oref` (V8.2 has none; `--niji` is composed as `--v 8.2`, 17 Nov 2026), `--profile`, params. The version is always `--v 8.2` (`lib/mj-version.ts`): `--v 8.1`, `--v 7` and older are stored and composed as `--v 8.2`, the row keeps `replacedVersion` (the version asked for) and the item warns. Nothing in the backend submits to Midjourney; `sent` is recorded by the extension after Michael's own click.
 
 - `folders`
   - Every collection and folder is a row here. There is no `collections` or `worlds` table. Projects, beats and episodes were retired on 22 Sep 2026.
@@ -1178,3 +1178,29 @@ Edit in place has a reviewer note (key C): an owner comment on the image in
 view (the take while its wipe is open) through `addAssetComment` with a
 `context` line that goes into the task brief. It lands in Tasks as a
 `source: comment` task for the reviewer agent.
+
+# Midjourney fast helper and queue tools (17 November 2026)
+
+`mjQuickRuns`: one row per fast edit run from the extension's ⌥F card on
+midjourney.com. Fields: `ownerUserId`, `source` (the frame's R2 url, its
+Midjourney job id and index, page url and prompt), `model`, `endpoint`,
+`instruction`, `count`, `status`, `takes[]` (one entry per take: fal request
+id, status, result url in R2, size, `keptAssetId`, `fantasyDraftId`, error),
+`costUsd`, `world`, `refUrls`, `createdAt`, `updatedAt`. Index
+`by_owner_createdAt`. Functions in `convex/mjQuickRuns.ts` (start, read, recent,
+review, save context, mark saved or sent to Fantasy) and the Node runner
+`convex/mjQuickRunner.ts` (submit to fal's queue on the owner's fal key, poll,
+copy the result to R2). A take with a request id is never resubmitted; a run of
+$5 or more is refused. Extension route `/api/extension/quick-run`. Keep saves
+through `ingest:ingestFromApi` with the Midjourney job page as `sourceUrl` and an
+`edit_source` link when the source frame is in the gallery. "To Fantasy" only
+makes a held Seedance 2.5 draft in the local Fantasy Studio app; nothing runs.
+
+`mjQueueItems` gained queue tools (no schema change): `mjQueue:forkItem` (Test,
+Random, Extreme: copies of one prompt with other profile codes into a new
+thread), `mjQueue:setItemsParams` (thread-wide stylize, raw, aspect, chaos,
+weird, exp on prompts still to send), `mjQueue:deleteThread` (deletes every item
+of a thread in pages of 250, sent ones too). `queueItems` takes `fresh` to start
+a new thread. Extension route POST actions `fork`, `params`, `deleteThread`.
+`--niji` is composed as `--v 8.2` without `--cref`; profile `n9iqix8` is
+stripped everywhere.

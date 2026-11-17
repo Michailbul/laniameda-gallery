@@ -30,6 +30,8 @@ const fixtures: Record<string, MjQueueComposable> = {
   empty: { prompt: "  " },
   restyleFrame: { prompt: "a school patio, wide shot", profileCodes: ["dfvmdw1"], params: "--raw --ar 16:9 --seed 42", editRefs: [{ url: "https://cdn.midjourney.com/1c8e8ead-03c5-47ec-9ac0-5e9472ee466a/0_2.png" }] },
   editV7: { prompt: "a patio", params: "--v 7", editRefs: [{ url: `${R2}/frame.jpg` }] },
+  niji: { prompt: "a fox", params: "--niji 6 --ar 2:3", profileCodes: ["n9iqix8", "abc"] },
+  bannedParams: { prompt: "a fox", params: "--profile n9iqix8 --ar 1:1" },
 };
 
 describe("composeMjCommand", () => {
@@ -52,7 +54,25 @@ describe("composeMjCommand", () => {
     const v6 = composeMjCommand(fixtures.crefV6);
     expect(v6.command).toBe("a portrait --v 8.2");
     expect(v6.warnings).toContain("v6.1 is not used: switched to v8.2");
-    expect(composeMjCommand(fixtures.crefNiji).command).toBe(`a portrait --cref ${R2}/face.jpg --niji 6`);
+    // Niji is not used either: --niji 6 becomes --v 8.2, so --cref never comes back.
+    const niji = composeMjCommand(fixtures.crefNiji);
+    expect(niji.command).toBe("a portrait --v 8.2");
+    expect(niji.warnings).toEqual(["niji 6 is not used: switched to v8.2", "Character reference left out: V8.2 has none. Attach the picture for the Edit model instead."]);
+  });
+
+  test("--niji becomes --v 8.2 and keeps the other params", () => {
+    expect(composeMjCommand({ prompt: "a fox", params: "--niji --ar 2:3" })).toEqual({ command: "a fox --ar 2:3 --v 8.2", warnings: ["niji is not used: switched to v8.2"] });
+    expect(composeMjCommand({ prompt: "a fox", params: "--v 8.2 —niji 7 --raw" }).command).toBe("a fox --v 8.2 --raw");
+  });
+
+  test("the AndromedaCartoon profile never reaches a command", () => {
+    const codes = composeMjCommand({ prompt: "a fox", profileCodes: ["n9iqix8", "vtrctg9"], params: "--ar 1:1" });
+    expect(codes.command).toBe("a fox --profile vtrctg9 --ar 1:1");
+    expect(codes.warnings).toEqual(["AndromedaCartoon profile left out: it is never used."]);
+    const inParams = composeMjCommand({ prompt: "a fox", params: "--p n9iqix8 --ar 1:1" });
+    expect(inParams.command).toBe("a fox --ar 1:1");
+    expect(inParams.warnings.length).toBe(1);
+    expect(composeMjCommand({ prompt: "a fox --profile n9iqix8 abc123" }).command).toBe("a fox --profile abc123");
   });
 
   test("an empty item warns", () => {
@@ -91,8 +111,9 @@ describe("edit attachments", () => {
     const v7 = composeMjCommand(fixtures.editV7);
     expect(v7.command).toBe(`a patio --v 8.2 --edit ${R2}/frame.jpg`);
     expect(v7.warnings).toEqual(["v7 is not used: switched to v8.2"]);
+    // --niji is switched to --v 8.2, so the frame is kept there too.
     const niji = composeMjCommand({ prompt: "a patio", params: "--niji 7", editRefs: [{ url: `${R2}/frame.jpg` }] });
-    expect(niji.command).not.toContain("--edit");
-    expect(niji.warnings.length).toBe(1);
+    expect(niji.command).toBe(`a patio --v 8.2 --edit ${R2}/frame.jpg`);
+    expect(niji.warnings).toEqual(["niji 7 is not used: switched to v8.2"]);
   });
 });

@@ -98,19 +98,20 @@ describe("the writer's world brief", () => {
     expect(text).not.toContain("DA-CH");
   });
 
-  test("the quick edit and Make it ours carry the brief; a plain recreation does not", () => {
+  test("the quick edit carries the brief", () => {
     const brief = composeBrief("DEAR ANNETE", [part("rules", "rules", "Never everyday clothes.")]).text;
     const edit = buildQuickEditMessages({ prompt: "a woman in a coat --ar 16:9", instruction: "make it a gown", worldBrief: brief });
     expect(edit.messages[0]!.content).toContain("Never everyday clothes.");
     expect(edit.messages[0]!.content).toContain("still return the edited text and nothing else");
     expect(buildQuickEditMessages({ prompt: "a woman", instruction: "older" }).messages[0]!.content).not.toContain("THE WORLD THIS WORK BELONGS TO");
 
-    const style = { name: "Crimson Fog", raises: [], lowers: [] };
-    const ours = buildDescribeMessages({ image: "https://x/y.png", mode: "both", style, worldBrief: brief });
-    expect(ours[0]!.content).toContain("Never everyday clothes.");
-    expect(ours[0]!.content).toContain("KEEP stays a plain recreation");
-    const keep = buildDescribeMessages({ image: "https://x/y.png", mode: "keep", worldBrief: brief });
-    expect(keep[0]!.content).not.toContain("Never everyday clothes.");
+    // The describer describes the picture: no world's files.
+    expect(buildDescribeMessages({ image: "https://x/y.png" })[0]!.content).not.toContain("Never everyday clothes.");
+    // The quick edit carries the cinematic rules, and the Dear Annete addendum for its worlds.
+    expect(edit.messages[0]!.content).toContain("CINEMATIC RULES");
+    expect(edit.messages[0]!.content).not.toContain("DEAR ANNETE ADDENDUM");
+    expect(buildQuickEditMessages({ prompt: "a lane", instruction: "wider", worldKey: "dear-annete" }).messages[0]!.content).toContain("DEAR ANNETE ADDENDUM");
+    expect(brief).toContain("the newer dated one wins");
   });
 });
 

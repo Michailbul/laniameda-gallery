@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/server/extension-auth";
 import { clientErrorMessage } from "@/lib/server/route-error";
-import { EXPAND_LIMITS, EXPAND_PRESETS, EXPAND_PRESET_KEYS } from "@/lib/mj-expand";
+import { EXPAND_ATTACH, EXPAND_LIMITS, EXPAND_PRESETS, EXPAND_PRESET_KEYS } from "@/lib/mj-expand";
 import { LOCAL_WRITER_LIMITS } from "@/lib/local-writer";
 
 // The extension's writer: one Midjourney frame (the picture and the command
@@ -33,6 +33,11 @@ const bodySchema = z.object({
   system: z.string().max(EXPAND_LIMITS.system).optional(),
   keepImages: z.boolean().optional(),
   srefUrl: z.string().url().max(2048).optional(),
+  // "Use this image as": none, a style reference, an image prompt, or the Edit model's frame.
+  attach: z.enum(EXPAND_ATTACH).optional(),
+  attachUrl: z.string().url().max(2048).optional(),
+  // The last Midjourney prompts, newest first ("Replay previous prompts", or the Replay move).
+  previous: z.array(z.string().max(EXPAND_LIMITS.previousChars * 2)).max(EXPAND_LIMITS.previous).optional(),
   aspect: z.string().max(20).optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),

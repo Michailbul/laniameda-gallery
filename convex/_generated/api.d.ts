@@ -76,6 +76,8 @@ import type * as midjourneySrefs from "../midjourneySrefs.js";
 import type * as mjProfiles from "../mjProfiles.js";
 import type * as mjQueue from "../mjQueue.js";
 import type * as mjQueueValidators from "../mjQueueValidators.js";
+import type * as mjQuickRunner from "../mjQuickRunner.js";
+import type * as mjQuickRuns from "../mjQuickRuns.js";
 import type * as moodboardValidators from "../moodboardValidators.js";
 import type * as moodboards from "../moodboards.js";
 import type * as newspaper from "../newspaper.js";
@@ -212,6 +214,8 @@ declare const fullApi: ApiFromModules<{
   mjProfiles: typeof mjProfiles;
   mjQueue: typeof mjQueue;
   mjQueueValidators: typeof mjQueueValidators;
+  mjQuickRunner: typeof mjQuickRunner;
+  mjQuickRuns: typeof mjQuickRuns;
   moodboardValidators: typeof moodboardValidators;
   moodboards: typeof moodboards;
   newspaper: typeof newspaper;

@@ -1,4 +1,4 @@
-// What the extension's writer (Grow, quick edit, Make it ours) is told about
+// What the extension's writer (Grow and quick edit) is told about
 // the world a frame belongs to. The gallery assembles it from the world's own
 // files, the same ones open_world hands an agent: WORLD.md, LEARNINGS.md, the
 // cast, the World Bible, the storybooks and the world's reference docs. The
@@ -19,7 +19,7 @@ export const WRITER_BRIEF_LIMITS = {
   stories: 3000,
   doc: 6000,
   docs: 14_000,
-  // Whole brief, in characters. Full is Grow and Make it ours; short is the
+  // Whole brief, in characters. Full is Grow; short is the
   // quick edit, which has to stay fast.
   full: 84_000,
   short: 34_000,
@@ -51,7 +51,8 @@ const PART_CAP: Record<BriefPartKey, number> = {
 /** How the files bind the writer. The art director's own words still win. */
 export const WRITER_BRIEF_RULES = [
   "- A never-rule or a lock in the rule file holds in every prompt you write. The art director's own words in this request outrank the files; nothing else does.",
-  "- A character the files name is written with the look the files give them (hair, build, face, costume), in the same words each time. Never invent a new look for a named character.",
+  "- When two lines of the files disagree, the newer dated one wins. The art director's direction of 17 Nov 2026 outranks every older file line: locations are always wide; close-ups are part of the world; half of every frame is plain reality (real faces, stone, clothes, light); real people in grounded, believable clothes; no brass, no crystal lamps, no mechanical hands or limbs.",
+  "- A character the files name is written with the look the files give them (hair, build, face, costume), in the same words each time, except a part a dated never-rule bans. Never invent a new look for a named character.",
   "- People, wardrobe, vehicles, buildings and props come from this world's own materials and era as the files describe them. A trade, garment or object the files exclude stays out.",
   "- A story or a scene agrees with the bible's facts, relationships and tone.",
   "- The files name places, objects and machines of every size. Bring one in only at a size this shot can show (the scale rule): a far city takes skyline-size markers, a street takes building-size ones, only a near shot takes lamps, signs or jewellery. A frame with no room for a marker gets none.",
