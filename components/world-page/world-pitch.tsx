@@ -62,6 +62,8 @@ export type WorldPitchProps = {
   initialPage: WorldTile[];
   /** admin: the owner's /w/<slug>/admin, every member with its off-page reason. */
   mode?: "public" | "admin";
+  /** Public page: the wall in a new random order per visit (initialPage is already shuffled). */
+  shuffle?: boolean;
 };
 
 /**
@@ -77,8 +79,10 @@ export function WorldPitch({
   initialWorld,
   initialPage,
   mode = "public",
+  shuffle = false,
 }: WorldPitchProps) {
   const admin = mode === "admin";
+  const shuffleMode = shuffle && !admin;
   const [side, setSide] = useState(initialSide);
   const [section, setSection] = useState<WorldSection | undefined>(initialSection);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -104,8 +108,22 @@ export function WorldPitch({
   const worlds = useWorldsBySide(source, liveKeys);
   const world = worlds[side] ?? initialWorld;
 
-  const allPages = usePagesBySide(source, liveKeys);
-  const sectionPages = usePages(source, section ? side : undefined, section);
+  // The shuffled public wall loads every frame once (cached) instead of
+  // paging newest first, so the paged reads are skipped there.
+  const allPages = usePagesBySide(source, shuffleMode ? liveKeys.map(() => undefined) : liveKeys);
+  const sectionPages = usePages(source, section && !shuffleMode ? side : undefined, section);
+  const walls = useShuffledWalls(slug, shuffleMode ? side : undefined, warm || side !== initialSide, {
+    side: initialSide,
+    tiles: initialPage,
+  });
+  const [shown, setShown] = useState(WORLD_PAGE_SIZE);
+  const fullWall = walls[side];
+  const shuffledView = useMemo(() => {
+    if (!shuffleMode) return null;
+    const base = fullWall ?? (side === initialSide ? initialPage : []);
+    const list = section ? base.filter((tile) => tile.section === section) : base;
+    return { list, visible: list.slice(0, shown) };
+  }, [shuffleMode, fullWall, side, initialSide, initialPage, section, shown]);
 
   // The rest of the wall: a section's own pages once they arrive; until
   // then the side's loaded frames filtered here, so a tab reacts at once.
@@ -115,11 +133,12 @@ export function WorldPitch({
     return side === initialSide && !initialSection ? initialPage : [];
   }, [sideAll, side, initialSide, initialSection, initialPage]);
   const restTiles = useMemo(() => {
+    if (shuffledView) return shuffledView.visible;
     if (!section) return allTiles;
     if (sectionPages.status !== "LoadingFirstPage") return sectionPages.results;
     if (side === initialSide && section === initialSection && initialPage.length) return initialPage;
     return allTiles.filter((tile) => tile.section === section);
-  }, [section, sectionPages, allTiles, side, initialSide, initialSection, initialPage]);
+  }, [shuffledView, section, sectionPages, allTiles, side, initialSide, initialSection, initialPage]);
 
   // Hero inserts are the world's, not the side's: the opening one stays put.
   const inserts = useMemo(() => world.inserts ?? [], [world.inserts]);
@@ -163,9 +182,10 @@ export function WorldPitch({
   const [memory, setMemory] = useState<ViewMemory>(() => emptyMemory(viewKey));
   const view = memory.key === viewKey ? memory : emptyMemory(viewKey);
   const tiles = useMemo(() => {
-    const featured = [...world.featured, ...world.lead].filter(
-      (tile) => !section || tile.section === section,
-    );
+    // The shuffled wall already holds the featured and lead frames, in its random order.
+    const featured = shuffleMode
+      ? []
+      : [...world.featured, ...world.lead].filter((tile) => !section || tile.section === section);
     const merged: WorldTile[] = [];
     const seen = new Set<string>();
     for (const tile of [...featured, ...restTiles]) {
@@ -186,7 +206,7 @@ export function WorldPitch({
       .filter((entry) => ownerView || !insertIds.has(entry.tile.id))
       .sort((a, b) => a.rank - b.rank)
       .map((entry) => entry.tile);
-  }, [world.featured, world.lead, restTiles, section, owner.archivedIds, owner.droppedIds, view, insertIds, ownerView]);
+  }, [shuffleMode, world.featured, world.lead, restTiles, section, owner.archivedIds, owner.droppedIds, view, insertIds, ownerView]);
   // Remember new frames' slots (React's adjust-state-while-rendering pattern:
   // it settles on the next pass, once every frame has a slot).
   if (memory.key !== viewKey || !tiles.every((tile) => view.order.has(tile.id))) {
@@ -199,23 +219,38 @@ export function WorldPitch({
     setMemory({ key: viewKey, order, ghosts });
   }
 
-  const status = section ? sectionPages.status : sideAll?.status;
+  const shuffledStatus = shuffledView
+    ? shuffledView.list.length > shown
+      ? "CanLoadMore"
+      : fullWall
+        ? "Exhausted"
+        : "LoadingMore"
+    : undefined;
+  const status = shuffledStatus ?? (section ? sectionPages.status : sideAll?.status);
   const loadMore = section ? sectionPages.loadMore : sideAll?.loadMore;
   const onNearEnd = useCallback(() => {
-    if (status === "CanLoadMore") loadMore?.(WORLD_PAGE_SIZE);
-  }, [status, loadMore]);
+    if (status !== "CanLoadMore") return;
+    if (shuffleMode) setShown((count) => count + WORLD_PAGE_SIZE);
+    else loadMore?.(WORLD_PAGE_SIZE);
+  }, [status, loadMore, shuffleMode]);
+  // A new view starts with one screen of frames again.
+  const [shownKey, setShownKey] = useState(viewKey);
+  if (shownKey !== viewKey) {
+    setShownKey(viewKey);
+    setShown(WORLD_PAGE_SIZE);
+  }
 
   // A filtered view can come back sparse; pull a few more pages to fill the
   // screen, then leave the rest to scrolling.
   const autoLoads = useRef({ key: "", count: 0 });
   useEffect(() => {
-    if (!section || status !== "CanLoadMore" || restTiles.length >= WORLD_PAGE_SIZE / 2) return;
+    if (shuffleMode || !section || status !== "CanLoadMore" || restTiles.length >= WORLD_PAGE_SIZE / 2) return;
     const key = `${side}|${section}`;
     if (autoLoads.current.key !== key) autoLoads.current = { key, count: 0 };
     if (autoLoads.current.count >= 20) return;
     autoLoads.current.count += 1;
     loadMore?.(WORLD_PAGE_SIZE);
-  }, [side, section, status, restTiles.length, loadMore]);
+  }, [shuffleMode, side, section, status, restTiles.length, loadMore]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -252,7 +287,7 @@ export function WorldPitch({
     }
   };
 
-  const done = status === "Exhausted" || (status === undefined && !sideAll);
+  const done = status === "Exhausted" || (status === undefined && !sideAll && !shuffleMode);
   const past = usePastHero();
 
   return (
@@ -403,6 +438,46 @@ function usePastHero() {
 }
 
 // ------------------------------------------------------------------- data
+
+const shuffleTiles = (tiles: WorldTile[]) => {
+  const out = [...tiles];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+};
+
+/**
+ * Each side's whole public wall in a random order, fetched once per side from
+ * the cached wall endpoint. The server already shuffled the first screen: its
+ * frames keep their places and the rest follow in a fresh random order.
+ */
+function useShuffledWalls(
+  slug: string,
+  side: string | undefined,
+  ready: boolean,
+  first: { side: string; tiles: WorldTile[] },
+) {
+  const [walls, setWalls] = useState<Record<string, WorldTile[]>>({});
+  const requested = useRef(new Set<string>());
+  useEffect(() => {
+    if (!side || !ready || requested.current.has(side)) return;
+    requested.current.add(side);
+    const query = side === first.side ? "" : `?side=${encodeURIComponent(side)}`;
+    fetch(`/api/world-wall/${encodeURIComponent(slug)}${query}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { tiles?: WorldTile[] } | null) => {
+        if (!data?.tiles) return;
+        const lead = side === first.side ? first.tiles : [];
+        const leadIds = new Set(lead.map((tile) => tile.id));
+        const rest = shuffleTiles(data.tiles.filter((tile) => !leadIds.has(tile.id)));
+        setWalls((current) => ({ ...current, [side]: [...lead, ...rest] }));
+      })
+      .catch(() => requested.current.delete(side));
+  }, [slug, side, ready, first.side, first.tiles]);
+  return walls;
+}
 
 type Source = { slug: string; admin: boolean; ownerUserId?: string };
 
