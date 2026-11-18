@@ -60,6 +60,8 @@
   document.documentElement.dataset.stgActiveInstance = INSTANCE_ID;
 
   let instanceRetired = false;
+  // The "saving is paused" pill on Midjourney (syncMidjourneyPausedPill).
+  let midjourneyPausedPill = null;
 
   function isRetiredInstance() {
     // Retirement is sticky — a retired copy must never resurrect itself by
@@ -91,6 +93,8 @@
     // Only the banner is ours to remove — any other stg- UI in the DOM now
     // belongs to the successor instance and must be left alone.
     removeExtensionReloadBanner();
+    midjourneyPausedPill?.remove();
+    midjourneyPausedPill = null;
   }
 
   // After the unpacked extension is reloaded at chrome://extensions, every tab
@@ -320,6 +324,7 @@
     ".stg-bulk-toggle",
     ".stg-bulk-bar",
     ".stg-bulk-check",
+    ".stg-paused-pill",
   ].join(",");
   const PAGE_CONTROL_SELECTOR = [
     "button",
@@ -2422,6 +2427,40 @@
       startXPostObserver();
       scheduleXPostScan();
     }
+    syncMidjourneyPausedPill();
+  }
+
+  // A pause set in the side panel ("Pause on this site") hides every save
+  // control. On Midjourney that looked like a broken extension (18 Nov 2026),
+  // so the page says so and turns saving back on in one click.
+  function syncMidjourneyPausedPill() {
+    const show = !extensionEnabled &&
+      isMidjourneyPage() &&
+      !isHostDisabled(BUILTIN_DISABLED_HOSTS, currentHost) &&
+      !isRetiredInstance();
+    if (!show) {
+      midjourneyPausedPill?.remove();
+      midjourneyPausedPill = null;
+      return;
+    }
+    if (midjourneyPausedPill?.isConnected) return;
+    const pill = document.createElement("div");
+    pill.className = "stg-paused-pill";
+    pill.setAttribute("role", "status");
+    pill.innerHTML = `<span class="stg-paused-pill__text">Gallery saving is paused here</span><button type="button" class="stg-paused-pill__on">Turn on</button>`;
+    pill.querySelector("button").addEventListener("click", async () => {
+      try {
+        const cfg = await getStorageSync([DISABLED_HOSTS_KEY]);
+        const hosts = normalizeDisabledHosts(cfg[DISABLED_HOSTS_KEY]);
+        await chrome.storage.sync.set({
+          [DISABLED_HOSTS_KEY]: hosts.filter((host) => !isHostDisabled([host], currentHost)),
+        });
+      } catch (err) {
+        showContextToast("error", `Could not turn saving on: ${err?.message || err}`.slice(0, 90));
+      }
+    });
+    (document.body || document.documentElement).appendChild(pill);
+    midjourneyPausedPill = pill;
   }
 
   function syncSiteStateFromStorage(onComplete) {

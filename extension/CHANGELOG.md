@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.36.1 (18 Nov 2026)
+
+Saving on Midjourney
+- Saving works on Midjourney again. It had been paused on midjourney.com from
+  the side panel ("Pause on this site"), which hides every save button there
+  while the moodboard bar keeps working, so it looked broken. This update turns
+  saving back on there once.
+- If saving is paused on Midjourney again, a small pill at the bottom left says
+  "Gallery saving is paused here" with a Turn on button.
+
 ## 0.36.0 (17 Nov 2026)
 
 Midjourney bar

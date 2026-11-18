@@ -1972,14 +1972,37 @@ async function configureSidePanel() {
 }
 
 void configureSidePanel();
+// Saving on midjourney.com was found paused through the side panel's "Pause on
+// this site" (18 Nov 2026): the save widget and the "already saved" lookups
+// stopped with nothing on the page saying why, while the moodboard dock kept
+// working. Midjourney is where saving matters most, so each install turns it
+// back on once. A later pause stays: the page now shows a "paused" pill.
+const MIDJOURNEY_RESUME_MARKER = "midjourneySaveResumed:2026-11-18";
+async function resumeMidjourneySavingOnce() {
+  try {
+    const marker = await chrome.storage.local.get(MIDJOURNEY_RESUME_MARKER);
+    if (marker[MIDJOURNEY_RESUME_MARKER]) return;
+    const cfg = await chrome.storage.sync.get([DISABLED_HOSTS_KEY]);
+    const hosts = normalizeDisabledHosts(cfg[DISABLED_HOSTS_KEY]);
+    const kept = hosts.filter((host) => !isMidjourneyDocumentUrl(`https://${host}/`));
+    if (kept.length !== hosts.length) {
+      await chrome.storage.sync.set({ [DISABLED_HOSTS_KEY]: kept });
+    }
+    await chrome.storage.local.set({ [MIDJOURNEY_RESUME_MARKER]: Date.now() });
+  } catch (err) {
+    console.warn("[Save to Gallery] could not resume saving on Midjourney:", err?.message);
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   installContextMenus();
   void configureSidePanel();
-  void reinjectContentScripts();
+  void resumeMidjourneySavingOnce().then(() => reinjectContentScripts());
 });
 chrome.runtime.onStartup.addListener(() => {
   installContextMenus();
   void configureSidePanel();
+  void resumeMidjourneySavingOnce();
 });
 chrome.contextMenus.onShown?.addListener(updateContextMenuVisibility);
 chrome.contextMenus.onClicked.addListener((info, tab) => {
