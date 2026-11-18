@@ -97,6 +97,44 @@
   border-color: rgba(255, 122, 100, 0.42);
 }
 
+/* Saving paused on this site (side panel "Pause on this site"), Midjourney only. */
+.stg-paused-pill {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 2147483646;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 12px;
+  background: rgba(10, 8, 5, 0.92);
+  color: rgba(255, 244, 234, 0.86);
+  font-family: "Inter", "DM Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  border: 1px solid rgba(255, 244, 234, 0.14);
+  border-radius: 999px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.stg-paused-pill__on {
+  all: unset;
+  cursor: pointer;
+  padding: 6px 10px;
+  background: #F26157;
+  color: #191919;
+  font: inherit;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 999px;
+}
+
+.stg-paused-pill__on:hover {
+  background: #ff7a70;
+}
+
 /* Midjourney grid: pin to top-right of the card. */
 .stg-badge--top-right {
   top: 8px;
