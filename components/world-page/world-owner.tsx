@@ -13,7 +13,7 @@ import { useFrameMarks } from "@/lib/use-frame-marks";
 import type { WorldTile } from "./types";
 import type { WallOwnerState } from "./world-masonry";
 
-// The owner's keys on the world page and its admin view, on the hovered frame
+// The owner's keys on the world page's admin view (/w/<slug>/admin), on the hovered frame
 // (or the one open large). Every key paints before the server answers:
 //   1 like (twice quickly: super like, "ready to use") · F feature · H hero
 //   (Shift+H pairs into the previous insert) · C comment · 2 drop from the
@@ -69,7 +69,9 @@ export function useWorldOwner({
   const { user } = useCurrentUser();
   const { isAuthenticated } = useConvexAuth();
   const ownerUserId = user?.ownerUserId;
-  const active = Boolean(ownerUserId && isAuthenticated);
+  // The public page shows nothing of this, even to the signed-in owner: it is
+  // the page people are sent (Michael, 18 Nov 2026). Curation lives on /admin.
+  const active = Boolean(admin && ownerUserId && isAuthenticated);
 
   const setStarred = useMutation(api.assets.setAssetStarred);
   const archive = useMutation(api.assetReview.archive);

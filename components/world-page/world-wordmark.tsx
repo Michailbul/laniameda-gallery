@@ -13,6 +13,7 @@ export function WorldWordmark({
   className,
   as = "div",
   draw = false,
+  style,
 }: {
   slug: string;
   name: string;
@@ -20,14 +21,15 @@ export function WorldWordmark({
   className?: string;
   as?: "h1" | "div";
   draw?: boolean;
+  style?: React.CSSProperties;
 }) {
   const Tag = as;
   const mark = worldBrand(slug).wordmark?.[variant];
   if (!mark) {
-    return <Tag className={`wp-wordmark-text ${className ?? ""}`}>{name}</Tag>;
+    return <Tag className={`wp-wordmark-text ${className ?? ""}`} style={style}>{name}</Tag>;
   }
   return (
-    <Tag className={className} style={{ margin: 0, lineHeight: 0 }}>
+    <Tag className={className} style={{ margin: 0, lineHeight: 0, ...style }}>
       <svg
         viewBox={mark.viewBox}
         role="img"

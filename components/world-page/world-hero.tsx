@@ -6,6 +6,7 @@ import type { WallOwnerState } from "./world-masonry";
 import { InsertFrames } from "./world-insert";
 import { WorldWordmark } from "./world-wordmark";
 import { worldBrand } from "./world-brand";
+import { WorldLayers } from "./world-layers";
 
 type IdleWindow = Window & {
   requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => number;
@@ -37,7 +38,8 @@ export function WorldHero({
   const [onScreen, setOnScreen] = useState(true);
   const [sound, setSound] = useState(false);
   const section = useRef<HTMLElement>(null);
-  const hasFilm = opening?.tiles.some((tile) => tile.kind === "video") ?? false;
+  const layered = brand.layeredHero;
+  const hasFilm = !layered && (opening?.tiles.some((tile) => tile.kind === "video") ?? false);
   const single = opening?.tiles.length === 1;
 
   useEffect(() => {
@@ -80,8 +82,9 @@ export function WorldHero({
       data-film={(single && hasFilm) || undefined}
     >
       <div className="wp-hero-pin">
-        <div className="wp-hero-media" aria-hidden>
-          {opening && (
+        <div className="wp-hero-media" aria-hidden={!layered || undefined}>
+          {layered && <WorldLayers slug={slug} name={name} hero={layered} active={onScreen} />}
+          {!layered && opening && (
             <InsertFrames
               tiles={opening.tiles}
               near={settled}
@@ -93,9 +96,11 @@ export function WorldHero({
           )}
         </div>
         <div className="wp-hero-shade" />
-        <div className="wp-hero-title">
-          <WorldWordmark slug={slug} name={name} as="h1" className="wp-hero-mark" draw />
-        </div>
+        {!layered && (
+          <div className="wp-hero-title">
+            <WorldWordmark slug={slug} name={name} as="h1" className="wp-hero-mark" draw />
+          </div>
+        )}
         {brand.tagline && (
           <p className="wp-tagline">
             {brand.tagline.before}

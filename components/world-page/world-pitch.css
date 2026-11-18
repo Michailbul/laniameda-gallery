@@ -123,6 +123,44 @@
 }
 .wp-hero-media { position: absolute; inset: 0; }
 .wp-hero-media .wp-frames { transform-origin: 50% 60%; }
+/* A layered opening: depth planes fitted like a cover image, centred. */
+.wp-layers {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: max(112vw, calc(112svh * var(--wp-layers-r)));
+  min-width: calc(537.6px * var(--wp-layers-r));
+  aspect-ratio: var(--wp-layers-ratio);
+  transform: translate(-50%, -50%);
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+.wp-layers[data-ready="true"] { opacity: 1; }
+.wp-layer,
+.wp-layers-title-plane {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: 50% 60%;
+  will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.wp-layers-title-plane { pointer-events: none; }
+.wp-layers-title {
+  position: absolute;
+  transform: translateX(-50%);
+  color: var(--wp-ivory);
+  filter: drop-shadow(0 6px 30px rgba(0, 0, 0, 0.6));
+}
+.wp-layers-title svg { display: block; width: 100%; height: auto; overflow: visible; }
+.wp-petals { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* Tall screens: the mark keeps a readable size, near the top of the screen. */
+@media (max-aspect-ratio: 6 / 5) {
+  .wp-layers-title { left: 50% !important; width: min(78vw, 420px) !important; top: calc(50% - 38svh) !important; }
+}
+
 .wp-hero-shade {
   position: absolute;
   inset: 0;
@@ -568,4 +606,5 @@
   .wp-hero-media .wp-frames,
   .wp-cut .wp-frames,
   .wp-hero-black { animation: none; }
+  .wp-layers { transition: none; }
 }

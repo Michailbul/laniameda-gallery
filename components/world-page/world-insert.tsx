@@ -177,6 +177,7 @@ export const OFF_LABEL: Record<NonNullable<WorldTile["off"]>, string> = {
   hidden: "Dropped",
   private: "Private",
   letterboxed: "Letterboxed",
+  lowres: "Low resolution",
 };
 
 /** Near (1.5 screens) and on-screen flags for one element. */
