@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { preload } from "react-dom";
 import { WorldPitch } from "@/components/world-page/world-pitch";
-import { parseWorldSection } from "@/components/world-page/types";
+import { WORLD_PAGE_SIZE, parseWorldSection, type WorldTile } from "@/components/world-page/types";
 import { worldBrand } from "@/components/world-page/world-brand";
 import { loadWorldFirstScreen } from "@/lib/server/world-first-screen";
+import { loadWorldWall, shuffled } from "@/lib/server/world-wall";
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -64,13 +65,31 @@ export default async function WorldPage({ params, searchParams }: Props) {
     });
   }
 
+  // The wall comes in a new random order on every visit (Michael, 18 Nov
+  // 2026). The whole wall is cached; if it is not ready in time the first
+  // screen's frames are shuffled instead and the page fetches the rest.
+  const wall = await Promise.race([
+    loadWorldWall(slug, first.world.side).catch(() => null),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), 400)),
+  ]);
+  const pool: WorldTile[] = wall ?? [...first.world.lead, ...first.world.featured, ...first.page];
+  const seen = new Set<string>();
+  const firstPage = shuffled(
+    pool.filter((tile) => {
+      if (seen.has(tile.id) || (section && tile.section !== section)) return false;
+      seen.add(tile.id);
+      return true;
+    }),
+  ).slice(0, WORLD_PAGE_SIZE);
+
   return (
     <WorldPitch
       slug={slug}
       initialSide={first.world.side}
       initialSection={section}
       initialWorld={first.world}
-      initialPage={first.page}
+      initialPage={firstPage}
+      shuffle
     />
   );
 }
