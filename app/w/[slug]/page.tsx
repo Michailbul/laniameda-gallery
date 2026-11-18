@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { preload } from "react-dom";
 import { WorldPitch } from "@/components/world-page/world-pitch";
 import { parseWorldSection } from "@/components/world-page/types";
+import { worldBrand } from "@/components/world-page/world-brand";
 import { loadWorldFirstScreen } from "@/lib/server/world-first-screen";
 
 type Props = {
@@ -14,6 +15,8 @@ type Props = {
 // 404 a crawler could keep.
 const loadFirstScreen = loadWorldFirstScreen;
 
+const CANONICAL_ORIGIN = "https://gallery.laniameda.space";
+
 const one = (value: string | string[] | undefined) =>
   Array.isArray(value) ? value[0] : value;
 
@@ -24,14 +27,17 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
   if (!first) return { title: "World — Laniameda" };
   const name = first.world.name;
   const title = `${name} — a world by Misha Buloichyk`;
-  const image = first.world.hero?.src ?? first.world.featured[0]?.src ?? first.page[0]?.src;
+  const layered = worldBrand(slug).layeredHero;
+  const image = layered
+    ? new URL(layered.og, CANONICAL_ORIGIN).toString()
+    : (first.world.hero?.src ?? first.world.featured[0]?.src ?? first.page[0]?.src);
   return {
     title,
     description: `${name}. Characters, scenes and places of the world, in pictures.`,
     openGraph: {
       title,
       type: "website",
-      ...(image ? { images: [{ url: image }] } : {}),
+      ...(image ? { images: [{ url: image, ...(layered ? { width: 1200, height: 630 } : {}) }] } : {}),
     },
     twitter: { card: "summary_large_image", title, ...(image ? { images: [image] } : {}) },
   };
@@ -48,7 +54,8 @@ export default async function WorldPage({ params, searchParams }: Props) {
   const first = await loadFirstScreen(slug, one(query.side), section);
   if (!first) notFound();
 
-  const hero = first.world.hero;
+  // A layered opening loads its own planes; the hero still is not drawn.
+  const hero = worldBrand(slug).layeredHero ? undefined : first.world.hero;
   if (hero) {
     preload(hero.src, {
       as: "image",

@@ -54,7 +54,9 @@ const tileValidator = v.object({
    * tagged letterboxed). Public reads never carry it: those frames never
    * leave the server.
    */
-  off: v.optional(v.union(v.literal("hidden"), v.literal("private"), v.literal("letterboxed"))),
+  off: v.optional(
+    v.union(v.literal("hidden"), v.literal("private"), v.literal("letterboxed"), v.literal("lowres")),
+  ),
   /** Admin view only: the owner's private like, so key 1 starts from the truth. */
   liked: v.optional(v.boolean()),
 });
@@ -66,6 +68,20 @@ const insertValidator = v.object({ tiles: v.array(tileValidator) });
 // Frames with burnt-in black bars (another agent tags them): they ruin a
 // full-bleed wall, so the public page leaves them out.
 const LETTERBOXED_TAG = "letterboxed";
+/**
+ * Stills under this many pixels (a plain Midjourney grid image is ~1.2 MP)
+ * stay off the public page: it is a pitch, and a soft frame shows on a big
+ * screen (Michael, 18 Nov 2026: "no low resolution images"). A hero still
+ * with its 4K rendition is exempt. Video sizes on assets are the poster's,
+ * so low-resolution films are hidden by hand (worldPageHidden).
+ */
+const MIN_PUBLIC_STILL_PIXELS = 1_500_000;
+const isLowResStill = (asset: Doc<"assets">, hero: boolean) =>
+  asset.kind === "image" &&
+  !(hero && asset.heroRendition) &&
+  typeof asset.width === "number" &&
+  typeof asset.height === "number" &&
+  asset.width * asset.height < MIN_PUBLIC_STILL_PIXELS;
 
 const HIDDEN_ROLES = new Set(["reference", "inspiration_capture", "bookmark"]);
 // Starred pieces read to find a world's featured ones. Most are elsewhere in
@@ -207,7 +223,9 @@ const toTile = async (
       ? ("private" as const)
       : asset.tagIds.some((tagId) => world.letterboxTags.has(tagId))
         ? ("letterboxed" as const)
-        : undefined;
+        : isLowResStill(asset, hero)
+          ? ("lowres" as const)
+          : undefined;
   if (off && !world.admin) return null;
   const [full, thumb] = await Promise.all([
     resolveAssetUrl(ctx, asset),
