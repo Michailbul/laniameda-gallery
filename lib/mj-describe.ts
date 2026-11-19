@@ -102,14 +102,16 @@ export type DescribeInput = {
   descriptions?: string[];
   /** The world's own notes (the quick edit's world prompt): vocabulary only. */
   system?: string;
+  /** The art director's own version of DESCRIBE_BASE_RULES (extension: MJ settings → Writer). */
+  rules?: string;
   note?: string;
 };
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
-export function buildDescribeMessages({ image, descriptions, system, note }: DescribeInput) {
+export function buildDescribeMessages({ image, descriptions, system, rules, note }: DescribeInput) {
   const systemText = [
-    DESCRIBE_BASE_RULES,
+    rules?.trim() || DESCRIBE_BASE_RULES,
     system?.trim() ? `Project notes (vocabulary for the setting and the light; the picture decides what is in it):\n${system.trim().slice(0, DESCRIBE_LIMITS.system)}` : "",
   ].filter(Boolean).join("\n\n");
 

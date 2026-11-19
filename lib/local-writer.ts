@@ -10,6 +10,8 @@ export const LOCAL_WRITER_LIMITS = { raw: 24_000 } as const;
 export const LOCAL_WRITER_MODELS = {
   haiku: { id: "claude-haiku-5-5", label: "Haiku 5.5" },
   sonnet: { id: "claude-sonnet-5-5", label: "Sonnet 5.5" },
+  opus: { id: "claude-opus-5-5", label: "Opus 5.5" },
+  fable: { id: "claude-fable-5-2", label: "Fable 5.2" },
 } as const;
 export type LocalWriterModel = keyof typeof LOCAL_WRITER_MODELS;
 

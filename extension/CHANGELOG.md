@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.37.0 (19 Nov 2026)
+
+Writer: pick the model, see the system prompt
+- MJ settings → **Writer** sets one default model for all prompt writing:
+  Grow, Describe and the quick edit. Haiku 5.5 (default), Sonnet 5.5,
+  Opus 5.5, Fable 5.2 or DeepSeek V4.1. DeepSeek cannot see pictures, so
+  Grow and Describe hand it to Haiku and say so.
+- **Runs on**: Auto, This Mac or Cloud. The panel says whether the local
+  writer is running and whether it can run the picked model. Opus and Fable
+  on the Mac need the writer bridge 1.3.0 (`extension-writer/install.sh`).
+- **System prompt**: each tool's own system prompt is shown as the gallery
+  builds it today. Edit it there (saved as you type, sent with every call);
+  Reset brings the gallery's version back. **World notes** are the per-world
+  notes added after it, as before.
+- **Show last sent**: the whole system prompt the tool's last answer was
+  written with, world files included, with Copy.
+- The model chip on the quick edit and the writer button on the Grow card
+  step through the same models and change the same default.
+
 ## 0.36.1 (18 Nov 2026)
 
 Saving on Midjourney

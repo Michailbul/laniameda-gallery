@@ -12,7 +12,9 @@
   globalScope.__saveToGalleryQuickEdit = true;
 
   const defaults = () => globalScope.SaveToGalleryQuickEditDefaults;
-  const KEYS = { world: "quickEditWorld", model: "quickEditModel", prompts: "quickEditPrompts" };
+  // The model is the writer's default for every tool (chrome.storage.sync, MJ settings → Writer).
+  const KEYS = { world: "quickEditWorld", model: "writerModel", prompts: "quickEditPrompts" };
+  const MODEL_KEYS = ["haiku", "sonnet", "opus", "fable", "deepseek"];
   const settings = { world: "dear-annete", model: "haiku", prompts: {} };
 
   function extensionAlive() {
@@ -21,16 +23,19 @@
 
   function loadSettings() {
     if (!extensionAlive()) return;
-    chrome.storage.local.get([KEYS.world, KEYS.model, KEYS.prompts], (stored) => {
+    chrome.storage.local.get([KEYS.world, KEYS.prompts], (stored) => {
       settings.world = stored?.[KEYS.world] || "dear-annete";
-      settings.model = stored?.[KEYS.model] === "deepseek" ? "deepseek" : "haiku";
       settings.prompts = stored?.[KEYS.prompts] && typeof stored[KEYS.prompts] === "object" ? stored[KEYS.prompts] : {};
+      paintChips();
+    });
+    chrome.storage.sync.get(KEYS.model, (stored) => {
+      settings.model = MODEL_KEYS.includes(stored?.[KEYS.model]) ? stored[KEYS.model] : "haiku";
       paintChips();
     });
   }
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === "local" && (changes[KEYS.world] || changes[KEYS.model] || changes[KEYS.prompts])) loadSettings();
+      if ((area === "local" && (changes[KEYS.world] || changes[KEYS.prompts])) || (area === "sync" && changes[KEYS.model])) loadSettings();
     });
   } catch { /* extension reloaded */ }
 
@@ -172,7 +177,7 @@
     worldChip.title = `World: ${world?.name || "Dear Annete"} (its system prompt). Click to switch.`;
     const model = defaults()?.MODELS.find((entry) => entry.key === settings.model);
     modelChip.textContent = model?.short || "H";
-    modelChip.title = `Model: ${model?.name || "Haiku 5.5"}. Click to switch.`;
+    modelChip.title = `Writer model: ${model?.name || "Haiku 5.5"} (the default for Grow, Describe and edits). Click to switch.`;
   }
 
   function place(element, point) {
@@ -355,9 +360,9 @@
   });
   modelChip.addEventListener("mousedown", (event) => event.preventDefault());
   modelChip.addEventListener("click", () => {
-    settings.model = settings.model === "haiku" ? "deepseek" : "haiku";
+    settings.model = MODEL_KEYS[(MODEL_KEYS.indexOf(settings.model) + 1) % MODEL_KEYS.length];
     paintChips();
-    if (extensionAlive()) chrome.storage.local.set({ [KEYS.model]: settings.model });
+    if (extensionAlive()) chrome.storage.sync.set({ [KEYS.model]: settings.model });
     input.focus();
   });
   go.addEventListener("click", () => void run(input.value));

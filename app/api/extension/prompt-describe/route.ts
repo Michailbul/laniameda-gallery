@@ -4,8 +4,10 @@ import { api } from "@/convex/_generated/api";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/server/extension-auth";
 import { clientErrorMessage } from "@/lib/server/route-error";
+import { withWriterFallback } from "@/lib/server/writer-call";
 import { DESCRIBE_LIMITS } from "@/lib/mj-describe";
 import { LOCAL_WRITER_LIMITS } from "@/lib/local-writer";
+import { WRITER_MODEL_KEYS, WRITER_RULES_LIMIT } from "@/lib/writer-models";
 
 // The extension's describer: a picture (and Midjourney's Describe lines when
 // it caught them) taken apart like a cinematographer would (subject, shot,
@@ -29,6 +31,9 @@ const bodySchema = z.object({
   height: z.number().positive().optional(),
   system: z.string().max(DESCRIBE_LIMITS.system).optional(),
   note: z.string().max(DESCRIBE_LIMITS.note).optional(),
+  // The default writer model (MJ settings → Writer) and the art director's own system prompt.
+  model: z.enum(WRITER_MODEL_KEYS).optional(),
+  rules: z.string().max(WRITER_RULES_LIMIT).optional(),
   local: z.object({
     stage: z.enum(["messages", "finish"]),
     raw: z.string().max(LOCAL_WRITER_LIMITS.raw).optional(),
@@ -42,7 +47,8 @@ export async function POST(request: Request) {
     if (!validateExtensionToken(request)) return corsJson({ error: "Unauthorized extension request." }, 401);
     const ownerUserId = resolveExtensionOwnerUserId();
     const input = bodySchema.parse(await request.json().catch(() => null));
-    const result = await getServerConvexClient(ownerUserId).action(api.promptEditRunner.describe, { ownerUserId, ...input });
+    const client = getServerConvexClient(ownerUserId);
+    const result = await withWriterFallback(input, (args) => client.action(api.promptEditRunner.describe, { ownerUserId, ...args }));
     return corsJson({ ok: true, ...result });
   } catch (error) {
     return corsJson({ error: clientErrorMessage(error, "Could not describe the picture.") }, 400);

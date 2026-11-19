@@ -142,6 +142,9 @@ Traps we have hit:
 
 ${SHOT_SCALE_RULES}`;
 
+/** Grow's own system prompt, before the world's files and notes: what the extension shows and may replace. */
+export const EXPAND_SYSTEM_DEFAULT = `${EXPAND_BASE_RULES}\n\n${CINEMATIC_RULES_GENERAL}`;
+
 const ANSWER_FORM = (count: number, withLogline: boolean, withPlace = false) => [
   "Answer in exactly this form and nothing else (no markdown, no notes):",
   "SET: two to five plain words naming this set",
@@ -288,6 +291,8 @@ export type ExpandInput = {
   idea?: string;
   count: number;
   system?: string;
+  /** The art director's own version of EXPAND_SYSTEM_DEFAULT (extension: MJ settings → Writer). */
+  rules?: string;
   /** The world's files, already laid out (lib/writer-brief.ts composeBrief). */
   worldBrief?: string;
   /** The world the brief belongs to: a dear-annete world adds its cinematic addendum. */
@@ -325,11 +330,10 @@ export function cleanPrevious(previous: string[] | undefined) {
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 
-export function buildExpandMessages({ image, sourceWords, lookNote, preset, idea, count, system, worldBrief, worldKey, attach, previous }: ExpandInput) {
+export function buildExpandMessages({ image, sourceWords, lookNote, preset, idea, count, system, rules, worldBrief, worldKey, attach, previous }: ExpandInput) {
   const dearAnnete = isDearAnnete(worldKey);
   const systemText = [
-    EXPAND_BASE_RULES,
-    CINEMATIC_RULES_GENERAL,
+    rules?.trim() || EXPAND_SYSTEM_DEFAULT,
     dearAnnete ? `${DEAR_ANNETE_CINEMATIC}\n\nThis is a Dear Annete frame: real cinematography comes first. Every prompt reads as a frame from a real film shot in a real old Gothic town.` : "",
     worldBrief?.trim() ?? "",
     system?.trim() ? `Project rules (his own notes for this world):\n${system.trim().slice(0, EXPAND_LIMITS.system)}` : "",

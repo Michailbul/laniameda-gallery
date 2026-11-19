@@ -4,6 +4,7 @@
 
 import { CINEMATIC_RULES_GENERAL, DEAR_ANNETE_CINEMATIC, MJ_PROMPT_KNOWLEDGE } from "./mj-prompt-knowledge";
 import { SHOT_SCALE_RULES } from "./writer-scale";
+import { WRITER_MODELS, WRITER_MODEL_KEYS, type WriterModel, type WriterRoute } from "./writer-models";
 
 export const QUICK_EDIT_LIMITS = {
   prompt: 8000,
@@ -11,22 +12,12 @@ export const QUICK_EDIT_LIMITS = {
   system: 8000,
 } as const;
 
-export const QUICK_EDIT_MODELS = ["haiku", "deepseek"] as const;
-export type QuickEditModel = (typeof QUICK_EDIT_MODELS)[number];
-
-/** Provider routes per model, tried in order: fal first, Pika when fal is blocked. */
-export const QUICK_EDIT_ROUTES: Record<QuickEditModel, Array<{ provider: "fal" | "pika"; model: string; label: string }>> = {
-  haiku: [
-    { provider: "fal", model: "anthropic/claude-haiku-5.5", label: "Haiku 5.5" },
-    // Pika has no Haiku 5.5 yet: its newest Haiku stands in.
-    { provider: "pika", model: "anthropic/claude-haiku-4.5", label: "Haiku 4.5 (Pika)" },
-  ],
-  deepseek: [
-    { provider: "fal", model: "deepseek/deepseek-v4.1-flash", label: "DeepSeek V4.1" },
-    { provider: "fal", model: "deepseek/deepseek-v4.1", label: "DeepSeek V4.1" },
-    { provider: "pika", model: "deepseek/deepseek-v4.1-flash", label: "DeepSeek V4.1 (Pika)" },
-  ],
-};
+// The models live in lib/writer-models.ts: one list for every writer tool.
+export const QUICK_EDIT_MODELS = WRITER_MODEL_KEYS;
+export type QuickEditModel = WriterModel;
+export const QUICK_EDIT_ROUTES: Record<QuickEditModel, WriterRoute[]> = Object.fromEntries(
+  WRITER_MODEL_KEYS.map((key) => [key, WRITER_MODELS[key].routes]),
+) as Record<QuickEditModel, WriterRoute[]>;
 
 // The rules every edit follows, whatever the world prompt says. The world
 // prompt (editable in the extension) adds the project's taste on top.
@@ -80,8 +71,13 @@ const ORDINARY_REMINDER = "This asks for an ordinary prompt: follow the ordinary
 // The cinematic rules bind what the edit writes; the rest of the prompt stays as it is.
 const CINEMATIC_LEAD = "When you write or rewrite description, write it by these rules. Words the instruction does not touch stay as they are.";
 
-export function buildQuickEditMessages({ prompt, selection, instruction, system, worldBrief, worldKey }: {
+/** The quick edit's own system prompt, before the world's notes: what the extension shows and may replace. */
+export const QUICK_EDIT_SYSTEM_DEFAULT = `${QUICK_EDIT_BASE_RULES}\n\n${CINEMATIC_LEAD}\n\n${CINEMATIC_RULES_GENERAL}`;
+
+export function buildQuickEditMessages({ prompt, selection, instruction, system, rules, worldBrief, worldKey }: {
   prompt: string; selection?: string; instruction: string; system?: string;
+  /** The art director's own version of QUICK_EDIT_SYSTEM_DEFAULT (extension: MJ settings → Writer). */
+  rules?: string;
   /** The world's files, already laid out (lib/writer-brief.ts composeBrief). */
   worldBrief?: string;
   /** The world the brief belongs to: a dear-annete world adds its cinematic addendum. */
@@ -98,8 +94,7 @@ export function buildQuickEditMessages({ prompt, selection, instruction, system,
     });
   }
   const systemText = [
-    QUICK_EDIT_BASE_RULES,
-    `${CINEMATIC_LEAD}\n\n${CINEMATIC_RULES_GENERAL}`,
+    rules?.trim() || QUICK_EDIT_SYSTEM_DEFAULT,
     /^dear-annete/.test(worldKey ?? "") ? DEAR_ANNETE_CINEMATIC : "",
     worldBrief?.trim() ? `${worldBrief.trim()}\n\nThe edit stays inside this world. Still change only what the instruction asks, and still return the edited text and nothing else.` : "",
     system?.trim() ? `Project context (what we like, what to avoid):\n${system.trim()}` : "",
