@@ -24,6 +24,7 @@ const QUICK_EDIT_ROUTE_PATH = "/api/extension/prompt-edit";
 const DESCRIBE_ROUTE_PATH = "/api/extension/prompt-describe";
 const EXPAND_ROUTE_PATH = "/api/extension/prompt-expand";
 const WORLD_ROUTE_PATH = "/api/extension/prompt-world";
+const WRITER_PROMPTS_ROUTE_PATH = "/api/extension/writer-prompts";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const X_POST_ROUTE_PATH = "/api/extension/x-post";
 const COMMENTS_ROUTE_PATH = "/api/extension/comments";
@@ -1244,35 +1245,48 @@ async function mjQueueRequest(message) {
 // ── The local writer ──
 // Every writer call (quick edit, the describer, Grow) can run on this Mac
 // instead of a paid provider: the laniameda writer bridge (extension-writer/
-// in the repo, a LaunchAgent on 127.0.0.1) runs `claude -p` on Haiku 5.5 or
-// Sonnet 5.5. The gallery still builds the messages and reads the answer:
+// in the repo, a LaunchAgent on 127.0.0.1) runs `claude -p` on the chosen
+// Claude model. The gallery still builds the messages and reads the answer:
 // stage "messages" fetches them, the bridge writes, stage "finish" hands the
 // raw answer back. Mode "auto" (default) uses the bridge when it answers and
 // the gallery's providers when it does not.
+//
+// The default writer model (MJ settings → Writer, 19 Nov 2026) is one setting
+// for every tool, and each tool's system prompt can be replaced there: the
+// custom text rides on every call as `rules`, and the system prompt each
+// answer was written with is kept as "last sent" for the panel to show.
 const WRITER_BRIDGE = "http://127.0.0.1:47615";
-const WRITER_KEYS = { mode: "writerMode", model: "writerModel" };
-let writerSeen = { at: 0, up: false };
+const WRITER_KEYS = { mode: "writerMode", model: "writerModel", rules: "writerRules", lastSystem: "writerLastSystem" };
+const WRITER_MODEL_KEYS = ["haiku", "sonnet", "opus", "fable", "deepseek"];
+// Models the bridge can run (DeepSeek is cloud only). An older bridge lists fewer in /health.
+const WRITER_LOCAL_MODELS = ["haiku", "sonnet", "opus", "fable"];
+const WRITER_TOOL_BY_PATH = { [EXPAND_ROUTE_PATH]: "grow", [DESCRIBE_ROUTE_PATH]: "describe", [QUICK_EDIT_ROUTE_PATH]: "edit" };
+let writerSeen = { at: 0, up: false, models: [] };
 
 async function writerSettings() {
   const stored = await chrome.storage.sync.get([WRITER_KEYS.mode, WRITER_KEYS.model]).catch(() => ({}));
   return {
     mode: ["local", "cloud"].includes(stored?.[WRITER_KEYS.mode]) ? stored[WRITER_KEYS.mode] : "auto",
-    model: stored?.[WRITER_KEYS.model] === "sonnet" ? "sonnet" : "haiku",
+    model: WRITER_MODEL_KEYS.includes(stored?.[WRITER_KEYS.model]) ? stored[WRITER_KEYS.model] : "haiku",
   };
 }
 
 async function writerBridgeUp(fresh = false) {
   if (!fresh && Date.now() - writerSeen.at < 20_000) return writerSeen.up;
   let up = false;
+  let models = [];
   try {
     const response = await fetch(`${WRITER_BRIDGE}/health`, { signal: AbortSignal.timeout(900), cache: "no-store" });
-    up = response.ok && Boolean((await response.json().catch(() => null))?.ok);
+    const health = response.ok ? await response.json().catch(() => null) : null;
+    up = Boolean(health?.ok);
+    models = Array.isArray(health?.models) ? health.models : ["haiku", "sonnet"];
   } catch {
     up = false;
   }
-  writerSeen = { at: Date.now(), up };
+  writerSeen = { at: Date.now(), up, models };
   return up;
 }
+const bridgeRuns = (model) => WRITER_LOCAL_MODELS.includes(model) && writerSeen.models.includes(model);
 
 async function writerBridgeWrite(messages, maxTokens, model) {
   try {
@@ -1280,72 +1294,104 @@ async function writerBridgeWrite(messages, maxTokens, model) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ messages, maxTokens, model }),
-      signal: AbortSignal.timeout(120_000),
+      // Opus and Fable on a whole world bible need longer than Haiku.
+      signal: AbortSignal.timeout(model === "haiku" ? 120_000 : 200_000),
     });
     const data = await response.json().catch(() => null);
     if (!response.ok || !data?.ok) return { ok: false, error: data?.error || `the bridge answered ${response.status}` };
     return data;
   } catch (err) {
-    writerSeen = { at: 0, up: false };
+    writerSeen = { at: 0, up: false, models: [] };
     return { ok: false, error: err?.name === "TimeoutError" ? "it took too long" : "the bridge is not answering" };
   }
 }
 
-// One writer call: on this Mac when the bridge is up (or the mode says local),
-// else through the gallery's providers. `cloudOnly` keeps a call off the bridge
-// (quick edit on DeepSeek).
+// The art director's own system prompt for a tool, when he wrote one.
+async function writerRulesFor(tool) {
+  if (!tool) return undefined;
+  const stored = await chrome.storage.local.get(WRITER_KEYS.rules).catch(() => ({}));
+  const text = stored?.[WRITER_KEYS.rules]?.[tool];
+  return typeof text === "string" && text.trim() ? text : undefined;
+}
+
+// The system prompt the last answer of a tool was written with (MJ settings → Writer → Last sent).
+async function rememberSystem(tool, res) {
+  if (!tool || !res?.ok || typeof res.systemPrompt !== "string" || !res.systemPrompt) return;
+  const stored = await chrome.storage.local.get(WRITER_KEYS.lastSystem).catch(() => ({}));
+  const all = stored?.[WRITER_KEYS.lastSystem] && typeof stored[WRITER_KEYS.lastSystem] === "object" ? stored[WRITER_KEYS.lastSystem] : {};
+  all[tool] = { at: Date.now(), model: res.model || "", world: res.world || "", text: res.systemPrompt.slice(0, 200_000) };
+  await chrome.storage.local.set({ [WRITER_KEYS.lastSystem]: all }).catch(() => {});
+}
+
+// One writer call: on this Mac when the bridge is up and runs the chosen
+// model (or the mode says local), else through the gallery's providers.
 async function writerCall(path, body, { cloudOnly = false } = {}) {
-  const post = (payload) => describeFetchJson(path, { method: "POST", body: JSON.stringify(payload) });
+  const tool = WRITER_TOOL_BY_PATH[path];
   const settings = await writerSettings();
-  if (cloudOnly || settings.mode === "cloud") return post(body);
-  if (!(await writerBridgeUp())) {
-    if (settings.mode === "local") return { ok: false, error: "The local writer is not running on this Mac." };
-    return post(body);
+  const rules = await writerRulesFor(tool);
+  const full = { ...body, model: body.model || settings.model, ...(rules ? { rules } : {}) };
+  const post = async (payload) => {
+    const res = await describeFetchJson(path, { method: "POST", body: JSON.stringify(payload) });
+    if (!payload.local || payload.local.stage === "finish") await rememberSystem(tool, res);
+    return res;
+  };
+  if (cloudOnly || settings.mode === "cloud") return post(full);
+  const up = await writerBridgeUp();
+  if (!up || !bridgeRuns(full.model)) {
+    if (settings.mode === "local") {
+      return { ok: false, error: up ? `The local writer on this Mac cannot run ${full.model}: pick a Claude model, or update the bridge (extension-writer/install.sh).` : "The local writer is not running on this Mac." };
+    }
+    return post(full);
   }
-  const prepared = await post({ ...body, local: { stage: "messages" } });
+  const prepared = await post({ ...full, local: { stage: "messages" } });
   if (!prepared?.ok) {
     // A gallery without the local stages refuses the extra field: use its providers.
     if (settings.mode === "local") return prepared;
-    const cloud = await post(body);
+    const cloud = await post(full);
     return cloud?.ok ? cloud : { ...cloud, error: `${cloud?.error || "Could not write."} (local writer: ${prepared?.error || "the gallery refused the request"})` };
   }
-  if (!prepared.local?.messages) return post(body); // an older gallery: no local stages yet
-  const written = await writerBridgeWrite(prepared.local.messages, prepared.local.maxTokens, settings.model);
+  if (!prepared.local?.messages) return post(full); // an older gallery: no local stages yet
+  const written = await writerBridgeWrite(prepared.local.messages, prepared.local.maxTokens, full.model);
   if (!written.ok) {
     if (settings.mode === "local") return { ok: false, error: `The local writer failed: ${written.error}.` };
-    const cloud = await post(body);
+    const cloud = await post(full);
     return cloud?.ok ? { ...cloud, notes: [...(cloud.notes || []), `local writer: ${written.error}`] } : { ...cloud, error: `${cloud?.error || "Could not write."} (local writer: ${written.error})` };
   }
-  return post({ ...body, local: { stage: "finish", raw: written.text, model: written.model, ms: written.ms } });
+  return post({ ...full, local: { stage: "finish", raw: written.text, model: written.model, ms: written.ms } });
 }
 
-// What the cards show and switch: where the writer runs and on which model.
+// What the cards and the side panel show and switch: where the writer runs and on which model.
 async function writerRequest(message) {
   if (message.do === "set") {
     const next = {};
     if (["auto", "local", "cloud"].includes(message.mode)) next[WRITER_KEYS.mode] = message.mode;
-    if (["haiku", "sonnet"].includes(message.model)) next[WRITER_KEYS.model] = message.model;
+    if (WRITER_MODEL_KEYS.includes(message.model)) next[WRITER_KEYS.model] = message.model;
     await chrome.storage.sync.set(next).catch(() => {});
   }
+  if (message.do === "prompts") {
+    // The gallery's default system prompts and its model list, for MJ settings → Writer.
+    return describeFetchJson(WRITER_PROMPTS_ROUTE_PATH, { method: "GET" });
+  }
   const [settings, up] = await Promise.all([writerSettings(), writerBridgeUp(Boolean(message.fresh))]);
-  return { ok: true, ...settings, up, local: settings.mode !== "cloud" && up };
+  return { ok: true, ...settings, up, bridgeModels: up ? writerSeen.models : [], local: settings.mode !== "cloud" && up && bridgeRuns(settings.model) };
 }
 
 // Quick edit of a Midjourney prompt (mj-quick-edit.js): the gallery runs one
-// short call on Haiku 5.5 or DeepSeek V4.1 (fal, then Pika) and returns the text.
+// short call on the default writer model (fal, then Pika) and returns the text.
 async function quickEditRequest(message) {
   const body = {
     prompt: String(message.prompt || ""),
     selection: message.selection ? String(message.selection) : undefined,
     instruction: String(message.instruction || ""),
     system: message.system ? String(message.system) : undefined,
-    model: message.model === "deepseek" ? "deepseek" : "haiku",
+    // The default writer model (MJ settings → Writer), the same for every tool.
+    model: (await writerSettings()).model,
     // The gallery reads the world from the prompt's own codes and hands the
     // writer that world's files; the world picked in the bar is the fallback.
     world: "auto",
     fallbackWorld: message.fallbackWorld && message.fallbackWorld !== "none" ? String(message.fallbackWorld) : undefined,
   };
-  return writerCall(QUICK_EDIT_ROUTE_PATH, body, { cloudOnly: body.model === "deepseek" });
+  return writerCall(QUICK_EDIT_ROUTE_PATH, body);
 }
 
 // ── Describer (mj-describe-core.js): a picture into our Midjourney prompt ──
@@ -1903,6 +1949,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "mjQuickEdit") {
     quickEditRequest(message)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "writer") {
+    writerRequest(message)
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

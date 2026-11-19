@@ -19,8 +19,9 @@ Needs: `~/.local/bin/claude` (Claude Code) and a long-lived sign-in from
 ## How a call runs
 
 1. The extension asks the gallery for the writer's messages (`local.stage = "messages"`).
-2. It posts them to `http://127.0.0.1:47615/v1/write` with the model, `haiku` or `sonnet`.
-3. The bridge runs `claude -p --model claude-haiku-5-5` (or `claude-sonnet-5-5`)
+2. It posts them to `http://127.0.0.1:47615/v1/write` with the model: `haiku`, `sonnet`, `opus` or `fable`
+   (the default writer model picked in the extension's MJ settings → Writer; since 1.3.0).
+3. The bridge runs `claude -p --model claude-haiku-5-5` (or `claude-sonnet-5-5`, `claude-opus-5-5`, `claude-fable-5-2`)
    with no tools, no MCP servers, an empty settings folder and the pictures inline.
    It runs at `--effort low` with room for the model's own thinking on top of
    the answer, so a brief that carries a whole world bible (about 75,000

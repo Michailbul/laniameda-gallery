@@ -7,8 +7,8 @@ listens on 127.0.0.1, only answers the extension (by its chrome-extension://
 origin) and local tools, and runs Claude with no tools at all: one question,
 one answer.
 
-  GET  /health    -> {"ok": true, "models": ["haiku", "sonnet"], ...}
-  POST /v1/write  {"messages": [...], "model": "haiku"|"sonnet", "maxTokens": 1500}
+  GET  /health    -> {"ok": true, "models": ["haiku", "sonnet", "opus", "fable"], ...}
+  POST /v1/write  {"messages": [...], "model": "haiku"|"sonnet"|"opus"|"fable", "maxTokens": 1500}
                   -> {"ok": true, "text": "...", "model": "haiku", "ms": 2700}
 
 Config: ~/.config/laniameda/writer/config.json (written by install.sh).
@@ -17,10 +17,10 @@ Python 3.9, standard library only.
 import base64, json, os, re, subprocess, sys, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 HOME = os.path.expanduser("~")
 CONF_DIR = os.path.join(HOME, ".config", "laniameda", "writer")
-MODELS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5"}
+MODELS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5", "fable": "claude-fable-5-2"}
 DEFAULTS = {
     "port": 47615,
     "claude": os.path.join(HOME, ".local", "bin", "claude"),

@@ -135,9 +135,15 @@ Write like this:
     resolve,
     byKey,
     STORAGE: { world: "quickEditWorld", model: "quickEditModel", prompts: "quickEditPrompts" },
+    // The writer's models (lib/writer-models.ts in the gallery). The chosen
+    // one is the default for every writer tool: chrome.storage.sync writerModel.
+    MODEL_KEY: "writerModel",
     MODELS: [
-      { key: "haiku", short: "H", name: "Haiku 5.5" },
-      { key: "deepseek", short: "DS", name: "DeepSeek V4.1" },
+      { key: "haiku", short: "H", name: "Haiku 5.5", vision: true, local: true, hint: "Fast and cheap. The default." },
+      { key: "sonnet", short: "S", name: "Sonnet 5.5", vision: true, local: true, hint: "Better taste, a few seconds slower." },
+      { key: "opus", short: "O", name: "Opus 5.5", vision: true, local: true, hint: "The strongest writer. Slowest and dearest." },
+      { key: "fable", short: "F", name: "Fable 5.2", vision: true, local: true, hint: "Claude's most capable model." },
+      { key: "deepseek", short: "DS", name: "DeepSeek V4.1", vision: false, local: false, hint: "Text only: quick edits. Grow and Describe use Haiku with it." },
     ],
   };
 })(typeof globalThis !== "undefined" ? globalThis : self);

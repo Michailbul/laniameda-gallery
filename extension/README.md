@@ -108,11 +108,17 @@ browser runs on, instead of a paid provider.
 
 - Install once per Mac: `extension-writer/install.sh` (from the repo). It puts a
   small service on `127.0.0.1:47615`, kept running by the LaunchAgent
-  `com.laniameda.writer`, which runs `claude -p` with no tools on Haiku 5.5 or
-  Sonnet 5.5 using the long-lived sign-ins in `~/.config/claude-tokens/`.
-- The switch on the Grow card (next to the world) shows where the writer runs:
-  **Haiku · Mac**, **Sonnet · Mac** or **Cloud**. Click to change. Quick edit and
-  the describer follow it; quick edit on DeepSeek always uses the gallery.
+  `com.laniameda.writer`, which runs `claude -p` with no tools on Haiku 5.5,
+  Sonnet 5.5, Opus 5.5 or Fable 5.2 (bridge 1.3.0) using the long-lived sign-ins in `~/.config/claude-tokens/`.
+- The writer's default model and where it runs are set in **MJ settings →
+  Writer** (0.37): Haiku 5.5, Sonnet 5.5, Opus 5.5, Fable 5.2 or DeepSeek V4.1
+  (cloud only, text only), on Auto, This Mac or Cloud. The Grow card's button
+  (**Sonnet · Mac**, **Opus · Cloud** …) and the quick edit's model chip step
+  through the same models.
+- The same tab shows each tool's system prompt (Grow, Describe, Quick edit) as
+  the gallery builds it (`GET /api/extension/writer-prompts`), editable with
+  Reset, the per-world notes added after it, and **Show last sent**: the full
+  system prompt of the last answer, world files included.
 - Default is automatic: the Mac when the bridge answers, the gallery's providers
   when it does not.
 - The bridge answers only the extension (the store copy and the unpacked copies

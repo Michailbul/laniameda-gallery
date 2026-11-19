@@ -290,27 +290,29 @@
     return hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} d`;
   }
 
-  // The writer switch: what the button shows for a status ({mode, model, up})
-  // and what one click changes it to. Haiku on this Mac, Sonnet on this Mac,
-  // then the gallery's providers; without the bridge there is only the cloud.
+  // The writer switch: what the button shows for a status ({mode, model, up,
+  // local}) and what one click changes it to. The click steps through the
+  // writer models (the default for every tool, also in MJ settings → Writer);
+  // where it runs (this Mac or the gallery's providers) is set in the panel.
+  const WRITER_MODELS = [
+    { key: "haiku", name: "Haiku" }, { key: "sonnet", name: "Sonnet" }, { key: "opus", name: "Opus" },
+    { key: "fable", name: "Fable" }, { key: "deepseek", name: "DeepSeek" },
+  ];
   function writerView(status) {
-    const up = Boolean(status?.up);
-    const cloud = status?.mode === "cloud" || !up;
-    if (cloud) {
-      return {
-        label: "Cloud", local: false,
-        title: up ? "Writer: the gallery's providers. Click to write on this Mac instead."
-          : status?.mode === "local" ? "The local writer is not running on this Mac, so nothing can be written. Click to check again."
-            : "Writer: the gallery's providers (the local writer is not running on this Mac). Click to check again.",
-      };
-    }
-    const sonnet = status?.model === "sonnet";
-    return { label: sonnet ? "Sonnet · Mac" : "Haiku · Mac", local: true, title: `Writer: Claude ${sonnet ? "Sonnet" : "Haiku"} 5.5 on this Mac. Click to switch.` };
+    const model = WRITER_MODELS.find((entry) => entry.key === status?.model) || WRITER_MODELS[0];
+    const name = model.key === "deepseek" ? "Haiku" : model.name; // Grow sends a picture: DeepSeek cannot read it.
+    const local = typeof status?.local === "boolean" ? status.local : Boolean(status?.up) && status?.mode !== "cloud" && model.key !== "deepseek";
+    const down = status?.mode === "local" && !local;
+    return {
+      label: `${name} · ${local ? "Mac" : "Cloud"}`, local,
+      title: down
+        ? "The local writer cannot run this on this Mac, so nothing can be written. Click for the next model; MJ settings → Writer sets where it runs."
+        : `Writer: ${name} ${model.key === "deepseek" ? "(DeepSeek cannot see pictures) " : ""}${local ? "on this Mac" : "through the gallery's providers"}. Click for the next model; MJ settings → Writer has the model, where it runs and the system prompts.`,
+    };
   }
   function nextWriter(status) {
-    if (!status?.up) return { mode: "auto" };
-    if (status.mode === "cloud") return { mode: "auto", model: "haiku" };
-    return status.model === "sonnet" ? { mode: "cloud" } : { mode: "auto", model: "sonnet" };
+    const at = WRITER_MODELS.findIndex((entry) => entry.key === status?.model);
+    return { model: WRITER_MODELS[(at + 1) % WRITER_MODELS.length].key };
   }
 
   // The world picker's first option: the world read from the frame's own

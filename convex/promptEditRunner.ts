@@ -17,6 +17,7 @@ import {
 } from "../lib/mj-expand";
 import { MJ_BANNED_PROFILE_WARNING, withoutBannedCodes } from "../lib/mj-queue";
 import { LOCAL_WRITER_LIMITS, localAnswer } from "../lib/local-writer";
+import { WRITER_RULES_LIMIT, pickWriterModel } from "../lib/writer-models";
 import { enforceMjVersion, mjVersionWarning } from "../lib/mj-version";
 import type { BriefTier } from "../lib/writer-brief";
 
@@ -47,7 +48,8 @@ async function chat(provider: "fal" | "pika", key: string, model: string, messag
       ...(provider === "fal" ? { authorization: `Key ${key}` } : { "x-api-key": key }),
     },
     body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.4 }),
-    signal: AbortSignal.timeout(45_000),
+    // Opus and Fable on a whole world bible take longer than Haiku.
+    signal: AbortSignal.timeout(110_000),
   });
   const body = await response.text();
   if (!response.ok) throw new Error(plainError(provider === "fal" ? "fal" : "Pika", response.status, body));
@@ -67,6 +69,22 @@ const localArg = v.optional(v.object({
   ms: v.optional(v.number()),
 }));
 const localMessages = v.object({ local: v.object({ messages: v.any(), maxTokens: v.number() }) });
+// The writer's model (lib/writer-models.ts) and the art director's own system
+// prompt for the tool (extension: MJ settings → Writer). Every answer carries
+// the system prompt it was written with, so the extension can show it.
+// An unknown model name falls back to Haiku (pickWriterModel).
+const modelArg = v.optional(v.string());
+const rulesArg = v.optional(v.string());
+const cleanRules = (rules?: string) => {
+  const text = rules?.trim();
+  if (!text) return undefined;
+  if (text.length > WRITER_RULES_LIMIT) throw new ConvexError(`Your system prompt is too long: keep it under ${WRITER_RULES_LIMIT} characters.`);
+  return text;
+};
+const systemOf = (messages: Message[]) => {
+  const content = messages.find((message) => message.role === "system")?.content;
+  return typeof content === "string" ? content : "";
+};
 type LocalArg = { stage: "messages" | "finish"; raw?: string; model?: string; ms?: number } | undefined;
 type LocalMessages = { local: { messages: Message[]; maxTokens: number } };
 const finishLocally = (local: LocalArg) => {
@@ -107,7 +125,8 @@ export const rewrite = ownerAction({
     selection: v.optional(v.string()),
     instruction: v.string(),
     system: v.optional(v.string()),
-    model: v.union(v.literal("haiku"), v.literal("deepseek")),
+    rules: rulesArg,
+    model: modelArg,
     world: v.optional(v.string()),
     fallbackWorld: v.optional(v.string()),
     local: localArg,
@@ -118,9 +137,10 @@ export const rewrite = ownerAction({
     provider: v.string(),
     ms: v.number(),
     notes: v.array(v.string()),
+    systemPrompt: v.optional(v.string()),
     ...briefFields,
   }), localMessages),
-  handler: async (ctx, args): Promise<({ text: string; model: string; provider: string; ms: number; notes: string[] } & BriefMeta) | LocalMessages> => {
+  handler: async (ctx, args): Promise<({ text: string; model: string; provider: string; ms: number; notes: string[]; systemPrompt?: string } & BriefMeta) | LocalMessages> => {
     const prompt = args.prompt.trim();
     const instruction = args.instruction.trim();
     const selection = args.selection?.trim() || undefined;
@@ -134,9 +154,11 @@ export const rewrite = ownerAction({
     const brief = await worldBriefOf(ctx, {
       ownerUserId: args.ownerUserId, world: args.world, fallbackWorld: args.fallbackWorld, command: prompt, tier: "short",
     });
-    const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system, worldBrief: brief?.text, worldKey: brief?.world?.key });
+    const rules = cleanRules(args.rules);
+    const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system, rules, worldBrief: brief?.text, worldKey: brief?.world?.key });
     if (args.local?.stage === "messages") return { local: { messages, maxTokens: 1500 } };
-    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, args.model as QuickEditModel, messages, "Could not edit");
+    const picked = pickWriterModel(args.model, false);
+    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, picked.model as QuickEditModel, messages, "Could not edit");
     const { raw, ...meta } = answer;
     // Every job is V8.2: an edit that still pins --v 8.1 or 7 comes back as --v 8.2.
     const versioned = enforceMjVersion(restoreUrls(cleanModelText(raw), urls));
@@ -145,7 +167,7 @@ export const rewrite = ownerAction({
     const notes = [...meta.notes];
     if (versioned.replaced.length) notes.push(mjVersionWarning(versioned.replaced[0]!));
     if (unbanned.removed) notes.push(MJ_BANNED_PROFILE_WARNING);
-    return { ...meta, notes, text: unbanned.removed ? unbanned.text : versioned.text, ...briefMeta(brief) };
+    return { ...meta, notes, text: unbanned.removed ? unbanned.text : versioned.text, systemPrompt: systemOf(messages), ...briefMeta(brief) };
   },
 });
 
@@ -181,7 +203,7 @@ type DescribeResult = {
   title?: string;
   fields: Array<{ key: string; label: string; text: string }>;
   prompt: string; words: string; params: string;
-  model: string; provider: string; ms: number; notes: string[];
+  model: string; provider: string; ms: number; notes: string[]; systemPrompt?: string;
 };
 
 /**
@@ -200,6 +222,8 @@ export const describe = ownerAction({
     width: v.optional(v.number()),
     height: v.optional(v.number()),
     system: v.optional(v.string()),
+    rules: rulesArg,
+    model: modelArg,
     note: v.optional(v.string()),
     local: localArg,
   },
@@ -213,6 +237,7 @@ export const describe = ownerAction({
     provider: v.string(),
     ms: v.number(),
     notes: v.array(v.string()),
+    systemPrompt: v.optional(v.string()),
   }), localMessages),
   handler: async (ctx, args): Promise<DescribeResult | LocalMessages> => {
     const image = args.image.trim();
@@ -221,18 +246,20 @@ export const describe = ownerAction({
     const descriptions = (args.descriptions ?? []).map((line) => line.trim().slice(0, DESCRIBE_LIMITS.description)).filter(Boolean).slice(0, DESCRIBE_LIMITS.descriptions);
     const messages = buildDescribeMessages({
       image, descriptions,
-      system: args.system?.slice(0, DESCRIBE_LIMITS.system), note: args.note?.slice(0, DESCRIBE_LIMITS.note),
+      system: args.system?.slice(0, DESCRIBE_LIMITS.system), rules: cleanRules(args.rules), note: args.note?.slice(0, DESCRIBE_LIMITS.note),
     }) as Message[];
-    // Haiku reads images; DeepSeek does not, so the describer always runs on Haiku.
     if (args.local?.stage === "messages") return { local: { messages, maxTokens: 2200 } };
-    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, "haiku", messages, "Could not describe", 2200);
+    // The describer sends the picture: a text-only model (DeepSeek) hands it to Haiku.
+    const picked = pickWriterModel(args.model, true);
+    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, picked.model, messages, "Could not describe", 2200);
+    if (picked.note && answer.provider !== "local") answer.notes = [picked.note, ...answer.notes];
     const parsed = parseDescribeAnswer(answer.raw);
     if (!parsed.prompt && !parsed.fields.length) throw new ConvexError(`${answer.model} answered without a description. Try again.`);
     const words = parsed.prompt ?? "";
     const params = describeParams(aspectOf(args.aspect, args.width, args.height));
     return {
       title: parsed.title, fields: parsed.fields, words, params, prompt: [words, params].filter(Boolean).join(" "),
-      model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes,
+      model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes, systemPrompt: systemOf(messages),
     };
   },
 });
@@ -242,7 +269,7 @@ type ExpandResult = {
   set?: string; logline?: string;
   items: Array<{ title: string; words: string; prompt: string; rest: string; profiles: string[]; srefs: Array<{ code?: string; url?: string; weight?: number }>; images: string[]; edits: string[] }>;
   source: { words: string; params: string; hadImages: number };
-  model: string; provider: string; ms: number; notes: string[];
+  model: string; provider: string; ms: number; notes: string[]; systemPrompt?: string;
 } & BriefMeta;
 
 /**
@@ -265,6 +292,8 @@ export const expand = ownerAction({
     fallbackWorld: v.optional(v.string()),
     frame: v.optional(v.string()),
     system: v.optional(v.string()),
+    rules: rulesArg,
+    model: modelArg,
     keepImages: v.optional(v.boolean()),
     srefUrl: v.optional(v.string()),
     attach: v.optional(v.string()),
@@ -288,6 +317,7 @@ export const expand = ownerAction({
     provider: v.string(),
     ms: v.number(),
     notes: v.array(v.string()),
+    systemPrompt: v.optional(v.string()),
   }), localMessages),
   handler: async (ctx, args): Promise<ExpandResult | LocalMessages> => {
     const image = args.image.trim();
@@ -315,12 +345,15 @@ export const expand = ownerAction({
     const source = splitCommand(command);
     const messages = buildExpandMessages({
       image, sourceWords: source.words, lookNote: lookNoteOf(source), preset, idea, count,
-      system: args.system?.slice(0, EXPAND_LIMITS.system), worldBrief: brief?.text, worldKey: brief?.world?.key,
+      system: args.system?.slice(0, EXPAND_LIMITS.system), rules: cleanRules(args.rules), worldBrief: brief?.text, worldKey: brief?.world?.key,
       attach, previous,
     }) as Message[];
     const maxTokens = 600 + count * 520;
     if (args.local?.stage === "messages") return { local: { messages, maxTokens } };
-    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, "haiku", messages, "Could not write the prompts", maxTokens);
+    // Grow sends the picture: a text-only model (DeepSeek) hands it to Haiku.
+    const picked = pickWriterModel(args.model, true);
+    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, picked.model, messages, "Could not write the prompts", maxTokens);
+    if (picked.note && answer.provider !== "local") answer.notes = [picked.note, ...answer.notes];
     const parsed = parseExpandAnswer(answer.raw);
     if (!parsed.items.length) throw new ConvexError(`${answer.model} answered without a prompt. Try again.`);
     const options = {
@@ -332,7 +365,7 @@ export const expand = ownerAction({
       items: parsed.items.slice(0, EXPAND_LIMITS.maxCount).map((item) => composeExpanded(item.title, item.words, source, options)),
       source: { words: source.words, params: composeExpanded("", "", source, options).prompt, hadImages: source.images.length },
       ...briefMeta(brief),
-      model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes,
+      model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes, systemPrompt: systemOf(messages),
     };
   },
 });

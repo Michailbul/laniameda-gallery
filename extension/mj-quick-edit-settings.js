@@ -1,40 +1,85 @@
-// The side panel's Prompt edit tab: which world's system prompt the quick
-// edit uses, which model, and the system prompt itself (edited per world,
-// saved as you type, Reset brings back the default).
+// The side panel's MJ settings → Writer: the default model every writer tool
+// runs on (Grow, Describe, the quick edit), where it runs (this Mac or the
+// gallery's providers), and the system prompts, in the open:
+//   - each tool's own system prompt, loaded from the gallery as it builds it
+//     today, editable here (saved as you type, sent with every call as
+//     `rules`; Reset brings the gallery's default back),
+//   - the world notes added after it (edited per world, as before),
+//   - "Last sent": the whole system prompt the tool's last answer was written
+//     with, world files included, read-only with Copy.
+// Storage: chrome.storage.sync writerModel / writerMode, chrome.storage.local
+// writerRules {grow, describe, edit}, writerLastSystem, quickEditPrompts.
 
 (function registerQuickEditSettings(globalScope) {
   const root = document.getElementById("qeRoot");
   const defaults = globalScope.SaveToGalleryQuickEditDefaults;
   if (!root || !defaults) return;
   const KEYS = defaults.STORAGE;
-  const state = { world: "dear-annete", model: "haiku", prompts: {} };
+  const W = { model: "writerModel", mode: "writerMode", rules: "writerRules", last: "writerLastSystem" };
+  const MODES = [
+    { key: "auto", name: "Auto", hint: "This Mac when the local writer is running, else the gallery's providers." },
+    { key: "local", name: "This Mac", hint: "Only the local writer on this Mac (claude -p). DeepSeek has no local run." },
+    { key: "cloud", name: "Cloud", hint: "The gallery's providers: fal first, Pika when fal is out of credit." },
+  ];
+  const TOOLS = [
+    { key: "grow", name: "Grow" },
+    { key: "describe", name: "Describe" },
+    { key: "edit", name: "Quick edit" },
+    { key: "world", name: "World notes" },
+  ];
+  const state = {
+    world: "dear-annete", model: "haiku", mode: "auto", tool: "grow", prompts: {}, rules: {}, last: {},
+    gallery: null, galleryError: "", bridge: null, showLast: false,
+  };
 
   root.innerHTML = `
     <div class="qe">
-      <p class="qe-how">On midjourney.com select words in the Imagine bar, then click <b>✎ Edit</b> or press <kbd>⌥E</kbd>. Say what to change; the bar gets the new text, with Undo. Nothing selected edits the whole prompt.</p>
-      <p class="qe-label">World</p>
-      <div class="qe-seg" role="tablist" aria-label="World" data-group="world"></div>
-      <p class="qe-label">Model</p>
-      <div class="qe-seg" role="tablist" aria-label="Model" data-group="model"></div>
-      <div class="qe-head">
-        <p class="qe-label">System prompt · <span class="qe-world-name"></span></p>
+      <p class="qe-title">Writer</p>
+      <p class="qe-how">The model and system prompts behind <b>Grow</b> (⌥X on a frame), <b>Describe</b> and the quick <b>✎ Edit</b> (⌥E in the Imagine bar).</p>
+      <p class="qe-label">Default model · every tool</p>
+      <div class="qe-seg qe-seg--wrap" role="tablist" aria-label="Writer model" data-group="model"></div>
+      <p class="qe-hint" data-hint="model"></p>
+      <p class="qe-label">Runs on</p>
+      <div class="qe-seg" role="tablist" aria-label="Where the writer runs" data-group="mode"></div>
+      <p class="qe-hint" data-hint="mode"></p>
+
+      <div class="qe-head qe-head--sys">
+        <p class="qe-label">System prompt</p>
         <span class="qe-saved" aria-live="polite"></span>
+      </div>
+      <div class="qe-seg" role="tablist" aria-label="Which system prompt" data-group="tool"></div>
+      <div class="qe-world" hidden>
+        <p class="qe-hint">Added after the tool's own prompt for this world (the edit and Describe always; Grow on Dear Annete and Andromeda worlds).</p>
+        <div class="qe-seg" role="tablist" aria-label="World" data-group="world"></div>
       </div>
       <textarea class="qe-text" spellcheck="false" rows="16"></textarea>
       <div class="qe-actions">
         <button class="qe-reset" type="button">Reset to default</button>
         <span class="qe-count"></span>
       </div>
-      <p class="qe-note">Runs through the gallery: fal first, Pika when fal is out of credit. A rewrite costs well under a cent.</p>
+      <p class="qe-adds"></p>
+      <div class="qe-last-bar">
+        <button class="qe-reset qe-last-toggle" type="button">Show last sent</button>
+        <button class="qe-reset qe-copy" type="button" hidden>Copy</button>
+        <span class="qe-count qe-last-meta"></span>
+      </div>
+      <textarea class="qe-text qe-last" spellcheck="false" rows="14" readonly hidden></textarea>
+      <p class="qe-note">A rewrite on Haiku costs well under a cent; Opus and Fable cost more and take longer.</p>
     </div>`;
 
-  const worldSeg = root.querySelector('[data-group="world"]');
-  const modelSeg = root.querySelector('[data-group="model"]');
-  const text = root.querySelector(".qe-text");
-  const saved = root.querySelector(".qe-saved");
-  const count = root.querySelector(".qe-count");
-  const worldName = root.querySelector(".qe-world-name");
-  const reset = root.querySelector(".qe-reset");
+  const $ = (selector) => root.querySelector(selector);
+  const seg = (group) => root.querySelector(`[data-group="${group}"]`);
+  const hint = (name) => root.querySelector(`[data-hint="${name}"]`);
+  const text = $(".qe-text:not(.qe-last)");
+  const saved = $(".qe-saved");
+  const count = $(".qe-actions .qe-count");
+  const reset = $(".qe-actions .qe-reset");
+  const adds = $(".qe-adds");
+  const worldBox = $(".qe-world");
+  const lastToggle = $(".qe-last-toggle");
+  const lastCopy = $(".qe-copy");
+  const lastMeta = $(".qe-last-meta");
+  const lastText = $(".qe-last");
 
   const button = (label, selected, onClick, title) => {
     const el = document.createElement("button");
@@ -46,25 +91,90 @@
     el.addEventListener("click", onClick);
     return el;
   };
+  const flash = (message) => {
+    saved.textContent = message;
+    setTimeout(() => { if (saved.textContent === message) saved.textContent = ""; }, 1400);
+  };
+  const ask = (message) => new Promise((resolve) => {
+    try { chrome.runtime.sendMessage({ action: "writer", ...message }, (res) => resolve(chrome.runtime.lastError ? null : res)); } catch { resolve(null); }
+  });
 
-  const promptFor = (key) => defaults.resolve(key, state.prompts[key]);
+  const models = () => defaults.MODELS;
+  const modelOf = (key) => models().find((entry) => entry.key === key) || models()[0];
+  const galleryTool = (key) => state.gallery?.tools?.find((tool) => tool.key === key) || null;
+  const worldPrompt = (key) => defaults.resolve(key, state.prompts[key]);
+  const isWorld = () => state.tool === "world";
+  // The text the box shows: the custom copy, else the gallery's default.
+  const toolText = (key) => (typeof state.rules[key] === "string" && state.rules[key].trim() ? state.rules[key] : galleryTool(key)?.rules || "");
+  const toolCustom = (key) => typeof state.rules[key] === "string" && state.rules[key].trim() !== "" && state.rules[key] !== galleryTool(key)?.rules;
+
+  function bridgeLine() {
+    const b = state.bridge;
+    const model = modelOf(state.model);
+    if (!b) return "";
+    if (!b.up) return state.mode === "local" ? "The local writer is not running on this Mac: nothing can be written." : "Local writer: not running on this Mac, so the cloud writes.";
+    const runs = (b.bridgeModels || []).includes(model.key);
+    if (!model.local) return `${model.name} has no local run: the cloud writes${state.mode === "local" ? " nothing while Runs on is This Mac" : ""}.`;
+    if (!runs) return `The local writer here is older and cannot run ${model.name}: run extension-writer/install.sh again.${state.mode === "local" ? "" : " Until then the cloud writes."}`;
+    return state.mode === "cloud" ? "Local writer is running, but Cloud is picked." : `Writes on this Mac with ${model.name}.`;
+  }
 
   function render() {
-    worldSeg.replaceChildren(...defaults.WORLDS.map((world) => button(world.name, world.key === state.world, () => {
+    const model = modelOf(state.model);
+    seg("model").replaceChildren(...models().map((entry) => button(entry.name, entry.key === state.model, () => {
+      state.model = entry.key;
+      chrome.storage.sync.set({ [W.model]: entry.key });
+      render();
+    }, entry.hint)));
+    hint("model").textContent = model.hint || "";
+    seg("mode").replaceChildren(...MODES.map((entry) => button(entry.name, entry.key === state.mode, () => {
+      state.mode = entry.key;
+      chrome.storage.sync.set({ [W.mode]: entry.key });
+      render();
+    }, entry.hint)));
+    hint("mode").textContent = [MODES.find((entry) => entry.key === state.mode)?.hint, bridgeLine()].filter(Boolean).join(" ");
+
+    seg("tool").replaceChildren(...TOOLS.map((entry) => button(entry.name, entry.key === state.tool, () => {
+      state.tool = entry.key;
+      state.showLast = false;
+      render();
+    })));
+    worldBox.hidden = !isWorld();
+    seg("world").replaceChildren(...defaults.WORLDS.map((world) => button(world.name, world.key === state.world, () => {
       state.world = world.key;
       chrome.storage.local.set({ [KEYS.world]: state.world });
       render();
     })));
-    modelSeg.replaceChildren(...defaults.MODELS.map((model) => button(model.name, model.key === state.model, () => {
-      state.model = model.key;
-      chrome.storage.local.set({ [KEYS.model]: state.model });
-      render();
-    })));
-    worldName.textContent = defaults.byKey(state.world).name;
-    if (document.activeElement !== text) text.value = promptFor(state.world);
-    const custom = promptFor(state.world) !== defaults.byKey(state.world).prompt;
-    reset.disabled = !custom;
-    count.textContent = `${text.value.length} chars${custom ? " · edited" : " · default"}`;
+
+    if (isWorld()) {
+      if (document.activeElement !== text) text.value = worldPrompt(state.world);
+      const custom = worldPrompt(state.world) !== defaults.byKey(state.world).prompt;
+      text.disabled = false;
+      reset.disabled = !custom;
+      count.textContent = `${text.value.length} chars${custom ? " · edited" : " · default"}`;
+      adds.textContent = "";
+    } else {
+      const tool = galleryTool(state.tool);
+      const custom = toolCustom(state.tool);
+      if (document.activeElement !== text) {
+        text.value = tool || custom ? toolText(state.tool) : state.galleryError ? `Could not load this prompt from the gallery: ${state.galleryError}` : "Loading from the gallery…";
+      }
+      text.disabled = !tool && !custom;
+      reset.disabled = !custom;
+      count.textContent = tool || custom ? `${text.value.length} chars${custom ? " · edited" : " · gallery default"}` : "";
+      adds.textContent = tool?.adds?.length ? `Then added on every call: ${tool.adds.join(" · ")}.` : "";
+    }
+
+    const last = isWorld() ? null : state.last?.[state.tool];
+    lastToggle.parentElement.hidden = isWorld();
+    lastToggle.disabled = !last;
+    lastToggle.textContent = state.showLast ? "Hide last sent" : "Show last sent";
+    lastText.hidden = !(state.showLast && last);
+    lastCopy.hidden = lastText.hidden;
+    lastMeta.textContent = last
+      ? `${new Date(last.at).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · ${last.model || "?"}${last.world ? ` · ${String(last.world).toUpperCase()}` : ""} · ${last.text.length} chars`
+      : "nothing sent yet";
+    if (last && state.showLast) lastText.value = last.text;
   }
 
   let timer = null;
@@ -72,39 +182,98 @@
     clearTimeout(timer);
     saved.textContent = "";
     count.textContent = `${text.value.length} chars · edited`;
+    const tool = state.tool;
+    const world = state.world;
     timer = setTimeout(() => {
-      state.prompts = { ...state.prompts, [state.world]: text.value.slice(0, 8000) };
-      chrome.storage.local.set({ [KEYS.prompts]: state.prompts }, () => {
-        saved.textContent = "Saved";
-        setTimeout(() => { saved.textContent = ""; }, 1400);
-        reset.disabled = false;
-      });
+      if (tool === "world") {
+        state.prompts = { ...state.prompts, [world]: text.value.slice(0, 8000) };
+        chrome.storage.local.set({ [KEYS.prompts]: state.prompts }, () => { flash("Saved"); reset.disabled = false; });
+        return;
+      }
+      const limit = state.gallery?.limit || 60000;
+      const next = { ...state.rules };
+      // Text equal to the gallery's default is no edit: keep following the gallery.
+      if (!text.value.trim() || text.value === galleryTool(tool)?.rules) delete next[tool];
+      else next[tool] = text.value.slice(0, limit);
+      state.rules = next;
+      chrome.storage.local.set({ [W.rules]: next }, () => { flash("Saved"); render(); });
     }, 400);
   });
 
   reset.addEventListener("click", () => {
-    const next = { ...state.prompts };
-    delete next[state.world];
-    state.prompts = next;
-    chrome.storage.local.set({ [KEYS.prompts]: next }, () => {
-      text.value = promptFor(state.world);
-      saved.textContent = "Default back";
-      setTimeout(() => { saved.textContent = ""; }, 1400);
+    if (isWorld()) {
+      const next = { ...state.prompts };
+      delete next[state.world];
+      state.prompts = next;
+      chrome.storage.local.set({ [KEYS.prompts]: next }, () => {
+        text.value = worldPrompt(state.world);
+        flash("Default back");
+        render();
+      });
+      return;
+    }
+    const next = { ...state.rules };
+    delete next[state.tool];
+    state.rules = next;
+    chrome.storage.local.set({ [W.rules]: next }, () => {
+      text.value = toolText(state.tool);
+      flash("Default back");
       render();
     });
   });
 
-  chrome.storage.local.get([KEYS.world, KEYS.model, KEYS.prompts], (stored) => {
+  lastToggle.addEventListener("click", () => { state.showLast = !state.showLast; render(); });
+  lastCopy.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(lastText.value); flash("Copied"); } catch { lastText.select(); }
+  });
+
+  async function loadGallery() {
+    const res = await ask({ do: "prompts" });
+    if (res?.ok && Array.isArray(res.tools)) {
+      state.gallery = res;
+      state.galleryError = "";
+    } else {
+      state.galleryError = res?.error || "the gallery did not answer";
+    }
+    render();
+  }
+  async function loadBridge(fresh = false) {
+    const res = await ask({ fresh });
+    if (res?.ok) state.bridge = res;
+    render();
+  }
+
+  chrome.storage.local.get([KEYS.world, KEYS.prompts, W.rules, W.last], (stored) => {
     state.world = stored?.[KEYS.world] || "dear-annete";
-    state.model = stored?.[KEYS.model] === "deepseek" ? "deepseek" : "haiku";
     state.prompts = stored?.[KEYS.prompts] && typeof stored[KEYS.prompts] === "object" ? stored[KEYS.prompts] : {};
+    state.rules = stored?.[W.rules] && typeof stored[W.rules] === "object" ? stored[W.rules] : {};
+    state.last = stored?.[W.last] && typeof stored[W.last] === "object" ? stored[W.last] : {};
+    render();
+  });
+  chrome.storage.sync.get([W.model, W.mode], (stored) => {
+    state.model = models().some((entry) => entry.key === stored?.[W.model]) ? stored[W.model] : "haiku";
+    state.mode = MODES.some((entry) => entry.key === stored?.[W.mode]) ? stored[W.mode] : "auto";
     render();
   });
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "sync") {
+      if (changes[W.model]) state.model = changes[W.model].newValue || "haiku";
+      if (changes[W.mode]) state.mode = changes[W.mode].newValue || "auto";
+      if (changes[W.model] || changes[W.mode]) void loadBridge();
+      return;
+    }
     if (area !== "local") return;
     if (changes[KEYS.world]) state.world = changes[KEYS.world].newValue || "dear-annete";
-    if (changes[KEYS.model]) state.model = changes[KEYS.model].newValue === "deepseek" ? "deepseek" : "haiku";
     if (changes[KEYS.prompts] && document.activeElement !== text) state.prompts = changes[KEYS.prompts].newValue || {};
+    if (changes[W.rules] && document.activeElement !== text) state.rules = changes[W.rules].newValue || {};
+    if (changes[W.last]) state.last = changes[W.last].newValue || {};
     render();
   });
+
+  // The defaults come from the gallery each time the tab opens, so the panel
+  // always shows what the gallery builds today.
+  const tab = document.getElementById("editModeTab");
+  tab?.addEventListener("click", () => { void loadGallery(); void loadBridge(true); });
+  void loadGallery();
+  void loadBridge();
 })(typeof globalThis !== "undefined" ? globalThis : self);
