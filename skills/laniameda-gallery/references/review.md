@@ -99,7 +99,8 @@ you use `asset:<id>` instead.
 | `review_items` | The frames of a round (default: the draft, else the current one), by folder, section or style; with `frame`, its making-of. |
 | `review_feedback` | Likes, dislikes and comments, newest first, with code, folder and style; a per-frame summary; style likes and dislikes; one frame's thread. |
 | `review_setup` | `op` project, folders, reorder_folders, delete_folder, invite. |
-| `review_promote` | Gallery frames into the draft round, by folder and style; `dryRun` suggests. |
+| `review_promote` | Gallery frames into the draft round, by folder and style; `dryRun` suggests. Held by default. |
+| `save_asset` / `save_assets` with `project` | New pieces into the gallery and the draft round (held) in one call: references/projects.md. |
 | `review_organize` | `op` move, remove, reorder, replace in the draft round. |
 | `review_round` | `op` draft, publish, set_current, discard_draft. |
 | `review_comment` | `op` add (reply as the studio agent), resolve, reopen, delete, mark_seen. |

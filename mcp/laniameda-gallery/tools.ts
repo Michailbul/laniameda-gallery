@@ -67,6 +67,22 @@ export type GalleryToolOptions = {
   onlyTools?: ReadonlySet<string>;
 };
 
+const projectTargetSchema = reviewPromoteSchema
+  .pick({ project: true, folder: true, section: true, style: true, note: true })
+  .describe(
+    "Add the saved pieces to a project too (its director review slug, e.g. cassandra): after the gallery save they go into the project's draft round, held for Michael's approval, in folder (e.g. apartment) and style (e.g. Storybook; the piece is filed onto that style's shelf). Omit folder or style to use the ones named like the piece's shelves.",
+  );
+type ProjectTarget = z.infer<typeof projectTargetSchema>;
+
+const PROJECT_SAVE_NOTE =
+  "Project work (Michael says 'add it to the project', or the work is for a project such as CASSANDRA): pass project {project: '<slug>', folder, section, style} and the pieces land in the gallery AND in that project's director review draft, held so only Michael sees them until he approves. Everything in a project is in the gallery; a plain save stays gallery-only.";
+
+const savedAssetId = (response: JsonRecord): string | undefined => {
+  const pick = (value: unknown) => (typeof value === "string" && value ? value.replace(/^asset:/, "") : undefined);
+  const nested = (value: unknown) => (value && typeof value === "object" ? (value as JsonRecord) : {});
+  return pick(response.assetId) ?? pick(nested(response.result).assetId) ?? pick(nested(response.collections).assetId);
+};
+
 export const GALLERY_MCP_INSTRUCTIONS = [
   "laniameda.gallery is Michael's vault of the work he makes and the work he likes.",
   "Worlds are separate story universes (DEAR ANNETE, ANDROMEDA — ANYA …). For any world work call open_world first: it returns the world's WORLD.md rules, learnings, styles and locks, shelves, storybooks, moodboards, Midjourney profiles and recent changes. Search and preview with world to stay inside it. Change things through world_doc, world_file, world_shelf, world_move, mj_profiles and the moodboard and story tools with a session label; every change is in world_journal and world_undo reverts it. An asset never belongs to two worlds.",
@@ -75,7 +91,7 @@ export const GALLERY_MCP_INSTRUCTIONS = [
   "When Michael sends inspiration (a link, a reel, screenshots, photos) with or without a project name, follow references/intake.md: save a clean source as inspiration, take a video or scene apart into frames, beats and a source-analysis story, and when he names a world, carry it through treatment and pre-production into a storybook (references/storybooks.md).",
   "Saved references live in the Inspiration library (/inspiration), library first: register_inspiration records a reference already saved as assets (or a text idea) without moving it; list_inspiration and get_inspiration read references, Michael's notes on what he likes (read them first) and project takes; propose_inspiration_adaptation and post_inspiration_version make versioned draft takes that never reach search or worlds; list_inspiration_feedback reads his notes and decisions. A note starts no work; a redo arrives as one task. Keep, drop, approve and promote are his alone. Paid generation for a take is off until he allows it; then inspiration_dispatch (one dispatcher, nonce + fence) and inspiration_job (a priced reservation before every paid call; unknown outcomes held, never resubmitted). Read references/inspiration.md.",
   "Director review (/review/<slug>; CASSANDRA's is public at mishabuloichyk.com/cassandra): an outside director signs in with Google and likes, dislikes and comments on frames sorted into folders (locations, characters, scenes) and styles, shown in rounds (v0.1, v0.2 …). review_open reads a project; review_promote puts frames into the draft round, review_organize arranges it, review_round publishes it or rolls back; review_feedback reads what the director said and review_comment replies. Publishing, rollbacks, reviewers and invite links only on Michael's go. Read references/review.md.",
-  "Projects: a world can be a project (CASSANDRA, the animated feature Michael art-directs). project_open gives the whole project in one call: the world and its styles, the art-director shelves, the director review rounds and unread feedback, the production briefs (what the director or producers sent: design briefs, the storyboard, the script, photo sets, with who sent it, when and why, private files and pictures) and the project's inspiration. project_find searches every reference of the project by words or a scene number, project_get opens any handle (brief:, lp:, set:, preset:, run:, style:). production_briefs finds briefs with their pictures and files; save_production_brief and production_brief_file add them. Locked places (one style-free prompt per place with brief images and a fixed seed) and prompt runs (shot sets × looks × locked seeds, screened in Draft, judged on a grid) are part of a project: references/locked-prompts.md and references/prompt-grid.md. Art-director scope first: everything in a project, every brief and every art-director shelf, is Michael's alone until he promotes or publishes it; it never feeds the director review or the public world page by itself. Read references/projects.md.",
+  "Projects: a world can be a project (CASSANDRA, the animated feature Michael art-directs). Adding to a project = adding to the gallery AND to the project: save_asset / save_assets with project {project: '<slug>', folder, style} files the piece in the gallery and puts it into the project's director review draft, held for Michael (pieces already in the gallery: review_promote, held). Everything in a project is in the gallery; not everything in the gallery goes to a project. project_open gives the whole project in one call: the world and its styles, the art-director shelves, the director review rounds and unread feedback, the production briefs (what the director or producers sent: design briefs, the storyboard, the script, photo sets, with who sent it, when and why, private files and pictures) and the project's inspiration. project_find searches every reference of the project by words or a scene number, project_get opens any handle (brief:, lp:, set:, preset:, run:, style:). production_briefs finds briefs with their pictures and files; save_production_brief and production_brief_file add them. Locked places (one style-free prompt per place with brief images and a fixed seed) and prompt runs (shot sets × looks × locked seeds, screened in Draft, judged on a grid) are part of a project: references/locked-prompts.md and references/prompt-grid.md. Art-director scope first: everything in a project, every brief and every art-director shelf, is Michael's alone until he promotes or publishes it; it never feeds the director review or the public world page by itself. Read references/projects.md.",
   "Named people are characters: one record per person per world with a stable code (DA-CH-001), costumes as -C01/-C02, a canonical sheet and face, and typed asset links. list_characters and get_character read the cast; create_character, update_character, save_character_costume and link_character_assets maintain it. Cite the code in captions and storybook CAST blocks. Read references/characters.md.",
   "Moodboards are ordered sets of gallery images that each define one look and mirror a Midjourney moodboard (a personalization code); each belongs to a collection. list_moodboards and get_moodboard read them (get_moodboard returns full image URLs, in order, to push into Midjourney); save_moodboard, add_moodboard_items and reorder_moodboard_items maintain them; record the Midjourney code after a sync with set_moodboard_midjourney. Read references/moodboards.md.",
   "A world holds several named styles (how a frame is made: medium, rendering, light, palette). list_styles reads a world's universe of styles with covers and recipe names; get_style one style with its moodboards, profiles, template, raises and lowers; save_style creates, renames, recovers or re-covers one; file_style puts frames on it; merge_styles folds two; world_universe joins sibling worlds (DEAR ANNETE — 3D into DEAR ANNETE) so they show on one styles page (/w/<world>/styles). find_assets answers 'is this Midjourney frame in the gallery?' for up to 500 job ids, file names or URLs at once.",
@@ -740,6 +756,23 @@ export function registerGalleryTools(mcpServer: McpServer, options: GalleryToolO
     },
   );
 
+  // "Add it to the project" (Michael, 20 Nov 2026): a project piece is saved to the gallery AND put into the
+  // project's director review draft, held for his approval, in one call. Everything in a project is in the
+  // gallery; not everything in the gallery is in a project, so this only happens when `project` is passed.
+  const addToProject = async (target: ProjectTarget, assetIds: string[]) => {
+    try {
+      return await apiFetch("/api/agent/review", {
+        action: "promote", ...target, frames: assetIds.map(id => `asset:${id}`), held: true,
+      });
+    } catch (error) {
+      return {
+        ok: false, project: target.project, frames: assetIds.map(id => `asset:${id}`),
+        error: error instanceof Error ? error.message : "Adding to the project failed.",
+        next: "The gallery save went through. Put these frames into the project with review_promote (held).",
+      };
+    }
+  };
+
   server.registerTool(
     "save_asset",
     {
@@ -747,10 +780,16 @@ export function registerGalleryTools(mcpServer: McpServer, options: GalleryToolO
       description:
         "Save one image or video to the gallery. Media comes from `uploadId` (local files: prepare_uploads first), `url` (anything public)" +
         (readLocalFile ? ", `filePath` (a local path)" : "") +
-        " or `fileBase64` (small files, no shell). For several pieces use save_assets.",
-      inputSchema: { ...commonIngestShape, ...localFileShape },
+        " or `fileBase64` (small files, no shell). For several pieces use save_assets. " + PROJECT_SAVE_NOTE,
+      inputSchema: { ...commonIngestShape, ...localFileShape, project: projectTargetSchema.optional() },
     },
-    async (input) => jsonText(await apiFetch("/api/agent/ingest", await buildCreateBody(input))),
+    async (input) => {
+      const { project, ...item } = input as JsonRecord & { project?: ProjectTarget };
+      const response = await apiFetch("/api/agent/ingest", await buildCreateBody(item));
+      if (!project) return jsonText(response);
+      const assetId = savedAssetId(response);
+      return jsonText({ ...response, project: assetId ? await addToProject(project, [assetId]) : { ok: false, error: "The save returned no asset id, so nothing went into the project." } });
+    },
   );
 
   server.registerTool(
@@ -799,16 +838,19 @@ export function registerGalleryTools(mcpServer: McpServer, options: GalleryToolO
       description:
         "Save up to 50 images/videos in one call. Each item takes the same fields as save_asset (uploadId / url" +
         (readLocalFile ? " / filePath" : "") +
-        ", tagNames, folderIds, agentDescription, sourceUrl, ...). Every item reports its own result; one failure does not stop the rest.",
+        ", tagNames, folderIds, agentDescription, sourceUrl, ...). Every item reports its own result; one failure does not stop the rest. " + PROJECT_SAVE_NOTE + " An item's own project overrides the batch's.",
       inputSchema: {
         items: z
-          .array(z.object({ ...commonIngestShape, ...localFileShape }))
+          .array(z.object({ ...commonIngestShape, ...localFileShape, project: projectTargetSchema.optional() }))
           .min(1).max(50)
           .describe("One entry per piece, max 50."),
+        project: projectTargetSchema.optional(),
       },
     },
     async (input) => {
-      const prepared = await Promise.allSettled(input.items.map(item => buildCreateBody(item as JsonRecord)));
+      const items = input.items as Array<JsonRecord & { project?: ProjectTarget }>;
+      const targets = items.map(item => item.project ?? (input.project as ProjectTarget | undefined));
+      const prepared = await Promise.allSettled(items.map(({ project: _project, ...item }) => buildCreateBody(item)));
       const ready = prepared.flatMap((entry, index) => entry.status === "fulfilled" ? [{ index, body: entry.value }] : []);
       const response = ready.length ? await apiFetch("/api/agent/ingest/batch", { items: ready.map(entry => entry.body) }) : {};
       const savedResults = Array.isArray(response.results) ? response.results as JsonRecord[] : [];
@@ -816,7 +858,20 @@ export function registerGalleryTools(mcpServer: McpServer, options: GalleryToolO
         ? { index, ok: false, failedStep: "prepare", error: entry.reason instanceof Error ? entry.reason.message : "Preparation failed." }
         : { ...(savedResults[ready.findIndex(item => item.index === index)] ?? { ok: false, error: "No save result returned." }), index });
       const saved = results.filter(entry => entry.ok === true).length;
-      return jsonText({ ...response, ok: saved === input.items.length, saved, failed: input.items.length - saved, results });
+      const groups = new Map<string, { target: ProjectTarget; assetIds: string[] }>();
+      results.forEach((entry, index) => {
+        const target = targets[index];
+        const assetId = entry.ok === true ? savedAssetId(entry as JsonRecord) : undefined;
+        if (!target || !assetId) return;
+        const key = JSON.stringify(target);
+        const group = groups.get(key) ?? { target, assetIds: [] };
+        group.assetIds.push(assetId);
+        groups.set(key, group);
+      });
+      const project = groups.size
+        ? await Promise.all([...groups.values()].map(group => addToProject(group.target, group.assetIds)))
+        : undefined;
+      return jsonText({ ...response, ok: saved === input.items.length, saved, failed: input.items.length - saved, results, ...(project ? { project } : {}) });
     },
   );
 
