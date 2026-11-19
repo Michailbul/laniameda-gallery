@@ -50,3 +50,38 @@ test("review inputs accept round labels and numbers, and setup keeps each op's f
   expect(reviewRoundSchema.safeParse({ project: "p", op: "rollback" }).success).toBe(false);
   expect(Object.keys(reviewSetupSchema.shape)).toEqual(expect.arrayContaining(["op", "project", "styles", "folders", "order", "folder", "email"]));
 });
+
+test("saving with project files the pieces in the gallery and puts them into the project's draft, held", async () => {
+  const calls: { path: string; input: JsonRecord }[] = [];
+  const tools = registry(async (path, input) => {
+    calls.push({ path, input });
+    if (path === "/api/agent/ingest") return { ok: true, result: { assetId: "s1" }, collections: { assetId: "s1" } };
+    if (path === "/api/agent/ingest/batch") return { ok: true, results: (input.items as JsonRecord[]).map((_, i) => ({ ok: true, assetId: `b${i}` })) };
+    return { ok: true, added: 1 };
+  });
+  expect(String(tools.get("save_assets")!.config.description)).toContain("project");
+  const target = { project: "cassandra", folder: "apartment", section: "locations", style: "Storybook" };
+
+  const single = JSON.parse((await tools.get("save_asset")!.handler({ url: "https://x.test/a.png", project: target })).content[0].text);
+  expect(single.project).toEqual({ ok: true, added: 1 });
+  const ingest = calls.find((call) => call.path === "/api/agent/ingest")!;
+  expect(ingest.input.project).toBeUndefined();
+
+  calls.length = 0;
+  const batch = JSON.parse((await tools.get("save_assets")!.handler({
+    project: target,
+    items: [{ url: "https://x.test/1.png" }, { url: "https://x.test/2.png", project: { project: "cassandra", folder: "school" } }],
+  })).content[0].text);
+  expect(batch.saved).toBe(2);
+  expect(batch.project).toHaveLength(2);
+  const promotes = calls.filter((call) => call.input.action === "promote").map((call) => call.input);
+  expect(promotes).toEqual([
+    { action: "promote", ...target, frames: ["asset:b0"], held: true },
+    { action: "promote", project: "cassandra", folder: "school", frames: ["asset:b1"], held: true },
+  ]);
+  for (const item of (calls.find((call) => call.path === "/api/agent/ingest/batch")!.input.items as JsonRecord[])) expect(item.project).toBeUndefined();
+
+  calls.length = 0;
+  await tools.get("save_assets")!.handler({ items: [{ url: "https://x.test/3.png" }] });
+  expect(calls.some((call) => call.input.action === "promote")).toBe(false);
+});

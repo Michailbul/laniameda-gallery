@@ -17,10 +17,38 @@ the art director scope. Not to the public/director views."
   (`world_shelf` without `scope`); `scope: "shared"` makes an ordinary one.
   An art-director shelf never feeds the public wall, the public showcase or
   the review by itself.
-- `review_promote` refuses frames that sit on an art-director shelf unless
+- `review_promote` puts frames into the draft **held** (only Michael sees
+  them until he approves them on the review page). Sending frames straight to
+  the director (`held: false`) is refused for art-director-shelf frames unless
   Michael said to show them in this session (`confirmed: true`).
 - Frames that were already public before they joined an art-director shelf
   stay public: the shelf hides nothing that was published another way.
+
+## Adding to a project = gallery + project (Michael, 20 Nov 2026)
+
+"When we work with the Cassandra project I need you to work with the project
+specifically. Add it to the project ... all that is being added to the project
+is also added to the gallery, but not everything that is added to the gallery
+is going to the project."
+
+- **Project ⊂ gallery.** A piece made or found for the project is saved in the
+  gallery (world, style shelf, full prompt, lineage) **and** put into the
+  project's director review draft, held for Michael, in its place folder and
+  style. A plain gallery save never reaches the project by itself.
+- **One call:** `save_asset` / `save_assets` with
+  `project: {project: "cassandra", folder: "apartment", section: "locations", style: "Storybook"}`
+  (batch-level, or per item to override). The pieces are saved, filed onto the
+  style's shelf, and promoted held; the answer's `project` field reports the
+  draft, `added` and `placed`. Omit `folder` or `style` to use the folder and
+  style named like the piece's shelves.
+- **Already in the gallery:** `review_promote {project, frames, folder,
+  section, style}` (held by default).
+- Check with `review_items {project, round: "draft", folder}` and tell Michael
+  where to look (folder, style). Approving and sending stay his.
+- Work that is for the project counts as "add it to the project" even when he
+  only names the style or the folder ("add it to the Storybook style" in a
+  Cassandra session). Side tests, rejected takes and inspiration stay gallery
+  only.
 
 ## Find anything (agents start here)
 

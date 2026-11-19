@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.45.2
+version: 1.46.0
 ---
 
 # Laniameda Gallery
@@ -145,8 +145,12 @@ query}` searches every reference in it by words or a scene number;
 `style:` handle. Everything added
 to a project is the art director's first: new shelves in a project world are
 art-director only, briefs and recipes never reach the director or the public,
-and `review_promote` refuses art-director frames without Michael's
-`confirmed: true`. Read references/projects.md.
+and `review_promote` holds frames for Michael (sending art-director frames
+straight to the director needs his `confirmed: true`). **Adding to a project
+= gallery + project:** `save_asset` / `save_assets` with `project: {project,
+folder, section, style}` saves the piece and puts it into the project's
+review draft, held; a plain save stays gallery-only. Read
+references/projects.md.
 
 ## Make media findable
 
