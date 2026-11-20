@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.39.1 (20 Nov 2026)
+
+Midjourney: settings always readable on short rows
+- Rows of square or tall pictures with a long prompt hid the job's settings
+  (chaos, ar, raw, profile) and pinned the Rerun bar over the bottom. The
+  prompt is now shortened to the lines that fit, so the settings and the bar
+  sit under it in every row. Open the job to read the whole prompt.
+
 ## 0.39.0 (20 Nov 2026)
 
 Rerun random on every Midjourney job
