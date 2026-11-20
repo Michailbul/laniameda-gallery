@@ -2,8 +2,9 @@ import { v } from "convex/values";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalQuery } from "./_generated/server";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
+import { canonicalFolderName } from "./folderHelpers";
 import {
-  CINEMATIC_SHOTS_SHELF, CINEMATIC_SHOT_LIMITS, parseShotCard, pickShots, shotsBlock, type ShotCard,
+  CINEMATIC_SHOTS_PARENT, CINEMATIC_SHOTS_SHELF, CINEMATIC_SHOT_LIMITS, parseShotCard, pickShots, shotsBlock, type ShotCard,
 } from "../lib/cinematic-shots";
 
 // The shot library of the extension's writer (lib/cinematic-shots.ts): the
@@ -15,12 +16,16 @@ export const forWriter = internalQuery({
   returns: v.object({ text: v.string(), total: v.number(), picked: v.number() }),
   handler: async (ctx, args) => {
     const none = { text: "", total: 0, picked: 0 };
+    // A root shelf is stored by its own canonical name; a child under
+    // CINEMATIC by "<parent id>/<canonical name>" (convex/folders.ts).
+    const shelfName = canonicalFolderName(CINEMATIC_SHOTS_SHELF);
+    const byName = async (candidate: string, normalizedName: string) => (await ctx.db.query("folders")
+      .withIndex("by_owner_normalizedName", (q) => q.eq("ownerUserId", candidate).eq("normalizedName", normalizedName))
+      .take(4)).find((row) => canActorAccessOwnerUserId(args.ownerUserId, row.ownerUserId ?? "")) ?? null;
     let shelf: Doc<"folders"> | null = null;
     for (const candidate of resolveUserIdCandidates(args.ownerUserId)) {
-      const rows = await ctx.db.query("folders")
-        .withIndex("by_owner_normalizedName", (q) => q.eq("ownerUserId", candidate).eq("normalizedName", CINEMATIC_SHOTS_SHELF))
-        .take(4);
-      shelf = rows.find((row) => canActorAccessOwnerUserId(args.ownerUserId, row.ownerUserId ?? "")) ?? null;
+      const parent = await byName(candidate, canonicalFolderName(CINEMATIC_SHOTS_PARENT));
+      shelf = (parent ? await byName(candidate, `${parent._id}/${shelfName}`) : null) ?? await byName(candidate, shelfName);
       if (shelf) break;
     }
     if (!shelf) return none;
