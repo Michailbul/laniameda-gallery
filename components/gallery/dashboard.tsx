@@ -28,7 +28,7 @@ import {
 import { usePaginatedQuery as useStreamPaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError } from "convex/values";
-import { BookOpen, BookOpenText, Camera, Clapperboard, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, Lightbulb, ListChecks, Loader2, Newspaper, Plus, Projector, Search as SearchIcon, Send, SlidersHorizontal, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
+import { BookOpen, BookOpenText, Camera, Check, Clapperboard, Copy, Download, Eye, EyeOff, FolderPlus, Heart, HeartOff, Layers, LayoutGrid, Lightbulb, ListChecks, Loader2, Newspaper, Plus, Projector, Search as SearchIcon, Send, SlidersHorizontal, Sparkles, Star, Trash2, Upload, X, Youtube } from "lucide-react";
 import { deleteAssetSelection } from "@/lib/bulk-delete";
 import { MAIN_DIRECTOR_REVIEW, directorReviewPath } from "@/components/review-promote/promote-model";
 import { setAssetSelectionLiked } from "@/lib/bulk-like";
@@ -3357,6 +3357,47 @@ export function GalleryDashboard({
     () => moodboardPick ? Array.from(selectedAssetIds).filter((id) => !pickOnBoardIds.has(id)) : [],
     [moodboardPick, pickOnBoardIds, selectedAssetIds],
   );
+
+  // COPY IDS (and ⌘C / Ctrl+C with a selection): one "asset:<id>" per line,
+  // in grid order, ready to paste to an agent.
+  const [idsCopied, setIdsCopied] = useState(false);
+  const copySelectedAssetIds = useCallback(async () => {
+    if (selectedAssetIds.size === 0) return;
+    const order = new Map(allVisibleAssetIds.map((id, index) => [id, index]));
+    const ids = Array.from(selectedAssetIds).sort(
+      (a, b) => (order.get(a) ?? Infinity) - (order.get(b) ?? Infinity),
+    );
+    try {
+      await navigator.clipboard.writeText(ids.map((id) => `asset:${id}`).join("\n"));
+      setIdsCopied(true);
+      window.setTimeout(() => setIdsCopied(false), 1400);
+    } catch {
+      setIdsCopied(false);
+    }
+  }, [allVisibleAssetIds, selectedAssetIds]);
+  const hasAssetSelection = selectedAssetIds.size > 0;
+  useEffect(() => {
+    if (!hasAssetSelection) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return;
+      if (event.key !== "c" && event.key !== "C") return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT"
+      ) {
+        return;
+      }
+      // Copying highlighted text keeps working as usual.
+      if (window.getSelection()?.toString()) return;
+      event.preventDefault();
+      void copySelectedAssetIds();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [copySelectedAssetIds, hasAssetSelection]);
 
   const selectAllVisibleAssets = useCallback(() => {
     if (bulkDeletingRef.current || bulkLikingRef.current) return;
@@ -7333,8 +7374,26 @@ export function GalleryDashboard({
                   color: "var(--lm-text-ghost)",
                 }}
               >
-                Shift-click a range · shift-drag to box · ⌘A all · Esc to clear
+                Shift-click a range · shift-drag to box · ⌘A all · ⌘C copy IDs · Esc to clear
               </span>
+              <button
+                type="button"
+                onClick={() => {
+                  void copySelectedAssetIds();
+                }}
+                className="lm-btn-ghost inline-flex items-center gap-1.5"
+                style={{
+                  border: idsCopied ? "2px solid var(--lm-teal, #79B791)" : "2px solid var(--lm-border-strong)",
+                  borderRadius: "10px",
+                  padding: "6px 12px",
+                  fontSize: "11px",
+                }}
+                aria-label={`Copy the IDs of ${selectedAssetIds.size} selected assets`}
+                title="Copy the selected IDs, one per line, to paste to an agent (⌘C)"
+              >
+                {idsCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {idsCopied ? "COPIED" : "COPY IDS"}
+              </button>
               {selectedAssetIds.size < allVisibleAssetIds.length && (
                 <button
                   type="button"
