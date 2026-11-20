@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.39.0 (20 Nov 2026)
+
+Rerun random on every Midjourney job
+- Under each job's settings chips on the Create feed: **Rerun random**. One
+  click puts that job's prompt back in the Imagine bar with 1–2 random
+  profiles of the dock's world, plus one of its moodboards (**Moodboard**
+  switch). **Sref** picks the style reference: the job's own, none, a random
+  one of the world's styles, or one named sref from the world's styles and
+  presets (`/api/extension/srefs`). Images, words and settings stay; an old
+  `--v` becomes `--v 8.2`. Nothing is sent: your Enter runs it.
+- The bar is always on screen: when a long prompt pushes it out of the row,
+  it docks to the bottom of the row.
+
 ## 0.38.0 (20 Nov 2026)
 
 MJ Queue: Enter always sends, deleted threads go to the Archive
