@@ -115,5 +115,44 @@
     return out;
   }
 
-  globalScope.SaveToGalleryRandomize = { LIMITS, BANNED_CODES, pickMix, signature, codesIn, withCodes, testSet, randomSet };
+  // Rerun of a job from the Midjourney feed (mj-rerun.js): a random mix of
+  // 1–2 profiles, plus exactly one moodboard when `moodboard` is on (none
+  // when off), never the mix the job already had when the pool allows it.
+  function rerunMix(pool, options = {}) {
+    const rng = options.rng || Math.random;
+    const profiles = clean(pool && pool.profiles);
+    const boards = clean(pool && pool.boards).filter((code) => !profiles.includes(code));
+    const avoid = options.avoid || "";
+    let best = null;
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const picked = shuffle(profiles, rng).slice(0, Math.min(profiles.length, between(1, 2, rng)));
+      const board = options.moodboard && boards.length ? [boards[Math.floor(rng() * boards.length)]] : [];
+      best = { profiles: picked, boards: board, codes: [...board, ...picked] };
+      if (!avoid || signature(best.codes) !== avoid) break;
+    }
+    return best || { profiles: [], boards: [], codes: [] };
+  }
+
+  // Style references: `mode` "keep" leaves the prompt's own --sref, "none"
+  // takes it out, a code (or several, space separated) replaces it. --sw and
+  // --sv stay as they were.
+  const SREF_PATTERN = /(^|\s)--sref((?:\s+(?!--)\S+)+)/gi;
+  function srefsIn(promptText) {
+    const out = [];
+    SREF_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = SREF_PATTERN.exec(String(promptText || "")))) out.push(...match[2].trim().split(/\s+/));
+    return out;
+  }
+  function withSref(promptText, mode) {
+    const body = String(promptText || "");
+    if (!mode || mode === "keep") return body;
+    SREF_PATTERN.lastIndex = 0;
+    const stripped = body.replace(SREF_PATTERN, (all, lead) => lead).replace(/[ \t]{2,}/g, " ").trim();
+    if (mode === "none") return stripped;
+    const code = String(mode).trim();
+    return code ? `${stripped} --sref ${code}` : stripped;
+  }
+
+  globalScope.SaveToGalleryRandomize = { LIMITS, BANNED_CODES, pickMix, signature, codesIn, withCodes, testSet, randomSet, rerunMix, srefsIn, withSref };
 })(typeof globalThis !== "undefined" ? globalThis : self);

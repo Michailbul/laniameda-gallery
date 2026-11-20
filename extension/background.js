@@ -19,6 +19,7 @@ const BOOKMARK_ROUTE_PATH = "/api/extension/design/save";
 const FOLDERS_ROUTE_PATH = "/api/extension/folders";
 const ASSET_STATUS_ROUTE_PATH = "/api/extension/asset-status";
 const MOODBOARDS_ROUTE_PATH = "/api/extension/moodboards";
+const SREFS_ROUTE_PATH = "/api/extension/srefs";
 const MJ_QUEUE_ROUTE_PATH = "/api/extension/mj-queue";
 const QUICK_EDIT_ROUTE_PATH = "/api/extension/prompt-edit";
 const DESCRIBE_ROUTE_PATH = "/api/extension/prompt-describe";
@@ -1159,6 +1160,21 @@ async function fetchAssetStatuses(imageUrls) {
 
 // ── Moodboards (gallery moodboard codes for the Midjourney dock) ──
 
+// The --sref codes a world's styles and presets use (Rerun random, mj-rerun.js).
+async function listWorldSrefs(world) {
+  if (!world) return { ok: true, srefs: [] };
+  const config = await getConfig();
+  const url = `${normalizeRouteUrl(config.apiUrl, SREFS_ROUTE_PATH)}?world=${encodeURIComponent(world)}`;
+  try {
+    const response = await fetch(url, { method: "GET", headers: apiHeaders(config) });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data) return { ok: false, status: response.status, error: data?.error || `HTTP ${response.status}` };
+    return data;
+  } catch (err) {
+    return { ok: false, error: `Network error: ${err.message}` };
+  }
+}
+
 async function listMoodboards(world) {
   const config = await getConfig();
   let url = normalizeRouteUrl(config.apiUrl, MOODBOARDS_ROUTE_PATH);
@@ -1984,6 +2000,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "syncDockPresets") {
     syncDockPresets(message.world, message.presets)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "listWorldSrefs") {
+    listWorldSrefs(message.world)
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
