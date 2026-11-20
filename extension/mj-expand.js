@@ -502,6 +502,7 @@
     select{max-width:150px;min-width:0;flex:0 1 auto;height:22px;padding:0 4px;border-radius:6px;border:1px solid var(--line);background:#191919;color:var(--ink);
       font:700 9.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.04em;text-transform:uppercase;outline:none;cursor:pointer}
     select:focus{border-color:var(--coral)}
+    select.wr{max-width:none;flex:none;padding:0 3px;}
     .wr{flex:none;height:22px;padding:0 7px;border:1px solid var(--line);border-radius:6px;background:#191919;color:var(--ink2);cursor:pointer;font:700 8.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
     .wr.mac{color:#79B791;border-color:rgba(121,183,145,.45)}
     .wr:hover{color:var(--ink)}
@@ -619,7 +620,7 @@
     <div class="head">
       <img class="thumb" alt="">
       <div class="meta">
-        <div class="top"><span class="name"><i></i>Grow</span><select title="World: its rules steer the writer, its moodboards vary the results, and queued prompts go to its threads."></select><button class="wr" type="button"></button><button class="x" type="button" title="Close (Esc)">×</button></div>
+        <div class="top"><span class="name"><i></i>Grow</span><select title="World: its rules steer the writer, its moodboards vary the results, and queued prompts go to its threads."></select><select class="wr" aria-label="Writer model"></select><button class="x" type="button" title="Close (Esc)">×</button></div>
         <div class="src"></div>
       </div>
     </div>
@@ -648,7 +649,7 @@
   const thumb = $(".thumb");
   const srcEl = $(".src");
   const codesEl = $(".codes");
-  const worldSelect = $("select");
+  const worldSelect = $(".top select:not(.wr)");
   const writerButton = $(".wr");
   const attachSeg = $(".seg.attach");
   const varyButton = $(".flip.vary");
@@ -891,10 +892,21 @@
   }
   // Where the writer runs: on this Mac (Haiku 5.5 or Sonnet 5.5 through the
   // local bridge) or through the gallery's providers. Click to switch.
+  // A pick in the list is the default writer for every tool (Grow, Describe,
+  // quick edit), same as MJ settings → Writer. DeepSeek is left out here: Grow
+  // sends a picture and DeepSeek cannot read it.
   const paintWriter = (status) => {
     const view = writerView(status);
-    writerButton.textContent = view.label;
-    writerButton.title = view.title;
+    const where = view.local ? "Mac" : "Cloud";
+    const current = WRITER_MODELS.find((entry) => entry.key === status?.model && entry.key !== "deepseek")?.key || "haiku";
+    writerButton.replaceChildren(...WRITER_MODELS.filter((entry) => entry.key !== "deepseek").map((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.key;
+      option.textContent = entry.key === current ? `${entry.name} · ${where}` : entry.name;
+      option.selected = entry.key === current;
+      return option;
+    }));
+    writerButton.title = view.title.replace(/Click for the next model; /, "Pick the default writer model here; ");
     writerButton.classList.toggle("mac", view.local);
     state.writer = status;
   };
@@ -903,10 +915,10 @@
     const res = await ask("writer", { fresh });
     if (res?.ok) paintWriter(res);
   }
-  writerButton.addEventListener("click", async () => {
-    const next = nextWriter(state.writer);
-    const res = await ask("writer", { do: "set", ...next, fresh: true });
+  writerButton.addEventListener("change", async () => {
+    const res = await ask("writer", { do: "set", model: writerButton.value, fresh: true });
     if (res?.ok) paintWriter(res);
+    idea.focus();
   });
   worldSelect.addEventListener("change", () => {
     state.world = worldSelect.value;
@@ -1387,7 +1399,7 @@
     const active = shadow.activeElement;
     const inIdea = active === idea;
     const inEdit = Boolean(active && active.classList?.contains("ed"));
-    const inSelect = active === worldSelect;
+    const inSelect = active === worldSelect || active === writerButton;
     const hot = moveForCode(event.code);
 
     if (event.key === "Escape") {

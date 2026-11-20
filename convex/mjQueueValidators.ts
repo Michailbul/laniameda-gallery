@@ -76,6 +76,9 @@ export const mjQueueItemFields = {
   sentCommand: v.optional(v.string()),
   jobId: v.optional(v.string()),
   ingestKey: v.optional(v.string()),
+  // The thread was archived (deleted from the panel, 20 Nov 2026): hidden from
+  // the queue, kept with its history so an agent or the panel can restore it.
+  archivedAt: v.optional(v.number()),
   createdBy: v.string(),
   createdAt: v.number(),
   updatedAt: v.number(),

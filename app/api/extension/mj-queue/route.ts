@@ -35,6 +35,7 @@ export async function GET(request: Request) {
       batch: params.get("batch") || undefined,
       world: params.get("world") || undefined,
       includeDone: params.get("includeDone") === "false" ? false : undefined,
+      archived: params.get("archived") === "true" ? true : undefined,
     });
     const result = await getServerConvexClient(ownerUserId).query(api.mjQueue.listQueue, { ownerUserId, ...input });
     return etagJson(request, { ok: true, ...result }, CORS_HEADERS);
@@ -72,19 +73,14 @@ export async function POST(request: Request) {
       const result = await getServerConvexClient(ownerUserId).mutation(api.mjQueue.setItemsParams, { ownerUserId, items });
       return corsJson({ ok: true, ...result });
     }
-    if (action === "deleteThread") {
+    // Delete in the panel archives the thread (20 Nov 2026): it leaves the
+    // queue with its history kept, and the panel's Archive (or an agent) can
+    // bring it back with {action: "restoreThread"}.
+    if (action === "deleteThread" || action === "archiveThread" || action === "restoreThread") {
       const { batch } = mjQueueDeleteThreadSchema.parse(body);
-      const client = getServerConvexClient(ownerUserId);
-      // Paged: a big thread is deleted 250 prompts per call.
-      let deleted = 0;
-      let batchKey = batch;
-      for (let page = 0; page < 20; page += 1) {
-        const step = await client.mutation(api.mjQueue.deleteThread, { ownerUserId, batch });
-        deleted += step.deleted;
-        batchKey = step.batchKey;
-        if (!step.more || step.deleted === 0) break;
-      }
-      return corsJson({ ok: true, batchKey, deleted });
+      const restore = action === "restoreThread";
+      const result = await getServerConvexClient(ownerUserId).mutation(api.mjQueue.archiveThread, { ownerUserId, batch, restore });
+      return corsJson({ ok: true, ...result, deleted: restore ? 0 : result.changed, archived: !restore });
     }
     // {action: "requeue", itemIds}: sent prompts queued again as new copies.
     if (action === "requeue") {
