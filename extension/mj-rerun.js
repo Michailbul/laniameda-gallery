@@ -13,7 +13,7 @@
   "use strict";
 
   const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
-  const CHIP = /^(ar|aspect|chaos|c|stylize|s|weird|w|profile|p|raw|hd|sref|sw|sv|seed|v|version|niji|draft|exp|tile|q|quality|iw|oref|ow|cref|cw|no|stop|style|relax|fast|turbo)(\s|$)/i;
+  const CHIP = /^(ar|aspect|chaos|stylize|weird|profile|p|raw|hd|sref|sw|sv|seed|v|version|niji|draft|exp|tile|quality|iw|oref|ow|cref|cw|relax|fast|turbo)(\s|$)/i;
   const space = (value) => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
 
   // ── Pure helpers (tested) ──
@@ -195,10 +195,12 @@
     return out.filter((node) => !out.some((other) => other !== node && other.contains(node)));
   }
 
+  // The innermost element that holds the prompt's words.
   function longText(scope) {
     for (const node of scope.querySelectorAll("p, span, div")) {
-      if (isOurs(node) || node.childElementCount > 2) continue;
-      if (space(node.textContent).length >= 40) return node;
+      if (isOurs(node) || space(node.textContent).length < 40) continue;
+      if ([...node.children].some((child) => space(child.textContent).length >= 40)) continue;
+      return node;
     }
     return null;
   }
@@ -212,8 +214,11 @@
 
   // One row per job: the nearest ancestor of its image that also holds its
   // prompt and its chips, and no other job.
+  // With no chips found (Midjourney changed them), the bar goes under the
+  // prompt text of the row instead, so it still shows.
   function rowFor(img, jobId) {
     let node = img.parentElement;
+    let fallback = null;
     for (let level = 0; level < 14 && node && node !== document.body; level += 1, node = node.parentElement) {
       const ids = new Set();
       for (const other of node.querySelectorAll("img")) {
@@ -221,15 +226,15 @@
         if (id) ids.add(id);
         if (ids.size > 1) break;
       }
-      if (ids.size > 1) return null;
-      if (!longText(node)) continue;
+      if (ids.size > 1) break;
+      const text = longText(node);
+      if (!text) continue;
       const chips = chipsIn(node);
-      if (!chips.length) continue;
-      const row = chipRow(chips);
-      if (!row) continue;
-      return { root: node, chips: row, jobId, imageUrl: img.currentSrc || img.src };
+      const row = chips.length ? chipRow(chips) : null;
+      if (row) return { root: node, chips: row, jobId, imageUrl: img.currentSrc || img.src };
+      fallback ??= { root: node, chips: text, jobId, imageUrl: img.currentSrc || img.src };
     }
-    return null;
+    return fallback;
   }
 
   // ── The bar ──
