@@ -20,17 +20,33 @@ export function WorldLayers({
   name,
   hero,
   active,
+  draw = true,
+  heading = true,
+  onReady,
 }: {
   slug: string;
   name: string;
   hero: LayeredHero;
   /** On screen: the drift and the petals run. */
   active: boolean;
+  /** Trace the mark (the first frame of the page only). */
+  draw?: boolean;
+  /** The mark is the page's h1 (off when a rotation holds its own heading). */
+  heading?: boolean;
+  /** Called once every plane is in. */
+  onReady?: () => void;
 }) {
   const stack = useRef<HTMLDivElement>(null);
   const petals = useRef<HTMLCanvasElement>(null);
   const [ready, setReady] = useState(false);
   const activeRef = useRef(active);
+  const onReadyRef = useRef(onReady);
+  useEffect(() => {
+    onReadyRef.current = onReady;
+  }, [onReady]);
+  useEffect(() => {
+    if (ready) onReadyRef.current?.();
+  }, [ready]);
   useEffect(() => {
     activeRef.current = active;
   }, [active]);
@@ -65,6 +81,7 @@ export function WorldLayers({
     if (!node) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduce) return;
+    const drift = hero.drift ?? 1;
     const layers = [...node.querySelectorAll<HTMLElement>("[data-depth]")];
     const section = node.closest(".wp-hero");
     let tx = 0;
@@ -95,7 +112,7 @@ export function WorldLayers({
       const ix = Math.sin(t * 0.23) * 0.35;
       const iy = Math.cos(t * 0.17) * 0.25;
       for (const layer of layers) {
-        const d = Number(layer.dataset.depth);
+        const d = Number(layer.dataset.depth) * drift;
         const mx = -(px + ix) * d * 70 * scale;
         const my = (-(py + iy) * d * 34 - p * d * 240) * scale;
         layer.style.transform = `translate3d(${mx.toFixed(2)}px,${my.toFixed(2)}px,0) scale(${(1 + p * d * d * 0.35).toFixed(4)})`;
@@ -109,12 +126,13 @@ export function WorldLayers({
       window.removeEventListener("pointermove", onPointer);
       window.removeEventListener("deviceorientation", onTilt);
     };
-  }, [hero.w]);
+  }, [hero.w, hero.drift]);
 
   // Petals drifting across the field, over the stack.
   useEffect(() => {
     const canvas = petals.current;
-    if (!canvas || !hero.petals) return;
+    const mode = hero.petals ? "petals" : hero.embers ? "embers" : null;
+    if (!canvas || !mode) return;
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
@@ -131,6 +149,19 @@ export function WorldLayers({
     type Petal = { x: number; y: number; z: number; vx: number; vy: number; r: number; a: number; va: number; t: number };
     const spawn = (init: boolean): Petal => {
       const z = Math.random();
+      if (mode === "embers") {
+        return {
+          x: Math.random() * W,
+          y: init ? Math.random() * H : H + 20,
+          z,
+          vx: 0.15 + z * 0.35,
+          vy: -(0.25 + z * 0.7),
+          r: (0.8 + z * 2.2) * dpr,
+          a: 0,
+          va: 0,
+          t: Math.random() * 6,
+        };
+      }
       return {
         x: init ? Math.random() * W : -30,
         y: Math.random() * H * 0.9,
@@ -143,7 +174,7 @@ export function WorldLayers({
         t: Math.random() * 6,
       };
     };
-    const parts = Array.from({ length: small ? 26 : 56 }, () => spawn(true));
+    const parts = Array.from({ length: (small ? 26 : 56) * (mode === "embers" ? 1.6 : 1) }, () => spawn(true));
     let last = 0;
     let frame = 0;
     const loop = (ts: number) => {
@@ -160,6 +191,15 @@ export function WorldLayers({
         q.x += (q.vx + Math.sin(q.t) * 0.4) * dt * dpr;
         q.y += (q.vy + Math.cos(q.t * 0.7) * 0.3) * dt * dpr;
         q.a += q.va * dt;
+        if (mode === "embers") {
+          const flicker = 0.55 + 0.45 * Math.sin(q.t * 5);
+          ctx.fillStyle = `rgba(255,${(150 + q.z * 70) | 0},${(60 + q.z * 40) | 0},${(0.35 + q.z * 0.5) * flicker})`;
+          ctx.beginPath();
+          ctx.arc(q.x, q.y, q.r, 0, Math.PI * 2);
+          ctx.fill();
+          if (q.y < -20 || q.x > W + 20) Object.assign(q, spawn(false));
+          continue;
+        }
         ctx.save();
         ctx.translate(q.x, q.y);
         ctx.rotate(q.a);
@@ -177,7 +217,7 @@ export function WorldLayers({
       cancelAnimationFrame(frame);
       window.removeEventListener("resize", size);
     };
-  }, [hero.petals]);
+  }, [hero.petals, hero.embers]);
 
   const { title } = hero;
   return (
@@ -186,7 +226,17 @@ export function WorldLayers({
         ref={stack}
         className="wp-layers"
         data-ready={ready || undefined}
-        style={{ ["--wp-layers-ratio" as string]: `${hero.w} / ${hero.h}`, ["--wp-layers-r" as string]: hero.w / hero.h }}
+        data-phone={hero.phone ? true : undefined}
+        style={{
+          ["--wp-layers-ratio" as string]: `${hero.w} / ${hero.h}`,
+          ["--wp-layers-r" as string]: hero.w / hero.h,
+          ...(hero.phone
+            ? {
+                ["--wp-layers-ratio-m" as string]: `${hero.phone.w} / ${hero.phone.h}`,
+                ["--wp-layers-r-m" as string]: hero.phone.w / hero.phone.h,
+              }
+            : {}),
+        }}
       >
         {hero.planes.map((depth, index) => (
           <LayerPlane
@@ -194,16 +244,22 @@ export function WorldLayers({
             index={index}
             depth={depth}
             base={hero.base}
+            phone={Boolean(hero.phone)}
             title={
               index === title.z ? (
                 <div className="wp-layers-title-plane" data-depth={(depth + 0.08).toFixed(2)}>
                   <WorldWordmark
                     slug={slug}
                     name={name}
-                    as="h1"
-                    draw
+                    as={heading ? "h1" : "div"}
+                    draw={draw}
                     className="wp-layers-title"
-                    style={{ left: `${title.x}%`, top: `${title.t}%`, width: `${title.w}%` }}
+                    style={{
+                      left: `${title.x}%`,
+                      top: `${title.t}%`,
+                      width: `${title.w}%`,
+                      ...(title.phone != null ? { ["--wp-title-phone" as string]: `${title.phone}svh` } : {}),
+                    }}
                   />
                 </div>
               ) : null
@@ -211,7 +267,7 @@ export function WorldLayers({
           />
         ))}
       </div>
-      {hero.petals && <canvas ref={petals} className="wp-petals" aria-hidden />}
+      {(hero.petals || hero.embers) && <canvas ref={petals} className="wp-petals" aria-hidden />}
     </>
   );
 }
@@ -220,17 +276,19 @@ function LayerPlane({
   index,
   depth,
   base,
+  phone,
   title,
 }: {
   index: number;
   depth: number;
   base: string;
+  /** A portrait crop exists for tall screens. */
+  phone: boolean;
   title: React.ReactNode;
 }) {
-  return (
-    <>
-      {/* eslint-disable-next-line @next/next/no-img-element -- planes are static, sized by srcset */}
-      <img
+  const img = (
+    // eslint-disable-next-line @next/next/no-img-element -- planes are static, sized by srcset
+    <img
         className="wp-layer"
         data-depth={depth}
         src={`${base}/p${index}.webp`}
@@ -241,6 +299,17 @@ function LayerPlane({
         decoding="async"
         fetchPriority={index < 2 ? "high" : "auto"}
       />
+  );
+  return (
+    <>
+      {phone ? (
+        <picture>
+          <source media="(max-aspect-ratio: 6 / 5)" srcSet={`${base}/p${index}-m.webp`} />
+          {img}
+        </picture>
+      ) : (
+        img
+      )}
       {title}
     </>
   );

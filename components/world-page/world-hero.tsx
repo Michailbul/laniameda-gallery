@@ -7,6 +7,7 @@ import { InsertFrames } from "./world-insert";
 import { WorldWordmark } from "./world-wordmark";
 import { worldBrand } from "./world-brand";
 import { WorldLayers } from "./world-layers";
+import { WorldRotation } from "./world-rotation";
 
 type IdleWindow = Window & {
   requestIdleCallback?: (cb: () => void, options?: { timeout: number }) => number;
@@ -39,6 +40,7 @@ export function WorldHero({
   const [sound, setSound] = useState(false);
   const section = useRef<HTMLElement>(null);
   const layered = brand.layeredHero;
+  const rotation = brand.heroRotation;
   const hasFilm = !layered && (opening?.tiles.some((tile) => tile.kind === "video") ?? false);
   const single = opening?.tiles.length === 1;
 
@@ -83,7 +85,11 @@ export function WorldHero({
     >
       <div className="wp-hero-pin">
         <div className="wp-hero-media" aria-hidden={!layered || undefined}>
-          {layered && <WorldLayers slug={slug} name={name} hero={layered} active={onScreen} />}
+          {rotation ? (
+            <WorldRotation slug={slug} name={name} rotation={rotation} active={onScreen} settled={settled} />
+          ) : (
+            layered && <WorldLayers slug={slug} name={name} hero={layered} active={onScreen} />
+          )}
           {!layered && opening && (
             <InsertFrames
               tiles={opening.tiles}

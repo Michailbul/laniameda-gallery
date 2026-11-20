@@ -156,9 +156,72 @@
 }
 .wp-layers-title svg { display: block; width: 100%; height: auto; overflow: visible; }
 .wp-petals { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+/* A rotating opening: each frame crossfades in and pushes in slowly while it holds. */
+.wp-slide {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1.8s ease;
+  transform-origin: 50% 55%;
+}
+.wp-slide[data-on="true"] { opacity: 1; }
+/* The mark leaves first and arrives late, so two marks never show at once. */
+.wp-slide .wp-layers-title { opacity: 0; transition: opacity 0.35s ease; }
+.wp-slide[data-on="true"] .wp-layers-title { opacity: 1; transition: opacity 0.7s ease 1.1s; }
+.wp-slide[data-first="true"] .wp-layers-title { transition: none; }
+.wp-slide[data-push="true"] { animation: wp-slide-push 12s linear both; }
+@keyframes wp-slide-push { from { transform: scale(1); } to { transform: scale(1.07); } }
+.wp-sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.wp-turns {
+  position: absolute;
+  right: 28px;
+  bottom: 28px;
+  z-index: 3;
+  display: flex;
+  gap: 6px;
+}
+.wp-turn {
+  width: 26px;
+  height: 18px;
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.wp-turn > i {
+  position: relative;
+  display: block;
+  height: 2px;
+  background: rgba(255, 244, 234, 0.25);
+  overflow: hidden;
+}
+.wp-turn > i::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--wp-ivory);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.wp-turn[aria-current="true"] > i::after { transform: scaleX(1); }
+.wp-turn > i[data-run="true"]::after { animation: wp-turn-run var(--wp-turn-s) linear both; }
+@keyframes wp-turn-run { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.wp-turn:focus-visible { outline: 1px solid var(--wp-ivory); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .wp-turns { right: 50%; transform: translateX(50%); bottom: 6px; gap: 0; }
+  .wp-turn { width: 30px; height: 44px; padding: 21px 3px; }
+}
 /* Tall screens: the mark keeps a readable size, near the top of the screen. */
 @media (max-aspect-ratio: 6 / 5) {
-  .wp-layers-title { left: 50% !important; width: min(78vw, 420px) !important; top: calc(50% - 38svh) !important; }
+  .wp-layers[data-phone="true"] {
+    width: max(112vw, calc(112svh * var(--wp-layers-r-m)));
+    min-width: calc(537.6px * var(--wp-layers-r-m));
+    aspect-ratio: var(--wp-layers-ratio-m);
+  }
+  .wp-layers-title { left: 50% !important; width: min(78vw, 420px) !important; top: calc(50% - 50svh + var(--wp-title-phone, 12svh)) !important; }
 }
 
 .wp-hero-shade {
@@ -224,6 +287,7 @@
 .wp-hero-black {
   position: absolute;
   inset: 0;
+  z-index: 4;
   background: var(--wp-ink);
   opacity: 0;
   pointer-events: none;
@@ -607,4 +671,5 @@
   .wp-cut .wp-frames,
   .wp-hero-black { animation: none; }
   .wp-layers { transition: none; }
+  .wp-slide[data-push="true"] { animation: none; }
 }
