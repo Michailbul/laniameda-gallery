@@ -809,9 +809,25 @@ export const deleteFolder = ownerMutation({
 
 // How many member thumbnails a collection card gets in the collections view.
 const COLLECTION_PREVIEW_LIMIT = 4;
-// How deep to walk membership when building a card (enough to front the
-// cover and fill the preview stack — counts come from folderAssetCounts).
-const COLLECTION_PREVIEW_SCAN = 24;
+// How deep to walk membership when building ONE card on its own (a parent's
+// child stacks). The cover is fetched directly, so the scan only has to fill
+// the preview stack — counts come from folderAssetCounts.
+const COLLECTION_PREVIEW_SCAN = COLLECTION_PREVIEW_LIMIT;
+// Reads the all-collections summary may spend on preview thumbs. Convex stops
+// a query at 4,096 reads; each card costs about two reads per member (link +
+// asset) plus the cover, so with ~100 collections the old 24-deep scan blew
+// the limit. The per-card depth shrinks as the vault grows.
+const COLLECTION_SUMMARY_PREVIEW_READ_BUDGET = 2400;
+const previewScanForCount = (collectionCount: number) =>
+  Math.max(
+    1,
+    Math.min(
+      COLLECTION_PREVIEW_LIMIT,
+      Math.floor(
+        COLLECTION_SUMMARY_PREVIEW_READ_BUDGET / Math.max(1, collectionCount) / 2,
+      ) - 1,
+    ),
+  );
 
 const collectionPreviewValidator = v.object({
   assetId: v.id("assets"),
@@ -843,6 +859,7 @@ const collectAssetsForTags = async (
   ctx: QueryCtx,
   ownerUserIds: string[],
   tagIds: Id<"tags">[],
+  scan: number = COLLECTION_PREVIEW_SCAN,
 ) => {
   const ownerSet = new Set(ownerUserIds);
   const assetsById = new Map<Id<"assets">, Doc<"assets">>();
@@ -853,7 +870,7 @@ const collectAssetsForTags = async (
         q.eq("tagId", tagId).gte("createdAt", 0),
       )
       .order("desc")
-      .take(COLLECTION_PREVIEW_SCAN);
+      .take(scan);
     const assets = await Promise.all(
       links.map(async (link) => await ctx.db.get(link.assetId)),
     );
@@ -865,7 +882,7 @@ const collectAssetsForTags = async (
   }
   return Array.from(assetsById.values())
     .sort((a, b) => b.createdAt - a.createdAt)
-    .slice(0, COLLECTION_PREVIEW_SCAN);
+    .slice(0, scan);
 };
 
 const buildCollectionPreviews = async (
@@ -876,21 +893,30 @@ const buildCollectionPreviews = async (
     coverAssetId?: Id<"assets">;
   },
   smartTagIds: Id<"tags">[] = [],
+  scan: number = COLLECTION_PREVIEW_SCAN,
 ) => {
   const members =
     smartTagIds.length > 0
-      ? await collectAssetsForTags(ctx, ownerUserIds, smartTagIds)
-      : await collectAssetsForFolder(
-          ctx,
-          ownerUserIds,
-          folder._id,
-          COLLECTION_PREVIEW_SCAN,
-        );
+      ? await collectAssetsForTags(ctx, ownerUserIds, smartTagIds, scan)
+      : await collectAssetsForFolder(ctx, ownerUserIds, folder._id, scan);
+  // The chosen cover leads the stack. It is read directly (one read) rather
+  // than hoping a deep membership scan happens to reach it.
   if (folder.coverAssetId) {
     const index = members.findIndex((asset) => asset._id === folder.coverAssetId);
     if (index > 0) {
       const [cover] = members.splice(index, 1);
       members.unshift(cover);
+    } else if (index < 0) {
+      const cover = await ctx.db.get(folder.coverAssetId);
+      if (
+        cover &&
+        cover.ownerUserId &&
+        ownerUserIds.some((owner) =>
+          canActorAccessOwnerUserId(owner, cover.ownerUserId),
+        )
+      ) {
+        members.unshift(cover);
+      }
     }
   }
   return await Promise.all(
@@ -990,6 +1016,7 @@ export const listCollectionSummaries = ownerQuery({
         .filter((key) => key.length > 0),
     );
     const tagIdsByName = await findTagIdsByCanonicalKeys(ctx, smartTagKeys);
+    const previewScan = previewScanForCount(collections.length);
 
     return await Promise.all(
       collections.map(async (folder) => {
@@ -1000,6 +1027,7 @@ export const listCollectionSummaries = ownerQuery({
           ownerUserIds,
           folder,
           smartTagIds,
+          previewScan,
         );
         return {
           _id: folder._id,
