@@ -447,6 +447,8 @@ export function GalleryDashboard({
   const [excludedFilters, setExcludedFilters] = useState<string[]>([]);
   const [likedOnlyPicked, setLikedOnly] = useState<boolean>(false);
   const [bookmarksOnly, setBookmarksOnly] = useState(false);
+  // Toolbar quick pill (key P): only pieces tagged "pinterest".
+  const [pinterestOnly, setPinterestOnly] = useState(false);
   const [mediaKindPicked, setMediaKind] = useState<"image" | "video" | null>(null);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(
     null,
@@ -1375,7 +1377,7 @@ export function GalleryDashboard({
   // with either on, the grid needs it first.
   const tags = useQuery(
     api.tags.listTagVocabulary,
-    supportQueriesOn || bookmarksOnly || !includeSkills ? {} : "skip",
+    supportQueriesOn || bookmarksOnly || pinterestOnly || !includeSkills ? {} : "skip",
   );
   // Curated filter pills (admin-managed) — the only tag UI on the main menu.
   // Counts come from the backend using the same predicates the grid filter
@@ -2016,7 +2018,7 @@ export function GalleryDashboard({
     if (activeSmartCollectionFilter) {
       selectedSet.add(activeSmartCollectionFilter._id);
     }
-    if (selectedSet.size === 0) return undefined;
+    if (selectedSet.size === 0 && !pinterestOnly) return undefined;
     const groups: Id<"tags">[][] = [];
     for (const entry of menuFilterEntries) {
       if (entry.kind !== "tag" || !selectedSet.has(entry._id)) continue;
@@ -2028,8 +2030,14 @@ export function GalleryDashboard({
         .map((tag) => tag._id);
       if (bookmarkTagIds.length > 0) groups.push(bookmarkTagIds);
     }
+    if (pinterestOnly) {
+      const pinterestTagIds = (tags ?? [])
+        .filter((tag) => canonicalTagKey(tag.name) === "pinterest")
+        .map((tag) => tag._id);
+      if (pinterestTagIds.length > 0) groups.push(pinterestTagIds);
+    }
     return groups.length > 0 ? groups : undefined;
-  }, [activeSmartCollectionFilter, bookmarksOnly, selectedTags, menuFilterEntries, tags]);
+  }, [activeSmartCollectionFilter, bookmarksOnly, pinterestOnly, selectedTags, menuFilterEntries, tags]);
 
   // The Bookmarks pill is about the posts: with it on, every piece that came
   // from a saved post shows as that post (author, text, media), not as bare
@@ -2079,7 +2087,7 @@ export function GalleryDashboard({
   // Any curated pill predicate at all — positive or negative. Every read path
   // that can't post-filter a cursor page cleanly keys off this.
   const menuFilterActive = Boolean(
-    selectedTagIdGroups || excludedTagIds || excludedFolderIds || bookmarksOnly,
+    selectedTagIdGroups || excludedTagIds || excludedFolderIds || bookmarksOnly || pinterestOnly,
   );
   const selectedTagsForFilterBar = useMemo(() => {
     if (!activeSmartCollectionFilter) return selectedTags;
@@ -2693,10 +2701,36 @@ export function GalleryDashboard({
     [menuFilters],
   );
 
+  // P toggles the Pinterest-only pill from anywhere in the vault grid (not
+  // while typing, not with a piece open). From Public it jumps to Mine first.
+  const pinterestKeyAllowed = canAccessMyGallery && !selectedImage;
+  useEffect(() => {
+    if (!pinterestKeyAllowed) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.repeat) return;
+      if (event.key !== "p" && event.key !== "P") return;
+      const target = event.target as HTMLElement | null;
+      if (
+        target?.isContentEditable ||
+        target?.tagName === "INPUT" ||
+        target?.tagName === "TEXTAREA" ||
+        target?.tagName === "SELECT"
+      ) {
+        return;
+      }
+      event.preventDefault();
+      setGalleryScope("mine");
+      setPinterestOnly((current) => !current);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pinterestKeyAllowed]);
+
   const handleClearAll = () => {
     setSelectedTags([]);
     setExcludedFilters([]);
     setBookmarksOnly(false);
+    setPinterestOnly(false);
   };
   // Clears EVERYTHING hasFilters counts — including the search/semantic mode.
   // (The empty state's "clear all filters" used to leave the search active,
@@ -2705,6 +2739,7 @@ export function GalleryDashboard({
     setSelectedTags([]);
     setExcludedFilters([]);
     setBookmarksOnly(false);
+    setPinterestOnly(false);
     setSelectedFolderId(null);
     setSelectedModelName(null);
     setMediaKind(null);
@@ -3223,7 +3258,7 @@ export function GalleryDashboard({
           ownerUserId, galleryScope, effectiveSelectedFolderId, sortOrder,
           selectedModelName, mediaKind, likedOnly, includeSkills, flattenStacks,
           searchThreadText, showChildCollectionStacks,
-          selectedTagIdGroups, excludedTagIds, excludedFolderIds, bookmarksOnly,
+          selectedTagIdGroups, excludedTagIds, excludedFolderIds, bookmarksOnly, pinterestOnly,
           styleShelfFilterId,
         ])
       : null,
@@ -6213,6 +6248,12 @@ export function GalleryDashboard({
                 onCollectionToggle={handleMenuCollectionToggle}
                 onClearAllTags={handleClearAll}
                 bookmarksOnly={bookmarksOnly}
+                pinterestOnly={pinterestOnly}
+                onPinterestOnlyChange={
+                  galleryScope === "mine" && canAccessMyGallery
+                    ? setPinterestOnly
+                    : undefined
+                }
                 onBookmarksOnlyChange={
                   galleryScope === "mine" && canAccessMyGallery
                     ? setBookmarksOnly

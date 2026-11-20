@@ -14,6 +14,7 @@ import {
   Layers,
   LayoutTemplate,
   Minus,
+  Pin,
   SlidersHorizontal,
   Video,
   X,
@@ -56,6 +57,9 @@ interface GalleryFilterBarProps {
   onClearAllTags: () => void;
   bookmarksOnly?: boolean;
   onBookmarksOnlyChange?: (next: boolean) => void;
+  /** Quick toggle on the toolbar itself (key P): only Pinterest saves. */
+  pinterestOnly?: boolean;
+  onPinterestOnlyChange?: (next: boolean) => void;
   /** Owner may open the manage panel and edit the menu (mine scope only). */
   canManageMenuFilters?: boolean;
   ownerUserId: string;
@@ -150,6 +154,8 @@ export function GalleryFilterBar({
   onClearAllTags,
   bookmarksOnly = false,
   onBookmarksOnlyChange,
+  pinterestOnly = false,
+  onPinterestOnlyChange,
   canManageMenuFilters = false,
   ownerUserId,
   likedOnly = false,
@@ -183,6 +189,7 @@ export function GalleryFilterBar({
     selectedTags.length +
     excludedFilters.length +
     Number(bookmarksOnly) +
+    Number(pinterestOnly) +
     Number(mediaKind !== null) +
     Number(likedOnly) +
     Number(flattenStacks && viewMode === "grid");
@@ -269,6 +276,32 @@ export function GalleryFilterBar({
           </div>
 
           <Divider />
+
+          {onPinterestOnlyChange && viewMode !== "skills" ? (
+            <button
+              type="button"
+              onClick={() => onPinterestOnlyChange(!pinterestOnly)}
+              aria-pressed={pinterestOnly}
+              aria-keyshortcuts="P"
+              title="Only Pinterest saves (P)"
+              className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 transition-colors"
+              style={{
+                background: pinterestOnly
+                  ? "linear-gradient(135deg, var(--gradient-1), var(--gradient-3))"
+                  : "transparent",
+                color: pinterestOnly ? "#fff" : "var(--lm-text-secondary)",
+                border: pinterestOnly ? "2px solid transparent" : "2px solid var(--lm-border)",
+                fontFamily: "var(--lm-font)",
+                fontSize: "10px",
+                fontWeight: 700,
+                letterSpacing: "0.10em",
+                textTransform: "uppercase",
+              }}
+            >
+              <Pin className="h-3 w-3" />
+              Pinterest
+            </button>
+          ) : null}
 
           <ToolbarPopover
             id="filters"
