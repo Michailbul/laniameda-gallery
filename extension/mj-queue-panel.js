@@ -123,17 +123,74 @@
 
   // ── Gallery calls (through the background worker) ──
 
-  function call(message) {
+  function callWorker(message) {
     return new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage({ action: "mjQueue", ...message }, (res) => {
           const error = chrome.runtime.lastError && chrome.runtime.lastError.message;
-          resolve(error ? { ok: false, error } : res || { ok: false, error: "No response." });
+          resolve(error ? { ok: false, error, noWorker: /receiving end|establish connection/i.test(error), lost: /message port closed/i.test(error) } : res || { ok: false, error: "No response.", lost: true });
         });
       } catch (err) {
-        resolve({ ok: false, error: String(err?.message || err) });
+        resolve({ ok: false, error: String(err?.message || err), noWorker: true });
       }
     });
+  }
+
+  // The panel is an extension page with the same host access as the worker, so
+  // when the worker is asleep, restarting or reloading after a pull ("Receiving
+  // end does not exist", 20 Nov 2026), it reads and saves the queue itself.
+  const LEGACY_HOSTS = new Set(["laniameda.gallery", "laniameda-galery.vercel.app"]);
+  async function callDirect(message) {
+    let cfg = {};
+    try {
+      cfg = await chrome.storage.sync.get(["apiUrl", "apiToken"]);
+    } catch {
+      // storage unavailable: defaults below
+    }
+    let url;
+    try {
+      url = new URL(String(cfg.apiUrl || "").trim() || "https://gallery.laniameda.space");
+      if (LEGACY_HOSTS.has(url.hostname)) {
+        url.protocol = "https:";
+        url.hostname = "gallery.laniameda.space";
+      }
+    } catch {
+      url = new URL("https://gallery.laniameda.space");
+    }
+    url.pathname = "/api/extension/mj-queue";
+    url.search = "";
+    url.hash = "";
+    const post = message.method === "POST";
+    if (!post && message.query) {
+      for (const [key, value] of Object.entries(message.query)) {
+        if (value != null && value !== "") url.searchParams.set(key, String(value));
+      }
+    }
+    const headers = { "Content-Type": "application/json" };
+    const token = String(cfg.apiToken || "").trim();
+    if (token) headers["X-Extension-Token"] = token;
+    let response;
+    try {
+      response = await fetch(url.toString(), { method: post ? "POST" : "GET", headers, body: post ? JSON.stringify(message.body || {}) : undefined });
+    } catch (err) {
+      return { ok: false, error: `Network error: ${err.message}` };
+    }
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data) return { ok: false, status: response.status, error: data?.error || `HTTP ${response.status}` };
+    return data;
+  }
+
+  // A save is retried only when it never reached the worker, so it is never
+  // written twice; a read is also retried when the worker dropped the answer.
+  async function call(message) {
+    const read = message.method !== "POST";
+    let res = null;
+    for (const wait of [0, 400, 1200]) {
+      if (wait) await new Promise((done) => setTimeout(done, wait));
+      res = await callWorker(message);
+      if (!res.noWorker && !(read && res.lost)) return res;
+    }
+    return res.noWorker || read ? callDirect(message) : res;
   }
 
   async function refresh({ quiet = false } = {}) {
