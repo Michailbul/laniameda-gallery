@@ -47,7 +47,9 @@ async function chat(provider: "fal" | "pika", key: string, model: string, messag
       "content-type": "application/json",
       ...(provider === "fal" ? { authorization: `Key ${key}` } : { "x-api-key": key }),
     },
-    body: JSON.stringify({ model, messages, max_tokens: maxTokens, temperature: 0.4 }),
+    // No temperature: newer models refuse it (Pika answered 400 "temperature is
+    // deprecated for this model" on 20 Nov 2026); the others do fine on their default.
+    body: JSON.stringify({ model, messages, max_tokens: maxTokens }),
     // Opus and Fable on a whole world bible take longer than Haiku.
     signal: AbortSignal.timeout(110_000),
   });

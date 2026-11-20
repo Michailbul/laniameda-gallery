@@ -86,7 +86,16 @@ const checkKey = async (provider: KeyProvider, key: string) => {
       headers: { Authorization: `Key ${key}` }, signal: AbortSignal.timeout(20000),
     });
     if (response.status === 401 || response.status === 403) return { ok: false, message: "fal refused this key." };
-    return { ok: true, message: "fal accepts this key." };
+    // The balance in dollars (a bare number). A key with nothing left would
+    // only fail later, in the writer, with "fal needs a top-up".
+    const balance = await fetch("https://rest.alpha.fal.ai/billing/user_balance", {
+      headers: { Authorization: `Key ${key}` }, signal: AbortSignal.timeout(20000),
+    }).then(async (res) => (res.ok ? Number(await res.text()) : NaN)).catch(() => NaN);
+    if (!Number.isFinite(balance)) return { ok: true, message: "fal accepts this key." };
+    if (balance <= 0) {
+      return { ok: false, message: `This fal key has no credit ($${balance.toFixed(2)}). Top it up or use another key.`, balanceUsd: balance };
+    }
+    return { ok: true, message: `fal accepts this key · $${balance.toFixed(2)} left.`, balanceUsd: balance };
   }
   const response = await fetch("https://api.dev.pika.art/billing/balance", {
     headers: { "X-API-Key": key }, signal: AbortSignal.timeout(20000),

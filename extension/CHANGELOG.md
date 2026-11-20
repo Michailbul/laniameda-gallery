@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.39.2 (20 Nov 2026)
+
+Writer: your own fal key, and the Pika route works again
+- **MJ settings → Writer → Cloud key · fal.** Paste a fal key and Save: the
+  gallery checks it with fal and keeps it (sealed; only its last four letters
+  show). A key with no credit is refused with its balance instead of failing
+  later. The line above the field says which key the cloud writer uses now
+  and how much is left on it.
+- The cloud writer no longer sends a temperature, which newer models on Pika
+  refused ("temperature is deprecated for this model").
+
 ## 0.39.1 (20 Nov 2026)
 
 Midjourney: settings always readable on short rows
