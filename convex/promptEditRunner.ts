@@ -20,6 +20,7 @@ import { LOCAL_WRITER_LIMITS, localAnswer } from "../lib/local-writer";
 import { WRITER_RULES_LIMIT, pickWriterModel } from "../lib/writer-models";
 import { enforceMjVersion, mjVersionWarning } from "../lib/mj-version";
 import type { BriefTier } from "../lib/writer-brief";
+import { asksForShots } from "../lib/cinematic-shots";
 
 // Quick edit of a Midjourney prompt from the extension (select text in the
 // Imagine bar, ⌥E, a few words). One short chat call on a fast model: fal
@@ -120,6 +121,23 @@ async function worldBriefOf(
   try { return await ctx.runQuery(internal.writerBrief.forWriter, args); } catch { return null; }
 }
 
+// The art director's saved shot layouts (convex/cinematicShots.ts), when the
+// request asks for cinematic shots or a camera layout. A shelf that cannot be
+// read costs the library, never the prompt.
+type Shots = { text: string; total: number; picked: number };
+async function shotsOf(ctx: Pick<ActionCtx, "runQuery">, ownerUserId: string, ...asks: Array<string | undefined>): Promise<Shots | null> {
+  if (!asksForShots(...asks)) return null;
+  try {
+    const shots = await ctx.runQuery(internal.cinematicShots.forWriter, { ownerUserId, request: asks.filter(Boolean).join("\n").slice(0, 2000) });
+    return shots.text ? shots : null;
+  } catch { return null; }
+}
+const withShots = (worldText: string | undefined, shots: Shots | null) => [worldText?.trim(), shots?.text].filter(Boolean).join("\n\n") || undefined;
+const metaOf = (brief: WorldBrief | null, shots: Shots | null): BriefMeta => {
+  const meta = briefMeta(brief);
+  return shots ? { ...meta, read: [...(meta.read ?? []), `cinematic shots (${shots.picked})`] } : meta;
+};
+
 export const rewrite = ownerAction({
   args: {
     ownerUserId: v.string(),
@@ -156,8 +174,9 @@ export const rewrite = ownerAction({
     const brief = await worldBriefOf(ctx, {
       ownerUserId: args.ownerUserId, world: args.world, fallbackWorld: args.fallbackWorld, command: prompt, tier: "short",
     });
+    const shots = await shotsOf(ctx, args.ownerUserId, instruction);
     const rules = cleanRules(args.rules);
-    const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system, rules, worldBrief: brief?.text, worldKey: brief?.world?.key });
+    const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system, rules, worldBrief: withShots(brief?.text, shots), worldKey: brief?.world?.key });
     if (args.local?.stage === "messages") return { local: { messages, maxTokens: 1500 } };
     const picked = pickWriterModel(args.model, false);
     const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, picked.model as QuickEditModel, messages, "Could not edit");
@@ -169,7 +188,7 @@ export const rewrite = ownerAction({
     const notes = [...meta.notes];
     if (versioned.replaced.length) notes.push(mjVersionWarning(versioned.replaced[0]!));
     if (unbanned.removed) notes.push(MJ_BANNED_PROFILE_WARNING);
-    return { ...meta, notes, text: unbanned.removed ? unbanned.text : versioned.text, systemPrompt: systemOf(messages), ...briefMeta(brief) };
+    return { ...meta, notes, text: unbanned.removed ? unbanned.text : versioned.text, systemPrompt: systemOf(messages), ...metaOf(brief, shots) };
   },
 });
 
@@ -344,10 +363,11 @@ export const expand = ownerAction({
       ownerUserId: args.ownerUserId, world: args.world, fallbackWorld: args.fallbackWorld, command, frame: args.frame, tier: "full",
     });
 
+    const shots = await shotsOf(ctx, args.ownerUserId, idea, preset?.label);
     const source = splitCommand(command);
     const messages = buildExpandMessages({
       image, sourceWords: source.words, lookNote: lookNoteOf(source), preset, idea, count,
-      system: args.system?.slice(0, EXPAND_LIMITS.system), rules: cleanRules(args.rules), worldBrief: brief?.text, worldKey: brief?.world?.key,
+      system: args.system?.slice(0, EXPAND_LIMITS.system), rules: cleanRules(args.rules), worldBrief: withShots(brief?.text, shots), worldKey: brief?.world?.key,
       attach, previous,
     }) as Message[];
     const maxTokens = 600 + count * 520;
@@ -366,7 +386,7 @@ export const expand = ownerAction({
       set: parsed.set, logline: parsed.logline,
       items: parsed.items.slice(0, EXPAND_LIMITS.maxCount).map((item) => composeExpanded(item.title, item.words, source, options)),
       source: { words: source.words, params: composeExpanded("", "", source, options).prompt, hadImages: source.images.length },
-      ...briefMeta(brief),
+      ...metaOf(brief, shots),
       model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes, systemPrompt: systemOf(messages),
     };
   },
