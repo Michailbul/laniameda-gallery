@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.38.0 (20 Nov 2026)
+
+MJ Queue: Enter always sends, deleted threads go to the Archive
+- **Enter sends, every time.** Your Enter in the Imagine bar is now heard
+  even after Midjourney redraws the bar, and even after the extension reloaded
+  itself on an update (it finds the prompt in the bar among the thread's
+  prompts still to send). The next prompt then goes in the bar as before.
+  A slow send (the bar empties late) is waited for 12 s instead of 5 s.
+- A prompt already sent from this page is never put in the bar again.
+- **Delete thread** now archives it: the thread leaves the queue with every
+  prompt, sent command and job id kept. **Archive** (top of the threads
+  list) shows deleted threads; **Restore** puts one back. Agents read the
+  archive with `list_mj_queue {archived: true}` and restore with
+  `archive_mj_thread {restore: true}`.
+- Grow: the writer button is now a model picker (Haiku, Sonnet, Opus,
+  Fable). The pick is the default writer for Grow, Describe and the quick
+  edit, same as MJ settings → Writer.
+
 ## 0.37.1 (20 Nov 2026)
 
 MJ Queue always loads

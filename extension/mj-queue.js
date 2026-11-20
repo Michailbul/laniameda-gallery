@@ -546,7 +546,9 @@
     cleanups.push(() => target.removeEventListener(type, handler, options));
   };
 
-  const SEND_CONFIRM_MS = 5000;
+  // Midjourney can take a while to empty the bar (image prompts, a busy
+  // queue): a send is given this long before it counts as not taken.
+  const SEND_CONFIRM_MS = 12000;
   const JOB_WATCH_MS = 120000;
   // The bar emptied without his Enter or a click we saw: a job with the
   // prompt's words must show in the feed within this time to count as sent.
@@ -941,12 +943,52 @@
     });
   }
 
-  // His own Enter in the bar while a queued prompt is in it counts as Send.
+  // The bar holds a prompt of the open thread that this copy of the script
+  // did not put there (the extension reloaded after an update, or the page
+  // was reloaded): find it among the thread's prompts still to send, so his
+  // Enter still counts as its send and the next one follows.
+  let adopting = false;
+  async function adoptAndSend(value, before) {
+    if (adopting || active) return;
+    adopting = true;
+    try {
+      const key = await threadOf("");
+      if (!key) return;
+      const res = await askBackground({ method: "GET", query: { batch: key } });
+      if (!res.ok || active) return;
+      const open = (res.items || [])
+        .filter((item) => item.batchKey === key && isOpen(item) && !marked.has(item.id) && belongsToItem(value, item))
+        .sort((a, b) => Number(b.status === "injected") - Number(a.status === "injected") || a.order - b.order);
+      const item = open[0];
+      if (!item) return;
+      active = { item, command: value, lastValue: value, before, feedWatch: null };
+      sending = true;
+      tellPanel({ action: "mjQueueInjected", item, readback: value });
+      tellPanel({ action: "mjQueueSending", itemId: item.id });
+      const sent = await confirmSend(item, value, before, { via: "enter", needEmpty: true });
+      if (!sent.ok) {
+        active = null;
+        tellPanel({ action: "mjQueueNotSent", itemId: item.id, error: "" });
+      }
+    } finally {
+      adopting = false;
+    }
+  }
+
+  // His own Enter in the Imagine bar while a queued prompt is in it counts as
+  // Send. Heard on the document, so a bar Midjourney redrew is still heard.
   function onAreaKeydown(event) {
     if (!extensionAlive()) return;
     if (!event.isTrusted || event.key !== "Enter" || event.shiftKey || event.isComposing) return;
-    beginSend(event.currentTarget.value, "enter", false);
+    const area = event.target instanceof HTMLTextAreaElement ? event.target : null;
+    if (!area || area !== findTextarea()) return;
+    if (!active) {
+      if (space(area.value)) void adoptAndSend(area.value, snapshotJobIds());
+      return;
+    }
+    beginSend(area.value, "enter", false);
   }
+  listen(document, "keydown", onAreaKeydown, true);
 
   function onAreaInput(event) {
     if (!active) return;
@@ -956,17 +998,12 @@
 
   function watchArea(area) {
     if (watchedArea === area) return;
-    if (watchedArea) {
-      watchedArea.removeEventListener("keydown", onAreaKeydown, true);
-      watchedArea.removeEventListener("input", onAreaInput);
-    }
+    if (watchedArea) watchedArea.removeEventListener("input", onAreaInput);
     watchedArea = area;
-    area.addEventListener("keydown", onAreaKeydown, true);
     area.addEventListener("input", onAreaInput);
   }
   cleanups.push(() => {
     if (!watchedArea) return;
-    watchedArea.removeEventListener("keydown", onAreaKeydown, true);
     watchedArea.removeEventListener("input", onAreaInput);
     watchedArea = null;
   });
@@ -1095,7 +1132,7 @@
   // Puts the next prompt to send in the bar (never sends it). sentId: the one
   // just sent, so it is never picked again. Returns { ok, sent, total, done }.
   async function putNext({ batchKey = "", sentId = "", skipped = false } = {}) {
-    const fromPanel = await askPanel({ action: "mjQueueNext", reply: true, batchKey, sentId: skipped ? "" : sentId, skippedId: skipped ? sentId : "", exclude: sentId ? [sentId] : [] });
+    const fromPanel = await askPanel({ action: "mjQueueNext", reply: true, batchKey, sentId: skipped ? "" : sentId, skippedId: skipped ? sentId : "", exclude: [...new Set([...(sentId ? [sentId] : []), ...marked])] });
     if (fromPanel) return fromPanel;
     const key = await threadOf(batchKey);
     if (!key) return { ok: false, error: "Open a thread in the MJ Queue panel first." };

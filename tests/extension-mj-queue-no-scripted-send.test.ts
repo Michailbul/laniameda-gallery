@@ -35,7 +35,7 @@ describe("the MJ queue never sends for Michael", () => {
   test("his own Enter and his own click on Midjourney's send button are what count", () => {
     const page = files[0].source;
     expect(page).toMatch(/event\.isTrusted/);
-    expect(page).toMatch(/beginSend\(event\.currentTarget\.value, "enter"/);
+    expect(page).toMatch(/beginSend\(area\.value, "enter", false\)/);
     expect(page).toMatch(/beginSend\(area\.value, "click", true\)/);
   });
 });

@@ -49,6 +49,7 @@ export const mjQueueListSchema = z.object({
   world: z.string().trim().min(1).optional(),
   status: z.enum(MJ_QUEUE_STATUSES).optional(),
   includeDone: z.boolean().optional().describe("Default true. false leaves sent and skipped items out."),
+  archived: z.boolean().optional().describe("true: only archived threads (ones Michael deleted from the panel; history kept). Default: only live threads."),
 });
 
 export const mjQueueUpdateSchema = z.object({
@@ -93,6 +94,11 @@ export const mjQueueParamsSchema = z.object({
 
 export const mjQueueDeleteThreadSchema = z.object({
   batch: z.string().trim().min(1).max(MJ_QUEUE_LIMITS.batch).describe("The thread's label, batch key or id thr-xxxxxxxx."),
+});
+
+export const mjQueueArchiveSchema = z.object({
+  batch: z.string().trim().min(1).max(MJ_QUEUE_LIMITS.batch).describe("The thread's label or id thr-xxxxxxxx."),
+  restore: z.boolean().optional().describe("true brings an archived thread back into the queue."),
 });
 
 export type MjQueueUpdateInput = z.infer<typeof mjQueueUpdateSchema>;

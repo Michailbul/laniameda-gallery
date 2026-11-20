@@ -4,7 +4,7 @@ import { api } from "@/convex/_generated/api";
 import { requireAgentAuth, AgentAuthError, type AgentTokenScope } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
-import { mjQueueAddSchema, mjQueueItemRef, mjQueueListSchema, mjQueueUpdateSchema } from "@/lib/mj-queue-contract";
+import { mjQueueAddSchema, mjQueueArchiveSchema, mjQueueItemRef, mjQueueListSchema, mjQueueUpdateSchema } from "@/lib/mj-queue-contract";
 import { MJ_THREAD_ID, threadIdOf } from "@/lib/mj-queue";
 import { mjQueueUrl } from "@/lib/gallery-routes";
 
@@ -12,9 +12,9 @@ import { mjQueueUrl } from "@/lib/gallery-routes";
 // read the queue back with the composed commands, edit, reorder or skip.
 // Sending stays Michael's own click in the extension's Queue panel.
 
-const actions = ["list", "queue", "update"] as const;
+const actions = ["list", "queue", "update", "archive"] as const;
 const scopes: Record<(typeof actions)[number], AgentTokenScope> = {
-  list: "gallery:read", queue: "gallery:write", update: "gallery:write",
+  list: "gallery:read", queue: "gallery:write", update: "gallery:write", archive: "gallery:write",
 };
 
 // `url` is the thread's page on the gallery website (the world's Queue tab, or
@@ -34,8 +34,11 @@ type Client = ReturnType<typeof getServerConvexClient>;
 async function resolveThread(client: Client, ownerUserId: string, batch: string | undefined) {
   const value = batch?.trim();
   if (!value || !MJ_THREAD_ID.test(value.toLowerCase())) return batch;
-  const { batches } = await client.query(api.mjQueue.listQueue, { ownerUserId });
-  const found = batches.find((entry) => threadIdOf(entry.batchKey) === value.toLowerCase());
+  const [live, archived] = await Promise.all([
+    client.query(api.mjQueue.listQueue, { ownerUserId }),
+    client.query(api.mjQueue.listQueue, { ownerUserId, archived: true }),
+  ]);
+  const found = [...live.batches, ...archived.batches].find((entry) => threadIdOf(entry.batchKey) === value.toLowerCase());
   if (!found) throw new Error(`No Midjourney queue thread ${value}. list_mj_queue shows each thread's threadId.`);
   return found.batch;
 }
@@ -68,6 +71,11 @@ export async function POST(request: Request) {
         created: result.items.filter((item) => item.created).length,
         items: result.items.map(withRef),
       });
+    }
+    if (action === "archive") {
+      const input = mjQueueArchiveSchema.parse(body);
+      const result = await client.mutation(api.mjQueue.archiveThread, { ownerUserId, batch: input.batch, restore: input.restore });
+      return NextResponse.json({ ...result, threadId: threadIdOf(result.batchKey) });
     }
     const input = mjQueueUpdateSchema.parse(body);
     const item = await client.mutation(api.mjQueue.updateItem, { ownerUserId, ...input });

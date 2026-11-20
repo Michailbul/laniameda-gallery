@@ -82,6 +82,8 @@
     autoNext: true,
     confirmDelete: "",
     deleting: false,
+    // The Archive: deleted threads, kept with their history (20 Nov 2026).
+    archive: { open: false, loading: false, batches: [], error: "", restoring: "" },
     paramsDraft: null,
     applyingParams: false,
   };
@@ -359,7 +361,7 @@
     return { ok: true, count: res.count, batchKey: res.batchKey };
   }
 
-  // ── Delete a thread (every prompt in it, sent ones too) ──
+  // ── Delete a thread: it goes to the Archive with its history ──
 
   async function deleteThread(batchKey) {
     if (state.deleting) return;
@@ -384,8 +386,82 @@
     state.signature = "";
     state.message = "";
     state.error = "";
-    flash(`Deleted ${res.deleted} prompt${res.deleted === 1 ? "" : "s"}.`);
+    state.archive.batches = [];
+    flash("Deleted. It is in the Archive: Restore brings it back.");
     void refresh({ quiet: true });
+  }
+
+  async function loadArchive() {
+    state.archive.loading = true;
+    state.archive.error = "";
+    render();
+    const res = await call({ method: "GET", query: { archived: "true", includeDone: "false" } });
+    state.archive.loading = false;
+    if (!res.ok) state.archive.error = `Could not load the Archive. ${String(res.error || "").slice(0, 100)}`;
+    else state.archive.batches = (Array.isArray(res.batches) ? res.batches : []).sort((a, b) => (b.archivedAt || 0) - (a.archivedAt || 0));
+    render();
+  }
+
+  function toggleArchive() {
+    state.archive.open = !state.archive.open;
+    if (state.archive.open && !state.wide) state.view = "threads";
+    if (state.archive.open) void loadArchive();
+    else render();
+  }
+
+  async function restoreThread(batch) {
+    if (state.archive.restoring) return;
+    state.archive.restoring = batch.batchKey;
+    render();
+    const res = await call({ method: "POST", body: { action: "restoreThread", batch: batch.batchKey } });
+    state.archive.restoring = "";
+    if (!res.ok) {
+      state.archive.error = `Not restored. ${String(res.error || "").slice(0, 120)}`;
+      render();
+      return;
+    }
+    state.archive.batches = state.archive.batches.filter((entry) => entry.batchKey !== batch.batchKey);
+    state.signature = "";
+    await refresh({ quiet: true });
+    state.archive.open = false;
+    openThread(batch.batchKey);
+    flash("Restored.");
+  }
+
+  function renderArchive(box) {
+    const head = el("div", "mjq-row mjq-head");
+    head.append(
+      button("← Threads", "mjq-btn--ghost", toggleArchive, "Back to the queue"),
+      el("span", "mjq-label mjq-grow", "Archive"),
+    );
+    box.appendChild(head);
+    box.appendChild(el("p", "mjq-archive-note", "Deleted threads, kept with every prompt and job. Restore puts one back in the queue."));
+    if (state.archive.error) box.appendChild(el("p", "mjq-error", state.archive.error));
+    if (state.archive.loading) {
+      box.appendChild(el("p", "mjq-empty", "Loading the Archive…"));
+      return;
+    }
+    if (!state.archive.batches.length) {
+      box.appendChild(el("p", "mjq-empty", "Nothing archived."));
+      return;
+    }
+    for (const batch of state.archive.batches) {
+      const row = el("div", "mjq-thread mjq-thread--archived");
+      const top = el("div", "mjq-row");
+      const restoring = state.archive.restoring === batch.batchKey;
+      const restore = button(restoring ? "Restoring…" : "Restore", "mjq-btn--small", () => restoreThread(batch), "Put this thread back in the queue");
+      restore.disabled = Boolean(state.archive.restoring);
+      top.append(el("span", "mjq-tname mjq-grow", capital(H().threadName(batch))), restore);
+      const meta = el("div", "mjq-row mjq-tmeta");
+      const world = H().threadGroups([batch], "all")[0]?.label;
+      if (world) meta.appendChild(el("span", "mjq-wtag", world));
+      meta.append(
+        idChip(batch),
+        el("span", "mjq-mono", `${batch.sent}/${batch.total} sent · deleted ${ago(batch.archivedAt || batch.updatedAt)} ago`),
+      );
+      row.append(top, meta);
+      box.appendChild(row);
+    }
   }
 
   // A short line on top that goes by itself (after a delete the thread is gone).
@@ -917,6 +993,10 @@
   }
 
   function renderRail(box) {
+    if (state.archive.open) {
+      renderArchive(box);
+      return;
+    }
     const head = el("div", "mjq-row mjq-head");
     head.append(
       el("span", "mjq-label", "Threads"),
@@ -925,6 +1005,7 @@
         remember({ [KEYS.scope]: state.scope });
         render();
       }, state.scope === "open" ? "Showing threads with prompts to send. Click to show finished ones." : "Showing every thread. Click for open ones only."),
+      button("Archive", "mjq-btn--ghost", toggleArchive, "Deleted threads, kept with their history. Restore one from there."),
     );
     box.appendChild(head);
     const { pinned, worlds } = railGroups();
@@ -1328,7 +1409,7 @@
         render();
       });
       no.disabled = state.deleting;
-      bar.append(el("span", "mjq-confirm-text", `Delete ${total} prompt${total === 1 ? "" : "s"}? This can't be undone.`), yes, no);
+      bar.append(el("span", "mjq-confirm-text", `Delete this thread (${total} prompt${total === 1 ? "" : "s"})? It goes to the Archive, where Restore brings it back.`), yes, no);
       setTimeout(() => no.isConnected && !state.deleting && no.focus(), 0);
       return bar;
     }
@@ -1362,7 +1443,7 @@
     const del = button("Delete thread", "mjq-btn--small mjq-btn--ghost mjq-del", () => {
       state.confirmDelete = batch.batchKey;
       render();
-    }, "Delete this thread and every prompt in it, sent ones too");
+    }, "Delete this thread: it leaves the queue and goes to the Archive with its history (Restore brings it back)");
     bar.append(test, random, extreme, count, on, del);
     return bar;
   }

@@ -61,6 +61,7 @@ const batchOutValidator = v.object({
   skipped: v.number(),
   createdAt: v.number(),
   updatedAt: v.number(),
+  archivedAt: v.optional(v.number()),
 });
 
 const text = (value: string | null | undefined, max: number, label: string) => {
@@ -176,11 +177,14 @@ export const listQueue = ownerQuery({
     world: v.optional(v.string()),
     status: v.optional(mjQueueStatusValidator),
     includeDone: v.optional(v.boolean()),
+    // true: only archived threads (the panel's Archive); default: only live ones.
+    archived: v.optional(v.boolean()),
   },
   returns: v.object({ batches: v.array(batchOutValidator), items: v.array(mjQueueItemOutValidator) }),
   handler: async (ctx, args) => {
     const worldKey = args.world?.trim() ? (await resolveWorld(ctx, args.ownerUserId, args.world)).worldKey : undefined;
-    const rows = (await ownedRows(ctx, args.ownerUserId)).filter((row) => !worldKey || row.worldKey === worldKey);
+    const inShelf = (row: Item) => (args.archived === true ? row.archivedAt !== undefined : row.archivedAt === undefined);
+    const rows = (await ownedRows(ctx, args.ownerUserId)).filter((row) => inShelf(row) && (!worldKey || row.worldKey === worldKey));
 
     const batches = new Map<string, Infer<typeof batchOutValidator>>();
     for (const row of rows) {
@@ -192,13 +196,14 @@ export const listQueue = ownerQuery({
       entry[row.status] += 1;
       entry.createdAt = Math.min(entry.createdAt, row.createdAt);
       entry.updatedAt = Math.max(entry.updatedAt, row.updatedAt);
+      if (row.archivedAt !== undefined) entry.archivedAt = Math.max(entry.archivedAt ?? 0, row.archivedAt);
       batches.set(row.batchKey, entry);
     }
 
     const batchKey = args.batch?.trim() ? batchKeyOf(args.batch) : undefined;
     // One thread: read all of its rows, not only the newest owner rows.
     const source = batchKey
-      ? (await batchRows(ctx, args.ownerUserId, batchKey)).filter((row) => !worldKey || row.worldKey === worldKey)
+      ? (await batchRows(ctx, args.ownerUserId, batchKey)).filter((row) => inShelf(row) && (!worldKey || row.worldKey === worldKey))
       : rows;
     const isOpen = (row: Item) => row.status === "queued" || row.status === "injected";
     const wanted = source
@@ -248,6 +253,8 @@ export const queueItems = ownerMutation({
     const batchKey = batchKeyOf(batch);
     const world = args.world?.trim() ? await resolveWorld(ctx, owner, args.world) : null;
     const existing = await batchRows(ctx, owner, batchKey);
+    // New prompts in an archived thread bring the whole thread back.
+    for (const row of existing) if (row.archivedAt !== undefined) await ctx.db.patch(row._id, { archivedAt: undefined });
     let maxOrder = existing.reduce((max, row) => Math.max(max, row.order), 0);
     let count = existing.length;
     const createdBy = text(args.createdBy, 80, "createdBy") ?? "agent";
@@ -573,6 +580,38 @@ export const deleteThread = ownerMutation({
       if (rows.length > room) more = true;
     }
     return { batchKey, deleted, more };
+  },
+});
+
+/**
+ * Archive a thread (the panel's Delete, 20 Nov 2026) or bring it back
+ * (restore: true). Nothing is erased: the prompts, sent commands and job ids
+ * stay, hidden from the queue; list with archived: true to see them.
+ */
+export const archiveThread = ownerMutation({
+  args: { ownerUserId: v.string(), batch: v.string(), restore: v.optional(v.boolean()) },
+  returns: v.object({ batchKey: v.string(), batch: v.optional(v.string()), changed: v.number(), archived: v.boolean() }),
+  handler: async (ctx, args) => {
+    const owner = args.ownerUserId;
+    const raw = args.batch.trim();
+    if (!raw) throw new ConvexError("Name the thread to archive.");
+    const restore = args.restore === true;
+    let batchKey = batchKeyOf(raw);
+    if (MJ_THREAD_ID.test(raw.toLowerCase())) {
+      const match = (await ownedRows(ctx, owner)).find((row) => threadIdOf(row.batchKey) === raw.toLowerCase());
+      if (!match) throw new ConvexError(`No Midjourney queue thread ${raw}.`);
+      batchKey = match.batchKey;
+    }
+    const rows = await batchRows(ctx, owner, batchKey);
+    if (!rows.length) throw new ConvexError(`No Midjourney queue thread ${raw}.`);
+    const now = Date.now();
+    let changed = 0;
+    for (const row of rows) {
+      if (restore ? row.archivedAt === undefined : row.archivedAt !== undefined) continue;
+      await ctx.db.patch(row._id, { archivedAt: restore ? undefined : now });
+      changed += 1;
+    }
+    return { batchKey, batch: rows[0]?.batch, changed, archived: !restore };
   },
 });
 

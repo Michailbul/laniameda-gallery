@@ -75,6 +75,15 @@ status (`queued`, `injected` = in his Imagine bar, `sent`, `skipped`),
 `sentAt`, `sentCommand` (the exact command he sent, including any change he
 made in the bar) and `jobId` when the extension saw the job appear.
 
+Archived threads (20 Nov 2026): Michael's Delete in the extension archives a
+thread; nothing is erased. Archived threads leave every list; read them with
+`list_mj_queue {archived: true}` (with `batch` for one thread's prompts, sent
+commands and job ids). `archive_mj_thread {batch, restore?}` archives a thread
+(label or `thr-…`) or, with `restore: true`, puts it back. Queuing new prompts
+into an archived thread's label brings the whole thread back. Recover from the
+archive when he asks for an old round; never archive a thread he did not ask
+to clear.
+
 `update_mj_queue_item {itemId, …}` edits text, title, note, references (lists
 are replaced whole; null clears omni or character), codes and params; moves an
 item with `position` (0-based in its batch); `status: skipped` sets it aside,
