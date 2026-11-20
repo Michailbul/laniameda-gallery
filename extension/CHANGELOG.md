@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.39.3 (21 Nov 2026)
+
+Midjourney: the Rerun bar never covers the prompt or the settings
+- On short rows (wide pictures, four to a row) the bar was pinned over the
+  bottom of the row, on top of the prompt, the settings chips and the
+  moodboard link, so they could not be clicked. Now the bar stays on one
+  line under the settings, goes compact in a narrow column (dice icon, MB,
+  sref), and the prompt is shortened to whole lines to make room. Only on a
+  very short row does it shrink to a dice button at the row's right edge,
+  which opens into the full bar on hover.
+- The "In the bar: …" note shows as a small card above the bar, so it never
+  pushes the row's layout.
+
 ## 0.39.2 (20 Nov 2026)
 
 Writer: your own fal key, and the Pika route works again

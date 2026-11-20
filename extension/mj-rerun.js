@@ -7,11 +7,15 @@
 // It only fills the bar: Michael's own Enter sends it (Midjourney flagged a
 // scripted send as a bot on 14 Nov 2026). Nothing here presses or submits.
 //
-// Short rows (square or tall pictures, four to a row) with a long prompt:
-// the prompt is shortened to the lines that fit, so the settings chips
-// (chaos, ar, raw, profile …) and the bar stay readable under it. Only when
-// even two lines do not leave room does the bar dock to the bottom of the row
-// (mode "dock").
+// Short rows (wide pictures, four to a row) with a long prompt: the bar never
+// covers the prompt, the settings chips or the moodboard link. In order:
+// 1. the bar stays on one line and goes compact (dice icon, short labels, no
+//    world name) when its column is narrow;
+// 2. the prompt's own box is shortened to the lines that fit (2, then 1), so
+//    the chips and the bar sit under it, all clickable;
+// 3. only when even one line leaves no room does the bar shrink to a dice
+//    button in the row's bottom-right corner (mode "dock"), which opens into
+//    the full bar while the pointer is on it.
 (function registerMjRerun(globalScope) {
   "use strict";
 
@@ -253,23 +257,32 @@
 
   const CSS = `
     :host{all:initial;display:block;font-family:Inter,"Helvetica Neue",Arial,sans-serif}
-    .bar{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin:8px 0 2px;padding:5px;border:1px solid rgba(255,244,234,.10);border-radius:12px;background:rgba(10,8,5,.92);max-width:100%;box-sizing:border-box;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
-    :host([data-mode="dock"]) .bar{margin:0;box-shadow:0 -10px 24px rgba(10,8,5,.85)}
+    .bar{position:relative;display:flex;align-items:center;flex-wrap:nowrap;gap:6px;margin:6px 0 2px;padding:4px;border:1px solid rgba(255,244,234,.10);border-radius:12px;background:rgba(10,8,5,.92);max-width:100%;box-sizing:border-box;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+    :host([data-mode="compact"]) .bar{gap:4px;padding:3px}
+    :host([data-mode="compact"]) .go span,:host([data-mode="dock"]) .go span{display:none}
+    :host([data-mode="compact"]) .go,:host([data-mode="dock"]) .go{padding:0 8px;gap:0}
+    :host([data-mode="compact"]) .world{display:none}
+    :host([data-mode="compact"]) .mb .t{display:none}
+    :host([data-mode="compact"]) .mb .s{display:inline}
+    :host([data-mode="dock"]) .bar{margin:0;padding:3px;gap:4px;border-radius:999px;box-shadow:0 6px 18px rgba(10,8,5,.7)}
+    :host([data-mode="dock"]:not(:hover):not(:focus-within)) .bar>.pill,:host([data-mode="dock"]:not(:hover):not(:focus-within)) .bar>.world{display:none}
+    :host([data-mode="dock"]) .note{left:auto;right:0}
     button,select{font:inherit;cursor:pointer}
-    .go{display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 12px 0 9px;border:0;border-radius:999px;background:#F26157;color:#191919;font:800 11px/1 Inter,sans-serif;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+    .go{flex:none;display:inline-flex;align-items:center;gap:7px;height:28px;padding:0 12px 0 9px;border:0;border-radius:999px;background:#F26157;color:#191919;font:800 11px/1 Inter,sans-serif;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
     .go:hover{background:#ff7a6f}
     .go:disabled{opacity:.55;cursor:wait}
     .go svg{width:14px;height:14px;flex:none}
-    .pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border:1px solid rgba(255,244,234,.14);border-radius:999px;background:#191919;color:rgba(255,244,234,.62);font:700 10px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
+    .pill{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;flex:none;border:1px solid rgba(255,244,234,.14);border-radius:999px;background:#191919;color:rgba(255,244,234,.62);font:700 10px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap}
     .pill:hover{color:#FFF4EA;border-color:rgba(255,244,234,.3)}
     .pill i{width:7px;height:7px;border-radius:50%;background:rgba(255,244,234,.25)}
     .pill.on{color:#FFF4EA;border-color:rgba(121,183,145,.55)}
     .pill.on i{background:#79B791;box-shadow:0 0 6px rgba(121,183,145,.8)}
-    select.pill{appearance:none;-webkit-appearance:none;padding:0 22px 0 10px;max-width:220px;text-overflow:ellipsis;overflow:hidden;background-image:linear-gradient(45deg,transparent 50%,rgba(255,244,234,.55) 50%),linear-gradient(135deg,rgba(255,244,234,.55) 50%,transparent 50%);background-position:calc(100% - 12px) 12px,calc(100% - 8px) 12px;background-size:4px 4px;background-repeat:no-repeat}
+    .mb .s{display:none}
+    select.pill{flex:0 1 auto;min-width:96px;appearance:none;-webkit-appearance:none;padding:0 22px 0 10px;max-width:220px;text-overflow:ellipsis;overflow:hidden;background-image:linear-gradient(45deg,transparent 50%,rgba(255,244,234,.55) 50%),linear-gradient(135deg,rgba(255,244,234,.55) 50%,transparent 50%);background-position:calc(100% - 12px) 12px,calc(100% - 8px) 12px;background-size:4px 4px;background-repeat:no-repeat}
     select.pill option{background:#191919;color:#FFF4EA;text-transform:none}
     select.pill.on{border-color:rgba(232,168,56,.55);color:#FFF4EA}
-    .world{font:700 9.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,244,234,.38);padding:0 4px;white-space:nowrap}
-    .note{flex-basis:100%;font:600 11px/1.35 Inter,sans-serif;color:rgba(255,244,234,.62);padding:2px 6px 1px;overflow-wrap:anywhere}
+    .world{flex:0 100 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font:700 9.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,244,234,.38);padding:0 4px;white-space:nowrap}
+    .note{position:absolute;left:0;bottom:calc(100% + 6px);z-index:2;width:max-content;max-width:min(360px,80vw);box-sizing:border-box;padding:7px 10px;border:1px solid rgba(255,244,234,.12);border-radius:10px;background:#191919;box-shadow:0 8px 22px rgba(10,8,5,.7);font:600 11px/1.35 Inter,sans-serif;color:rgba(255,244,234,.72);overflow-wrap:anywhere}
     .note b{color:#FFF4EA;font-weight:700}
     .note.warn{color:#E8A838}
     .note:empty{display:none}
@@ -315,7 +328,7 @@
     shadow.innerHTML = `<style>${CSS}</style>
       <div class="bar" role="group" aria-label="Rerun with a random profile">
         <button class="go" type="button">${DICE}<span>Rerun random</span></button>
-        <button class="pill mb" type="button"><i></i>Moodboard</button>
+        <button class="pill mb" type="button"><i></i><span class="t">Moodboard</span><span class="s">MB</span></button>
         <select class="pill sref" aria-label="Style reference"></select>
         <span class="world"></span>
         <div class="note" aria-live="polite"></div>
@@ -408,17 +421,20 @@
     return box.bottom - (clipper || row.root).getBoundingClientRect().bottom;
   }
 
-  // The prompt's own block: the first non-inline box from its words up that
-  // does not also hold the chips.
-  function blockOf(text, row) {
-    for (let at = text; at && at !== row.root; at = at.parentElement) {
-      if (at !== text && at.contains(row.chips)) return null;
-      if (!/^(inline|contents)$/.test(getComputedStyle(at).display)) return at;
+  // The prompt's own box: the outermost non-inline box from its words up that
+  // holds neither the chips nor a picture. Shortening this box (not the words
+  // inside it) is what frees room when Midjourney sizes the prompt column with
+  // flex or a fixed height.
+  function promptBox(row) {
+    let box = null;
+    for (let at = row.text; at && at !== row.root; at = at.parentElement) {
+      if (at !== row.text && (at.contains(row.chips) || at.contains(row.img))) break;
+      if (!/^(inline|contents)$/.test(getComputedStyle(at).display)) box = at;
     }
-    return null;
+    return box;
   }
 
-  // Prompt blocks we shortened, with their own inline style to put back.
+  // Prompt boxes we shortened, with their own inline style to put back.
   const clamped = new Map();
   function unclamp(el) {
     if (!el || !clamped.has(el)) return;
@@ -427,57 +443,96 @@
     if (before) el.setAttribute("style", before);
     else el.removeAttribute("style");
   }
-  function clampTo(el, lines, lineHeight) {
+  function clampHeight(el, px) {
     if (!clamped.has(el)) clamped.set(el, el.getAttribute("style") || "");
-    if (/flex|grid/.test(getComputedStyle(el).display)) {
-      el.style.setProperty("max-height", `${Math.floor(lines * lineHeight)}px`, "important");
-    } else {
-      el.style.setProperty("display", "-webkit-box", "important");
-      el.style.setProperty("-webkit-box-orient", "vertical", "important");
-      el.style.setProperty("-webkit-line-clamp", String(lines), "important");
-    }
+    el.style.setProperty("max-height", `${Math.max(0, Math.floor(px))}px`, "important");
+    el.style.setProperty("min-height", "0", "important");
+    // Whole lines only: a flex column must not squeeze it further mid-line.
+    el.style.setProperty("flex-shrink", "0", "important");
     el.style.setProperty("overflow", "hidden", "important");
   }
 
-  // In the flow under the chips. A long prompt that pushes the chips and the
-  // bar out of the row is shortened to the lines that fit; the bar docks to
-  // the bottom of the row only when that is not enough.
+  function lineHeightOf(el) {
+    const style = getComputedStyle(el);
+    return parseFloat(style.lineHeight) || (parseFloat(style.fontSize) || 14) * 1.3;
+  }
+
+  // Shorten the prompt box to whole lines (at least `min`) until the bar fits.
+  function shrinkPrompt(host, row, min) {
+    const box = promptBox(row);
+    if (!box) return false;
+    const lineHeight = lineHeightOf(row.text);
+    let over = overflowOf(host, row);
+    for (let round = 0; round < 4 && over > 1; round += 1) {
+      const outer = box.getBoundingClientRect();
+      const words = row.text.getBoundingClientRect();
+      const top = Math.max(0, words.top - outer.top);
+      const shown = Math.min(words.bottom, outer.bottom) - Math.max(words.top, outer.top);
+      const lines = linesThatFit(shown, over, lineHeight, min);
+      if (!lines) break;
+      clampHeight(box, top + lines * lineHeight);
+      row.clampEl = box;
+      over = overflowOf(host, row);
+    }
+    return over <= 1;
+  }
+
+  const barOf = (host) => host.shadowRoot?.querySelector(".bar");
+  const tooWide = (host) => {
+    const bar = barOf(host);
+    return Boolean(bar && bar.scrollWidth > bar.clientWidth + 1);
+  };
+
+  // In the flow under the chips, on one line, never over the prompt or the
+  // chips (see the top of the file for the order of steps).
   function place(host, row) {
     unclamp(row.clampEl);
     row.clampEl = null;
     host.dataset.mode = "";
     host.style.cssText = "";
     if (host.previousElementSibling !== row.chips || host.parentElement !== row.chips.parentElement) row.chips.after(host);
-    let over = overflowOf(host, row);
-    if (over <= 1) return;
-    const el = row.text && blockOf(row.text, row);
-    if (el) {
-      const style = getComputedStyle(el);
-      const lineHeight = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) || 14) * 1.3;
-      for (let round = 0; round < 3 && over > 1; round += 1) {
-        // The height the prompt takes in the row: its own box, or a smaller
-        // clipping box around it (Midjourney's own line limit).
-        let height = el.getBoundingClientRect().height;
-        for (let at = el.parentElement; at && at !== row.root && !at.contains(row.chips); at = at.parentElement) {
-          height = Math.min(height, at.getBoundingClientRect().height);
-        }
-        const lines = linesThatFit(height, over, lineHeight);
-        if (!lines) break;
-        clampTo(el, lines, lineHeight);
-        row.clampEl = el;
-        over = overflowOf(host, row);
-      }
-      if (over <= 1) return;
-    }
+    if (tooWide(host)) host.dataset.mode = "compact";
+    if (fitted(host, row)) return;
+    if (shrinkPrompt(host, row, 2)) return snapLines(row);
+    host.dataset.mode = "compact";
+    if (fitted(host, row)) return;
+    if (shrinkPrompt(host, row, 1)) return snapLines(row);
+    unclamp(row.clampEl);
+    row.clampEl = null;
     dock(host, row);
   }
 
+  function fitted(host, row) {
+    if (overflowOf(host, row) > 1) return false;
+    snapLines(row);
+    return true;
+  }
+
+  // A prompt squeezed mid-line (by Midjourney's column or by us) shows whole
+  // lines only, so no half-cut line sits on top of the chips. Only ever lowers
+  // the box, so the bar still fits.
+  function snapLines(row) {
+    const box = promptBox(row);
+    if (!box) return;
+    const lineHeight = lineHeightOf(row.text);
+    const outer = box.getBoundingClientRect();
+    const words = row.text.getBoundingClientRect();
+    const shown = Math.min(words.bottom, outer.bottom) - words.top;
+    if (!(lineHeight > 0) || words.height <= shown + 1) return;
+    const lines = Math.max(1, Math.floor(shown / lineHeight + 0.01));
+    if (Math.abs(shown - lines * lineHeight) <= 1) return;
+    clampHeight(box, Math.max(0, words.top - outer.top) + lines * lineHeight);
+    row.clampEl = box;
+  }
+
+  // Last resort: a dice button in the row's bottom-right corner; the full bar
+  // opens leftward from it while the pointer or focus is on it.
   function dock(host, row) {
     host.dataset.mode = "dock";
     const style = getComputedStyle(row.root);
     if (style.position === "static") row.root.style.position = "relative";
-    const left = Math.max(0, row.chips.getBoundingClientRect().left - row.root.getBoundingClientRect().left);
-    host.style.cssText = `position:absolute;left:${left}px;right:8px;bottom:8px;z-index:5`;
+    const width = Math.max(120, row.root.getBoundingClientRect().width - 16);
+    host.style.cssText = `position:absolute;right:8px;bottom:8px;z-index:5;max-width:${Math.floor(width)}px`;
     row.root.appendChild(host);
   }
 
