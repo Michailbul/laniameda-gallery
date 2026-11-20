@@ -7,8 +7,11 @@
 // It only fills the bar: Michael's own Enter sends it (Midjourney flagged a
 // scripted send as a bot on 14 Nov 2026). Nothing here presses or submits.
 //
-// The bar stays in view for long prompts: when the job row clips it, it
-// docks to the bottom of the row instead (mode "dock").
+// Short rows (square or tall pictures, four to a row) with a long prompt:
+// the prompt is shortened to the lines that fit, so the settings chips
+// (chaos, ar, raw, profile …) and the bar stay readable under it. Only when
+// even two lines do not leave room does the bar dock to the bottom of the row
+// (mode "dock").
 (function registerMjRerun(globalScope) {
   "use strict";
 
@@ -46,7 +49,16 @@
     return { command: next, mix, sref: srefPick };
   }
 
-  globalScope.SaveToGalleryMjRerun = { isChipText, onCurrentVersion, rerunCommand };
+  // How many prompt lines to keep so what sits under the prompt fits the row:
+  // `height` is the prompt's shown height, `overflow` how far the bar sticks
+  // out of the row. 0 when fewer than `min` lines would be left.
+  function linesThatFit(height, overflow, lineHeight, min = 2) {
+    if (!(lineHeight > 0) || !(height > 0)) return 0;
+    const lines = Math.floor((height - Math.max(0, overflow)) / lineHeight + 0.01);
+    return lines >= min ? lines : 0;
+  }
+
+  globalScope.SaveToGalleryMjRerun = { isChipText, onCurrentVersion, rerunCommand, linesThatFit };
 
   // ── The page ──
 
@@ -231,8 +243,8 @@
       if (!text) continue;
       const chips = chipsIn(node);
       const row = chips.length ? chipRow(chips) : null;
-      if (row) return { root: node, chips: row, jobId, imageUrl: img.currentSrc || img.src };
-      fallback ??= { root: node, chips: text, jobId, imageUrl: img.currentSrc || img.src };
+      if (row) return { root: node, chips: row, text, img, jobId, imageUrl: img.currentSrc || img.src };
+      fallback ??= { root: node, chips: text, text, img, jobId, imageUrl: img.currentSrc || img.src };
     }
     return fallback;
   }
@@ -388,18 +400,76 @@
     return null;
   }
 
-  // In the flow under the chips when it fits; docked to the bottom of the row
-  // when a long prompt pushes it out of view.
-  function place(host, row) {
-    if (host.dataset.mode !== "dock") {
-      if (host.previousElementSibling !== row.chips || host.parentElement !== row.chips.parentElement) row.chips.after(host);
-      const clipper = clipperOf(host, row.root);
-      const box = host.getBoundingClientRect();
-      const limit = (clipper || row.root).getBoundingClientRect();
-      if (box.height && box.bottom > limit.bottom + 1) dock(host, row);
-      return;
+  // How far the bar sticks out of what clips the row (0 or less = in view).
+  function overflowOf(host, row) {
+    const box = host.getBoundingClientRect();
+    if (!box.height) return 0;
+    const clipper = clipperOf(host, row.root);
+    return box.bottom - (clipper || row.root).getBoundingClientRect().bottom;
+  }
+
+  // The prompt's own block: the first non-inline box from its words up that
+  // does not also hold the chips.
+  function blockOf(text, row) {
+    for (let at = text; at && at !== row.root; at = at.parentElement) {
+      if (at !== text && at.contains(row.chips)) return null;
+      if (!/^(inline|contents)$/.test(getComputedStyle(at).display)) return at;
     }
-    if (host.parentElement !== row.root) dock(host, row);
+    return null;
+  }
+
+  // Prompt blocks we shortened, with their own inline style to put back.
+  const clamped = new Map();
+  function unclamp(el) {
+    if (!el || !clamped.has(el)) return;
+    const before = clamped.get(el);
+    clamped.delete(el);
+    if (before) el.setAttribute("style", before);
+    else el.removeAttribute("style");
+  }
+  function clampTo(el, lines, lineHeight) {
+    if (!clamped.has(el)) clamped.set(el, el.getAttribute("style") || "");
+    if (/flex|grid/.test(getComputedStyle(el).display)) {
+      el.style.setProperty("max-height", `${Math.floor(lines * lineHeight)}px`, "important");
+    } else {
+      el.style.setProperty("display", "-webkit-box", "important");
+      el.style.setProperty("-webkit-box-orient", "vertical", "important");
+      el.style.setProperty("-webkit-line-clamp", String(lines), "important");
+    }
+    el.style.setProperty("overflow", "hidden", "important");
+  }
+
+  // In the flow under the chips. A long prompt that pushes the chips and the
+  // bar out of the row is shortened to the lines that fit; the bar docks to
+  // the bottom of the row only when that is not enough.
+  function place(host, row) {
+    unclamp(row.clampEl);
+    row.clampEl = null;
+    host.dataset.mode = "";
+    host.style.cssText = "";
+    if (host.previousElementSibling !== row.chips || host.parentElement !== row.chips.parentElement) row.chips.after(host);
+    let over = overflowOf(host, row);
+    if (over <= 1) return;
+    const el = row.text && blockOf(row.text, row);
+    if (el) {
+      const style = getComputedStyle(el);
+      const lineHeight = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) || 14) * 1.3;
+      for (let round = 0; round < 3 && over > 1; round += 1) {
+        // The height the prompt takes in the row: its own box, or a smaller
+        // clipping box around it (Midjourney's own line limit).
+        let height = el.getBoundingClientRect().height;
+        for (let at = el.parentElement; at && at !== row.root && !at.contains(row.chips); at = at.parentElement) {
+          height = Math.min(height, at.getBoundingClientRect().height);
+        }
+        const lines = linesThatFit(height, over, lineHeight);
+        if (!lines) break;
+        clampTo(el, lines, lineHeight);
+        row.clampEl = el;
+        over = overflowOf(host, row);
+      }
+      if (over <= 1) return;
+    }
+    dock(host, row);
   }
 
   function dock(host, row) {
@@ -431,19 +501,21 @@
         if (layout) place(known.host, known);
         continue;
       }
+      if (known) unclamp(known.clampEl);
       // Rows far off screen get their bar when they scroll near.
       const box = img.getBoundingClientRect();
       if (box.bottom < -reach || box.top > globalScope.innerHeight + reach) continue;
       const row = rowFor(img, jobId);
       if (!row) continue;
       const host = known?.host || document.querySelector(`.stg-rerun-host[${HOST_ATTR}="${jobId}"]`) || makeHost(row);
-      host.dataset.mode = "";
-      host.style.cssText = "";
       rows.set(jobId, { ...row, host });
       place(host, rows.get(jobId));
+      sizes?.observe(row.img);
     }
     for (const [jobId, row] of rows) {
       if (!row.root.isConnected) {
+        unclamp(row.clampEl);
+        sizes?.unobserve(row.img);
         row.host.remove();
         hosts.delete(row.host);
         rows.delete(jobId);
@@ -466,6 +538,11 @@
   observer.observe(document.documentElement, { childList: true, subtree: true });
   cleanups.push(() => observer.disconnect());
   const onResize = () => { relayout = true; scanSoon(); };
+  // A row's height is set by its pictures, which load late: measure again
+  // when a picture changes size (never on the row itself, which our own
+  // shortening resizes).
+  const sizes = typeof ResizeObserver === "function" ? new ResizeObserver(onResize) : null;
+  cleanups.push(() => sizes?.disconnect());
   globalScope.addEventListener("resize", onResize);
   cleanups.push(() => globalScope.removeEventListener("resize", onResize));
   const onScroll = () => scanSoon();
@@ -496,6 +573,7 @@
       }
     }
     clearTimeout(scanTimer);
+    for (const el of [...clamped.keys()]) unclamp(el);
     for (const host of hosts) host.remove();
     hosts.clear();
     rows.clear();

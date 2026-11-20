@@ -79,3 +79,21 @@ describe("Rerun random on a Midjourney job", () => {
     for (const text of ["Flat animation illustration", "Thinking", "", "a".repeat(50)]) expect(X.isChipText(text)).toBe(false);
   });
 });
+
+describe("linesThatFit", () => {
+  const fit = (g.SaveToGalleryMjRerun as unknown as { linesThatFit(h: number, o: number, lh: number, min?: number): number }).linesThatFit;
+  test("keeps the lines that leave room for the chips and the bar", () => {
+    // 8 lines of 23 px, the bar 80 px out of the row: 4 lines stay.
+    expect(fit(184, 80, 23)).toBe(4);
+  });
+  test("nothing sticks out: every line stays", () => {
+    expect(fit(184, 0, 23)).toBe(8);
+  });
+  test("fewer than two lines would be left: 0, the bar docks instead", () => {
+    expect(fit(69, 40, 23)).toBe(0);
+  });
+  test("unknown line height or empty prompt: 0", () => {
+    expect(fit(184, 20, 0)).toBe(0);
+    expect(fit(0, 20, 23)).toBe(0);
+  });
+});
