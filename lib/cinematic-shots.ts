@@ -9,6 +9,8 @@
 // the shelf, this file is pure and client-safe).
 
 export const CINEMATIC_SHOTS_SHELF = "CINEMATIC SHOTS";
+/** The root collection the shelf sits under (a child's stored name carries its parent's id). */
+export const CINEMATIC_SHOTS_PARENT = "CINEMATIC";
 
 export const CINEMATIC_SHOT_LIMITS = {
   /** Cards scanned on the shelf. */
