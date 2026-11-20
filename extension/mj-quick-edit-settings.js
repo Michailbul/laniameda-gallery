@@ -42,6 +42,13 @@
       <p class="qe-label">Runs on</p>
       <div class="qe-seg" role="tablist" aria-label="Where the writer runs" data-group="mode"></div>
       <p class="qe-hint" data-hint="mode"></p>
+      <p class="qe-label">Cloud key · fal</p>
+      <p class="qe-hint qe-key-state" aria-live="polite">Checking the key…</p>
+      <div class="qe-key-row">
+        <input class="qe-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste a fal API key" aria-label="fal API key">
+        <button class="qe-reset qe-key-save" type="button">Save</button>
+      </div>
+      <p class="qe-hint qe-key-msg" aria-live="polite"></p>
 
       <div class="qe-head qe-head--sys">
         <p class="qe-label">System prompt</p>
@@ -80,6 +87,10 @@
   const lastCopy = $(".qe-copy");
   const lastMeta = $(".qe-last-meta");
   const lastText = $(".qe-last");
+  const keyState = $(".qe-key-state");
+  const keyInput = $(".qe-key");
+  const keySave = $(".qe-key-save");
+  const keyMsg = $(".qe-key-msg");
 
   const button = (label, selected, onClick, title) => {
     const el = document.createElement("button");
@@ -237,6 +248,40 @@
     }
     render();
   }
+  // Cloud key · fal: which key the cloud writer uses (yours, saved here; the
+  // gallery's own; none), checked with its balance. A new key is saved in the
+  // gallery (sealed, only its last four shown) once fal accepts it and it has
+  // credit; it then serves every cloud write, from any copy of the extension.
+  function keyLine(row) {
+    if (!row) return "Could not read the key from the gallery.";
+    const who = row.source === "app" ? `Your key ····${row.hint || ""}` : row.source === "server" ? "The gallery's own key" : "No fal key: the cloud writer skips fal";
+    const check = row.check?.message ? ` · ${row.check.message}` : "";
+    return `${who}${check}`;
+  }
+  async function loadKeys() {
+    const res = await ask({ do: "keys" });
+    const row = res?.ok ? (res.keys || []).find((entry) => entry.provider === "fal") : null;
+    keyState.textContent = res?.ok ? keyLine(row) : `Could not read the key: ${res?.error || "the gallery did not answer"}.`;
+    keyState.classList.toggle("qe-key-state--bad", Boolean(row && (row.source === "none" || row.check?.ok === false)));
+  }
+  async function saveKey() {
+    const key = keyInput.value.trim();
+    if (!key) { keyMsg.textContent = "Paste a fal key first."; return; }
+    keySave.disabled = true;
+    keyMsg.textContent = "Checking the key with fal…";
+    const res = await ask({ do: "saveKey", provider: "fal", key });
+    keySave.disabled = false;
+    if (res?.ok && res.saved) {
+      keyInput.value = "";
+      keyMsg.textContent = res.message || "Saved.";
+      void loadKeys();
+    } else {
+      keyMsg.textContent = res?.message || res?.error || "The gallery did not answer.";
+    }
+  }
+  keySave.addEventListener("click", () => { void saveKey(); });
+  keyInput.addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); void saveKey(); } });
+
   async function loadBridge(fresh = false) {
     const res = await ask({ fresh });
     if (res?.ok) state.bridge = res;
@@ -273,7 +318,8 @@
   // The defaults come from the gallery each time the tab opens, so the panel
   // always shows what the gallery builds today.
   const tab = document.getElementById("editModeTab");
-  tab?.addEventListener("click", () => { void loadGallery(); void loadBridge(true); });
+  tab?.addEventListener("click", () => { void loadGallery(); void loadBridge(true); void loadKeys(); });
   void loadGallery();
   void loadBridge();
+  void loadKeys();
 })(typeof globalThis !== "undefined" ? globalThis : self);

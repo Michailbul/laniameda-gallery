@@ -26,6 +26,7 @@ const DESCRIBE_ROUTE_PATH = "/api/extension/prompt-describe";
 const EXPAND_ROUTE_PATH = "/api/extension/prompt-expand";
 const WORLD_ROUTE_PATH = "/api/extension/prompt-world";
 const WRITER_PROMPTS_ROUTE_PATH = "/api/extension/writer-prompts";
+const PROVIDER_KEY_ROUTE_PATH = "/api/extension/provider-key";
 const UPLOAD_ROUTE_PATH = "/api/extension/upload";
 const X_POST_ROUTE_PATH = "/api/extension/x-post";
 const COMMENTS_ROUTE_PATH = "/api/extension/comments";
@@ -1387,6 +1388,16 @@ async function writerRequest(message) {
   if (message.do === "prompts") {
     // The gallery's default system prompts and its model list, for MJ settings → Writer.
     return describeFetchJson(WRITER_PROMPTS_ROUTE_PATH, { method: "GET" });
+  }
+  if (message.do === "keys") {
+    // Which fal / Pika key the cloud writer uses, checked, with its balance.
+    return describeFetchJson(PROVIDER_KEY_ROUTE_PATH, { method: "GET" });
+  }
+  if (message.do === "saveKey") {
+    const provider = message.provider === "pika" ? "pika" : "fal";
+    const key = String(message.key || "").trim();
+    if (!key) return { ok: false, error: "Paste a key first." };
+    return describeFetchJson(PROVIDER_KEY_ROUTE_PATH, { method: "POST", body: JSON.stringify({ provider, key }) });
   }
   const [settings, up] = await Promise.all([writerSettings(), writerBridgeUp(Boolean(message.fresh))]);
   return { ok: true, ...settings, up, bridgeModels: up ? writerSeen.models : [], local: settings.mode !== "cloud" && up && bridgeRuns(settings.model) };
