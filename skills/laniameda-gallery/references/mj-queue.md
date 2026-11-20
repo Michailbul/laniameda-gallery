@@ -123,3 +123,18 @@ prompt he ran by hand (`status: sent`, `sentCommand` = the copied command), so
 the extension and the agents skip it; Undo sent puts it back to queued. Every
 thread and prompt has a copyable id (thr-…, mjq:…) to paste to an agent. The
 page never submits anything to Midjourney.
+
+## Cinematic shots shelf (shot layouts)
+
+CINEMATIC › CINEMATIC SHOTS holds film frames Michael keeps as shot layouts.
+Each frame is the image reference; its description is a shot card:
+`CINEMATIC SHOT · <title>`, the cinematography label, a breakdown (size and
+lens, camera, composition, staging, light) and a style-neutral
+`Base prompt`. Tags: `cinematic-shot` plus shot types (extreme-wide,
+over-the-shoulder, low-angle, planimetric …). To use one in a world, put the
+world style's opening sentence in front of the base prompt, add that style's
+codes, and attach the frame in Midjourney V8.2 Edit so the layout holds.
+The extension's writer (quick edit, Grow) reads the shelf by itself when a
+request asks for cinematic shots, framing or a camera angle
+(convex/cinematicShots.ts, lib/cinematic-shots.ts). Save a new shot with the
+same card layout so the writer can parse it.

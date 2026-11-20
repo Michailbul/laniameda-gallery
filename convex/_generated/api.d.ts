@@ -34,6 +34,7 @@ import type * as bookmarks from "../bookmarks.js";
 import type * as characterValidators from "../characterValidators.js";
 import type * as characters from "../characters.js";
 import type * as cinemaInspiration from "../cinemaInspiration.js";
+import type * as cinematicShots from "../cinematicShots.js";
 import type * as collectionCleanup from "../collectionCleanup.js";
 import type * as contentHash from "../contentHash.js";
 import type * as crons from "../crons.js";
@@ -172,6 +173,7 @@ declare const fullApi: ApiFromModules<{
   characterValidators: typeof characterValidators;
   characters: typeof characters;
   cinemaInspiration: typeof cinemaInspiration;
+  cinematicShots: typeof cinematicShots;
   collectionCleanup: typeof collectionCleanup;
   contentHash: typeof contentHash;
   crons: typeof crons;
