@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.37.1 (20 Nov 2026)
+
+MJ Queue always loads
+- "Could not load the queue. Receiving end does not exist" came when the
+  extension's background worker was asleep, restarting or reloading after a
+  pull. The queue panel now waits for it twice and then reads and saves the
+  queue straight from the gallery itself. A save is only re-sent when it
+  never reached the worker, so nothing is written twice.
+
 ## 0.37.0 (19 Nov 2026)
 
 Writer: pick the model, see the system prompt
