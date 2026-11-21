@@ -145,7 +145,7 @@ export function shotsBlock(picked: ShotCard[], all: ShotCard[], options: { rando
   const where = options.from ? ` from the collection "${options.from}"` : "";
   const head = options.random
     ? [
-      `CINEMATIC SHOTS LIBRARY: the art director asked for random shot layouts${where} (${all.length} there). These ${picked.length} were drawn for this run:`,
+      `CINEMATIC SHOTS LIBRARY: the art director asked for random shot layouts${where} (${all.length} there). ${picked.length === 1 ? "This one was" : `These ${picked.length} were`} drawn for this run:`,
       "- Give each prompt one of these shots, in order: prompt 1 takes shot 1, prompt 2 takes shot 2, and start again at shot 1 when there are more prompts than shots. A single rewrite takes shot 1.",
       "- Keep that shot's camera: shot size, lens feel, camera height and angle, where things sit in the frame, the staging in depth and the direction of the light.",
     ]
