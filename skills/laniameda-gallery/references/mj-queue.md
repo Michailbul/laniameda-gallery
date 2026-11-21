@@ -138,3 +138,13 @@ The extension's writer (quick edit, Grow) reads the shelf by itself when a
 request asks for cinematic shots, framing or a camera angle
 (convex/cinematicShots.ts, lib/cinematic-shots.ts). Save a new shot with the
 same card layout so the writer can parse it.
+
+The Shots switch (Grow card row "Shots", quick edit chip; one setting,
+`writerShots` in the extension's local storage) decides how: Off; Auto (the
+default: the closest shots when the request asks for shots, framing or an
+angle); Random (every Grow run draws random layouts, one per prompt; a quick
+edit draws one when it asks for a shot or an angle). The Grow card's "from"
+picks the collection: CINEMATIC SHOTS (default), CINEMATIC, or any
+collection under them, each with the collections under it. Frames without a
+shot card are used by their agentDescription or description. The card's
+status line says what was read, e.g. `cinematic shots (4 random · NERVY …)`.

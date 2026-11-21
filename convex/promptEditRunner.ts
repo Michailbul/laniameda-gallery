@@ -20,7 +20,7 @@ import { LOCAL_WRITER_LIMITS, localAnswer } from "../lib/local-writer";
 import { WRITER_RULES_LIMIT, pickWriterModel } from "../lib/writer-models";
 import { enforceMjVersion, mjVersionWarning } from "../lib/mj-version";
 import type { BriefTier } from "../lib/writer-brief";
-import { asksForShots } from "../lib/cinematic-shots";
+import { CINEMATIC_SHOTS_SHELF, asksForShots, shotModeOf, type ShotSettings } from "../lib/cinematic-shots";
 
 // Quick edit of a Midjourney prompt from the extension (select text in the
 // Imagine bar, ⌥E, a few words). One short chat call on a fast model: fal
@@ -121,21 +121,39 @@ async function worldBriefOf(
   try { return await ctx.runQuery(internal.writerBrief.forWriter, args); } catch { return null; }
 }
 
-// The art director's saved shot layouts (convex/cinematicShots.ts), when the
-// request asks for cinematic shots or a camera layout. A shelf that cannot be
-// read costs the library, never the prompt.
-type Shots = { text: string; total: number; picked: number };
-async function shotsOf(ctx: Pick<ActionCtx, "runQuery">, ownerUserId: string, ...asks: Array<string | undefined>): Promise<Shots | null> {
-  if (!asksForShots(...asks)) return null;
+// The art director's saved shot layouts (convex/cinematicShots.ts). The Shots
+// switch decides: off never; auto, the closest shots when the request asks for
+// cinematic shots or a camera layout; random, layouts drawn from the chosen
+// collection, on every Grow run (one per prompt) and on edits that ask for a
+// layout. A shelf that cannot be read costs the library, never the prompt.
+type Shots = { text: string; total: number; picked: number; random: boolean; from?: string };
+const shotsArg = v.optional(v.object({ mode: v.optional(v.string()), from: v.optional(v.string()) }));
+async function shotsOf(
+  ctx: Pick<ActionCtx, "runQuery">,
+  ownerUserId: string,
+  settings: ShotSettings | undefined,
+  use: { always?: boolean; count?: number },
+  ...asks: Array<string | undefined>
+): Promise<Shots | null> {
+  const mode = shotModeOf(settings?.mode);
+  if (mode === "off") return null;
+  const random = mode === "random";
+  if (!(random && use.always) && !asksForShots(...asks)) return null;
   try {
-    const shots = await ctx.runQuery(internal.cinematicShots.forWriter, { ownerUserId, request: asks.filter(Boolean).join("\n").slice(0, 2000) });
-    return shots.text ? shots : null;
+    const shots = await ctx.runQuery(internal.cinematicShots.forWriter, {
+      ownerUserId, request: asks.filter(Boolean).join("\n").slice(0, 2000),
+      from: settings?.from?.trim() || undefined,
+      ...(random ? { mode: "random", count: use.count ?? 1, seed: Math.floor(Math.random() * 2 ** 31) } : {}),
+    });
+    return shots.text ? { ...shots, random } : null;
   } catch { return null; }
 }
 const withShots = (worldText: string | undefined, shots: Shots | null) => [worldText?.trim(), shots?.text].filter(Boolean).join("\n\n") || undefined;
 const metaOf = (brief: WorldBrief | null, shots: Shots | null): BriefMeta => {
   const meta = briefMeta(brief);
-  return shots ? { ...meta, read: [...(meta.read ?? []), `cinematic shots (${shots.picked})`] } : meta;
+  if (!shots) return meta;
+  const label = `cinematic shots (${shots.picked}${shots.random ? " random" : ""}${shots.from && shots.from !== CINEMATIC_SHOTS_SHELF ? ` · ${shots.from}` : ""})`;
+  return { ...meta, read: [...(meta.read ?? []), label] };
 };
 
 export const rewrite = ownerAction({
@@ -149,6 +167,7 @@ export const rewrite = ownerAction({
     model: modelArg,
     world: v.optional(v.string()),
     fallbackWorld: v.optional(v.string()),
+    shots: shotsArg,
     local: localArg,
   },
   returns: v.union(v.object({
@@ -174,7 +193,7 @@ export const rewrite = ownerAction({
     const brief = await worldBriefOf(ctx, {
       ownerUserId: args.ownerUserId, world: args.world, fallbackWorld: args.fallbackWorld, command: prompt, tier: "short",
     });
-    const shots = await shotsOf(ctx, args.ownerUserId, instruction);
+    const shots = await shotsOf(ctx, args.ownerUserId, args.shots, { count: 1 }, instruction);
     const rules = cleanRules(args.rules);
     const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system, rules, worldBrief: withShots(brief?.text, shots), worldKey: brief?.world?.key });
     if (args.local?.stage === "messages") return { local: { messages, maxTokens: 1500 } };
@@ -320,6 +339,7 @@ export const expand = ownerAction({
     attach: v.optional(v.string()),
     attachUrl: v.optional(v.string()),
     previous: v.optional(v.array(v.string())),
+    shots: shotsArg,
     aspect: v.optional(v.string()),
     width: v.optional(v.number()),
     height: v.optional(v.number()),
@@ -363,7 +383,7 @@ export const expand = ownerAction({
       ownerUserId: args.ownerUserId, world: args.world, fallbackWorld: args.fallbackWorld, command, frame: args.frame, tier: "full",
     });
 
-    const shots = await shotsOf(ctx, args.ownerUserId, idea, preset?.label);
+    const shots = await shotsOf(ctx, args.ownerUserId, args.shots, { always: true, count }, idea, preset?.label);
     const source = splitCommand(command);
     const messages = buildExpandMessages({
       image, sourceWords: source.words, lookNote: lookNoteOf(source), preset, idea, count,

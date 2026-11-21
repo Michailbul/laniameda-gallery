@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { asksForShots, parseShotCard, pickShots, shotsBlock, type ShotCard } from "../lib/cinematic-shots";
+import { asksForShots, looseShotCard, parseShotCard, pickShots, randomShots, shotModeOf, shotsBlock, type ShotCard } from "../lib/cinematic-shots";
 
 const description = (title: string, shotName: string, base: string) => [
   `CINEMATIC SHOT · ${title}`,
@@ -67,5 +67,37 @@ describe("the writer's cinematic shot library", () => {
     expect(text).toContain("Also on the shelf (ask for one by name): Diner booth from above.");
     expect(text).not.toContain("inspiration");
     expect(shotsBlock([], cards)).toBe("");
+  });
+
+  test("the Shots switch reads off, auto and random; anything else is auto", () => {
+    expect(shotModeOf("off")).toBe("off");
+    expect(shotModeOf("random")).toBe("random");
+    expect(shotModeOf(undefined)).toBe("auto");
+    expect(shotModeOf("always")).toBe("auto");
+  });
+
+  test("random draws different shots, the same ones for the same seed", () => {
+    const cards = Array.from({ length: 20 }, (_, index) => card(String(index), `Shot ${index}`, "Wide", ["wide"]));
+    const first = randomShots(cards, 4, 42).map((entry) => entry.id);
+    expect(first.length).toBe(4);
+    expect(new Set(first).size).toBe(4);
+    expect(randomShots(cards, 4, 42).map((entry) => entry.id)).toEqual(first);
+    expect(randomShots(cards, 4, 43).map((entry) => entry.id)).not.toEqual(first);
+    // Never more than the writer is given whole.
+    expect(randomShots(cards, 30, 1).length).toBe(8);
+  });
+
+  test("a random block hands out the shots in order and names its collection", () => {
+    const cards = [card("1", "Lone tree on the plain", "Extreme wide", ["extreme-wide"]), card("2", "Diner booth from above", "Top-down", ["top-down"])];
+    const text = shotsBlock(cards, cards, { random: true, from: "NERVY — Night Rooftop Plates" });
+    expect(text).toContain("random shot layouts from the collection \"NERVY — Night Rooftop Plates\"");
+    expect(text).toContain("prompt 1 takes shot 1, prompt 2 takes shot 2");
+    expect(text).not.toContain("Also on the shelf");
+  });
+
+  test("a frame with no shot card stands in with its own words", () => {
+    const loose = looseShotCard("a9", { title: "rooftop-plate_02.png", agentDescription: "A singer stands alone on a wet rooftop at night, city lights soft behind her." }, ["night"]);
+    expect(loose).toEqual({ id: "a9", title: "rooftop plate 02", shotName: "", basePrompt: "A singer stands alone on a wet rooftop at night, city lights soft behind her.", tags: ["night"] });
+    expect(looseShotCard("a10", { title: "x.png", description: "short" })).toBeNull();
   });
 });

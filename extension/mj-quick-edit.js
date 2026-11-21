@@ -13,9 +13,12 @@
 
   const defaults = () => globalScope.SaveToGalleryQuickEditDefaults;
   // The model is the writer's default for every tool (chrome.storage.sync, MJ settings → Writer).
-  const KEYS = { world: "quickEditWorld", model: "writerModel", prompts: "quickEditPrompts" };
+  // The Shots switch is shared with the Grow card (chrome.storage.local, {mode, from, fromName}).
+  const KEYS = { world: "quickEditWorld", model: "writerModel", prompts: "quickEditPrompts", shots: "writerShots" };
+  const SHOT_MODES = ["off", "auto", "random"];
+  const SHOT_SHORT = { off: "SHOTS OFF", auto: "SHOTS", random: "SHOTS ⚄" };
   const MODEL_KEYS = ["haiku", "sonnet", "opus", "fable", "deepseek"];
-  const settings = { world: "dear-annete", model: "haiku", prompts: {} };
+  const settings = { world: "dear-annete", model: "haiku", prompts: {}, shots: { mode: "auto", from: "", fromName: "" } };
 
   function extensionAlive() {
     try { return Boolean(chrome.runtime && chrome.runtime.id); } catch { return false; }
@@ -23,8 +26,10 @@
 
   function loadSettings() {
     if (!extensionAlive()) return;
-    chrome.storage.local.get([KEYS.world, KEYS.prompts], (stored) => {
+    chrome.storage.local.get([KEYS.world, KEYS.prompts, KEYS.shots], (stored) => {
       settings.world = stored?.[KEYS.world] || "dear-annete";
+      const shots = stored?.[KEYS.shots] || {};
+      settings.shots = { mode: SHOT_MODES.includes(shots.mode) ? shots.mode : "auto", from: shots.from || "", fromName: shots.fromName || "" };
       settings.prompts = stored?.[KEYS.prompts] && typeof stored[KEYS.prompts] === "object" ? stored[KEYS.prompts] : {};
       paintChips();
     });
@@ -35,7 +40,7 @@
   }
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if ((area === "local" && (changes[KEYS.world] || changes[KEYS.prompts])) || (area === "sync" && changes[KEYS.model])) loadSettings();
+      if ((area === "local" && (changes[KEYS.world] || changes[KEYS.prompts] || changes[KEYS.shots])) || (area === "sync" && changes[KEYS.model])) loadSettings();
     });
   } catch { /* extension reloaded */ }
 
@@ -132,6 +137,8 @@
       color:#FFF4EA;cursor:pointer;font:700 10px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.04em}
     .chip:hover{border-color:rgba(255,244,234,.4)}
     .chip.world{color:#F26157}
+    .chip.shots{color:#79B791}
+    .chip.shots.off{color:rgba(255,244,234,.38)}
     input{flex:1 1 auto;min-width:0;height:28px;padding:0 9px;border-radius:7px;border:1px solid rgba(255,244,234,.16);background:#191919;
       color:#FFF4EA;font:500 13px/1 Inter,system-ui,sans-serif;outline:none}
     input:focus{border-color:#F26157}
@@ -151,6 +158,7 @@
     <div class="row">
       <button class="chip world" type="button" title="World (system prompt). Click to switch."></button>
       <button class="chip model" type="button" title="Model. Click to switch."></button>
+      <button class="chip shots" type="button" title="Cinematic shots. Click to switch."></button>
       <input type="text" placeholder="What to change…" spellcheck="false" autocomplete="off">
       <button class="go" type="button" title="Rewrite (Enter)">↵</button>
     </div>
@@ -160,6 +168,7 @@
   const box = shadow.querySelector(".box");
   const worldChip = shadow.querySelector(".chip.world");
   const modelChip = shadow.querySelector(".chip.model");
+  const shotsChip = shadow.querySelector(".chip.shots");
   const input = shadow.querySelector("input");
   const go = shadow.querySelector(".go");
   const line = shadow.querySelector(".line");
@@ -178,6 +187,13 @@
     const model = defaults()?.MODELS.find((entry) => entry.key === settings.model);
     modelChip.textContent = model?.short || "H";
     modelChip.title = `Writer model: ${model?.name || "Haiku 5.5"} (the default for Grow, Describe and edits). Click to switch.`;
+    const shots = settings.shots;
+    const from = shots.fromName || "CINEMATIC SHOTS";
+    shotsChip.textContent = SHOT_SHORT[shots.mode] || "SHOTS";
+    shotsChip.classList.toggle("off", shots.mode === "off");
+    shotsChip.title = shots.mode === "off" ? "Cinematic shots: off. Click to switch."
+      : shots.mode === "random" ? `Cinematic shots: random. Ask for a shot or an angle and the writer gets one random layout from ${from}. Click to switch; pick the collection on the Grow card.`
+      : `Cinematic shots: auto. Ask for a shot, framing or an angle and the writer gets the closest layouts from ${from}. Click to switch; pick the collection on the Grow card.`;
   }
 
   function place(element, point) {
@@ -313,7 +329,8 @@
 
     const text = String(res.text || "");
     // Which world's files the writer was given (read from the prompt's codes, else the chip's world).
-    const world = res.world ? ` · ${esc(String(res.world).toUpperCase())}${res.read?.length ? `: ${esc(res.read.join(", "))}` : ""}` : "";
+    const shotsRead = (res.read || []).filter((entry) => /^cinematic shots/.test(entry)).join(", ");
+    const world = res.world ? ` · ${esc(String(res.world).toUpperCase())}${res.read?.length ? `: ${esc(res.read.join(", "))}` : ""}` : shotsRead ? ` · ${esc(shotsRead)}` : "";
     const meta = `${esc(res.model)} · ${(res.ms / 1000).toFixed(1)}s${world}${res.notes?.length ? ` · ${esc(res.notes[0])}` : ""}`;
     if (target.kind === "page") {
       try { await navigator.clipboard.writeText(text); } catch { /* clipboard refused */ }
@@ -363,6 +380,13 @@
     settings.model = MODEL_KEYS[(MODEL_KEYS.indexOf(settings.model) + 1) % MODEL_KEYS.length];
     paintChips();
     if (extensionAlive()) chrome.storage.sync.set({ [KEYS.model]: settings.model });
+    input.focus();
+  });
+  shotsChip.addEventListener("mousedown", (event) => event.preventDefault());
+  shotsChip.addEventListener("click", () => {
+    settings.shots = { ...settings.shots, mode: SHOT_MODES[(SHOT_MODES.indexOf(settings.shots.mode) + 1) % SHOT_MODES.length] };
+    paintChips();
+    if (extensionAlive()) chrome.storage.local.set({ [KEYS.shots]: settings.shots });
     input.focus();
   });
   go.addEventListener("click", () => void run(input.value));
