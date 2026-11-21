@@ -91,6 +91,31 @@ export const legacyPixelHash = (input: {
     pillar: input.pillar,
   }));
 
+// A text edit (title, prompt, tags, description, bookmark, curation) leaves the
+// picture alone, so it should not download the original to re-embed pixels.
+// When the pixel lane is missing anyway, a text edit still heals it, unless
+// another reindex already owns that attempt: the new asset's own first index
+// (it runs after describe and tagging) or a pixel retry chain that failed
+// recently. Before this, an agent tagging a fresh save, a bulk curation pass,
+// or every edit of a picture whose pixel lane kept failing downloaded the
+// full image again (Nov 2026: 35k reindexes, 90 GiB of egress).
+export const TEXT_EDIT_NEW_ASSET_GRACE_MS = 10 * 60_000;
+export const TEXT_EDIT_FAILURE_COOLDOWN_MS = 6 * 60 * 60_000;
+
+export const textEditDefersPixel = (input: {
+  now: number;
+  assetCreatedAt?: number;
+  failure?: { status: string; updatedAt: number } | null;
+}) => {
+  if (input.assetCreatedAt !== undefined && input.now - input.assetCreatedAt < TEXT_EDIT_NEW_ASSET_GRACE_MS) {
+    return true;
+  }
+  const failure = input.failure;
+  return Boolean(
+    failure && failure.status !== "resolved" && input.now - failure.updatedAt < TEXT_EDIT_FAILURE_COOLDOWN_MS,
+  );
+};
+
 export const legacyAssetTextHash = (input: { model: string; dimensions: number; text: string }) =>
   sha256Hex(JSON.stringify({ v: "text-lane-v2", model: input.model, dimensions: input.dimensions, text: input.text }));
 

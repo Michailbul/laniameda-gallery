@@ -106,6 +106,14 @@ row is still saved with its text lane (`embedding` may be absent) and only the
 pixel lane retries. Before 26 Sep 2026 a 429 left the asset unsearchable; ~900
 were stuck that way.
 
+**When the picture is embedded again (16 Nov 2026):** only when the image
+itself changes (new storage, R2 key or source URL, or a new model). Publishing,
+starring, re-filing, tagging and every other text edit reuse the stored pixel
+vector and re-embed only the words; the original is not downloaded. Text-only
+writers schedule `reindexAsset` with `textEdit: true`: if the pixel lane is
+missing then, it is healed by that pass unless the asset is under 10 minutes
+old (its own first index owns it) or a pixel retry failed in the last 6 hours.
+
 `semanticSearch:searchAssets` embeds the query per lane (pixel model, and
 gemini-embedding-001 as `RETRIEVAL_QUERY`; both cached), searches both lanes
 and merges them by reciprocal rank (k = 60), then applies filters while

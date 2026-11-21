@@ -262,6 +262,7 @@ export const updatePrompt = ownerMutation({
     for (const asset of linkedAssets) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, {
         assetId: asset._id,
+        textEdit: true,
       });
     }
     for (const designInspiration of linkedDesignInspirations) {
@@ -312,7 +313,7 @@ export const updatePromptOrganization = signedOwnerMutation({
     if (tagsChanged) {
       for (const asset of await ctx.db.query("assets").withIndex("by_prompt_createdAt", (q) => q.eq("promptId", args.id).gte("createdAt", 0)).collect()) {
         if (!canActorAccessOwnerUserId(args.ownerUserId, asset.ownerUserId)) continue;
-        await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+        await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id, textEdit: true });
       }
       for (const inspiration of await ctx.db.query("designInspirations").withIndex("by_promptId", (q) => q.eq("promptId", args.id)).collect()) {
         if (!canActorAccessOwnerUserId(args.ownerUserId, inspiration.ownerUserId)) continue;
@@ -776,6 +777,7 @@ export const deletePrompt = internalMutation({
     for (const asset of linkedAssets) {
       await ctx.scheduler.runAfter(0, reindexAssetAction, {
         assetId: asset._id,
+        textEdit: true,
       });
     }
     for (const designInspiration of linkedDesignInspirations) {
