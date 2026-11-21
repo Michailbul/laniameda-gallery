@@ -323,16 +323,50 @@
     return found ? "Auto · no world in these codes" : "Auto";
   }
   // What the writer was given, for the status line: "DEAR ANNETE: rules, cast, bible".
+  // The cinematic shots show even when no world was read.
   function briefLine(res) {
     if (res?.world) return `${String(res.world).toUpperCase()}${res.read?.length ? `: ${res.read.join(", ")}` : " rules"}`;
-    if (res?.worldTie?.length) return `no world read (${res.worldTie.join(" or ")}? pick one)`;
-    return "";
+    const shots = (res?.read || []).filter((entry) => /^cinematic shots/.test(entry)).join(", ");
+    if (res?.worldTie?.length) return `no world read (${res.worldTie.join(" or ")}? pick one)${shots ? ` · ${shots}` : ""}`;
+    return shots;
+  }
+
+  // The Shots switch (one setting for Grow and the quick edit, kept in
+  // chrome.storage.local "writerShots" = {mode, from, fromName}): how the
+  // writer uses the gallery's cinematic shots, and which collection they come
+  // from ("" = the CINEMATIC SHOTS shelf).
+  const SHOT_MODES = [
+    { key: "off", label: "Off", hint: "The writer never reads the cinematic shots." },
+    { key: "auto", label: "Auto", hint: "When you ask for shots, framing or a camera angle, the writer gets the closest saved shots from the collection." },
+    { key: "random", label: "Random", hint: "Every run draws random shot layouts from the collection, one per prompt. A quick edit draws one when you ask for a shot or an angle." },
+  ];
+  const shotModeOf = (value) => (SHOT_MODES.some((entry) => entry.key === value) ? value : "auto");
+  const shotSettingsOf = (stored) => ({
+    mode: shotModeOf(stored?.mode),
+    from: typeof stored?.from === "string" ? stored.from : "",
+    fromName: typeof stored?.fromName === "string" ? stored.fromName : "",
+  });
+  /** The "from" list: the shelf first as the default (""), then CINEMATIC and the collections under it. */
+  function shotFromOptions(res, settings) {
+    const rows = Array.isArray(res?.sources) ? res.sources : [];
+    const options = [];
+    for (const row of rows) {
+      const value = row.id === res.shelf ? "" : row.id;
+      if (options.some((option) => option.value === value)) continue;
+      const count = row.count > 300 ? "300+" : String(row.count);
+      options.push({ value, name: row.name, label: `${"· ".repeat(Math.max(0, Math.min(3, row.depth || 0)))}${row.name} (${count})` });
+    }
+    if (!options.some((option) => option.value === "")) options.unshift({ value: "", name: "CINEMATIC SHOTS", label: "CINEMATIC SHOTS" });
+    if (settings?.from && !options.some((option) => option.value === settings.from)) {
+      options.push({ value: settings.from, name: settings.fromName || "Chosen collection", label: settings.fromName || "Chosen collection" });
+    }
+    return options;
   }
 
   globalScope.SaveToGalleryExpand = {
     MOVES, ATTACH, HISTORY, HISTORY_READ, moveForCode, attachOf, placeBeside, threadLabel, splitText, queueItemOf, codeLine,
     varyMoodboards, previousPrompts, historyDecision, runRequest, historyKey, recordRun, updateRun, entryOf, recentRows, pillText, ago,
-    writerView, nextWriter, autoWorldLabel, briefLine,
+    writerView, nextWriter, autoWorldLabel, briefLine, SHOT_MODES, shotModeOf, shotSettingsOf, shotFromOptions,
   };
 
   if (typeof document === "undefined" || typeof location === "undefined" || !/(^|\.)midjourney\.com$/i.test(location.hostname)) return;
@@ -342,7 +376,7 @@
   const adapter = () => globalScope.SaveToGalleryMidjourney;
   const STORE = {
     world: "mjExpandWorldPick", dockWorld: "stgMoodboardWorld", oldSref: "mjExpandSrefThis", qePrompts: "quickEditPrompts",
-    attach: "growAttach", vary: "growVaryMoodboards", replay: "growReplayPrevious", history: HISTORY.key,
+    attach: "growAttach", vary: "growVaryMoodboards", replay: "growReplayPrevious", history: HISTORY.key, shots: "writerShots",
   };
   const CARD_WIDTH = 396;
 
@@ -503,6 +537,8 @@
       font:700 9.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.04em;text-transform:uppercase;outline:none;cursor:pointer}
     select:focus{border-color:var(--coral)}
     select.wr{max-width:none;flex:none;padding:0 3px;}
+    select.from{max-width:168px;flex:0 1 auto}
+    select.from:disabled{opacity:.4}
     .wr{flex:none;height:22px;padding:0 7px;border:1px solid var(--line);border-radius:6px;background:#191919;color:var(--ink2);cursor:pointer;font:700 8.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
     .wr.mac{color:#79B791;border-color:rgba(121,183,145,.45)}
     .wr:hover{color:var(--ink)}
@@ -627,6 +663,7 @@
     <div class="codes"></div>
     <div class="opts">
       <div class="opt"><b>Use image as</b><div class="seg attach" role="group" aria-label="Use this image as"></div></div>
+      <div class="opt"><b>Shots</b><div class="seg shotmode" role="group" aria-label="Cinematic shots"></div><select class="from" aria-label="Shots from"></select></div>
       <div class="opt"><button class="flip vary" type="button" title="Each result swaps or adds one moodboard of this world. Taste profiles stay.">Vary moodboards</button><button class="flip replay" type="button" title="The writer gets your last 10 Midjourney prompts and reuses their subjects and views in this frame's look.">Replay previous prompts</button></div>
       <div class="opt-note"></div>
     </div>
@@ -652,6 +689,8 @@
   const worldSelect = $(".top select:not(.wr)");
   const writerButton = $(".wr");
   const attachSeg = $(".seg.attach");
+  const shotSeg = $(".seg.shotmode");
+  const fromSelect = $("select.from");
   const varyButton = $(".flip.vary");
   const replayButton = $(".flip.replay");
   const optNote = $(".opt-note");
@@ -677,7 +716,7 @@
   const state = {
     open: false, folded: false, el: null, source: null, sourceReady: null, prepared: null,
     worlds: [], world: "auto", found: null, keepImages: false,
-    attach: "none", vary: true, replay: false,
+    attach: "none", vary: true, replay: false, shots: shotSettingsOf(null), shotSources: null, shotSourcesAt: 0,
     busy: false, move: null, items: [], sel: 0, set: "", logline: "", editing: -1, thread: "", runId: "",
     runs: [], runAt: 0, showRecent: false, history: [],
   };
@@ -711,6 +750,51 @@
       setLocal({ [key === "vary" ? STORE.vary : STORE.replay]: state[key] });
       paintOptions();
     });
+  }
+
+  SHOT_MODES.forEach((entry) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.mode = entry.key;
+    button.textContent = entry.label;
+    button.title = entry.hint;
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", () => setShots({ mode: entry.key }));
+    shotSeg.appendChild(button);
+  });
+  fromSelect.addEventListener("change", () => {
+    const option = fromSelect.selectedOptions[0];
+    setShots({ from: fromSelect.value, fromName: fromSelect.value ? option?.dataset.name || "" : "" });
+  });
+  function setShots(patch) {
+    state.shots = { ...state.shots, ...patch };
+    setLocal({ [STORE.shots]: state.shots });
+    paintShots();
+    idea.focus();
+  }
+  function paintShots() {
+    shotSeg.querySelectorAll("button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.mode === state.shots.mode)));
+    const options = shotFromOptions(state.shotSources, state.shots);
+    fromSelect.replaceChildren(...options.map((entry) => {
+      const option = document.createElement("option");
+      option.value = entry.value;
+      option.textContent = entry.label;
+      option.dataset.name = entry.name;
+      option.selected = entry.value === state.shots.from;
+      return option;
+    }));
+    fromSelect.disabled = state.shots.mode === "off";
+    const from = options.find((entry) => entry.value === state.shots.from)?.name || "CINEMATIC SHOTS";
+    fromSelect.title = `Shots come from ${from} (and the collections under it). Frames without a shot card are used by their description.`;
+  }
+  // The collections the shots can come from, read again after 5 minutes.
+  async function loadShotSources() {
+    if (state.shotSources && Date.now() - state.shotSourcesAt < 300000) return;
+    const res = await ask("shotSources");
+    if (!res?.ok) return;
+    state.shotSources = res;
+    state.shotSourcesAt = Date.now();
+    paintShots();
   }
 
   function paintOptions() {
@@ -860,7 +944,10 @@
   const worldName = () => (state.world === "auto" ? state.found?.world?.name || "" : state.world === "none" ? "" : state.worlds.find((world) => world.key === state.world)?.name || "");
   let worldsLoaded = false;
   async function loadSettings() {
-    const stored = await local([STORE.world, STORE.oldSref, STORE.attach, STORE.vary, STORE.replay]);
+    const stored = await local([STORE.world, STORE.oldSref, STORE.attach, STORE.vary, STORE.replay, STORE.shots]);
+    state.shots = shotSettingsOf(stored[STORE.shots]);
+    paintShots();
+    void loadShotSources();
     state.world = stored[STORE.world] || "auto";
     state.attach = stored[STORE.attach] ? attachOf(stored[STORE.attach]) : stored[STORE.oldSref] === true ? "sref" : "none";
     state.vary = stored[STORE.vary] !== false;

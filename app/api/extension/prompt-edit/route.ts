@@ -7,6 +7,7 @@ import { clientErrorMessage } from "@/lib/server/route-error";
 import { QUICK_EDIT_LIMITS } from "@/lib/mj-quick-edit";
 import { LOCAL_WRITER_LIMITS } from "@/lib/local-writer";
 import { WRITER_MODEL_KEYS, WRITER_RULES_LIMIT } from "@/lib/writer-models";
+import { SHOT_MODES } from "@/lib/cinematic-shots";
 
 // Quick edit of a Midjourney prompt from the extension: the bar's prompt (and
 // the selected part), a few words of instruction, the world's system prompt
@@ -33,6 +34,8 @@ const bodySchema = z.object({
   // world picked in the bar, used when the codes name none.
   world: z.string().max(120).optional(),
   fallbackWorld: z.string().max(120).optional(),
+  // The Shots switch: off, auto or random, and the collection the shots come from (lib/cinematic-shots.ts).
+  shots: z.object({ mode: z.enum(SHOT_MODES).optional(), from: z.string().max(64).optional() }).optional(),
   local: z.object({
     stage: z.enum(["messages", "finish"]),
     raw: z.string().max(LOCAL_WRITER_LIMITS.raw).optional(),
@@ -50,8 +53,8 @@ export async function POST(request: Request) {
     // An older backend takes only haiku or deepseek and no rules: retry with those.
     const result = await client.action(api.promptEditRunner.rewrite, { ownerUserId, ...input }).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      if (!/validator|extra field/i.test(message) || !(input.rules || !["haiku", "deepseek"].includes(input.model))) throw error;
-      const { rules: _rules, ...rest } = input;
+      if (!/validator|extra field/i.test(message) || !(input.rules || input.shots || !["haiku", "deepseek"].includes(input.model))) throw error;
+      const { rules: _rules, shots: _shots, ...rest } = input;
       return client.action(api.promptEditRunner.rewrite, { ownerUserId, ...rest, model: input.model === "deepseek" ? "deepseek" : "haiku" });
     });
     return corsJson({ ok: true, ...result });

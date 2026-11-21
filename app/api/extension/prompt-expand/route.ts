@@ -8,6 +8,7 @@ import { withWriterFallback } from "@/lib/server/writer-call";
 import { EXPAND_ATTACH, EXPAND_LIMITS, EXPAND_PRESETS, EXPAND_PRESET_KEYS } from "@/lib/mj-expand";
 import { LOCAL_WRITER_LIMITS } from "@/lib/local-writer";
 import { WRITER_MODEL_KEYS, WRITER_RULES_LIMIT } from "@/lib/writer-models";
+import { SHOT_MODES } from "@/lib/cinematic-shots";
 
 // The extension's writer: one Midjourney frame (the picture and the command
 // that made it) grown into more prompts in the same look, by the quick-edit
@@ -40,6 +41,8 @@ const bodySchema = z.object({
   attachUrl: z.string().url().max(2048).optional(),
   // The last Midjourney prompts, newest first ("Replay previous prompts", or the Replay move).
   previous: z.array(z.string().max(EXPAND_LIMITS.previousChars * 2)).max(EXPAND_LIMITS.previous).optional(),
+  // The Shots switch: off, auto or random, and the collection the shots come from (lib/cinematic-shots.ts).
+  shots: z.object({ mode: z.enum(SHOT_MODES).optional(), from: z.string().max(64).optional() }).optional(),
   aspect: z.string().max(20).optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),

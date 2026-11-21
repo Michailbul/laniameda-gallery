@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.40.0 (21 Nov 2026)
+
+Writer: pick where the cinematic shots come from, or draw them at random
+- **Grow card → Shots: Off · Auto · Random**, and a **from** list beside it.
+  Auto is how it worked before: ask for shots, framing or an angle and the
+  writer gets the closest saved shots. Random draws new shot layouts on every
+  run, one per prompt, so a set comes back in different framings.
+- **from** lists CINEMATIC SHOTS (the default), CINEMATIC and every
+  collection under them, with how many frames each holds. A collection
+  includes the ones under it. Frames that have no shot card yet are used by
+  their description.
+- The quick edit has a **SHOTS** chip with the same switch (one click steps
+  Off → Auto → Random). It follows the collection picked on the Grow card.
+- The status line under the card says what was read, for example
+  "cinematic shots (4 random · NERVY — Night Rooftop Plates)".
+
 ## 0.39.3 (21 Nov 2026)
 
 Midjourney: the Rerun bar never covers the prompt or the settings

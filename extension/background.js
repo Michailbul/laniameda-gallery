@@ -24,6 +24,8 @@ const MJ_QUEUE_ROUTE_PATH = "/api/extension/mj-queue";
 const QUICK_EDIT_ROUTE_PATH = "/api/extension/prompt-edit";
 const DESCRIBE_ROUTE_PATH = "/api/extension/prompt-describe";
 const EXPAND_ROUTE_PATH = "/api/extension/prompt-expand";
+// The collections the writer's cinematic shots can come from (Grow card → Shots → from).
+const SHOTS_ROUTE_PATH = "/api/extension/cinematic-shots";
 const WORLD_ROUTE_PATH = "/api/extension/prompt-world";
 const WRITER_PROMPTS_ROUTE_PATH = "/api/extension/writer-prompts";
 const PROVIDER_KEY_ROUTE_PATH = "/api/extension/provider-key";
@@ -1377,6 +1379,18 @@ async function writerCall(path, body, { cloudOnly = false } = {}) {
   return post({ ...full, local: { stage: "finish", raw: written.text, model: written.model, ms: written.ms } });
 }
 
+// The Shots switch (Grow card and quick edit, one setting): off, auto or
+// random, and the collection the shots come from (empty = CINEMATIC SHOTS).
+// Auto from the shelf is the gallery's default, so nothing is sent for it.
+const SHOTS_KEY = "writerShots";
+async function writerShots() {
+  const stored = await chrome.storage.local.get(SHOTS_KEY).catch(() => ({}));
+  const value = stored?.[SHOTS_KEY] || {};
+  const mode = ["off", "auto", "random"].includes(value.mode) ? value.mode : "auto";
+  const from = typeof value.from === "string" ? value.from.slice(0, 64) : "";
+  return mode === "auto" && !from ? undefined : { mode, ...(from ? { from } : {}) };
+}
+
 // What the cards and the side panel show and switch: where the writer runs and on which model.
 async function writerRequest(message) {
   if (message.do === "set") {
@@ -1417,6 +1431,7 @@ async function quickEditRequest(message) {
     // writer that world's files; the world picked in the bar is the fallback.
     world: "auto",
     fallbackWorld: message.fallbackWorld && message.fallbackWorld !== "none" ? String(message.fallbackWorld) : undefined,
+    shots: await writerShots(),
   };
   return writerCall(QUICK_EDIT_ROUTE_PATH, body);
 }
@@ -1571,8 +1586,11 @@ async function expandRequest(message, sender) {
         method: "POST",
         body: JSON.stringify({ world: "auto", command: String(message.command || "").slice(0, 8000), frame: message.frame ? String(message.frame).slice(0, 600) : undefined }),
       });
+    case "shotSources":
+      return describeFetchJson(SHOTS_ROUTE_PATH, { method: "GET" });
     case "run":
       return writerCall(EXPAND_ROUTE_PATH, {
+        shots: await writerShots(),
         image: message.image,
         command: message.command || undefined,
         preset: message.preset || undefined,

@@ -25,6 +25,9 @@ type ExpandApi = {
   splitText: (text: string) => { images: string[]; words: string; tail: string };
   queueItemOf: (made: Made, source: { imageUrl?: string; pageUrl?: string; note?: string }, key: string) => Record<string, unknown>;
   codeLine: (command: string) => { images: string[]; words: string; srefs: string[]; profiles: string[]; rest: string };
+  briefLine: (res: Record<string, unknown>) => string;
+  shotSettingsOf: (stored: unknown) => { mode: string; from: string; fromName: string };
+  shotFromOptions: (res: unknown, settings?: { from: string; fromName: string }) => Array<{ value: string; name: string; label: string }>;
 };
 const page = () => (globalThis as typeof globalThis & { SaveToGalleryExpand: ExpandApi }).SaveToGalleryExpand;
 
@@ -350,5 +353,34 @@ describe("mj-expand card: moves, moodboards, history", () => {
     expect(page().pillText(6)).toBe("6 prompts");
     expect(page().pillText(1)).toBe("1 prompt");
     expect(page().pillText(0, true)).toBe("writing…");
+  });
+});
+
+describe("mj-expand: the Shots switch", () => {
+  test("a missing or odd setting means auto from the shelf", () => {
+    expect(page().shotSettingsOf(null)).toEqual({ mode: "auto", from: "", fromName: "" });
+    expect(page().shotSettingsOf({ mode: "loud", from: 4 })).toEqual({ mode: "auto", from: "", fromName: "" });
+    expect(page().shotSettingsOf({ mode: "random", from: "f2", fromName: "NERVY" })).toEqual({ mode: "random", from: "f2", fromName: "NERVY" });
+  });
+
+  test("the from list puts the shelf first as the default and names the rest once", () => {
+    const res = { shelf: "s1", sources: [
+      { id: "s1", name: "CINEMATIC SHOTS", depth: 0, count: 49 },
+      { id: "c1", name: "CINEMATIC", depth: 0, count: 128 },
+      { id: "s1", name: "CINEMATIC SHOTS", depth: 1, count: 49 },
+      { id: "n1", name: "NERVY — Night Rooftop Plates", depth: 1, count: 2 },
+    ] };
+    const options = page().shotFromOptions(res);
+    expect(options.map((entry) => entry.value)).toEqual(["", "c1", "n1"]);
+    expect(options[0]!.label).toBe("CINEMATIC SHOTS (49)");
+    expect(options[2]!.label).toBe("· NERVY — Night Rooftop Plates (2)");
+    // Before the list loads, a chosen collection still shows by its name.
+    expect(page().shotFromOptions(null, { from: "n1", fromName: "NERVY" }).map((entry) => entry.label)).toEqual(["CINEMATIC SHOTS", "NERVY"]);
+  });
+
+  test("the status line says the shots were read, with or without a world", () => {
+    expect(page().briefLine({ read: ["cinematic shots (4 random)"] })).toBe("cinematic shots (4 random)");
+    expect(page().briefLine({ world: "Dear Annete", read: ["rules", "cinematic shots (8)"] })).toBe("DEAR ANNETE: rules, cinematic shots (8)");
+    expect(page().briefLine({})).toBe("");
   });
 });
