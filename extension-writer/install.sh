@@ -41,8 +41,13 @@ for prefs in glob.glob(home + "/Library/Application Support/Google/Chrome/*/Secu
         if name == "Save to Gallery" or "save-to-gallery" in where or where.endswith("laniameda.gallery/extension"): ids.add(ext)
 conf["extensions"] = sorted(ids)
 conf.setdefault("port", 47615)
-tokens = [p for p in (home + "/.config/claude-tokens/eallin.token", home + "/.config/claude-tokens/artist.token") if os.path.exists(p)]
-if tokens and not conf.get("tokens"): conf["tokens"] = tokens
+# Every sign-in in ~/.config/claude-tokens, eallin first; ones already listed keep their order, new ones are added.
+token_dir = home + "/.config/claude-tokens"
+found = sorted((os.path.join(token_dir, f) for f in (os.listdir(token_dir) if os.path.isdir(token_dir) else []) if f.endswith(".token")),
+               key=lambda p: (0 if p.endswith("/eallin.token") else 1, p))
+tokens = [p for p in (conf.get("tokens") or []) if os.path.exists(p)]
+tokens += [p for p in found if p not in tokens]
+if tokens: conf["tokens"] = tokens
 json.dump(conf, open(path, "w"), indent=1)
 os.chmod(path, 0o600)
 print("allowed extension copies:", len(ids), "| Claude sign-ins:", len(conf.get("tokens") or tokens))

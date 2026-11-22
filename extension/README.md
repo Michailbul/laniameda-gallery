@@ -109,7 +109,7 @@ browser runs on, instead of a paid provider.
 - Install once per Mac: `extension-writer/install.sh` (from the repo). It puts a
   small service on `127.0.0.1:47615`, kept running by the LaunchAgent
   `com.laniameda.writer`, which runs `claude -p` with no tools on Haiku 5.5,
-  Sonnet 5.5, Opus 5.5 or Fable 5.2 (bridge 1.3.0) using the long-lived sign-ins in `~/.config/claude-tokens/`.
+  Sonnet 5.5, Opus 5.5 or Fable 5.2 (bridge 1.4.0: a refused or limited account is left out, a silent run hands over to the next account) using the long-lived sign-ins in `~/.config/claude-tokens/`.
 - Where the writer runs and on which model is one pick for every tool (0.41,
   `writer-choice.js`): **This Mac** (Haiku, Sonnet, Opus, Fable through the
   bridge), **Cloud · fal** or **Cloud · Pika** (the gallery's keys), each
