@@ -9,6 +9,7 @@ importScripts(
   "save-targets.js",
   "midjourney-adapter.js",
   "midjourney-copy-list.js",
+  "writer-choice.js",
 );
 
 const saveTargets = globalThis.SaveToGallerySaveTargets;
@@ -1261,14 +1262,18 @@ async function mjQueueRequest(message) {
   return data;
 }
 
-// ── The local writer ──
-// Every writer call (quick edit, the describer, Grow) can run on this Mac
-// instead of a paid provider: the laniameda writer bridge (extension-writer/
-// in the repo, a LaunchAgent on 127.0.0.1) runs `claude -p` on the chosen
-// Claude model. The gallery still builds the messages and reads the answer:
-// stage "messages" fetches them, the bridge writes, stage "finish" hands the
-// raw answer back. Mode "auto" (default) uses the bridge when it answers and
-// the gallery's providers when it does not.
+// ── The writer: this Mac, Cloud · fal or Cloud · Pika ──
+// Every writer call (quick edit, the describer, Grow) runs where the art
+// director picked (writer-choice.js, chrome.storage.sync writerMode):
+//   local  the laniameda writer bridge (extension-writer/ in the repo, a
+//          LaunchAgent on 127.0.0.1) runs `claude -p` on the chosen Claude
+//          model. The gallery still builds the messages and reads the answer:
+//          stage "messages" fetches them, the bridge writes, stage "finish"
+//          hands the raw answer back.
+//   fal    the gallery's providers, fal only (`provider: "fal"`).
+//   pika   the gallery's providers, Pika only.
+// It never moves somewhere else by itself (Michael, 22 Nov 2026): a failure
+// comes back with `where`, and the card offers the other place as one click.
 //
 // The default writer model (MJ settings → Writer, 19 Nov 2026) is one setting
 // for every tool, and each tool's system prompt can be replaced there: the
@@ -1276,7 +1281,7 @@ async function mjQueueRequest(message) {
 // answer was written with is kept as "last sent" for the panel to show.
 const WRITER_BRIDGE = "http://127.0.0.1:47615";
 const WRITER_KEYS = { mode: "writerMode", model: "writerModel", rules: "writerRules", lastSystem: "writerLastSystem" };
-const WRITER_MODEL_KEYS = ["haiku", "sonnet", "opus", "fable", "deepseek"];
+const writerChoice = globalThis.SaveToGalleryWriterChoice;
 // Models the bridge can run (DeepSeek is cloud only). An older bridge lists fewer in /health.
 const WRITER_LOCAL_MODELS = ["haiku", "sonnet", "opus", "fable"];
 const WRITER_TOOL_BY_PATH = { [EXPAND_ROUTE_PATH]: "grow", [DESCRIBE_ROUTE_PATH]: "describe", [QUICK_EDIT_ROUTE_PATH]: "edit" };
@@ -1284,10 +1289,7 @@ let writerSeen = { at: 0, up: false, models: [] };
 
 async function writerSettings() {
   const stored = await chrome.storage.sync.get([WRITER_KEYS.mode, WRITER_KEYS.model]).catch(() => ({}));
-  return {
-    mode: ["local", "cloud"].includes(stored?.[WRITER_KEYS.mode]) ? stored[WRITER_KEYS.mode] : "auto",
-    model: WRITER_MODEL_KEYS.includes(stored?.[WRITER_KEYS.model]) ? stored[WRITER_KEYS.model] : "haiku",
-  };
+  return { mode: writerChoice.modeOf(stored?.[WRITER_KEYS.mode]), model: writerChoice.modelOf(stored?.[WRITER_KEYS.model]) };
 }
 
 async function writerBridgeUp(fresh = false) {
@@ -1342,41 +1344,40 @@ async function rememberSystem(tool, res) {
   await chrome.storage.local.set({ [WRITER_KEYS.lastSystem]: all }).catch(() => {});
 }
 
-// One writer call: on this Mac when the bridge is up and runs the chosen
-// model (or the mode says local), else through the gallery's providers.
-async function writerCall(path, body, { cloudOnly = false } = {}) {
+// One writer call, where the picker says. A failure carries `where` (the place
+// that failed), `model` and `offer` (the other place, for a one-click retry).
+async function writerCall(path, body) {
   const tool = WRITER_TOOL_BY_PATH[path];
   const settings = await writerSettings();
   const rules = await writerRulesFor(tool);
-  const full = { ...body, model: body.model || settings.model, ...(rules ? { rules } : {}) };
+  const model = writerChoice.modelOf(body.model || settings.model);
+  const full = { ...body, model, ...(rules ? { rules } : {}) };
   const post = async (payload) => {
     const res = await describeFetchJson(path, { method: "POST", body: JSON.stringify(payload) });
     if (!payload.local || payload.local.stage === "finish") await rememberSystem(tool, res);
     return res;
   };
-  if (cloudOnly || settings.mode === "cloud") return post(full);
-  const up = await writerBridgeUp();
-  if (!up || !bridgeRuns(full.model)) {
-    if (settings.mode === "local") {
-      return { ok: false, error: up ? `The local writer on this Mac cannot run ${full.model}: pick a Claude model, or update the bridge (extension-writer/install.sh).` : "The local writer is not running on this Mac." };
-    }
-    return post(full);
+  const failed = (where, error) => {
+    const res = { ok: false, error, where, model };
+    return { ...res, offer: writerChoice.offerFor(res) };
+  };
+  if (settings.mode !== "local") {
+    const res = await post({ ...full, provider: settings.mode });
+    if (res?.ok) return res;
+    const name = writerChoice.whereOf(settings.mode).name;
+    return failed(settings.mode, `${name} failed: ${String(res?.error || "no answer").replace(/\.$/, "")}.`);
   }
+  if (!writerChoice.runsOn("local", model)) return failed("local", `${writerChoice.modelInfo(model).name} does not run on this Mac.`);
+  const up = await writerBridgeUp(true);
+  if (!up) return failed("local", "The writer on this Mac is not running (extension-writer/install.sh starts it).");
+  if (!bridgeRuns(model)) return failed("local", `The writer on this Mac is older and cannot run ${writerChoice.modelInfo(model).name}: run extension-writer/install.sh again.`);
   const prepared = await post({ ...full, local: { stage: "messages" } });
-  if (!prepared?.ok) {
-    // A gallery without the local stages refuses the extra field: use its providers.
-    if (settings.mode === "local") return prepared;
-    const cloud = await post(full);
-    return cloud?.ok ? cloud : { ...cloud, error: `${cloud?.error || "Could not write."} (local writer: ${prepared?.error || "the gallery refused the request"})` };
-  }
-  if (!prepared.local?.messages) return post(full); // an older gallery: no local stages yet
-  const written = await writerBridgeWrite(prepared.local.messages, prepared.local.maxTokens, full.model);
-  if (!written.ok) {
-    if (settings.mode === "local") return { ok: false, error: `The local writer failed: ${written.error}.` };
-    const cloud = await post(full);
-    return cloud?.ok ? { ...cloud, notes: [...(cloud.notes || []), `local writer: ${written.error}`] } : { ...cloud, error: `${cloud?.error || "Could not write."} (local writer: ${written.error})` };
-  }
-  return post({ ...full, local: { stage: "finish", raw: written.text, model: written.model, ms: written.ms } });
+  if (!prepared?.ok) return failed("local", `The gallery could not prepare the local run: ${prepared?.error || "it refused the request"}.`);
+  if (!prepared.local?.messages) return failed("local", "This gallery has no local runs yet.");
+  const written = await writerBridgeWrite(prepared.local.messages, prepared.local.maxTokens, model);
+  if (!written.ok) return failed("local", `The writer on this Mac failed: ${written.error}.`);
+  const res = await post({ ...full, local: { stage: "finish", raw: written.text, model: written.model, ms: written.ms } });
+  return res?.ok ? res : failed("local", res?.error || "Could not write.");
 }
 
 // The Shots switch (Grow card and quick edit, one setting): off, auto or
@@ -1395,8 +1396,8 @@ async function writerShots() {
 async function writerRequest(message) {
   if (message.do === "set") {
     const next = {};
-    if (["auto", "local", "cloud"].includes(message.mode)) next[WRITER_KEYS.mode] = message.mode;
-    if (WRITER_MODEL_KEYS.includes(message.model)) next[WRITER_KEYS.model] = message.model;
+    if (writerChoice.WHERE_KEYS.includes(message.mode)) next[WRITER_KEYS.mode] = message.mode;
+    if (writerChoice.MODEL_KEYS.includes(message.model)) next[WRITER_KEYS.model] = message.model;
     await chrome.storage.sync.set(next).catch(() => {});
   }
   if (message.do === "prompts") {
@@ -1414,7 +1415,11 @@ async function writerRequest(message) {
     return describeFetchJson(PROVIDER_KEY_ROUTE_PATH, { method: "POST", body: JSON.stringify({ provider, key }) });
   }
   const [settings, up] = await Promise.all([writerSettings(), writerBridgeUp(Boolean(message.fresh))]);
-  return { ok: true, ...settings, up, bridgeModels: up ? writerSeen.models : [], local: settings.mode !== "cloud" && up && bridgeRuns(settings.model) };
+  return {
+    ok: true, ...settings, up, bridgeModels: up ? writerSeen.models : [],
+    local: settings.mode === "local" && up && bridgeRuns(settings.model),
+    label: writerChoice.label(settings.mode, settings.model),
+  };
 }
 
 // Quick edit of a Midjourney prompt (mj-quick-edit.js): the gallery runs one

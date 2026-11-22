@@ -1,11 +1,20 @@
 // The models the Midjourney writer can run on (Grow, Describe, quick edit).
 // One list for every writer tool: the extension's side panel picks the default
-// and every call carries it. Cloud routes are tried in order: fal first (its
-// OpenRouter route), Pika when fal is blocked. `local` is the model id the
-// writer bridge on the Mac runs (`claude -p --model …`); DeepSeek has none.
-// Checked on fal and Pika on 19 Nov 2026.
+// and every call carries it. The art director picks where it runs: this Mac
+// (the writer bridge), Cloud · fal or Cloud · Pika (`provider`, 22 Nov 2026);
+// a call with a provider uses only that provider's routes and never switches
+// to the other one by itself. A call without one (an older extension) tries
+// fal first (its OpenRouter route), Pika when fal is blocked. `local` is the
+// model id the writer bridge on the Mac runs (`claude -p --model …`); DeepSeek
+// has none. Checked on fal and Pika on 19 Nov 2026.
 
-export type WriterRoute = { provider: "fal" | "pika"; model: string; label: string };
+export const WRITER_PROVIDERS = ["fal", "pika"] as const;
+export type WriterProvider = (typeof WRITER_PROVIDERS)[number];
+export const WRITER_PROVIDER_NAMES: Record<WriterProvider, string> = { fal: "fal", pika: "Pika" };
+export const isWriterProvider = (value: unknown): value is WriterProvider =>
+  typeof value === "string" && (WRITER_PROVIDERS as readonly string[]).includes(value);
+
+export type WriterRoute = { provider: WriterProvider; model: string; label: string };
 export type WriterModelInfo = {
   label: string;
   short: string;
@@ -79,10 +88,23 @@ export function pickWriterModel(asked: unknown, needsVision: boolean): { model: 
   return { model };
 }
 
-/** What the extension lists in its model picker. */
+/** The routes a call may use: only the chosen provider's, or all of them (fal first) when none is chosen. */
+export function writerRoutes(model: WriterModel, provider?: WriterProvider): WriterRoute[] {
+  const routes = WRITER_MODELS[model].routes;
+  return provider ? routes.filter((route) => route.provider === provider) : routes;
+}
+
+/** The model a provider runs for a writer model, in plain words ("Haiku 4.5" on Pika). */
+export function cloudModelLabel(model: WriterModel, provider: WriterProvider): string {
+  const route = writerRoutes(model, provider)[0];
+  return (route?.label ?? WRITER_MODELS[model].label).replace(/\s*\((fal|Pika)\)$/, "");
+}
+
+/** What the extension lists in its model picker, with the model each cloud provider runs. */
 export const writerModelList = () => WRITER_MODEL_KEYS.map((key) => {
   const { label, short, vision, local, hint } = WRITER_MODELS[key];
-  return { key, label, short, vision, local: Boolean(local), hint };
+  const cloud = Object.fromEntries(WRITER_PROVIDERS.map((provider) => [provider, cloudModelLabel(key, provider)])) as Record<WriterProvider, string>;
+  return { key, label, short, vision, local: Boolean(local), hint, cloud };
 });
 
 /** Longest custom system prompt the extension may send for one tool. */

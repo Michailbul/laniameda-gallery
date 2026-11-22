@@ -6,7 +6,7 @@ import { resolveExtensionOwnerUserId, validateExtensionToken } from "@/lib/serve
 import { clientErrorMessage } from "@/lib/server/route-error";
 import { QUICK_EDIT_LIMITS } from "@/lib/mj-quick-edit";
 import { LOCAL_WRITER_LIMITS } from "@/lib/local-writer";
-import { WRITER_MODEL_KEYS, WRITER_RULES_LIMIT } from "@/lib/writer-models";
+import { WRITER_MODEL_KEYS, WRITER_PROVIDERS, WRITER_RULES_LIMIT } from "@/lib/writer-models";
 import { SHOT_MODES } from "@/lib/cinematic-shots";
 
 // Quick edit of a Midjourney prompt from the extension: the bar's prompt (and
@@ -28,6 +28,8 @@ const bodySchema = z.object({
   instruction: z.string().min(1).max(QUICK_EDIT_LIMITS.instruction),
   system: z.string().max(QUICK_EDIT_LIMITS.system).optional(),
   model: z.enum(WRITER_MODEL_KEYS).default("haiku"),
+  // Where a cloud call runs (the extension\'s writer picker): only fal, or only Pika.
+  provider: z.enum(WRITER_PROVIDERS).optional(),
   // The art director's own system prompt for the quick edit (MJ settings → Writer).
   rules: z.string().max(WRITER_RULES_LIMIT).optional(),
   // "auto" reads the world from the prompt's own codes; fallbackWorld is the

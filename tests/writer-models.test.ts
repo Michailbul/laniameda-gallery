@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { WRITER_MODELS, WRITER_MODEL_KEYS, pickWriterModel, writerModelList } from "../lib/writer-models";
+import { WRITER_MODELS, WRITER_MODEL_KEYS, cloudModelLabel, pickWriterModel, writerModelList, writerRoutes } from "../lib/writer-models";
 import { QUICK_EDIT_ROUTES, QUICK_EDIT_SYSTEM_DEFAULT, buildQuickEditMessages } from "../lib/mj-quick-edit";
 import { EXPAND_SYSTEM_DEFAULT, buildExpandMessages } from "../lib/mj-expand";
 import { DESCRIBE_BASE_RULES, buildDescribeMessages } from "../lib/mj-describe";
@@ -18,6 +18,19 @@ describe("writer models: one default for every tool", () => {
     expect(WRITER_MODELS.fable.local).toBe("claude-fable-5-2");
     expect(WRITER_MODELS.deepseek.local).toBeUndefined();
     expect(writerModelList().map((m) => m.key)).toEqual([...WRITER_MODEL_KEYS]);
+  });
+
+  test("a chosen provider keeps to its own routes; none chosen tries fal then Pika", () => {
+    for (const key of WRITER_MODEL_KEYS) {
+      expect(writerRoutes(key, "fal").every((route) => route.provider === "fal")).toBe(true);
+      expect(writerRoutes(key, "pika").every((route) => route.provider === "pika")).toBe(true);
+      expect(writerRoutes(key, "fal").length).toBeGreaterThan(0);
+      expect(writerRoutes(key, "pika").length).toBeGreaterThan(0);
+      expect(writerRoutes(key)).toBe(WRITER_MODELS[key].routes);
+    }
+    expect(cloudModelLabel("haiku", "pika")).toBe("Haiku 4.5");
+    expect(cloudModelLabel("haiku", "fal")).toBe("Haiku 5.5");
+    expect(writerModelList()[0]!.cloud).toEqual({ fal: "Haiku 5.5", pika: "Haiku 4.5" });
   });
 
   test("unknown or missing picks Haiku; a picture never goes to a text-only model", () => {

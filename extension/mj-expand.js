@@ -290,29 +290,32 @@
     return hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} d`;
   }
 
-  // The writer switch: what the button shows for a status ({mode, model, up,
-  // local}) and what one click changes it to. The click steps through the
-  // writer models (the default for every tool, also in MJ settings → Writer);
-  // where it runs (this Mac or the gallery's providers) is set in the panel.
-  const WRITER_MODELS = [
-    { key: "haiku", name: "Haiku" }, { key: "sonnet", name: "Sonnet" }, { key: "opus", name: "Opus" },
-    { key: "fable", name: "Fable" }, { key: "deepseek", name: "DeepSeek" },
-  ];
+  // The writer switch: what the picker shows for a status ({mode, model, up,
+  // local}) and the next choice. Where it runs and the model are one choice
+  // (writer-choice.js): Haiku · Mac … Cloud · fal · Haiku 5.5 … Cloud · Pika ·
+  // Haiku 4.5. The pick is the default for every writer tool.
+  const choice = () => globalScope.SaveToGalleryWriterChoice;
   function writerView(status) {
-    const model = WRITER_MODELS.find((entry) => entry.key === status?.model) || WRITER_MODELS[0];
-    const name = model.key === "deepseek" ? "Haiku" : model.name; // Grow sends a picture: DeepSeek cannot read it.
-    const local = typeof status?.local === "boolean" ? status.local : Boolean(status?.up) && status?.mode !== "cloud" && model.key !== "deepseek";
-    const down = status?.mode === "local" && !local;
+    const c = choice();
+    const mode = c.modeOf(status?.mode);
+    // Grow sends a picture: DeepSeek cannot read it, so Haiku writes.
+    const model = c.modelInfo(status?.model).vision ? c.modelOf(status?.model) : "haiku";
+    const local = mode === "local";
+    const down = local && status?.up === false;
     return {
-      label: `${name} · ${local ? "Mac" : "Cloud"}`, local,
+      label: c.label(mode, model), local, mode, model,
       title: down
-        ? "The local writer cannot run this on this Mac, so nothing can be written. Click for the next model; MJ settings → Writer sets where it runs."
-        : `Writer: ${name} ${model.key === "deepseek" ? "(DeepSeek cannot see pictures) " : ""}${local ? "on this Mac" : "through the gallery's providers"}. Click for the next model; MJ settings → Writer has the model, where it runs and the system prompts.`,
+        ? "The writer on this Mac is not running, so nothing can be written here. Pick Cloud · fal or Cloud · Pika, or start the bridge (extension-writer/install.sh)."
+        : `Writer: ${c.runs(mode, model)} ${local ? "on this Mac" : `on ${c.whereOf(mode).name}`}. The pick is the default for Grow, Describe and the quick edit.`,
     };
   }
+  /** The next choice in the picker's order (Mac models, then fal, then Pika). */
   function nextWriter(status) {
-    const at = WRITER_MODELS.findIndex((entry) => entry.key === status?.model);
-    return { model: WRITER_MODELS[(at + 1) % WRITER_MODELS.length].key };
+    const c = choice();
+    const items = c.groups({ vision: true }).flatMap((group) => group.items);
+    const at = items.findIndex((item) => item.value === c.valueOf(status?.mode, status?.model));
+    const next = items[(at + 1) % items.length];
+    return { mode: next.mode, model: next.model };
   }
 
   // The world picker's first option: the world read from the frame's own
@@ -571,6 +574,8 @@
     .line:empty{padding:0 0 9px}
     .line .err{color:var(--coral)}
     .line button{background:none;border:0;padding:0;color:var(--ink);font:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
+    .line button.offer{flex:none;height:20px;padding:0 7px;border:1px solid var(--coral);border-radius:6px;color:var(--coral);text-decoration:none;font:700 8.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
+    .line button.offer:hover{background:var(--coral);color:#0A0805}
     .line .sp{flex:1}
     .spin{width:10px;height:10px;border:1.5px solid var(--line2);border-top-color:var(--coral);border-radius:50%;animation:s .7s linear infinite;flex:0 0 auto}
     @keyframes s{to{transform:rotate(360deg)}}
@@ -817,6 +822,21 @@
   }
 
   function setLine(html, kind = "") { line.innerHTML = kind === "err" ? `<span class="err">${html}</span>` : html; }
+  // The chosen writer failed: say so (the line) and offer the other place as one click.
+  // It never switches by itself (Michael, 22 Nov 2026).
+  function offerWriter(offer, again) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "offer";
+    button.textContent = offer.label;
+    button.title = "Switch the writer there (the default for every tool) and write again";
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+    button.addEventListener("click", async () => {
+      const res = await setWriter(offer);
+      if (res?.ok) again();
+    });
+    line.append(button);
+  }
 
   let toastTimer = null;
   function showToast(text) {
@@ -977,34 +997,30 @@
     state.found = res?.ok ? { world: res.world || null, tie: res.tie || [], read: res.read || [], by: res.by } : null;
     paintWorlds();
   }
-  // Where the writer runs: on this Mac (Haiku 5.5 or Sonnet 5.5 through the
-  // local bridge) or through the gallery's providers. Click to switch.
-  // A pick in the list is the default writer for every tool (Grow, Describe,
-  // quick edit), same as MJ settings → Writer. DeepSeek is left out here: Grow
-  // sends a picture and DeepSeek cannot read it.
+  // Where the writer runs and on which model, one pick (writer-choice.js):
+  // This Mac (the local bridge), Cloud · fal or Cloud · Pika. A pick here is
+  // the default writer for every tool (Grow, Describe, quick edit), same as
+  // MJ settings → Writer. DeepSeek is left out here: Grow sends a picture and
+  // DeepSeek cannot read it.
   const paintWriter = (status) => {
     const view = writerView(status);
-    const where = view.local ? "Mac" : "Cloud";
-    const current = WRITER_MODELS.find((entry) => entry.key === status?.model && entry.key !== "deepseek")?.key || "haiku";
-    writerButton.replaceChildren(...WRITER_MODELS.filter((entry) => entry.key !== "deepseek").map((entry) => {
-      const option = document.createElement("option");
-      option.value = entry.key;
-      option.textContent = entry.key === current ? `${entry.name} · ${where}` : entry.name;
-      option.selected = entry.key === current;
-      return option;
-    }));
-    writerButton.title = view.title.replace(/Click for the next model; /, "Pick the default writer model here; ");
-    writerButton.classList.toggle("mac", view.local);
+    choice().fill(writerButton, { mode: view.mode, model: view.model }, { vision: true });
+    writerButton.title = view.title;
+    writerButton.classList.toggle("mac", view.local && status?.up !== false);
     state.writer = status;
   };
-  paintWriter({ mode: "auto", model: "haiku", up: false });
+  paintWriter({ mode: "local", model: "haiku" });
   async function loadWriter(fresh = false) {
     const res = await ask("writer", { fresh });
     if (res?.ok) paintWriter(res);
   }
-  writerButton.addEventListener("change", async () => {
-    const res = await ask("writer", { do: "set", model: writerButton.value, fresh: true });
+  async function setWriter(pick) {
+    const res = await ask("writer", { do: "set", mode: pick.mode, model: pick.model, fresh: true });
     if (res?.ok) paintWriter(res);
+    return res;
+  }
+  writerButton.addEventListener("change", async () => {
+    await setWriter(choice().parse(writerButton.value));
     idea.focus();
   });
   worldSelect.addEventListener("change", () => {
@@ -1263,7 +1279,7 @@
         keepImages: state.keepImages, attach: settings.attach, previous, replay: settings.replay,
       }));
       if (state.source !== source) return;
-      if (!res?.ok) throw new Error(res?.error || "Could not write the prompts.");
+      if (!res?.ok) throw Object.assign(new Error(res?.error || "Could not write the prompts."), { offer: res?.offer, steer });
       if (settings.world === "auto" && res.worldKey) { state.found = { world: { key: res.worldKey, name: res.world }, tie: [], read: res.read || [], by: res.worldBy }; paintWorlds(); }
       let items = (res.items || []).map((item) => ({ ...item, text: item.prompt, queued: false }));
       let varied = "";
@@ -1292,6 +1308,7 @@
       if (state.open) card.focus();
     } catch (err) {
       setLine(esc(err?.message || err), "err");
+      if (err?.offer) offerWriter(err.offer, () => { if (err.steer && !idea.value.trim()) idea.value = err.steer; void run(moveKey); });
     } finally {
       state.busy = false;
       paintMoves();

@@ -6,7 +6,7 @@ import { internal } from "./_generated/api";
 import type { ActionCtx } from "./_generated/server";
 import { resolveProviderKey } from "./providerVault";
 import {
-  QUICK_EDIT_LIMITS, QUICK_EDIT_ROUTES, buildQuickEditMessages, cleanModelText, restoreUrls, type QuickEditModel,
+  QUICK_EDIT_LIMITS, buildQuickEditMessages, cleanModelText, restoreUrls, type QuickEditModel,
 } from "../lib/mj-quick-edit";
 import {
   DESCRIBE_LIMITS, aspectOf, buildDescribeMessages, describeParams, parseDescribeAnswer,
@@ -17,14 +17,15 @@ import {
 } from "../lib/mj-expand";
 import { MJ_BANNED_PROFILE_WARNING, withoutBannedCodes } from "../lib/mj-queue";
 import { LOCAL_WRITER_LIMITS, localAnswer } from "../lib/local-writer";
-import { WRITER_RULES_LIMIT, pickWriterModel } from "../lib/writer-models";
+import { WRITER_PROVIDER_NAMES, WRITER_RULES_LIMIT, pickWriterModel, writerRoutes, type WriterProvider } from "../lib/writer-models";
 import { enforceMjVersion, mjVersionWarning } from "../lib/mj-version";
 import type { BriefTier } from "../lib/writer-brief";
 import { CINEMATIC_SHOTS_SHELF, asksForShots, shotModeOf, type ShotSettings } from "../lib/cinematic-shots";
 
 // Quick edit of a Midjourney prompt from the extension (select text in the
-// Imagine bar, ⌥E, a few words). One short chat call on a fast model: fal
-// first (its OpenRouter route), Pika when fal is blocked or out of credit.
+// Imagine bar, ⌥E, a few words). One short chat call on the chosen provider
+// (fal or Pika, `provider`); with none chosen (an older extension), fal first
+// (its OpenRouter route), Pika when fal is blocked or out of credit.
 // Keys come from Settings (providerVault), else the deployment's.
 
 const FAL_CHAT = "https://fal.run/openrouter/router/openai/v1/chat/completions";
@@ -41,7 +42,7 @@ const plainError = (provider: string, status: number, body: string) => {
   return `${provider} answered ${status}${text ? `: ${text.replace(/\s+/g, " ").slice(0, 120)}` : ""}`;
 };
 
-async function chat(provider: "fal" | "pika", key: string, model: string, messages: Message[], maxTokens = 1500) {
+async function chat(provider: WriterProvider, key: string, model: string, messages: Message[], maxTokens = 1500) {
   const response = await fetch(provider === "fal" ? FAL_CHAT : PIKA_CHAT, {
     method: "POST",
     headers: {
@@ -56,10 +57,12 @@ async function chat(provider: "fal" | "pika", key: string, model: string, messag
   });
   const body = await response.text();
   if (!response.ok) throw new Error(plainError(provider === "fal" ? "fal" : "Pika", response.status, body));
-  const data = JSON.parse(body) as { choices?: Array<{ message?: { content?: string } }> };
+  const data = JSON.parse(body) as { id?: string; choices?: Array<{ message?: { content?: string } }> };
   const text = data.choices?.[0]?.message?.content ?? "";
   if (!text.trim()) throw new Error(`${provider === "fal" ? "fal" : "Pika"} returned nothing`);
-  return text;
+  // The provider's own id for the call, so a write can be traced on fal or Pika.
+  const requestId = (typeof data.id === "string" && data.id) || response.headers.get("x-fal-request-id") || response.headers.get("x-request-id") || undefined;
+  return { text, requestId: requestId ? requestId.slice(0, 120) : undefined };
 }
 
 // The local writer (lib/local-writer.ts): stage "messages" returns what the
@@ -77,6 +80,8 @@ const localMessages = v.object({ local: v.object({ messages: v.any(), maxTokens:
 // the system prompt it was written with, so the extension can show it.
 // An unknown model name falls back to Haiku (pickWriterModel).
 const modelArg = v.optional(v.string());
+// Where a cloud call runs: only fal, or only Pika. Left out, fal then Pika.
+const providerArg = v.optional(v.union(v.literal("fal"), v.literal("pika")));
 const rulesArg = v.optional(v.string());
 const cleanRules = (rules?: string) => {
   const text = rules?.trim();
@@ -165,6 +170,7 @@ export const rewrite = ownerAction({
     system: v.optional(v.string()),
     rules: rulesArg,
     model: modelArg,
+    provider: providerArg,
     world: v.optional(v.string()),
     fallbackWorld: v.optional(v.string()),
     shots: shotsArg,
@@ -174,12 +180,13 @@ export const rewrite = ownerAction({
     text: v.string(),
     model: v.string(),
     provider: v.string(),
+    requestId: v.optional(v.string()),
     ms: v.number(),
     notes: v.array(v.string()),
     systemPrompt: v.optional(v.string()),
     ...briefFields,
   }), localMessages),
-  handler: async (ctx, args): Promise<({ text: string; model: string; provider: string; ms: number; notes: string[]; systemPrompt?: string } & BriefMeta) | LocalMessages> => {
+  handler: async (ctx, args): Promise<({ text: string; model: string; provider: string; requestId?: string; ms: number; notes: string[]; systemPrompt?: string } & BriefMeta) | LocalMessages> => {
     const prompt = args.prompt.trim();
     const instruction = args.instruction.trim();
     const selection = args.selection?.trim() || undefined;
@@ -198,7 +205,7 @@ export const rewrite = ownerAction({
     const { messages, urls } = buildQuickEditMessages({ prompt, selection, instruction, system, rules, worldBrief: withShots(brief?.text, shots), worldKey: brief?.world?.key });
     if (args.local?.stage === "messages") return { local: { messages, maxTokens: 1500 } };
     const picked = pickWriterModel(args.model, false);
-    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, picked.model as QuickEditModel, messages, "Could not edit");
+    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, picked.model as QuickEditModel, messages, "Could not edit", undefined, args.provider);
     const { raw, ...meta } = answer;
     // Every job is V8.2: an edit that still pins --v 8.1 or 7 comes back as --v 8.2.
     const versioned = enforceMjVersion(restoreUrls(cleanModelText(raw), urls));
@@ -211,23 +218,32 @@ export const rewrite = ownerAction({
   },
 });
 
-/** One chat call over the model's routes: fal first, Pika when fal is blocked. */
-async function runRoutes(ctx: Parameters<typeof resolveProviderKey>[0], owner: string, model: QuickEditModel, messages: Message[], failure: string, maxTokens?: number) {
-  const keys = new Map<"fal" | "pika", string | undefined>();
-  const blocked = new Set<"fal" | "pika">();
+/**
+ * One chat call over the model's routes: only the chosen provider's when one
+ * is given (it never switches to the other by itself: the extension offers
+ * that), else fal first and Pika when fal is blocked.
+ */
+async function runRoutes(
+  ctx: Parameters<typeof resolveProviderKey>[0], owner: string, model: QuickEditModel, messages: Message[], failure: string,
+  maxTokens?: number, provider?: WriterProvider,
+) {
+  const keys = new Map<WriterProvider, string | undefined>();
+  const blocked = new Set<WriterProvider>();
   const notes: string[] = [];
   const started = Date.now();
-  for (const route of QUICK_EDIT_ROUTES[model]) {
+  const routes = writerRoutes(model, provider);
+  for (const route of routes) {
     if (blocked.has(route.provider)) continue;
     if (!keys.has(route.provider)) keys.set(route.provider, await resolveProviderKey(ctx, owner, route.provider));
     const key = keys.get(route.provider);
     if (!key) {
-      if (!notes.includes(`no ${route.provider} key`)) notes.push(`no ${route.provider} key`);
+      const missing = `no ${WRITER_PROVIDER_NAMES[route.provider]} key`;
+      if (!notes.includes(missing)) notes.push(missing);
       continue;
     }
     try {
-      const raw = await chat(route.provider, key, route.model, messages, maxTokens);
-      return { raw, model: route.label, provider: route.provider, ms: Date.now() - started, notes };
+      const { text: raw, requestId } = await chat(route.provider, key, route.model, messages, maxTokens);
+      return { raw, model: route.label, provider: route.provider, ms: Date.now() - started, notes, ...(requestId ? { requestId } : {}) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (!notes.includes(message)) notes.push(message);
@@ -235,7 +251,8 @@ async function runRoutes(ctx: Parameters<typeof resolveProviderKey>[0], owner: s
       if (/top-up|key refused/.test(message)) blocked.add(route.provider);
     }
   }
-  throw new ConvexError(`${failure}: ${notes.join(" · ") || "no provider answered"}.`);
+  const where = provider ? ` on ${WRITER_PROVIDER_NAMES[provider]}` : "";
+  throw new ConvexError(`${failure}${where}: ${notes.join(" · ") || (routes.length ? "no provider answered" : "this model does not run there")}.`);
 }
 
 const describeField = v.object({ key: v.string(), label: v.string(), text: v.string() });
@@ -243,7 +260,7 @@ type DescribeResult = {
   title?: string;
   fields: Array<{ key: string; label: string; text: string }>;
   prompt: string; words: string; params: string;
-  model: string; provider: string; ms: number; notes: string[]; systemPrompt?: string;
+  model: string; provider: string; requestId?: string; ms: number; notes: string[]; systemPrompt?: string;
 };
 
 /**
@@ -264,6 +281,7 @@ export const describe = ownerAction({
     system: v.optional(v.string()),
     rules: rulesArg,
     model: modelArg,
+    provider: providerArg,
     note: v.optional(v.string()),
     local: localArg,
   },
@@ -275,6 +293,7 @@ export const describe = ownerAction({
     params: v.string(),
     model: v.string(),
     provider: v.string(),
+    requestId: v.optional(v.string()),
     ms: v.number(),
     notes: v.array(v.string()),
     systemPrompt: v.optional(v.string()),
@@ -291,7 +310,7 @@ export const describe = ownerAction({
     if (args.local?.stage === "messages") return { local: { messages, maxTokens: 2200 } };
     // The describer sends the picture: a text-only model (DeepSeek) hands it to Haiku.
     const picked = pickWriterModel(args.model, true);
-    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, picked.model, messages, "Could not describe", 2200);
+    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, picked.model, messages, "Could not describe", 2200, args.provider);
     if (picked.note && answer.provider !== "local") answer.notes = [picked.note, ...answer.notes];
     const parsed = parseDescribeAnswer(answer.raw);
     if (!parsed.prompt && !parsed.fields.length) throw new ConvexError(`${answer.model} answered without a description. Try again.`);
@@ -299,7 +318,7 @@ export const describe = ownerAction({
     const params = describeParams(aspectOf(args.aspect, args.width, args.height));
     return {
       title: parsed.title, fields: parsed.fields, words, params, prompt: [words, params].filter(Boolean).join(" "),
-      model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes, systemPrompt: systemOf(messages),
+      model: answer.model, provider: answer.provider, requestId: answer.requestId, ms: answer.ms, notes: answer.notes, systemPrompt: systemOf(messages),
     };
   },
 });
@@ -309,7 +328,7 @@ type ExpandResult = {
   set?: string; logline?: string;
   items: Array<{ title: string; words: string; prompt: string; rest: string; profiles: string[]; srefs: Array<{ code?: string; url?: string; weight?: number }>; images: string[]; edits: string[] }>;
   source: { words: string; params: string; hadImages: number };
-  model: string; provider: string; ms: number; notes: string[]; systemPrompt?: string;
+  model: string; provider: string; requestId?: string; ms: number; notes: string[]; systemPrompt?: string;
 } & BriefMeta;
 
 /**
@@ -334,6 +353,7 @@ export const expand = ownerAction({
     system: v.optional(v.string()),
     rules: rulesArg,
     model: modelArg,
+    provider: providerArg,
     keepImages: v.optional(v.boolean()),
     srefUrl: v.optional(v.string()),
     attach: v.optional(v.string()),
@@ -356,6 +376,7 @@ export const expand = ownerAction({
     ...briefFields,
     model: v.string(),
     provider: v.string(),
+    requestId: v.optional(v.string()),
     ms: v.number(),
     notes: v.array(v.string()),
     systemPrompt: v.optional(v.string()),
@@ -394,7 +415,7 @@ export const expand = ownerAction({
     if (args.local?.stage === "messages") return { local: { messages, maxTokens } };
     // Grow sends the picture: a text-only model (DeepSeek) hands it to Haiku.
     const picked = pickWriterModel(args.model, true);
-    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, picked.model, messages, "Could not write the prompts", maxTokens);
+    const answer = finishLocally(args.local) ?? await runRoutes(ctx, args.ownerUserId, picked.model, messages, "Could not write the prompts", maxTokens, args.provider);
     if (picked.note && answer.provider !== "local") answer.notes = [picked.note, ...answer.notes];
     const parsed = parseExpandAnswer(answer.raw);
     if (!parsed.items.length) throw new ConvexError(`${answer.model} answered without a prompt. Try again.`);
@@ -407,7 +428,7 @@ export const expand = ownerAction({
       items: parsed.items.slice(0, EXPAND_LIMITS.maxCount).map((item) => composeExpanded(item.title, item.words, source, options)),
       source: { words: source.words, params: composeExpanded("", "", source, options).prompt, hadImages: source.images.length },
       ...metaOf(brief, shots),
-      model: answer.model, provider: answer.provider, ms: answer.ms, notes: answer.notes, systemPrompt: systemOf(messages),
+      model: answer.model, provider: answer.provider, requestId: answer.requestId, ms: answer.ms, notes: answer.notes, systemPrompt: systemOf(messages),
     };
   },
 });

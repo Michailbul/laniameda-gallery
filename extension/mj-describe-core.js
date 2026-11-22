@@ -108,6 +108,8 @@
     .ds-card-head b{flex:1;font:800 10.5px/1.2 Inter,system-ui,sans-serif;text-transform:uppercase;letter-spacing:.08em;color:var(--ink)}
     .ds-small{height:22px;padding:0 8px;border-radius:6px;border:1px solid var(--line2);background:transparent;color:var(--ink);font:700 9.5px/1 Inter,system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;cursor:pointer;flex:0 0 auto}
     .ds-small.done{border-color:var(--coral);color:var(--coral)}
+    .ds-small.ds-offer{height:20px;border-color:var(--coral);color:var(--coral);font:700 8.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.09em}
+    .ds-small.ds-offer:hover{background:var(--coral);color:#0A0805}
     .ds-fields{display:flex;flex-direction:column}
     .ds-field{display:grid;grid-template-columns:86px 1fr auto;gap:8px;align-items:start;padding:6px 2px;border-top:1px solid var(--line)}
     .ds-field:first-child{border-top:0}
@@ -169,6 +171,13 @@
     const worldRow = el("div", "ds-row");
     const worldSelect = el("select", "ds-select");
     worldRow.append(worldSelect);
+    // The writer: This Mac, Cloud · fal or Cloud · Pika, and the model (writer-choice.js),
+    // one pick for every tool. DeepSeek is left out: the describer sends a picture.
+    const writerLabel = el("div", "ds-label", "Writer · where it runs and on which model");
+    const writerRow = el("div", "ds-row");
+    const writerSelect = el("select", "ds-select");
+    writerSelect.setAttribute("aria-label", "Writer");
+    writerRow.append(writerSelect);
     const note = el("input", "ds-note");
     note.type = "text";
     note.placeholder = "Anything to change in the prompt? (optional)";
@@ -177,7 +186,7 @@
     go.type = "button";
     const line = el("div", "ds-line");
     const results = el("div", "ds-results");
-    wrap.append(src, mj, worldLabel, worldRow, note, go, line, results);
+    wrap.append(src, mj, worldLabel, worldRow, writerLabel, writerRow, note, go, line, results);
 
     const setLine = (html, kind = "") => { line.innerHTML = kind === "err" ? `<span class="err">${html}</span>` : html; };
 
@@ -207,6 +216,31 @@
         return option;
       }));
     }
+
+    const choice = () => globalScope.SaveToGalleryWriterChoice;
+    const askWriter = (message = {}) => new Promise((resolve) => {
+      if (!alive()) { resolve(null); return; }
+      try { chrome.runtime.sendMessage({ action: "writer", ...message }, (res) => resolve(chrome.runtime.lastError ? null : res)); } catch { resolve(null); }
+    });
+    function paintWriter(status) {
+      if (!choice() || !status) return;
+      choice().fill(writerSelect, status, { vision: true });
+      writerSelect.title = status.mode === "local" && status.up === false
+        ? "The writer on this Mac is not running: pick Cloud · fal or Cloud · Pika, or start the bridge (extension-writer/install.sh)."
+        : `${choice().label(status.mode, status.model)}. The pick is the default for Grow, Describe and the quick edit.`;
+    }
+    async function setWriter(pick) {
+      const res = await askWriter({ do: "set", mode: pick.mode, model: pick.model, fresh: true });
+      if (res?.ok) paintWriter(res);
+      return res;
+    }
+    writerSelect.addEventListener("change", () => { void setWriter(choice().parse(writerSelect.value)); });
+    try {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === "sync" && (changes.writerMode || changes.writerModel)) void askWriter().then(paintWriter);
+      });
+    } catch { /* extension reloaded */ }
+    void askWriter().then(paintWriter);
 
     worldSelect.addEventListener("change", () => {
       state.worldKey = worldSelect.value;
@@ -256,7 +290,7 @@
           system: await systemPromptFor(state.worldKey),
           note: note.value.trim() || undefined,
         });
-        if (!res?.ok) throw new Error(res?.error || "Could not describe.");
+        if (!res?.ok) throw Object.assign(new Error(res?.error || "Could not describe."), { offer: res?.offer });
         if (!Array.isArray(res.fields)) throw new Error("The gallery answered in the old form. Reload the extension once the gallery is updated.");
         state.result = { title: res.title || "", fields: res.fields, prompt: res.prompt || "", words: res.words || "", params: res.params || "" };
         paintSource();
@@ -264,6 +298,17 @@
         setLine(`<span>${esc(res.model)} · ${(res.ms / 1000).toFixed(1)}s${source.descriptions?.length ? " · with Midjourney's describe" : ""}${res.notes?.length ? ` · ${esc(res.notes[0])}` : ""}</span>`);
       } catch (err) {
         setLine(esc(err?.message || err), "err");
+        // The chosen writer failed: offer the other place as one click. It never switches by itself.
+        if (err?.offer) {
+          const offer = el("button", "ds-small ds-offer", err.offer.label);
+          offer.type = "button";
+          offer.title = "Switch the writer there (the default for every tool) and describe again";
+          offer.addEventListener("click", async () => {
+            const res = await setWriter(err.offer);
+            if (res?.ok) void run();
+          });
+          line.append(offer);
+        }
       } finally {
         state.busy = false;
         paint();
