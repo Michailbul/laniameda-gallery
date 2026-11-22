@@ -746,7 +746,7 @@ describe("⌥R reroll", () => {
     const names: Record<string, string> = { m1: "Night", m2: "Gold", p1: "CINEMATIC", p2: "DA4", p3: "DA5" };
     const boards = flagged.filter((code) => code.startsWith("m"));
     const profiles = flagged.filter((code) => code.startsWith("p"));
-    expect(note().textContent).toBe((globalThis as Any).SaveToGalleryMoodboardDock.mixLabel({ profiles, boards }, names));
+    expect(note().textContent).toBe(`MB+P · ${(globalThis as Any).SaveToGalleryMoodboardDock.mixLabel({ profiles, boards }, names)}`);
     for (const code of flagged) {
       const chip = dock().querySelector(`[data-code="${code}"]`)!;
       expect(chip.classList.contains("stg-mb-flash")).toBe(true);
@@ -757,13 +757,13 @@ describe("⌥R reroll", () => {
     await open();
     type("A tram");
     press("KeyR", { alt: true, shift: true });
-    expect(note().textContent.startsWith("Extreme · ")).toBe(true);
+    expect(note().textContent.startsWith("WILD · ")).toBe(true);
   });
 
   test("on an empty prompt it arms the mix for the next typed prompt", async () => {
     await open();
     press("KeyR", { alt: true });
-    expect(note().textContent.startsWith("Next prompt · ")).toBe(true);
+    expect(note().textContent.startsWith("MB+P · Next prompt · ")).toBe(true);
     const armed = codesOf(q(".stg-mb-active").textContent.replace("next · ", ""));
     type("z");
     await tick();
@@ -780,7 +780,7 @@ describe("⌥R reroll", () => {
     button.dispatchEvent(new FakeEvent("click"));
     expect(codesOf(env.area.value)).not.toBe("");
     button.dispatchEvent(new FakeEvent("click", { shiftKey: true }));
-    expect(note().textContent.startsWith("Extreme · ")).toBe(true);
+    expect(note().textContent.startsWith("WILD · ")).toBe(true);
   });
 });
 

@@ -8,6 +8,18 @@
 //   extreme  1–3 profiles + at most 2 moodboards
 // Profiles mix more freely than moodboards. AndromedaCartoon (n9iqix8) is
 // never picked.
+//
+// Levels and locks (Michael, 22 Nov 2026: "we should have multiple levels of
+// the random and easy way to one click control it. so we also can see how
+// random moodboards can affect the locked in profile(s)"). One setting for
+// the dock's ⌥R, the Rerun bar and the queue's Random, kept in
+// chrome.storage.local "stgRandom" = { level, locks: { [world]: [codes] } }:
+//   MB    only the moodboard changes (one random); profiles stay
+//   P     only the profiles change (1–2 random); moodboards stay
+//   MB+P  1–2 random profiles + one random moodboard
+//   WILD  1–3 random profiles + 0–2 random moodboards
+// "Stay" means the locked codes of that kind, else the prompt's own. Locked
+// codes ride in every mix at every level; the random part fills around them.
 
 (function registerRandomize(globalScope) {
   "use strict";
@@ -20,6 +32,44 @@
     random: { minProfiles: 1, maxProfiles: 2, minBoards: 0, maxBoards: 1 },
     extreme: { minProfiles: 1, maxProfiles: 3, minBoards: 0, maxBoards: 2 },
   };
+
+  const LEVELS = [
+    { key: "mb", label: "MB", name: "Moodboards", hint: "Only the moodboard changes: one random moodboard. Profiles stay: the locked ones, else the prompt's own." },
+    { key: "p", label: "P", name: "Profiles", hint: "Only the profiles change: 1–2 random profiles. Moodboards stay: the locked ones, else the prompt's own." },
+    { key: "mix", label: "MB+P", name: "Moodboard + profiles", hint: "1–2 random profiles and one random moodboard." },
+    { key: "wild", label: "WILD", name: "Wild", hint: "1–3 random profiles and 0–2 random moodboards." },
+  ];
+  const LEVEL_KEYS = LEVELS.map((entry) => entry.key);
+  const RANDOM_STORE = "stgRandom";
+  // How many of each kind a level wants in total (locked ones count); null = that kind stays.
+  const LEVEL_COUNTS = {
+    mb: { profiles: null, boards: [1, 1] },
+    p: { profiles: [1, 2], boards: null },
+    mix: { profiles: [1, 2], boards: [1, 1] },
+    wild: { profiles: [1, 3], boards: [0, 2] },
+  };
+  const levelOf = (key) => (LEVEL_KEYS.includes(key) ? key : "mix");
+  const nextLevel = (key) => LEVEL_KEYS[(LEVEL_KEYS.indexOf(levelOf(key)) + 1) % LEVEL_KEYS.length];
+
+  /** The stored setting, cleaned: { level, locks: { world: [codes] } }. */
+  function randomSettings(stored) {
+    const value = stored && typeof stored === "object" ? stored : {};
+    const locks = {};
+    for (const [world, codes] of Object.entries(value.locks && typeof value.locks === "object" ? value.locks : {})) {
+      const list = clean(Array.isArray(codes) ? codes : []);
+      if (list.length) locks[world] = list;
+    }
+    return { level: levelOf(value.level), locks };
+  }
+  const locksOf = (settings, world) => (settings && settings.locks && settings.locks[world]) || [];
+  /** Lock these codes for the world, or unlock all when `codes` is empty. */
+  function withLocks(settings, world, codes) {
+    const next = randomSettings(settings);
+    const list = clean(codes);
+    if (list.length) next.locks[world] = list;
+    else delete next.locks[world];
+    return next;
+  }
 
   const clean = (codes) => [...new Set((codes || []).map((code) => String(code || "").trim()).filter((code) => code && !BANNED_CODES.has(code)))];
 
@@ -105,14 +155,50 @@
     const names = (pool && pool.names) || {};
     const seen = new Set();
     const out = [];
+    const locks = clean(options.locks);
     for (let attempt = 0; out.length < count && attempt < count * 8; attempt += 1) {
-      const mix = pickMix(pool, mode, { rng });
+      // Locked codes ride in every variant (Random = MB+P, Extreme = WILD, around them).
+      const mix = locks.length ? mixAt(pool, { level: mode === "extreme" ? "wild" : "mix", locks, rng }) : pickMix(pool, mode, { rng });
       const sig = signature(mix.codes);
       if (seen.has(sig) && attempt < count * 6) continue;
       seen.add(sig);
       out.push({ label: mix.codes.map((code) => names[code] || code).join(" + ") || "No profile", codes: mix.codes, boards: mix.boards, profiles: mix.profiles });
     }
     return out;
+  }
+
+  /**
+   * One mix at a level, around the locked codes. `current` is the prompt's own
+   * codes (what "stays" when nothing of that kind is locked). Returns
+   * { profiles, boards, codes, locked }: boards first in `codes`.
+   */
+  function mixAt(pool, options = {}) {
+    const rng = options.rng || Math.random;
+    const counts = LEVEL_COUNTS[levelOf(options.level)];
+    const profiles = clean(pool && pool.profiles);
+    const boards = clean(pool && pool.boards).filter((code) => !profiles.includes(code));
+    const isBoard = (code) => boards.includes(code);
+    const locked = clean(options.locks);
+    const lockedBoards = locked.filter(isBoard);
+    const lockedProfiles = locked.filter((code) => !isBoard(code));
+    const current = clean(options.current);
+    const currentBoards = current.filter(isBoard);
+    const currentProfiles = current.filter((code) => !isBoard(code));
+    const avoid = options.avoid || "";
+    const fill = (range, kept, from) => {
+      if (!range) return kept;
+      const left = from.filter((code) => !kept.includes(code));
+      const want = Math.max(0, between(range[0], range[1], rng) - kept.length);
+      return [...kept, ...shuffle(left, rng).slice(0, Math.min(left.length, want))];
+    };
+    let best = null;
+    for (let attempt = 0; attempt < 16; attempt += 1) {
+      const pickedBoards = counts.boards ? fill(counts.boards, lockedBoards, boards) : (lockedBoards.length ? lockedBoards : currentBoards);
+      const pickedProfiles = counts.profiles ? fill(counts.profiles, lockedProfiles, profiles) : (lockedProfiles.length ? lockedProfiles : currentProfiles);
+      best = { profiles: pickedProfiles, boards: pickedBoards, codes: [...pickedBoards, ...pickedProfiles], locked };
+      if (!avoid || signature(best.codes) !== avoid) break;
+    }
+    return best || { profiles: [], boards: [], codes: [], locked };
   }
 
   // Rerun of a job from the Midjourney feed (mj-rerun.js): a random mix of
@@ -154,5 +240,8 @@
     return code ? `${stripped} --sref ${code}` : stripped;
   }
 
-  globalScope.SaveToGalleryRandomize = { LIMITS, BANNED_CODES, pickMix, signature, codesIn, withCodes, testSet, randomSet, rerunMix, srefsIn, withSref };
+  globalScope.SaveToGalleryRandomize = {
+    LIMITS, BANNED_CODES, pickMix, signature, codesIn, withCodes, testSet, randomSet, rerunMix, srefsIn, withSref,
+    LEVELS, LEVEL_KEYS, RANDOM_STORE, levelOf, nextLevel, randomSettings, locksOf, withLocks, mixAt,
+  };
 })(typeof globalThis !== "undefined" ? globalThis : self);

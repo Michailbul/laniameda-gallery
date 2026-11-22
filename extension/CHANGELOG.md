@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.42.0 (22 Nov 2026)
+
+Random: levels and locks, one click each
+- **Random level**, one pill that cycles on click: **MB** (only the
+  moodboard changes, profiles stay), **P** (only the profiles change,
+  moodboards stay), **MB+P** (1–2 profiles + one moodboard) and **WILD**
+  (1–3 profiles + 0–2 moodboards). The same level drives the dock's ⌥R and
+  every Rerun bar; ⌥⇧R and Extreme are always WILD.
+- **LOCK**: one click locks the profiles and moodboards in the prompt (in
+  the dock) or in that job (on the Rerun bar); they ride in every reroll at
+  every level, and the random part fills around them. Another click
+  unlocks. Locks are kept per world; locked chips in the dock wear a LOCK
+  tag. Lock CINEMATIC, set MB, press ⌥R a few times: each roll shows the
+  same profile under another moodboard.
+- The queue's Random and Extreme keep the world's locked codes in every
+  variant.
+- The Rerun bar's Moodboard switch is replaced by the level pill (an old
+  "off" reads as P).
+
 ## 0.41.0 (22 Nov 2026)
 
 Writer: pick This Mac, Cloud · fal or Cloud · Pika

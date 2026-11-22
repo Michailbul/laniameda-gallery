@@ -442,10 +442,11 @@
     return { profiles, boards, names };
   }
 
-  function variantList(kind, pool, n, R, rng) {
+  // Random and Extreme keep the world's locked codes (the dock's LOCK) in every variant.
+  function variantList(kind, pool, n, R, rng, locks) {
     if (!R) return [];
     if (kind === "test") return R.testSet(pool, { includeNone: true });
-    return R.randomSet(pool, clampCount(n), kind === "extreme" ? "extreme" : "random", rng ? { rng } : {});
+    return R.randomSet(pool, clampCount(n), kind === "extreme" ? "extreme" : "random", { ...(rng ? { rng } : {}), ...(locks && locks.length ? { locks } : {}) });
   }
 
   // What Test / Random copies: the queued item as it is (keeps its
@@ -495,7 +496,7 @@
   }
 
   // Builds a Test / Random thread end to end. io: { listMoodboards(world),
-  // post(body), dockWorld() }. Returns { ok, batch, batchKey, items, count }.
+  // post(body), dockWorld(), locks?(world) }. Returns { ok, batch, batchKey, items, count }.
   async function makeVariantThread({ kind, n, item, barValue, worldKey, io, R = globalScope.SaveToGalleryRandomize, composeCommand }) {
     const source = variantSource(item, barValue, composeCommand);
     if (!source) return { ok: false, error: "Nothing to test: put a prompt in the bar first." };
@@ -505,7 +506,8 @@
     if (!listed || listed.ok === false) return { ok: false, error: `Could not read the world's profiles. ${String((listed && listed.error) || "").slice(0, 100)}` };
     const pool = poolFromMoodboards(listed);
     if (!pool.profiles.length) return { ok: false, error: "This world has no Midjourney profiles yet." };
-    const variants = variantList(kind, pool, n, R);
+    const locks = typeof io.locks === "function" ? await io.locks(world) : [];
+    const variants = variantList(kind, pool, n, R, undefined, locks);
     if (!variants.length) return { ok: false, error: "The randomizer is not loaded. Reload the extension." };
     const body = variantRequest({ kind, source, variants, worldKey: world, R });
     const res = await io.post(body);

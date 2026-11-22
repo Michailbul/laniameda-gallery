@@ -1,8 +1,9 @@
 // Rerun random: a small bar under each job on Midjourney's Create feed, below
 // the job's settings chips (chaos, ar, raw, profile …). One click puts the
 // job's own prompt back in the Imagine bar with a fresh random mix of the
-// dock world's profiles (1–2), plus one of its moodboards (switch), and the
-// style reference as picked: keep the job's own, none, a random one of the
+// dock world's profiles and moodboards at the random level (MB · P · MB+P ·
+// WILD, one click cycles it) around the locked codes (LOCK: one click locks
+// this job's codes, another unlocks), and the style reference as picked: keep the job's own, none, a random one of the
 // world's styles, or one named sref from the world's styles and presets.
 // It only fills the bar: Michael's own Enter sends it (Midjourney flagged a
 // scripted send as a bot on 14 Nov 2026). Nothing here presses or submits.
@@ -37,9 +38,14 @@
   }
 
   // The command that goes in the bar. sref: "keep" | "none" | "random" | a code.
-  function rerunCommand({ command, pool, srefs, moodboard = true, sref = "keep", R, rng = Math.random }) {
-    const avoid = R.signature(R.codesIn(command));
-    const mix = R.rerunMix(pool, { moodboard, avoid, rng });
+  // level: mb | p | mix | wild (mj-randomize.js); locks: codes that always ride.
+  // Without a level (older callers) the moodboard switch decides, as before.
+  function rerunCommand({ command, pool, srefs, moodboard = true, level, locks = [], sref = "keep", R, rng = Math.random }) {
+    const current = R.codesIn(command);
+    const avoid = R.signature(current);
+    const mix = level || (locks && locks.length)
+      ? R.mixAt(pool, { level: level || (moodboard ? "mix" : "p"), locks, current, avoid, rng })
+      : R.rerunMix(pool, { moodboard, avoid, rng });
     let srefMode = sref;
     let srefPick = null;
     if (sref === "random") {
@@ -79,11 +85,13 @@
   }
   for (const node of document.querySelectorAll(".stg-rerun-host")) node.remove();
 
-  const STORE = { moodboard: "stgRerunMoodboard", sref: "stgRerunSref" };
+  const STORE = { moodboard: "stgRerunMoodboard", sref: "stgRerunSref", random: "stgRandom" };
   const WORLD_KEY = "stgMoodboardWorld";
   const HOST_ATTR = "data-stg-rerun";
   const cleanups = [];
-  const settings = { moodboard: true, sref: "keep", world: "" };
+  // random: the shared level and locks (mj-randomize.js), the same as the dock's ⌥R.
+  const settings = { moodboard: true, sref: "keep", world: "", random: { level: "mix", locks: {} } };
+  const Rz = () => globalScope.SaveToGalleryRandomize;
   const cache = { pool: new Map(), srefs: new Map() };
   // One request per world at a time, however many bars ask.
   const inflight = new Map();
@@ -117,7 +125,7 @@
   function readStore() {
     return new Promise((resolve) => {
       try {
-        chrome.storage.local.get([STORE.moodboard, STORE.sref, WORLD_KEY], (stored) => resolve(stored || {}));
+        chrome.storage.local.get([STORE.moodboard, STORE.sref, STORE.random, WORLD_KEY], (stored) => resolve(stored || {}));
       } catch {
         resolve({});
       }
@@ -262,8 +270,6 @@
     :host([data-mode="compact"]) .go span,:host([data-mode="dock"]) .go span{display:none}
     :host([data-mode="compact"]) .go,:host([data-mode="dock"]) .go{padding:0 8px;gap:0}
     :host([data-mode="compact"]) .world{display:none}
-    :host([data-mode="compact"]) .mb .t{display:none}
-    :host([data-mode="compact"]) .mb .s{display:inline}
     :host([data-mode="dock"]) .bar{margin:0;padding:3px;gap:4px;border-radius:999px;box-shadow:0 6px 18px rgba(10,8,5,.7)}
     :host([data-mode="dock"]:not(:hover):not(:focus-within)) .bar>.pill,:host([data-mode="dock"]:not(:hover):not(:focus-within)) .bar>.world{display:none}
     :host([data-mode="dock"]) .note{left:auto;right:0}
@@ -277,7 +283,13 @@
     .pill i{width:7px;height:7px;border-radius:50%;background:rgba(255,244,234,.25)}
     .pill.on{color:#FFF4EA;border-color:rgba(121,183,145,.55)}
     .pill.on i{background:#79B791;box-shadow:0 0 6px rgba(121,183,145,.8)}
-    .mb .s{display:none}
+    .lvl{min-width:52px;justify-content:center;color:#FFF4EA;border-color:rgba(242,97,87,.5)}
+    .lvl b{font-weight:800;letter-spacing:.08em}
+    .lvl[data-level="mb"]{border-color:rgba(121,183,145,.6);color:#79B791}
+    .lvl[data-level="p"]{border-color:rgba(232,168,56,.6);color:#E8A838}
+    .lvl[data-level="wild"]{border-color:#F26157;color:#F26157}
+    .lock.on{color:#191919;background:#FFF4EA;border-color:#FFF4EA}
+    :host([data-mode="compact"]) .lock .t{display:none}
     select.pill{flex:0 1 auto;min-width:96px;appearance:none;-webkit-appearance:none;padding:0 22px 0 10px;max-width:220px;text-overflow:ellipsis;overflow:hidden;background-image:linear-gradient(45deg,transparent 50%,rgba(255,244,234,.55) 50%),linear-gradient(135deg,rgba(255,244,234,.55) 50%,transparent 50%);background-position:calc(100% - 12px) 12px,calc(100% - 8px) 12px;background-size:4px 4px;background-repeat:no-repeat}
     select.pill option{background:#191919;color:#FFF4EA;text-transform:none}
     select.pill.on{border-color:rgba(232,168,56,.55);color:#FFF4EA}
@@ -328,13 +340,15 @@
     shadow.innerHTML = `<style>${CSS}</style>
       <div class="bar" role="group" aria-label="Rerun with a random profile">
         <button class="go" type="button">${DICE}<span>Rerun random</span></button>
-        <button class="pill mb" type="button"><i></i><span class="t">Moodboard</span><span class="s">MB</span></button>
+        <button class="pill lvl" type="button"><b></b></button>
+        <button class="pill lock" type="button"><span class="t"></span></button>
         <select class="pill sref" aria-label="Style reference"></select>
         <span class="world"></span>
         <div class="note" aria-live="polite"></div>
       </div>`;
     const go = shadow.querySelector(".go");
-    const mb = shadow.querySelector(".mb");
+    const lvl = shadow.querySelector(".lvl");
+    const lock = shadow.querySelector(".lock");
     const select = shadow.querySelector(".sref");
     const worldEl = shadow.querySelector(".world");
     const note = shadow.querySelector(".note");
@@ -350,16 +364,48 @@
       shadow.querySelector(".bar").addEventListener(type, (event) => event.stopPropagation());
     }
     host.__paint = () => {
-      mb.classList.toggle("on", settings.moodboard);
-      mb.title = settings.moodboard ? "One of the world's moodboards rides with the random profiles. Click to leave moodboards out." : "Profiles only. Click to add one of the world's moodboards.";
+      const R = Rz();
+      const level = R ? R.levelOf(settings.random.level) : "mix";
+      const info = R ? R.LEVELS.find((entry) => entry.key === level) : null;
+      lvl.dataset.level = level;
+      lvl.querySelector("b").textContent = info ? info.label : "MB+P";
+      lvl.title = `Random level: ${info ? `${info.name}. ${info.hint}` : ""}\nClick: MB → P → MB+P → WILD. The same level drives the dock's ⌥R.`;
+      const locked = R ? R.locksOf(settings.random, settings.world) : [];
+      lock.classList.toggle("on", locked.length > 0);
+      lock.querySelector(".t").textContent = locked.length ? `Locked ${locked.length}` : "Lock";
+      const names = cache.pool.get(settings.world)?.value?.names || {};
+      lock.title = locked.length
+        ? `Always in the mix: ${locked.map((code) => names[code] || code).join(" + ")}. Click to unlock.`
+        : "Lock this job's profiles and moodboards: they stay in every rerun, and the level randomizes around them. Click again to unlock.";
       worldEl.textContent = settings.world ? worldName(settings.world) : "Pick a world in the dock";
       worldEl.title = "The world whose profiles, moodboards and srefs are mixed in: the moodboard dock's world.";
       void srefsOf(settings.world).then((srefs) => srefOptions(select, srefs));
     };
-    mb.addEventListener("click", () => {
-      settings.moodboard = !settings.moodboard;
-      writeStore({ [STORE.moodboard]: settings.moodboard });
+    lvl.addEventListener("click", () => {
+      const R = Rz();
+      if (!R) return;
+      settings.random = { ...settings.random, level: R.nextLevel(settings.random.level) };
+      writeStore({ [STORE.random]: settings.random });
       paintAll();
+    });
+    lock.addEventListener("click", async () => {
+      const R = Rz();
+      if (!R) return;
+      if (!settings.world) return say("Pick a world in the moodboard dock first: locks are kept per world.", true);
+      if (R.locksOf(settings.random, settings.world).length) {
+        settings.random = R.withLocks(settings.random, settings.world, []);
+        writeStore({ [STORE.random]: settings.random });
+        paintAll();
+        return say("Unlocked: the level randomizes everything again.");
+      }
+      const command = await commandOf(row);
+      const codes = R.codesIn(command);
+      if (!codes.length) return say("This job has no profile or moodboard to lock.", true);
+      settings.random = R.withLocks(settings.random, settings.world, codes);
+      writeStore({ [STORE.random]: settings.random });
+      paintAll();
+      const names = (await poolOf(settings.world))?.names || {};
+      say(`Locked: ${codes.map((code) => `<b>${escapeHtml(names[code] || code)}</b>`).join(" + ")}. Every rerun keeps them.`);
     });
     select.addEventListener("change", () => {
       settings.sref = select.value;
@@ -379,7 +425,10 @@
         if (!command) return say("Could not read this job's prompt. Open the job once, then try again.", true);
         if (!pool || !pool.profiles.length) return say(`No profiles in ${worldName(settings.world)} yet.`, true);
         const R = globalScope.SaveToGalleryRandomize;
-        const out = rerunCommand({ command, pool, srefs, moodboard: settings.moodboard, sref: settings.sref, R });
+        const out = rerunCommand({
+          command, pool, srefs, sref: settings.sref, R,
+          level: R.levelOf(settings.random.level), locks: R.locksOf(settings.random, settings.world),
+        });
         // The moodboard dock must not add its remembered -p flag to this command.
         globalScope.SaveToGalleryMoodboardDock?.holdSticky?.();
         writeBar(area, out.command);
@@ -387,9 +436,12 @@
         area.setSelectionRange(area.value.length, area.value.length);
         const names = pool.names || {};
         const label = (code) => `<b>${escapeHtml(names[code] || code)}</b>`;
-        const parts = [...out.mix.profiles.map(label), ...out.mix.boards.map((code) => `${label(code)} (moodboard)`)];
+        const locked = new Set(out.mix.locked || []);
+        const tag = (code) => `${label(code)}${locked.has(code) ? " (locked)" : ""}`;
+        const parts = [...out.mix.profiles.map(tag), ...out.mix.boards.map((code) => `${tag(code)} (moodboard)`)];
         const srefLine = out.sref ? ` · sref <b>${escapeHtml(out.sref.label || out.sref.code)}</b>` : settings.sref === "none" ? " · no sref" : "";
-        say(`In the bar: ${parts.join(" + ")}${srefLine}. Press Enter to run it.`);
+        const levelName = R.LEVELS.find((entry) => entry.key === R.levelOf(settings.random.level))?.label || "";
+        say(`${levelName} · in the bar: ${parts.join(" + ") || "no profile"}${srefLine}. Press Enter to run it.`);
       } finally {
         go.disabled = false;
         go.querySelector("span").textContent = "Rerun random";
@@ -610,6 +662,7 @@
     if (changes[WORLD_KEY]) { settings.world = String(changes[WORLD_KEY].newValue || ""); changed = true; }
     if (changes[STORE.moodboard]) { settings.moodboard = changes[STORE.moodboard].newValue !== false; changed = true; }
     if (changes[STORE.sref]) { settings.sref = String(changes[STORE.sref].newValue || "keep"); changed = true; }
+    if (changes[STORE.random]) { settings.random = Rz()?.randomSettings(changes[STORE.random].newValue) || settings.random; changed = true; }
     if (changed) paintAll();
   };
   try {
@@ -639,6 +692,9 @@
     settings.world = String(stored[WORLD_KEY] || "");
     settings.moodboard = stored[STORE.moodboard] !== false;
     settings.sref = String(stored[STORE.sref] || "keep");
+    // No level saved yet: the old Moodboard switch decides (off = profiles only).
+    const savedRandom = stored[STORE.random] || (stored[STORE.moodboard] === false ? { level: "p" } : null);
+    settings.random = Rz()?.randomSettings(savedRandom) || settings.random;
     scan();
   });
 })(typeof globalThis !== "undefined" ? globalThis : self);

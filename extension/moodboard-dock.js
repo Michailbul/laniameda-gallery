@@ -197,10 +197,15 @@
   // A new mix for the prompt: different from `currentCodes` when the pool
   // allows it. The prompt keeps its words and every other setting; only its
   // profile flag changes. An empty prompt gets no text (the mix is armed).
-  function rerollPrompt(promptText, currentCodes, pool, mode, rng) {
+  // `random` = { level, locks }: the level and this world's locked codes; the
+  // extreme mode (⌥⇧R) is the WILD level.
+  function rerollPrompt(promptText, currentCodes, pool, mode, rng, random) {
     const api = globalScope.SaveToGalleryRandomize;
     if (!api) return null;
-    const mix = api.pickMix(pool, mode, { avoid: api.signature(currentCodes || []), rng });
+    const avoid = api.signature(currentCodes || []);
+    const mix = random && api.mixAt
+      ? api.mixAt(pool, { level: mode === "extreme" ? "wild" : random.level, locks: random.locks || [], current: currentCodes || [], avoid, rng })
+      : api.pickMix(pool, mode, { avoid, rng });
     if (!mix.codes.length) return null;
     if (!wordsOf(promptText)) return { mix, text: null };
     // A flag already in the prompt keeps its place; a new one goes before the
@@ -688,6 +693,9 @@
     pins: null,
     // The keys as set in the side panel (mj-hotkeys.js resolve()).
     hotkeys: null,
+    // The random level and the locked codes per world (mj-randomize.js,
+    // chrome.storage.local "stgRandom"), shared with the Rerun bar.
+    random: { level: "mix", locks: {} },
   };
   const INSTANCE = Math.random().toString(36).slice(2, 10);
   let observer = null;
@@ -709,7 +717,7 @@
   let packs = null;
   let presetBox = null;
   let saveButton = null;
-  let randomButton = null;
+  let randomButton = null, levelButton, lockButton;
   let saveInput = null;
   let note = null;
   let noteTimer = null;
@@ -1338,6 +1346,7 @@
     else if (waiting && armedOne) label = `next · ${armedOne.name}`;
     else if (waiting && sticky.length) label = `next · -p ${sticky.join(" ")}`;
     activeLabel.textContent = label;
+    paintRandom();
     activeLabel.title = label;
     activeLabel.classList.toggle("stg-mb-active--next", waiting);
     for (const chip of presetBox.querySelectorAll(".stg-mb-preset")) {
@@ -1351,6 +1360,9 @@
       else delete chip.dataset.next;
     }
     if (randomButton) randomButton.hidden = !state.profiles.length && !state.moodboards.length;
+    if (levelButton) levelButton.hidden = randomButton.hidden;
+    if (lockButton) lockButton.hidden = randomButton.hidden;
+    paintRandom();
     const selection = currentSelection();
     const hasSelection = Boolean(selection.codes.length || selection.params || selection.packs.length);
     saveButton.classList.toggle("stg-mb-save--idle", !hasSelection);
@@ -1480,6 +1492,59 @@
     if (note) note.hidden = true;
   }
 
+  /* ── Random level and locks (shared with the Rerun bar) ── */
+
+  const RANDOM_KEY = "stgRandom";
+  function setRandom(next) {
+    const R = globalScope.SaveToGalleryRandomize;
+    state.random = R?.randomSettings ? R.randomSettings(next) : next;
+    try {
+      void chrome.storage.local.set({ [RANDOM_KEY]: state.random });
+    } catch {
+      // extension reloaded
+    }
+    paintRandom();
+  }
+
+  function paintRandom() {
+    const R = globalScope.SaveToGalleryRandomize;
+    if (!R?.levelOf || !levelButton) return;
+    const level = R.levelOf(state.random.level);
+    const info = R.LEVELS.find((entry) => entry.key === level);
+    levelButton.textContent = info.label;
+    levelButton.dataset.level = level;
+    levelButton.title = `Random level: ${info.name}. ${info.hint}\nClick: MB → P → MB+P → WILD. ⌥R rolls at this level, ⌥⇧R always WILD.`;
+    const locked = R.locksOf(state.random, state.worldKey);
+    const names = mixPool(state.profiles, state.moodboards).names;
+    lockButton.textContent = locked.length ? `Locked ${locked.length}` : "Lock";
+    lockButton.classList.toggle("stg-mb-lock--on", locked.length > 0);
+    lockButton.title = locked.length
+      ? `Always in the mix: ${locked.map((code) => names[code] || code).join(" + ")}. Click to unlock.`
+      : "Lock the profiles and moodboards in the prompt (or the ones picked for the next prompt): every ⌥R and Rerun keeps them and randomizes around them.";
+    const lockedSet = new Set(locked);
+    for (const chip of [...strip.querySelectorAll(".stg-mb-chip"), ...profileStrip.querySelectorAll(".stg-mb-pchip"), ...othersBox.querySelectorAll(".stg-mb-pchip")]) {
+      chip.classList.toggle("stg-mb-locked", lockedSet.has(chip.dataset.code));
+    }
+  }
+
+  function toggleLock() {
+    const R = globalScope.SaveToGalleryRandomize;
+    if (!R?.withLocks || !state.worldKey) return;
+    if (R.locksOf(state.random, state.worldKey).length) {
+      setRandom(R.withLocks(state.random, state.worldKey, []));
+      showNote("Unlocked: the level randomizes everything again");
+      return;
+    }
+    const value = textarea ? textarea.value : "";
+    const codes = wordsOf(value) ? flagCodes(value) : nextCodes();
+    if (!codes.length) {
+      showNote("Pick a profile or a moodboard first, then Lock");
+      return;
+    }
+    setRandom(R.withLocks(state.random, state.worldKey, codes));
+    showNote(`Locked · ${mixLabel({ profiles: codes.filter((code) => !boardCodes().includes(code)), boards: codes.filter((code) => boardCodes().includes(code)) }, mixPool(state.profiles, state.moodboards).names)}`);
+  }
+
   /* ── Random: a new mix of the world's profiles and moodboards ── */
 
   // ⌥R / ⟳ Random (random limits), ⌥⇧R / shift-click (extreme). With words
@@ -1495,7 +1560,9 @@
     }
     const value = textarea.value;
     const live = Boolean(wordsOf(value));
-    const result = rerollPrompt(value, live ? flagCodes(value) : nextCodes(), pool, mode);
+    const R = globalScope.SaveToGalleryRandomize;
+    const random = R?.levelOf ? { level: R.levelOf(state.random.level), locks: R.locksOf(state.random, state.worldKey) } : null;
+    const result = rerollPrompt(value, live ? flagCodes(value) : nextCodes(), pool, mode, undefined, random);
     if (!result) {
       showNote("Nothing to mix in this world yet");
       return;
@@ -1507,7 +1574,9 @@
     textarea.focus();
     syncActive();
     const label = mixLabel(result.mix, pool.names);
-    showNote(`${mode === "extreme" ? "Extreme · " : ""}${live ? "" : "Next prompt · "}${label}`);
+    const levelLabel = mode === "extreme" ? "WILD" : R?.LEVELS?.find((entry) => entry.key === random?.level)?.label || "";
+    const lockNote = random?.locks?.length ? ` · ${random.locks.length} locked` : "";
+    showNote(`${levelLabel ? `${levelLabel} · ` : ""}${live ? "" : "Next prompt · "}${label}${lockNote}`);
     for (const code of result.mix.codes) {
       const selector = `[data-code="${CSS.escape(code)}"]`;
       flashChip(strip.querySelector(`.stg-mb-chip${selector}`) || profileStrip.querySelector(`.stg-mb-pchip${selector}`));
@@ -2289,6 +2358,25 @@
     randomButton.title = "New random profiles + moodboard for this prompt\nShift-click: extreme mix (more profiles, up to two moodboards)";
     randomButton.addEventListener("mousedown", (event) => event.preventDefault());
     randomButton.addEventListener("click", (event) => rerollMix(event.shiftKey ? "extreme" : "random"));
+    // The random level (one click cycles MB → P → MB+P → WILD) and LOCK (one
+    // click locks the codes in the prompt, or the ones armed for the next
+    // prompt; another unlocks), shared with the Rerun bar.
+    levelButton = el("button", "stg-mb-random stg-mb-level", "MB+P");
+    levelButton.type = "button";
+    levelButton.hidden = true;
+    levelButton.addEventListener("mousedown", (event) => event.preventDefault());
+    levelButton.addEventListener("click", () => {
+      const R = globalScope.SaveToGalleryRandomize;
+      if (!R?.nextLevel) return;
+      setRandom({ ...state.random, level: R.nextLevel(state.random.level) });
+      const info = R.LEVELS.find((entry) => entry.key === state.random.level);
+      showNote(`Random level · ${info.label}: ${info.hint}`);
+    });
+    lockButton = el("button", "stg-mb-random stg-mb-lock", "Lock");
+    lockButton.type = "button";
+    lockButton.hidden = true;
+    lockButton.addEventListener("mousedown", (event) => event.preventDefault());
+    lockButton.addEventListener("click", toggleLock);
     saveInput = el("input", "stg-mb-save-input");
     saveInput.type = "text";
     saveInput.maxLength = 40;
@@ -2311,7 +2399,7 @@
     saveInput.addEventListener("blur", () => closeSave(false));
     note = el("span", "stg-mb-note");
     note.hidden = true;
-    meta.append(world, presetBox, saveButton, saveInput, randomButton, note, activeLabel);
+    meta.append(world, presetBox, saveButton, saveInput, randomButton, levelButton, lockButton, note, activeLabel);
     if (packs) meta.appendChild(packs.toggle);
 
     snapshot = el("div", "stg-mb-snap");
@@ -2474,7 +2562,13 @@
   }
 
   function onStorageChanged(changes, area) {
-    if (retired || area !== "sync") return;
+    if (retired) return;
+    if (area === "local" && changes.stgRandom) {
+      const R = globalScope.SaveToGalleryRandomize;
+      state.random = R?.randomSettings ? R.randomSettings(changes.stgRandom.newValue) : state.random;
+      paintRandom();
+    }
+    if (area !== "sync") return;
     const hotkeysKey = hotkeysApi()?.STORAGE_KEY;
     if (hotkeysKey && changes[hotkeysKey]) applyHotkeys(changes[hotkeysKey].newValue);
     if (changes[pinKey()]) {
@@ -2493,8 +2587,10 @@
     takeOverFromOlderCopies();
     compose.href = location.href;
     try {
-      chrome.storage.local.get([WORLD_STORAGE_KEY, STICKY_STORAGE_KEY, OTHERS_STORAGE_KEY], (stored) => {
+      chrome.storage.local.get([WORLD_STORAGE_KEY, STICKY_STORAGE_KEY, OTHERS_STORAGE_KEY, "stgRandom", "stgRerunMoodboard"], (stored) => {
         state.worldKey = String(stored?.[WORLD_STORAGE_KEY] || "");
+        const R = globalScope.SaveToGalleryRandomize;
+        if (R?.randomSettings) state.random = R.randomSettings(stored?.stgRandom || (stored?.stgRerunMoodboard === false ? { level: "p" } : null));
         state.othersOpen = stored?.[OTHERS_STORAGE_KEY] === true;
         state.sticky = cleanSticky(stored?.[STICKY_STORAGE_KEY]);
         refresh().then(loadPresets);
