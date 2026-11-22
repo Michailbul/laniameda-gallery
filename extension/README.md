@@ -110,17 +110,23 @@ browser runs on, instead of a paid provider.
   small service on `127.0.0.1:47615`, kept running by the LaunchAgent
   `com.laniameda.writer`, which runs `claude -p` with no tools on Haiku 5.5,
   Sonnet 5.5, Opus 5.5 or Fable 5.2 (bridge 1.3.0) using the long-lived sign-ins in `~/.config/claude-tokens/`.
-- The writer's default model and where it runs are set in **MJ settings →
-  Writer** (0.37): Haiku 5.5, Sonnet 5.5, Opus 5.5, Fable 5.2 or DeepSeek V4.1
-  (cloud only, text only), on Auto, This Mac or Cloud. The Grow card's button
-  (**Sonnet · Mac**, **Opus · Cloud** …) and the quick edit's model chip step
-  through the same models.
+- Where the writer runs and on which model is one pick for every tool (0.41,
+  `writer-choice.js`): **This Mac** (Haiku, Sonnet, Opus, Fable through the
+  bridge), **Cloud · fal** or **Cloud · Pika** (the gallery's keys), each
+  cloud choice naming the model that provider runs: Cloud · fal · Haiku 5.5,
+  Cloud · Pika · Haiku 4.5, Cloud · Pika · Fable 5.1 … DeepSeek V4.1 (text
+  only) runs in the cloud only. The Grow card and Describe have one grouped
+  list; the quick edit has a model chip and a place chip (MAC → FAL → PIKA);
+  MJ settings → Writer has both, and the key row follows the cloud picked.
 - The same tab shows each tool's system prompt (Grow, Describe, Quick edit) as
   the gallery builds it (`GET /api/extension/writer-prompts`), editable with
   Reset, the per-world notes added after it, and **Show last sent**: the full
   system prompt of the last answer, world files included.
-- Default is automatic: the Mac when the bridge answers, the gallery's providers
-  when it does not.
+- The writer never moves somewhere else by itself. When the chosen place fails
+  (the bridge is not running, fal or Pika is out of credit or refuses the key)
+  the card says so and offers the other place as one click (**Try Cloud · Pika
+  · …**), which switches the pick and writes again. The default is This Mac; an
+  old "Auto" reads as This Mac and an old "Cloud" as Cloud · fal.
 - The bridge answers only the extension (the store copy and the unpacked copies
   found at install) and tools on the same Mac. It never opens Midjourney links:
   the extension sends the picture's bytes.
