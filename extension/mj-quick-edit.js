@@ -14,11 +14,13 @@
   const defaults = () => globalScope.SaveToGalleryQuickEditDefaults;
   // The model is the writer's default for every tool (chrome.storage.sync, MJ settings → Writer).
   // The Shots switch is shared with the Grow card (chrome.storage.local, {mode, from, fromName}).
-  const KEYS = { world: "quickEditWorld", model: "writerModel", prompts: "quickEditPrompts", shots: "writerShots" };
+  // Where it runs is the writer's place for every tool too (writer-choice.js): This Mac, Cloud · fal or Cloud · Pika.
+  const KEYS = { world: "quickEditWorld", model: "writerModel", mode: "writerMode", prompts: "quickEditPrompts", shots: "writerShots" };
+  const choice = () => globalScope.SaveToGalleryWriterChoice;
   const SHOT_MODES = ["off", "auto", "random"];
   const SHOT_SHORT = { off: "SHOTS OFF", auto: "SHOTS", random: "SHOTS ⚄" };
   const MODEL_KEYS = ["haiku", "sonnet", "opus", "fable", "deepseek"];
-  const settings = { world: "dear-annete", model: "haiku", prompts: {}, shots: { mode: "auto", from: "", fromName: "" } };
+  const settings = { world: "dear-annete", model: "haiku", mode: "local", prompts: {}, shots: { mode: "auto", from: "", fromName: "" } };
 
   function extensionAlive() {
     try { return Boolean(chrome.runtime && chrome.runtime.id); } catch { return false; }
@@ -33,14 +35,15 @@
       settings.prompts = stored?.[KEYS.prompts] && typeof stored[KEYS.prompts] === "object" ? stored[KEYS.prompts] : {};
       paintChips();
     });
-    chrome.storage.sync.get(KEYS.model, (stored) => {
+    chrome.storage.sync.get([KEYS.model, KEYS.mode], (stored) => {
       settings.model = MODEL_KEYS.includes(stored?.[KEYS.model]) ? stored[KEYS.model] : "haiku";
+      settings.mode = choice()?.modeOf(stored?.[KEYS.mode]) || "local";
       paintChips();
     });
   }
   try {
     chrome.storage.onChanged.addListener((changes, area) => {
-      if ((area === "local" && (changes[KEYS.world] || changes[KEYS.prompts] || changes[KEYS.shots])) || (area === "sync" && changes[KEYS.model])) loadSettings();
+      if ((area === "local" && (changes[KEYS.world] || changes[KEYS.prompts] || changes[KEYS.shots])) || (area === "sync" && (changes[KEYS.model] || changes[KEYS.mode]))) loadSettings();
     });
   } catch { /* extension reloaded */ }
 
@@ -137,6 +140,8 @@
       color:#FFF4EA;cursor:pointer;font:700 10px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.04em}
     .chip:hover{border-color:rgba(255,244,234,.4)}
     .chip.world{color:#F26157}
+    .chip.where{font-size:9px;letter-spacing:.09em;color:rgba(255,244,234,.62)}
+    .chip.where.mac{color:#79B791;border-color:rgba(121,183,145,.45)}
     .chip.shots{color:#79B791}
     .chip.shots.off{color:rgba(255,244,234,.38)}
     input{flex:1 1 auto;min-width:0;height:28px;padding:0 9px;border-radius:7px;border:1px solid rgba(255,244,234,.16);background:#191919;
@@ -150,6 +155,8 @@
     .line .err{color:#F26157}
     .line button{background:none;border:0;padding:0;color:#FFF4EA;font:inherit;text-decoration:underline;text-underline-offset:2px;cursor:pointer}
     .line .sp{flex:1}
+    .line button.offer{flex:none;height:20px;padding:0 7px;border:1px solid #F26157;border-radius:6px;color:#F26157;text-decoration:none;font:700 8.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
+    .line button.offer:hover{background:#F26157;color:#0A0805}
     .spin{width:10px;height:10px;border:1.5px solid rgba(255,244,234,.25);border-top-color:#F26157;border-radius:50%;animation:s .7s linear infinite}
     @keyframes s{to{transform:rotate(360deg)}}
   </style>
@@ -158,6 +165,7 @@
     <div class="row">
       <button class="chip world" type="button" title="World (system prompt). Click to switch."></button>
       <button class="chip model" type="button" title="Model. Click to switch."></button>
+      <button class="chip where" type="button" title="Where the writer runs. Click to switch."></button>
       <button class="chip shots" type="button" title="Cinematic shots. Click to switch."></button>
       <input type="text" placeholder="What to change…" spellcheck="false" autocomplete="off">
       <button class="go" type="button" title="Rewrite (Enter)">↵</button>
@@ -168,6 +176,7 @@
   const box = shadow.querySelector(".box");
   const worldChip = shadow.querySelector(".chip.world");
   const modelChip = shadow.querySelector(".chip.model");
+  const whereChip = shadow.querySelector(".chip.where");
   const shotsChip = shadow.querySelector(".chip.shots");
   const input = shadow.querySelector("input");
   const go = shadow.querySelector(".go");
@@ -186,7 +195,13 @@
     worldChip.title = `World: ${world?.name || "Dear Annete"} (its system prompt). Click to switch.`;
     const model = defaults()?.MODELS.find((entry) => entry.key === settings.model);
     modelChip.textContent = model?.short || "H";
-    modelChip.title = `Writer model: ${model?.name || "Haiku 5.5"} (the default for Grow, Describe and edits). Click to switch.`;
+    const c = choice();
+    const runs = c?.runs(settings.mode, settings.model) || model?.name || "Haiku 5.5";
+    modelChip.title = `Writer model: ${runs} (the default for Grow, Describe and edits). Click to switch.`;
+    const where = c?.whereOf(settings.mode);
+    whereChip.textContent = where?.short || "MAC";
+    whereChip.classList.toggle("mac", settings.mode === "local");
+    whereChip.title = `${c ? c.label(settings.mode, settings.model) : "Haiku · Mac"}: ${where?.hint || ""} Click for This Mac → Cloud · fal → Cloud · Pika.`;
     const shots = settings.shots;
     const from = shots.fromName || "CINEMATIC SHOTS";
     shotsChip.textContent = SHOT_SHORT[shots.mode] || "SHOTS";
@@ -319,12 +334,26 @@
 
     busy = true;
     go.disabled = true;
-    const label = defaults()?.MODELS.find((entry) => entry.key === settings.model)?.name || "AI";
+    const label = choice()?.label(settings.mode, settings.model) || defaults()?.MODELS.find((entry) => entry.key === settings.model)?.name || "AI";
     setLine(`<span class="spin"></span><span>${esc(label)}…</span>`);
     const res = await ask({ prompt, selection, instruction: instruction.trim(), model: settings.model, system: systemPrompt(), fallbackWorld: settings.world });
     busy = false;
     go.disabled = false;
-    if (!res?.ok) { setLine(esc(res?.error || "Could not edit."), "err"); return; }
+    if (!res?.ok) {
+      // The chosen writer failed: say so and offer the other place as one click. Never switch by itself.
+      setLine(esc(res?.error || "Could not edit."), "err");
+      if (res?.offer) {
+        pendingOffer = { ...res.offer, instruction };
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "offer";
+        button.dataset.act = "offer";
+        button.textContent = res.offer.label;
+        button.title = "Switch the writer there (the default for every tool) and run this edit again";
+        line.append(button);
+      }
+      return;
+    }
     if (!target) target = runTarget;
 
     const text = String(res.text || "");
@@ -377,9 +406,24 @@
   });
   modelChip.addEventListener("mousedown", (event) => event.preventDefault());
   modelChip.addEventListener("click", () => {
-    settings.model = MODEL_KEYS[(MODEL_KEYS.indexOf(settings.model) + 1) % MODEL_KEYS.length];
+    const usable = MODEL_KEYS.filter((key) => !choice() || choice().runsOn(settings.mode, key));
+    settings.model = usable[(usable.indexOf(settings.model) + 1) % usable.length] || "haiku";
     paintChips();
     if (extensionAlive()) chrome.storage.sync.set({ [KEYS.model]: settings.model });
+    input.focus();
+  });
+  // This Mac → Cloud · fal → Cloud · Pika. DeepSeek has no Mac run, so the Mac takes Haiku.
+  let pendingOffer = null;
+  function setWhere(mode, model = settings.model) {
+    settings.mode = mode;
+    settings.model = mode === "local" && !choice()?.runsOn("local", model) ? "haiku" : model;
+    paintChips();
+    if (extensionAlive()) chrome.storage.sync.set({ [KEYS.mode]: settings.mode, [KEYS.model]: settings.model });
+  }
+  whereChip.addEventListener("mousedown", (event) => event.preventDefault());
+  whereChip.addEventListener("click", () => {
+    const keys = choice()?.WHERE_KEYS || ["local", "fal", "pika"];
+    setWhere(keys[(keys.indexOf(settings.mode) + 1) % keys.length]);
     input.focus();
   });
   shotsChip.addEventListener("mousedown", (event) => event.preventDefault());
@@ -398,9 +442,16 @@
   });
   input.addEventListener("keyup", (event) => event.stopPropagation());
   input.addEventListener("keypress", (event) => event.stopPropagation());
+  line.addEventListener("mousedown", (event) => { if (event.target?.dataset?.act === "offer") event.preventDefault(); });
   line.addEventListener("click", (event) => {
     const act = event.target?.dataset?.act;
     if (act === "undo") doUndo();
+    if (act === "offer" && pendingOffer) {
+      const offer = pendingOffer;
+      pendingOffer = null;
+      setWhere(offer.mode, offer.model);
+      void run(offer.instruction);
+    }
     if (act === "bar" && target?.kind === "page") {
       const area = findTextarea();
       if (!area) return;

@@ -9,6 +9,7 @@ type WriterApi = {
 const page = () => (globalThis as typeof globalThis & { SaveToGalleryExpand: WriterApi }).SaveToGalleryExpand;
 
 beforeAll(async () => {
+  await import("../extension/writer-choice.js");
   await import("../extension/mj-expand.js");
 });
 
@@ -37,30 +38,71 @@ describe("local writer: the answer a run on the Mac hands back", () => {
   });
 });
 
-describe("local writer: the switch on the Grow card", () => {
-  test("shows the default model and where it runs", () => {
-    expect(page().writerView({ mode: "auto", model: "haiku", up: true })).toMatchObject({ label: "Haiku · Mac", local: true });
+describe("writer picker on the Grow card: This Mac, Cloud · fal or Cloud · Pika", () => {
+  test("shows the model and where it runs, in plain words", () => {
+    expect(page().writerView({ mode: "local", model: "haiku", up: true })).toMatchObject({ label: "Haiku · Mac", local: true });
     expect(page().writerView({ mode: "local", model: "sonnet", up: true })).toMatchObject({ label: "Sonnet · Mac", local: true });
-    expect(page().writerView({ mode: "cloud", model: "opus", up: true })).toMatchObject({ label: "Opus · Cloud", local: false });
-    expect(page().writerView({ mode: "auto", model: "fable", up: false })).toMatchObject({ label: "Fable · Cloud", local: false });
+    expect(page().writerView({ mode: "fal", model: "haiku" })).toMatchObject({ label: "Cloud · fal · Haiku 5.5", local: false });
+    expect(page().writerView({ mode: "pika", model: "haiku" })).toMatchObject({ label: "Cloud · Pika · Haiku 4.5", local: false });
+    expect(page().writerView({ mode: "pika", model: "fable" })).toMatchObject({ label: "Cloud · Pika · Fable 5.1", local: false });
     expect(page().writerView({ mode: "local", model: "haiku", up: false }).title).toContain("nothing can be written");
   });
 
-  test("the background's own verdict on local wins", () => {
-    expect(page().writerView({ mode: "auto", model: "opus", up: true, local: false })).toMatchObject({ label: "Opus · Cloud", local: false });
+  test("old stored places still read: auto is the Mac, cloud is fal", () => {
+    expect(page().writerView({ mode: "auto", model: "haiku" })).toMatchObject({ label: "Haiku · Mac", local: true });
+    expect(page().writerView({ mode: "cloud", model: "opus" })).toMatchObject({ label: "Cloud · fal · Opus 5.5", local: false });
   });
 
-  test("DeepSeek cannot see the picture, so Grow names Haiku in the cloud", () => {
-    expect(page().writerView({ mode: "auto", model: "deepseek", up: true })).toMatchObject({ label: "Haiku · Cloud", local: false });
+  test("DeepSeek cannot see the picture, so Grow names Haiku", () => {
+    expect(page().writerView({ mode: "fal", model: "deepseek" })).toMatchObject({ label: "Cloud · fal · Haiku 5.5" });
   });
 
-  test("one click steps through every writer model and back", () => {
-    let status: Status = { mode: "auto", model: "haiku", up: true };
+  test("the next choice steps through the Mac, then fal, then Pika, and back", () => {
+    let status: Status = { mode: "local", model: "haiku" };
     const seen: string[] = [];
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 12; i += 1) {
       status = { ...status, ...page().nextWriter(status) };
-      seen.push(status.model ?? "");
+      seen.push(`${status.mode}:${status.model}`);
     }
-    expect(seen).toEqual(["sonnet", "opus", "fable", "deepseek", "haiku"]);
+    expect(seen).toEqual([
+      "local:sonnet", "local:opus", "local:fable",
+      "fal:haiku", "fal:sonnet", "fal:opus", "fal:fable",
+      "pika:haiku", "pika:sonnet", "pika:opus", "pika:fable",
+      "local:haiku",
+    ]);
+  });
+});
+
+type Choice = {
+  groups: (opts?: { vision?: boolean }) => Array<{ group: string; where: string; items: Array<{ value: string; label: string; mode: string; model: string }> }>;
+  offerFor: (res: { ok: boolean; where?: string; model?: string }) => { mode: string; model: string; label: string } | null;
+  parse: (value: string) => { mode: string; model: string };
+  runs: (mode: string, model: string) => string;
+};
+const choice = () => (globalThis as typeof globalThis & { SaveToGalleryWriterChoice: Choice }).SaveToGalleryWriterChoice;
+
+describe("writer choice: one pick for Grow, Describe and the quick edit", () => {
+  test("the picker groups This Mac, Cloud · fal and Cloud · Pika", () => {
+    const groups = choice().groups();
+    expect(groups.map((g) => g.group)).toEqual(["This Mac", "Cloud · fal", "Cloud · Pika"]);
+    expect(groups[0]!.items.map((i) => i.label)).toEqual(["Haiku · Mac", "Sonnet · Mac", "Opus · Mac", "Fable · Mac"]);
+    expect(groups[1]!.items.map((i) => i.label)).toContain("Cloud · fal · DeepSeek V4.1");
+    expect(choice().groups({ vision: true })[1]!.items.map((i) => i.model)).not.toContain("deepseek");
+    expect(choice().parse("pika:sonnet")).toEqual({ mode: "pika", model: "sonnet" });
+    expect(choice().parse("nonsense")).toEqual({ mode: "local", model: "haiku" });
+  });
+
+  test("a failure offers the other place, never switches by itself", () => {
+    expect(choice().offerFor({ ok: false, where: "fal", model: "sonnet" })).toEqual({ mode: "pika", model: "sonnet", label: "Try Cloud · Pika · Sonnet 5.5" });
+    expect(choice().offerFor({ ok: false, where: "pika", model: "haiku" })).toEqual({ mode: "fal", model: "haiku", label: "Try Cloud · fal · Haiku 5.5" });
+    expect(choice().offerFor({ ok: false, where: "local", model: "opus" })).toEqual({ mode: "fal", model: "opus", label: "Try Cloud · fal · Opus 5.5" });
+    expect(choice().offerFor({ ok: true, where: "fal" })).toBeNull();
+  });
+
+  test("the extension names the same model each provider runs as the gallery", async () => {
+    const { WRITER_MODEL_KEYS, cloudModelLabel, WRITER_PROVIDERS } = await import("../lib/writer-models");
+    for (const model of WRITER_MODEL_KEYS) {
+      for (const provider of WRITER_PROVIDERS) expect(choice().runs(provider, model)).toBe(cloudModelLabel(model, provider));
+    }
   });
 });

@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.41.0 (22 Nov 2026)
+
+Writer: pick This Mac, Cloud · fal or Cloud · Pika
+- **One writer pick for Grow, Describe and the quick edit**: Haiku · Mac,
+  Sonnet · Mac (Opus and Fable too), Cloud · fal · Haiku 5.5 … and
+  Cloud · Pika · Haiku 4.5 … Each cloud choice names the model that
+  provider runs, in plain words. The single "Cloud" (fal, then Pika behind
+  your back) and "Auto" are gone; an old "Cloud" pick reads as Cloud · fal,
+  an old "Auto" as This Mac.
+- The **Grow card** and **Describe** have one list grouped This Mac /
+  Cloud · fal / Cloud · Pika. The **quick edit** has a place chip next to
+  the model chip: MAC → FAL → PIKA.
+- The writer never moves somewhere else by itself. When the chosen place
+  fails (the Mac's writer is not running, fal or Pika is out of credit or
+  refuses the key), the card says so and shows **Try Cloud · Pika …** (or
+  fal) as one click, which switches the pick and writes again.
+- MJ settings → Writer: **Runs on** is This Mac · Cloud · fal · Cloud · Pika,
+  and the key row shows and saves the key of the cloud picked (fal or Pika).
+- The pick is kept per Chrome user (synced).
+
 ## 0.40.0 (21 Nov 2026)
 
 Writer: pick where the cinematic shots come from, or draw them at random

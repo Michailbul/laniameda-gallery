@@ -7,7 +7,7 @@ import { clientErrorMessage } from "@/lib/server/route-error";
 import { withWriterFallback } from "@/lib/server/writer-call";
 import { DESCRIBE_LIMITS } from "@/lib/mj-describe";
 import { LOCAL_WRITER_LIMITS } from "@/lib/local-writer";
-import { WRITER_MODEL_KEYS, WRITER_RULES_LIMIT } from "@/lib/writer-models";
+import { WRITER_MODEL_KEYS, WRITER_PROVIDERS, WRITER_RULES_LIMIT } from "@/lib/writer-models";
 
 // The extension's describer: a picture (and Midjourney's Describe lines when
 // it caught them) taken apart like a cinematographer would (subject, shot,
@@ -33,6 +33,8 @@ const bodySchema = z.object({
   note: z.string().max(DESCRIBE_LIMITS.note).optional(),
   // The default writer model (MJ settings → Writer) and the art director's own system prompt.
   model: z.enum(WRITER_MODEL_KEYS).optional(),
+  // Where a cloud call runs (the extension\'s writer picker): only fal, or only Pika.
+  provider: z.enum(WRITER_PROVIDERS).optional(),
   rules: z.string().max(WRITER_RULES_LIMIT).optional(),
   local: z.object({
     stage: z.enum(["messages", "finish"]),

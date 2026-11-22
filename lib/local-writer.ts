@@ -19,7 +19,7 @@ export type LocalStage =
   | { stage: "messages" }
   | { stage: "finish"; raw: string; model?: string; ms?: number };
 
-export type LocalAnswer = { raw: string; model: string; provider: string; ms: number; notes: string[] };
+export type LocalAnswer = { raw: string; model: string; provider: string; requestId?: string; ms: number; notes: string[] };
 
 /** The label shown next to a result: "Haiku 5.5 · local". Unknown names fall back to Haiku. */
 export const localModelLabel = (model?: string) => {

@@ -1,6 +1,6 @@
 // The side panel's MJ settings → Writer: the default model every writer tool
-// runs on (Grow, Describe, the quick edit), where it runs (this Mac or the
-// gallery's providers), and the system prompts, in the open:
+// runs on (Grow, Describe, the quick edit), where it runs (This Mac, Cloud ·
+// fal or Cloud · Pika, writer-choice.js), and the system prompts, in the open:
 //   - each tool's own system prompt, loaded from the gallery as it builds it
 //     today, editable here (saved as you type, sent with every call as
 //     `rules`; Reset brings the gallery's default back),
@@ -13,14 +13,13 @@
 (function registerQuickEditSettings(globalScope) {
   const root = document.getElementById("qeRoot");
   const defaults = globalScope.SaveToGalleryQuickEditDefaults;
-  if (!root || !defaults) return;
+  if (!root || !defaults || !globalScope.SaveToGalleryWriterChoice) return;
   const KEYS = defaults.STORAGE;
   const W = { model: "writerModel", mode: "writerMode", rules: "writerRules", last: "writerLastSystem" };
-  const MODES = [
-    { key: "auto", name: "Auto", hint: "This Mac when the local writer is running, else the gallery's providers." },
-    { key: "local", name: "This Mac", hint: "Only the local writer on this Mac (claude -p). DeepSeek has no local run." },
-    { key: "cloud", name: "Cloud", hint: "The gallery's providers: fal first, Pika when fal is out of credit." },
-  ];
+  // This Mac, Cloud · fal, Cloud · Pika. The writer never moves to another place by
+  // itself: a failure is said on the card, with the other place as one click.
+  const choice = globalScope.SaveToGalleryWriterChoice;
+  const MODES = choice.WHERE;
   const TOOLS = [
     { key: "grow", name: "Grow" },
     { key: "describe", name: "Describe" },
@@ -28,7 +27,7 @@
     { key: "world", name: "World notes" },
   ];
   const state = {
-    world: "dear-annete", model: "haiku", mode: "auto", tool: "grow", prompts: {}, rules: {}, last: {},
+    world: "dear-annete", model: "haiku", mode: "local", tool: "grow", prompts: {}, rules: {}, last: {},
     gallery: null, galleryError: "", bridge: null, showLast: false,
   };
 
@@ -42,7 +41,7 @@
       <p class="qe-label">Runs on</p>
       <div class="qe-seg" role="tablist" aria-label="Where the writer runs" data-group="mode"></div>
       <p class="qe-hint" data-hint="mode"></p>
-      <p class="qe-label">Cloud key · fal</p>
+      <p class="qe-label qe-key-label">Cloud key · fal</p>
       <p class="qe-hint qe-key-state" aria-live="polite">Checking the key…</p>
       <div class="qe-key-row">
         <input class="qe-key" type="password" autocomplete="off" spellcheck="false" placeholder="Paste a fal API key" aria-label="fal API key">
@@ -88,6 +87,7 @@
   const lastMeta = $(".qe-last-meta");
   const lastText = $(".qe-last");
   const keyState = $(".qe-key-state");
+  const keyLabel = $(".qe-key-label");
   const keyInput = $(".qe-key");
   const keySave = $(".qe-key-save");
   const keyMsg = $(".qe-key-msg");
@@ -122,13 +122,19 @@
   function bridgeLine() {
     const b = state.bridge;
     const model = modelOf(state.model);
+    if (state.mode !== "local") {
+      const runs = choice.runs(state.mode, state.model);
+      return runs ? `Writes with ${runs} on ${choice.whereOf(state.mode).name}.` : `${model.name} does not run on ${choice.whereOf(state.mode).name}.`;
+    }
+    if (!model.local) return `${model.name} has no run on this Mac: pick a Claude model, or Cloud · fal or Cloud · Pika.`;
     if (!b) return "";
-    if (!b.up) return state.mode === "local" ? "The local writer is not running on this Mac: nothing can be written." : "Local writer: not running on this Mac, so the cloud writes.";
-    const runs = (b.bridgeModels || []).includes(model.key);
-    if (!model.local) return `${model.name} has no local run: the cloud writes${state.mode === "local" ? " nothing while Runs on is This Mac" : ""}.`;
-    if (!runs) return `The local writer here is older and cannot run ${model.name}: run extension-writer/install.sh again.${state.mode === "local" ? "" : " Until then the cloud writes."}`;
-    return state.mode === "cloud" ? "Local writer is running, but Cloud is picked." : `Writes on this Mac with ${model.name}.`;
+    if (!b.up) return "The writer on this Mac is not running: nothing can be written here until it runs (extension-writer/install.sh).";
+    if (!(b.bridgeModels || []).includes(model.key)) return `The writer on this Mac is older and cannot run ${model.name}: run extension-writer/install.sh again.`;
+    return `Writes on this Mac with ${model.name}.`;
   }
+  // The key row follows the cloud place: Pika's key when Pika is picked, else fal's.
+  const keyProvider = () => (state.mode === "pika" ? "pika" : "fal");
+  const keyName = () => (keyProvider() === "pika" ? "Pika" : "fal");
 
   function render() {
     const model = modelOf(state.model);
@@ -139,9 +145,13 @@
     }, entry.hint)));
     hint("model").textContent = model.hint || "";
     seg("mode").replaceChildren(...MODES.map((entry) => button(entry.name, entry.key === state.mode, () => {
+      const switchesKey = keyProvider() !== (entry.key === "pika" ? "pika" : "fal");
       state.mode = entry.key;
-      chrome.storage.sync.set({ [W.mode]: entry.key });
+      // DeepSeek has no Mac run: the Mac takes Haiku.
+      if (!choice.runsOn(entry.key, state.model)) state.model = "haiku";
+      chrome.storage.sync.set({ [W.mode]: entry.key, [W.model]: state.model });
       render();
+      if (switchesKey) void loadKeys();
     }, entry.hint)));
     hint("mode").textContent = [MODES.find((entry) => entry.key === state.mode)?.hint, bridgeLine()].filter(Boolean).join(" ");
 
@@ -254,22 +264,27 @@
   // credit; it then serves every cloud write, from any copy of the extension.
   function keyLine(row) {
     if (!row) return "Could not read the key from the gallery.";
-    const who = row.source === "app" ? `Your key ····${row.hint || ""}` : row.source === "server" ? "The gallery's own key" : "No fal key: the cloud writer skips fal";
+    const who = row.source === "app" ? `Your key ····${row.hint || ""}` : row.source === "server" ? "The gallery's own key" : `No ${keyName()} key: Cloud · ${keyName()} cannot write`;
     const check = row.check?.message ? ` · ${row.check.message}` : "";
     return `${who}${check}`;
   }
   async function loadKeys() {
+    const provider = keyProvider();
+    keyLabel.textContent = `Cloud key · ${keyName()}`;
+    keyInput.placeholder = `Paste a ${keyName()} API key`;
+    keyInput.setAttribute("aria-label", `${keyName()} API key`);
     const res = await ask({ do: "keys" });
-    const row = res?.ok ? (res.keys || []).find((entry) => entry.provider === "fal") : null;
+    if (provider !== keyProvider()) return;
+    const row = res?.ok ? (res.keys || []).find((entry) => entry.provider === provider) : null;
     keyState.textContent = res?.ok ? keyLine(row) : `Could not read the key: ${res?.error || "the gallery did not answer"}.`;
     keyState.classList.toggle("qe-key-state--bad", Boolean(row && (row.source === "none" || row.check?.ok === false)));
   }
   async function saveKey() {
     const key = keyInput.value.trim();
-    if (!key) { keyMsg.textContent = "Paste a fal key first."; return; }
+    if (!key) { keyMsg.textContent = `Paste a ${keyName()} key first.`; return; }
     keySave.disabled = true;
-    keyMsg.textContent = "Checking the key with fal…";
-    const res = await ask({ do: "saveKey", provider: "fal", key });
+    keyMsg.textContent = `Checking the key with ${keyName()}…`;
+    const res = await ask({ do: "saveKey", provider: keyProvider(), key });
     keySave.disabled = false;
     if (res?.ok && res.saved) {
       keyInput.value = "";
@@ -297,14 +312,16 @@
   });
   chrome.storage.sync.get([W.model, W.mode], (stored) => {
     state.model = models().some((entry) => entry.key === stored?.[W.model]) ? stored[W.model] : "haiku";
-    state.mode = MODES.some((entry) => entry.key === stored?.[W.mode]) ? stored[W.mode] : "auto";
+    state.mode = choice.modeOf(stored?.[W.mode]);
     render();
+    void loadKeys();
   });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "sync") {
       if (changes[W.model]) state.model = changes[W.model].newValue || "haiku";
-      if (changes[W.mode]) state.mode = changes[W.mode].newValue || "auto";
+      if (changes[W.mode]) state.mode = choice.modeOf(changes[W.mode].newValue);
       if (changes[W.model] || changes[W.mode]) void loadBridge();
+      if (changes[W.mode]) void loadKeys();
       return;
     }
     if (area !== "local") return;
