@@ -94,7 +94,7 @@ describe("mj-expand: the writer", () => {
         { key: "learnings", label: "learnings", title: "LEARNINGS.md", text: "He likes sodium light." },
       ]).text,
     });
-    expect(system!.content).toContain("Copy them word for word");
+    expect(system!.content).toContain("Copy the style words exactly, names included");
     expect(system!.content).toContain("Cars are hearses.");
     expect(system!.content).toContain("He likes sodium light.");
     expect(system!.content).toContain("Never a real city.");

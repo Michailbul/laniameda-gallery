@@ -116,7 +116,7 @@ How the look is kept:
 - Codes and parameters (--sref, --profile, --ar, --stylize …) carry most of a look. They are added to your prompts for you, unchanged, except the version: every job is --v 8.2, never 8.1 or 7. Never write a parameter, a URL or a "--" flag.
 - Read the source prompt as three kinds of words:
   WORLD WORDS name the genre, the era and the kind of world ("a dark Gothic old town", "dark art deco city"). Keep them word for word in every prompt, attached to the new subject or place. Never drop one, never swap in a synonym.
-  STYLE WORDS name the medium or look (an opening sentence such as "Dark art deco animation frame, a hand-painted background.") and the film, lens and light (closing sentences such as "Shot on 35mm colour negative film."). Copy them word for word into every prompt, in the same places.
+  STYLE WORDS name the medium or look (an opening sentence such as "Dark art deco animation frame, a hand-painted background.") and the film, lens and light (closing sentences such as "Shot on 35mm colour negative film."). Any artist, book, film or studio the source names as its look is part of its style words ("Painted concept art for Jack Vance's The Dying Earth, in the manner of Moebius and Philippe Druillet"). Copy the style words exactly, names included, unless the art director asks for another style.
   SUBJECT WORDS name what this one frame shows: its subject, its room, its action. They are content. Keep them only where the new frame still shows that thing: a close-up of a pot does not open with "apartment interior", a street outside is not "an interior".
 - A look fades when its world and style words rotate. Repeat them; vary only the subject.
 - If the source prompt is short and plain, the codes carry the look: keep your prompts short and plain too, in the same voice and about the same length. Do not add style adjectives it did not have.
@@ -135,12 +135,29 @@ How Midjourney V8.2 reads:
 - Several people: say the headcount, give each one clause anchored to a place in the frame and two or three traits nobody else has.
 
 Traps we have hit:
-- Real names pull real things: no real city, landmark, river, artist, photographer, studio, film title, brand or franchise word. Describe forms, materials, era and light instead.
+- Real names pull real things: never add a real city, landmark, river, artist, photographer, studio, film title, brand or franchise word of your own. Describe forms, materials, era and light instead. This covers only words you add: names in the source's own style words stay, exactly.
 - Every lit sign grows fake letters: signs are unlit emblems with a shape, or out of frame. No lettering unless a title in quotes is the point.
 - "Film still" on a very wide frame can add black bars or a caption strip: on wide frames say "photograph" or keep the source's own wording.
 - Vague big shapes drift to famous ones ("cathedral towers", "a long black boat under a bridge"): give invented shapes concrete form.
 
 ${SHOT_SCALE_RULES}`;
+
+/**
+ * What always rides after the system prompt, the art director's own copy
+ * included (Michael, 22 Nov 2026: "its important to keep the style same always
+ * when we grow ... or only if user ask"; the shot name first, every other
+ * prompt in inverse order, and every prompt thought from its camera). The
+ * style itself is put back by the gallery (withStyle), so the writer cannot
+ * trim it.
+ */
+export const GROW_LOCK = `GROW RULES THAT ALWAYS HOLD (they outrank anything above):
+- The style is locked. The source prompt's style words (the medium, the look, the palette, and any artist, book, film or studio it names as its look) are copied exactly, names included, unless the art director asks for another style. The rule against real names covers only words you add, never the source's own style words.
+- Write the style once, on the STYLE line. Each PROMPT is the content only, without the style words: the gallery puts the style back on every prompt, at the start of some and at the end of others.
+- Each PROMPT opens with the shot: its size and angle in plain words ("Close-up of …", "Extreme close-up of …", "Medium shot of …", "Full shot of …", "Wide shot of …", "Low-angle wide of …"), then what that camera sees.
+- Think from the camera. Describe only what is visible from that position and distance:
+  Close-up and extreme close-up: the character or object fills the frame. Describe its surface in detail: skin and its lines, hair, the weave and folds of the fabric, embroidery and stitching, metal wear, ornament, how the light falls across it. Behind it, only soft shapes.
+  Medium and full shots: the figure from the waist or the knees, or head to toe; the pose, the hands, what is within reach, the near background.
+  Wide and establishing shots: the place leads. Describe the background, the architecture, the land and sky, the objects around, where the figures stand and how small they are. No fine texture on anything small in the frame.`;
 
 /** Grow's own system prompt, before the world's files and notes: what the extension shows and may replace. */
 export const EXPAND_SYSTEM_DEFAULT = `${EXPAND_BASE_RULES}\n\n${CINEMATIC_RULES_GENERAL}`;
@@ -148,11 +165,13 @@ export const EXPAND_SYSTEM_DEFAULT = `${EXPAND_BASE_RULES}\n\n${CINEMATIC_RULES_
 const ANSWER_FORM = (count: number, withLogline: boolean, withPlace = false) => [
   "Answer in exactly this form and nothing else (no markdown, no notes):",
   "SET: two to five plain words naming this set",
+  "STYLE: the source prompt's style words, copied exactly, names included (no source prompt: the one style sentence you use for this set; a source with no style words: none)",
+  "STYLE CHANGED: no (yes only when the art director asked for another style)",
   withLogline ? "LOGLINE: the story in one sentence" : "",
   withPlace ? "PLACE LINE: the fixed place sentence\nLIGHT LINE: the fixed light sentence" : "",
   `Then ${count} ${count === 1 ? "entry" : "entries"}, each as:`,
   "TITLE: three to six plain words naming the frame",
-  "PROMPT: the prompt, words only",
+  "PROMPT: the content only, opening with the shot, without the style words",
 ].filter(Boolean).join("\n");
 
 export type ExpandRef = { code?: string; url?: string; weight?: number };
@@ -334,6 +353,7 @@ export function buildExpandMessages({ image, sourceWords, lookNote, preset, idea
   const dearAnnete = isDearAnnete(worldKey);
   const systemText = [
     rules?.trim() || EXPAND_SYSTEM_DEFAULT,
+    GROW_LOCK,
     dearAnnete ? `${DEAR_ANNETE_CINEMATIC}\n\nThis is a Dear Annete frame: real cinematography comes first. Every prompt reads as a frame from a real film shot in a real old Gothic town.` : "",
     worldBrief?.trim() ?? "",
     system?.trim() ? `Project rules (his own notes for this world):\n${system.trim().slice(0, EXPAND_LIMITS.system)}` : "",
@@ -363,7 +383,7 @@ export function buildExpandMessages({ image, sourceWords, lookNote, preset, idea
   return [{ role: "system" as const, content: systemText }, { role: "user" as const, content }];
 }
 
-export type ParsedExpand = { set?: string; logline?: string; items: Array<{ title: string; words: string }> };
+export type ParsedExpand = { set?: string; logline?: string; style?: string; styleChanged?: boolean; items: Array<{ title: string; words: string }> };
 
 /** SET / LOGLINE / TITLE + PROMPT pairs from the writer's answer. */
 export function parseExpandAnswer(raw: string): ParsedExpand {
@@ -379,7 +399,76 @@ export function parseExpandAnswer(raw: string): ParsedExpand {
     const words = wordsOnly((match[2] ?? "").replace(/\*\*/g, "").replace(/https?:\/\/\S+/g, ""));
     if (words) items.push({ title: title || `Frame ${items.length + 1}`, words });
   }
-  return { set: line("SET")?.slice(0, 60), logline: line("LOGLINE")?.slice(0, 300), items };
+  // The style keeps its own quotes and full stop: it goes back on every prompt as written.
+  const style = /(?:^|\n)\s*[#*\s]*STYLE\**\s*:\s*\**\s*([^\n]+)/i.exec(text)?.[1]?.replace(/\*\*/g, "").trim();
+  const changed = line("STYLE CHANGED");
+  return {
+    set: line("SET")?.slice(0, 60), logline: line("LOGLINE")?.slice(0, 300),
+    style: style && !/^none\.?$/i.test(style) ? wordsOnly(style.replace(/https?:\/\/\S+/g, "")).slice(0, 1500) : undefined,
+    styleChanged: changed ? /^yes\b/i.test(changed) : undefined,
+    items,
+  };
+}
+
+// ── The style, kept word for word (Michael, 22 Nov 2026) ──
+
+const normal = (text: string) => text.toLowerCase().replace(/[“”"]/g, "").replace(/\s+/g, " ").replace(/[\s.,;:!]+$/g, "").trim();
+const contentWords = (text: string) => new Set(normal(text).split(/[^\p{L}\p{N}']+/u).filter((word) => word.length > 2));
+const sentencesOf = (text: string) => text.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+(?=\S)/).map((part) => part.trim()).filter(Boolean);
+/** Share of `sentence`'s words that also appear in `words`. */
+const overlap = (sentence: string, words: Set<string>) => {
+  const own = contentWords(sentence);
+  if (own.size < 3) return 0;
+  let shared = 0;
+  for (const word of own) if (words.has(word)) shared += 1;
+  return shared / own.size;
+};
+const withStop = (text: string) => (/[.!?]["”']?$/.test(text.trim()) ? text.trim() : `${text.trim()}.`);
+
+/**
+ * The style that goes on every prompt. The writer's STYLE line when it is the
+ * source's own words (or the art director asked for another style, or there is
+ * no source); when the writer trimmed it ("Painted concept art: …" for
+ * "Painted concept art for Jack Vance's The Dying Earth, in the manner of
+ * Moebius and Philippe Druillet: …"), the source sentences it came from.
+ */
+export function styleOf(style: string | undefined, sourceWords: string | undefined, changed?: boolean): { style: string; restored: boolean } {
+  const said = style?.trim() ?? "";
+  const source = sourceWords?.trim() ?? "";
+  if (!said || changed || !source) return { style: said, restored: false };
+  if (normal(source).includes(normal(said))) return { style: said, restored: false };
+  const words = contentWords(said);
+  const picked = sentencesOf(source).filter((sentence) => overlap(sentence, words) >= 0.5);
+  if (!picked.length) return { style: said, restored: false };
+  return { style: picked.join(" "), restored: true };
+}
+
+/** The content without the style the writer repeated anyway (whole, or as an opening or closing sentence). */
+export function stripStyle(content: string, style: string) {
+  let text = content.trim();
+  if (!style.trim()) return text;
+  const bare = style.trim().replace(/[.\s]+$/, "");
+  const at = text.toLowerCase().indexOf(bare.toLowerCase());
+  if (at >= 0) text = `${text.slice(0, at)} ${text.slice(at + bare.length).replace(/^[.\s]+/, "")}`.replace(/\s+/g, " ").trim();
+  const words = contentWords(style);
+  const parts = sentencesOf(text);
+  while (parts.length > 1 && overlap(parts[0]!, words) >= 0.6) parts.shift();
+  while (parts.length > 1 && overlap(parts[parts.length - 1]!, words) >= 0.6) parts.pop();
+  return parts.join(" ").replace(/^[\s.,;:]+/, "").trim();
+}
+
+/**
+ * Every prompt with the style put back word for word: the first, third, fifth
+ * … with the style first and the shot after it; the others the inverse, what
+ * we see first and the style at the end, for variety.
+ */
+export function withStyle<T extends { words: string }>(items: T[], style: string): T[] {
+  if (!style.trim()) return items;
+  return items.map((item, index) => {
+    const content = stripStyle(item.words, style) || item.words;
+    const words = index % 2 === 0 ? `${withStop(style)} ${content}` : `${withStop(content)} ${withStop(style)}`;
+    return { ...item, words };
+  });
 }
 
 /** "sref 123 456 · profile abc" so the writer knows codes exist, without their values mattering. */
