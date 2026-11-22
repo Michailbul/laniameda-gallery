@@ -12,7 +12,7 @@ import {
   DESCRIBE_LIMITS, aspectOf, buildDescribeMessages, describeParams, parseDescribeAnswer,
 } from "../lib/mj-describe";
 import {
-  EXPAND_ATTACH, EXPAND_LIMITS, buildExpandMessages, cleanPrevious, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
+  EXPAND_ATTACH, EXPAND_LIMITS, buildExpandMessages, cleanPrevious, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand, styleOf, withStyle,
   type ExpandAttach,
 } from "../lib/mj-expand";
 import { MJ_BANNED_PROFILE_WARNING, withoutBannedCodes } from "../lib/mj-queue";
@@ -423,9 +423,15 @@ export const expand = ownerAction({
       keepImages: Boolean(args.keepImages), srefUrl: args.srefUrl || undefined, attach, attachUrl: args.attachUrl || undefined,
       fallbackAspect: aspectOf(args.aspect, args.width, args.height), iw: imageWeightOf(command),
     };
+    // The style goes back on every prompt word for word (lib/mj-expand.ts withStyle):
+    // style first, then the inverse, in turns. A style the writer trimmed is
+    // taken from the source again, unless the art director asked for another.
+    const kept = styleOf(parsed.style, source.words, parsed.styleChanged);
+    if (kept.restored) answer.notes = [...answer.notes, "style kept word for word from the source"];
+    const items = withStyle(parsed.items.slice(0, EXPAND_LIMITS.maxCount), kept.style);
     return {
       set: parsed.set, logline: parsed.logline,
-      items: parsed.items.slice(0, EXPAND_LIMITS.maxCount).map((item) => composeExpanded(item.title, item.words, source, options)),
+      items: items.map((item) => composeExpanded(item.title, item.words, source, options)),
       source: { words: source.words, params: composeExpanded("", "", source, options).prompt, hadImages: source.images.length },
       ...metaOf(brief, shots),
       model: answer.model, provider: answer.provider, requestId: answer.requestId, ms: answer.ms, notes: answer.notes, systemPrompt: systemOf(messages),
