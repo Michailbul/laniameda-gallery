@@ -14,7 +14,22 @@ this folder, or after loading the extension in a new Chrome profile. Remove with
 `extension-writer/install.sh --remove`.
 
 Needs: `~/.local/bin/claude` (Claude Code) and a long-lived sign-in from
-`claude setup-token` in `~/.config/claude-tokens/eallin.token` or `artist.token`.
+`claude setup-token` in `~/.config/claude-tokens/<account>.token`. install.sh
+lists every `.token` file there (eallin first) and adds new ones on each run.
+
+## Accounts and hangs (1.4.0)
+
+- The sign-ins are tried in order. When Claude refuses one (for example
+  "Your organization has disabled Claude subscription access", or a dead token)
+  it is left out for six hours; one at its usage limit for an hour. The log says
+  `account … left out for … min`, and `/health` lists them under `out`.
+- A run counts as hung when Claude sends nothing for `idleSeconds` (45; it
+  streams while it thinks and writes). The run is stopped and the next account
+  tries. Every failure is logged, timeouts included.
+- A whole request stays under the extension's own wait (105 s for Haiku, 185 s
+  for the others), so the extension gets a real answer or a real error, never
+  its own timeout.
+- A caller that hangs up (the extension gave up, the tab closed) is not an error.
 
 ## How a call runs
 
