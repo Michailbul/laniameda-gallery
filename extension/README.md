@@ -62,8 +62,15 @@ are composed as `--v 8.2`, and the AndromedaCartoon profile is stripped.
   type, once. Only typed prompts get the remembered moodboard and profiles;
   pasted, queued and Grow prompts stay as they came.
 - **⌥R** gives the bar prompt a new random mix of this world's profiles and
-  moodboard (1–2 profiles, up to 1 moodboard); **⌥⇧R** a bigger one (up to 3
-  and 2). Words and params stay. The ⟳ Random button does the same.
+  moodboards at the **random level** (0.42): **MB** only the moodboard changes,
+  **P** only the profiles, **MB+P** 1–2 profiles + one moodboard, **WILD** 1–3
+  profiles + 0–2 moodboards. The level pill beside ⟳ Random cycles them in one
+  click; **⌥⇧R** is always WILD. Words and params stay.
+- **LOCK** (beside the level) locks the profiles and moodboards in the prompt:
+  every ⌥R, Rerun and queue Random keeps them and randomizes around them.
+  Click again to unlock. Locks are per world, and locked chips wear a LOCK tag.
+  The Rerun bar under each job has the same level pill and a LOCK that locks
+  that job's codes.
 - Esc, a click elsewhere, a page change or leaving the window closes every
   menu and tooltip of the bar.
 

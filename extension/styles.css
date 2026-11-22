@@ -2987,6 +2987,43 @@ html.stg-x-capturing .stg-badge {
   background: rgba(242, 97, 87, 0.18);
 }
 
+/* Random level (MB · P · MB+P · WILD) and LOCK, beside ⟳ Random. */
+.stg-mb-level {
+  min-width: 48px;
+  color: #fff4ea;
+  border-color: rgba(242, 97, 87, 0.5);
+  font-weight: 800;
+}
+.stg-mb-level[data-level="mb"] { color: #79b791; border-color: rgba(121, 183, 145, 0.6); }
+.stg-mb-level[data-level="p"] { color: #e8a838; border-color: rgba(232, 168, 56, 0.6); }
+.stg-mb-level[data-level="wild"] { color: #f26157; border-color: #f26157; }
+.stg-mb-lock--on,
+.stg-mb-lock--on:hover {
+  color: #191919;
+  background: #fff4ea;
+  border-color: #fff4ea;
+}
+/* A locked moodboard or profile chip: a linen ring and a LOCK tag. */
+.stg-mb-chip.stg-mb-locked,
+.stg-mb-pchip.stg-mb-locked {
+  position: relative;
+  box-shadow: 0 0 0 1.5px #fff4ea;
+}
+.stg-mb-chip.stg-mb-locked::after,
+.stg-mb-pchip.stg-mb-locked::after {
+  content: "LOCK";
+  position: absolute;
+  top: -7px;
+  right: -4px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: #fff4ea;
+  color: #191919;
+  font: 800 7px/1.2 "JetBrains Mono", ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+}
+
 .stg-mb-save-input {
   flex: none;
   width: 170px;

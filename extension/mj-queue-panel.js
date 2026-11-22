@@ -296,6 +296,20 @@
     });
   }
 
+  // The world's locked codes (the dock's or the Rerun bar's LOCK): Random and Extreme keep them.
+  function lockedCodes(world) {
+    return new Promise((resolve) => {
+      try {
+        chrome.storage.local.get("stgRandom", (stored) => {
+          const R = globalScope.SaveToGalleryRandomize;
+          resolve(R?.locksOf ? R.locksOf(R.randomSettings(stored?.stgRandom), world) : []);
+        });
+      } catch {
+        resolve([]);
+      }
+    });
+  }
+
   function listMoodboards(world) {
     return new Promise((resolve) => {
       try {
@@ -340,7 +354,7 @@
       barValue: bar,
       worldKey: (source && source.worldKey) || (batch && batch.worldKey) || dock,
       composeCommand: (entry) => C().composeMjCommand(entry).command,
-      io: { listMoodboards, post: (body) => call({ method: "POST", body }) },
+      io: { listMoodboards, locks: lockedCodes, post: (body) => call({ method: "POST", body }) },
     });
     state.varying = "";
     if (!res.ok) {
