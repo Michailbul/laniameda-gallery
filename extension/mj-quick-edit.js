@@ -20,7 +20,7 @@
   const SHOT_MODES = ["off", "auto", "random"];
   const SHOT_SHORT = { off: "SHOTS OFF", auto: "SHOTS", random: "SHOTS ⚄" };
   const MODEL_KEYS = ["haiku", "sonnet", "opus", "fable", "deepseek"];
-  const settings = { world: "dear-annete", model: "haiku", mode: "local", prompts: {}, shots: { mode: "auto", from: "", fromName: "" } };
+  const settings = { world: "none", model: "haiku", mode: "local", prompts: {}, shots: { mode: "auto", from: "", fromName: "" } };
 
   function extensionAlive() {
     try { return Boolean(chrome.runtime && chrome.runtime.id); } catch { return false; }
@@ -29,7 +29,7 @@
   function loadSettings() {
     if (!extensionAlive()) return;
     chrome.storage.local.get([KEYS.world, KEYS.prompts, KEYS.shots], (stored) => {
-      settings.world = stored?.[KEYS.world] || "dear-annete";
+      settings.world = stored?.[KEYS.world] || "none";
       const shots = stored?.[KEYS.shots] || {};
       settings.shots = { mode: SHOT_MODES.includes(shots.mode) ? shots.mode : "auto", from: shots.from || "", fromName: shots.fromName || "" };
       settings.prompts = stored?.[KEYS.prompts] && typeof stored[KEYS.prompts] === "object" ? stored[KEYS.prompts] : {};

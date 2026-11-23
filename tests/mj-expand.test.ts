@@ -386,3 +386,38 @@ describe("mj-expand: the Shots switch", () => {
     expect(page().briefLine({})).toBe("");
   });
 });
+
+describe("every Midjourney prompt is its own picture (23 Nov 2026)", () => {
+  test("Grow's always-on rules forbid words that point at another view, even under his own system prompt", async () => {
+    const { buildExpandMessages: build, expandPreset: preset } = await import("../lib/mj-expand");
+    const [system] = build({ image: "data:image/jpeg;base64,AAAA", sourceWords: "", preset: preset("angles"), count: 6, rules: "My own rules." });
+    expect(String(system!.content)).toContain("EVERY MIDJOURNEY PROMPT IS ITS OWN PICTURE");
+    expect(String(system!.content)).toContain("Seedream 5.5 Pro");
+  });
+
+  test("no move brief or location rule models a pointing word", async () => {
+    const { EXPAND_PRESETS: presets } = await import("../lib/mj-expand");
+    const { CINEMATIC_RULES, pointsElsewhere } = await import("../lib/mj-prompt-knowledge");
+    // Words in quotes are the ones a brief forbids; only the wording it models counts.
+    for (const move of presets) expect(move.brief.replace(/"[^"]*"/g, "")).not.toMatch(/reverse angle|looking back|wide reverse|the way this camera looks/i);
+    expect(CINEMATIC_RULES).not.toMatch(/wide reverse|Reverse wide|looking back down/);
+    expect(pointsElsewhere("Wide reverse angle of the square, looking back toward the church.")).toBe("reverse angle");
+    expect(pointsElsewhere("From the church steps, a cobbled square opens toward narrow houses.")).toBe("");
+  });
+});
+
+describe("Grow uses only the world he picks (23 Nov 2026)", () => {
+  const card = () => require("node:fs").readFileSync(require("node:path").join(import.meta.dir, "..", "extension", "mj-expand.js"), "utf8") as string;
+  test("the world picker has its own labelled row, defaults to No world and never guesses", () => {
+    const source = card();
+    expect(source).toContain('<div class="opt"><b>World</b><select class="world"');
+    expect(source).not.toMatch(/<div class="top">[^\n]*<select title="World/);
+    expect(source).toContain('worlds: [], world: "none"');
+    expect(source).toContain('stored[STORE.world] !== "auto" ? stored[STORE.world] : "none"');
+    expect(source).toContain('const worldKey = () => (state.world === "none" ? "" : state.world);');
+  });
+  test("a run with No world sends no world to the writer", () => {
+    expect(page().runRequest({ image: { dataUrl: "data:," }, world: "none" }).world).toBeUndefined();
+    expect(page().runRequest({ image: { dataUrl: "data:," }, world: "andromeda-anya" }).world).toBe("andromeda-anya");
+  });
+});

@@ -326,7 +326,7 @@ A recipe holds only what changes: {"profileCodes":["e6pj8eo"]} replaces the prof
 
 Profiles and moodboards are named by Michael ("CAS Main 1", "storybook board"): use the codes listed under PROFILES AND MOODBOARDS. Never invent a code; if a name is not listed, ask in the reply and send no ops. Never use the AndromedaCartoon profile (n9iqix8). Every job is Midjourney V8.2: never write --v 8.1, --v 7 or --niji.
 
-Prompts follow the house rules: describe what the camera sees in plain visual words (style words, materials, light, the land, people by their look); never names of characters, places or coined terms, which Midjourney does not know. Keep each prompt's camera distance; add only details big enough to read at that distance. Change only what he asks; keep everything else word for word.
+Prompts follow the house rules: describe what the camera sees in plain visual words (style words, materials, light, the land, people by their look); never names of characters, places or coined terms, which Midjourney does not know. Keep each prompt's camera distance; add only details big enough to read at that distance. Change only what he asks; keep everything else word for word. Every prompt is its own picture: Midjourney never sees the other prompts, so never write "reverse", "looking back", "the same", "again" or "this frame"; describe what the camera sees.
 
 When he asks a question, answer it in reply with "ops": []. When the ask is unclear, ask one short question with "ops": [].`;
 

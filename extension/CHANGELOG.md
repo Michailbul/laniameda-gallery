@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.43.4 (23 Nov 2026)
+
+Every prompt is its own picture; only your world
+- Grow, quick edit and the thread chat never write words that point at
+  another view ("reverse", "looking back", "the same", "this frame"):
+  Midjourney starts each job from nothing. Each view is described as the
+  camera sees it. Such words belong only to edit prompts for a model given
+  the image (Seedream 5.5 Pro). If one slips through, the Grow card says
+  which prompt.
+- Grow's world picker has its own row, WORLD, and starts on No world. A
+  world is used only when you pick it; the world the frame's codes point
+  at shows as "fits this frame" and a "Use …?" button, never loaded by
+  itself. Quick edit reads only the world on its chip (none by default).
+
 ## 0.43.3 (23 Nov 2026)
 
 Grow writes more, and shots fit the world

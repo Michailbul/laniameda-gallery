@@ -16,6 +16,7 @@ import {
   type ExpandAttach,
 } from "../lib/mj-expand";
 import { MJ_BANNED_PROFILE_WARNING, withoutBannedCodes } from "../lib/mj-queue";
+import { pointsElsewhere } from "../lib/mj-prompt-knowledge";
 import { LOCAL_WRITER_LIMITS, localAnswer } from "../lib/local-writer";
 import { WRITER_PROVIDER_NAMES, WRITER_RULES_LIMIT, pickWriterModel, writerRoutes, type WriterProvider } from "../lib/writer-models";
 import { enforceMjVersion, mjVersionWarning } from "../lib/mj-version";
@@ -436,6 +437,9 @@ export const expand = ownerAction({
     if (picked.note && answer.provider !== "local") answer.notes = [picked.note, ...answer.notes];
     const parsed = parseExpandAnswer(answer.raw);
     if (!parsed.items.length) throw new ConvexError(`${answer.model} answered without a prompt. Try again.`);
+    // A prompt that still points at another view ("reverse", "looking back") points at nothing in Midjourney: say which.
+    const pointing = parsed.items.map((item, index) => ({ n: index + 1, word: pointsElsewhere(item.words) })).filter((entry) => entry.word);
+    if (pointing.length) answer.notes = [...answer.notes, `Prompt ${pointing.map((entry) => `${entry.n} ("${entry.word}")`).join(", ")} still points at another view: Midjourney cannot see it.`];
     const options = {
       keepImages: Boolean(args.keepImages), srefUrl: args.srefUrl || undefined, attach, attachUrl: args.attachUrl || undefined,
       fallbackAspect: aspectOf(args.aspect, args.width, args.height), iw: imageWeightOf(command),

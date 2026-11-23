@@ -26,7 +26,7 @@ When the instruction asks for an ordinary prompt ("rewrite it as ordinary prompt
 1. Remove every instruction to the model and every mention of an input. A lead-in such as "Put the woman from the attached image into this scene:" or "Image 1 is a frame from our film and sets the whole look:" goes completely; the prompt starts with the shot and its subject.
 2. A line that asks the model to copy an input's look ("keep its exact film style, colour grade, light quality, haze, lens character, grain and level of detail") goes too: without the image it says nothing, and the profile, --sref and film tail carry the look. A concrete style word inside it moves onto the thing it describes ("its world of late-Gothic and baroque architecture" → "a late-Gothic and baroque café").
 3. A person or thing that came from an attachment becomes a visible description built only from what the prompt itself says: "the woman from the attached image … her pale blue-grey eye … her long black hair" becomes "a young woman with pale blue-grey eyes and long black hair". Never invent hair, eyes, a face, age, ethnicity, garment or name the prompt does not give (the examples below are not this prompt); with nothing given, write the plain noun ("a young woman").
-4. A keep line becomes a plain statement of what is kept ("keep her curls" → "her hair falls in tight curls"). "Change the background to X" becomes "behind her, X". "The same café from the reverse angle" becomes the view itself, described ("seen from beside the tall windows, looking back across the café to its entrance door"). The words "the same", "now", "unchanged", "exactly" and "as in the image" never survive.
+4. A keep line becomes a plain statement of what is kept ("keep her curls" → "her hair falls in tight curls"). "Change the background to X" becomes "behind her, X". "The same café from the reverse angle" becomes the view itself, described ("seen from beside the tall windows, across the café to its entrance door"). Words that point at another view (reverse, looking back, the other side, behind the camera) never survive. The words "the same", "now", "unchanged", "exactly" and "as in the image" never survive.
 5. A place known only from the inputs or the world ("this scene", "the same room", "the crimson field beyond the city walls") becomes what the camera sees ("a field of crimson spider lilies beyond old stone city walls").
 6. Sentences written for other models go, such as "The image contains no text, letters or numbers." Style phrases such as "A live-action film still" stay.
 7. Rebuild it in the shape above: shot and subject first, its details, then what is behind, then the film or style tail. Keep the tail word for word and in its place at the end; never add words to it. When the prompt has no film or style tail, the attachment was carrying the look: add the world's own film tail from the project context, word for word, if it gives one, and nothing otherwise.
@@ -40,10 +40,29 @@ Ordinary prompt: An extreme close-up of a young woman's face in profile, filling
 
 Example 2.
 Edit prompt: Image 1 is a frame from our film and sets the whole look: keep its exact film style, colour grade, light quality, haze, lens character, grain and level of detail, and its world of late-Gothic and baroque architecture. The reverse angle of the same café: we now stand by the tall windows looking back into the room toward the entrance door. The same canopy of pale hanging roses and glowing globe lamps overhead, the same black lacquer chairs and tables with candles. A live-action film still, shot on 35mm colour negative film, fine grain, soft highlights, deep soft shadows. The image contains no text.
-Ordinary prompt: A late-Gothic and baroque café at night, seen from beside its tall windows, looking back across the room to the entrance door. A canopy of pale hanging roses and glowing globe lamps hangs overhead. Black lacquer chairs and tables with lit candles fill the room. A live-action film still, shot on 35mm colour negative film, fine grain, soft highlights, deep soft shadows.
+Ordinary prompt: A late-Gothic and baroque café at night, seen from beside its tall windows, across the room to the entrance door. A canopy of pale hanging roses and glowing globe lamps hangs overhead. Black lacquer chairs and tables with lit candles fill the room. A live-action film still, shot on 35mm colour negative film, fine grain, soft highlights, deep soft shadows.
 
 The other way, when the instruction asks for an edit prompt: open with the input the picture must hold ("Put the woman from image 1 into this scene:"), then describe the scene as above. Name images by number, the one that must hold first. Write the change, and add a keep line only for something that tends to drift.`;
 
+
+/**
+ * Every Midjourney prompt is its own picture (Michael, 23 Nov 2026: "Midjourney
+ * has no idea what we are reversing from; each prompt is a blank new diffusion
+ * process"). Words that point at another view or an input image only work for
+ * an edit model that is given that image (Seedream 5.5 Pro with references).
+ */
+export const STANDALONE_VIEW_RULE = `EVERY MIDJOURNEY PROMPT IS ITS OWN PICTURE
+- Midjourney starts every job from nothing: it never sees the source frame, the other prompts of the set or any earlier picture. A prompt that points somewhere else points at nothing.
+- Never write words that refer to another view, shot or picture: reverse, reverse angle, reverse shot, counter-shot, the other side, looking back, the way the camera looked, behind the camera, opposite end, the same (room, street, moment, light), again, now, still, as before, this frame, the source, the first shot, the previous one.
+- Describe each view as the camera sees it: where the camera stands, what it faces, what stands there, what is near and what is far. Not "the reverse angle of the square" but "From the church steps, a cobbled square opens toward a row of narrow houses with stepped gables and a dark arcade".
+- A set stays one place through repeated describing words (the same PLACE LINE, the same wardrobe words), never through words like "same" or "again".
+- Words that refer to an input image belong only to edit models given that image (Seedream 5.5 Pro with references, an edit prompt the art director asked for). Ordinary Midjourney prompts never carry them.`;
+
+// Words that point at another view or picture: a Midjourney prompt carrying one
+// points at nothing. The Grow runner names the prompts that still do.
+const POINTING = /\b(?:reverse(?:[- ](?:angle|shot|wide|view))?|counter[- ]shot|looking back|the other side|behind the camera|the way (?:the|this) camera (?:looks|looked|faces)|opposite end|this frame|the source (?:frame|image|picture)|the first shot|the previous (?:shot|frame|one)|as before)\b/i;
+/** The first word in `text` that points at another view, or "". */
+export const pointsElsewhere = (text: string) => POINTING.exec(text)?.[0] ?? "";
 
 // How the writer frames a shot like a real film, for every world, with Dear
 // Annete's own addendum. Michael, 17 Nov 2026: "for location we always need
@@ -65,13 +84,13 @@ export const CINEMATIC_RULES = `CINEMATIC RULES (every world)
 - One or two signs of wear (soot, rain stains, worn steps, peeling plaster) do more than any ornament.
 
 LOCATION RULES
-- A location is always wide: establishing wide, wide reverse, corner or doorway wide, high wide, full room, full street, full courtyard. Never a tight crop.
+- A location is always wide: establishing wide, the view from the far end, corner or doorway wide, high wide, full room, full street, full courtyard. Never a tight crop.
 - The place is the grammatical subject of the first sentence ("A narrow cobbled street of tall stone houses climbs toward a church").
 - Camera at eye level or slightly low, a 24mm or 28mm lens, deep focus, verticals straight.
 - People are small or absent: two or three distant figures at most, or a thin crowd as one soft mass.
 - Multiple views of one location: fix a PLACE LINE (architecture style, materials, ground, one landmark feature) and a LIGHT LINE (source, direction, hour, weather). Copy both word for word into every view; change only the camera sentence:
   1. Establishing wide: the whole place from its open end.
-  2. Reverse wide: from the far end looking back; say what that reveals.
+  2. Far-end wide: the camera at the place's far end, facing its open end. Describe what stands there as its own view (never the word "reverse" or "looking back").
   3. Corner or doorway wide: from inside an arch or doorway, its edge dark in frame.
   4. High wide: from an upper window or a roof, looking down across the whole place.
   5. Dusk or night: the establishing wide with a new LIGHT LINE only (blue dusk with a few warm windows, or wet lamplit night).
@@ -95,7 +114,7 @@ DEAR ANNETE ADDENDUM
 
 EXAMPLE PROMPTS (Dear Annete, words only)
 1. Location wide: A narrow cobbled lane of tall soot-dark sandstone houses with stepped gables climbs toward a late Gothic church tower. Wet cobbles, shuttered windows, a single cold neon tube above one low doorway. Thin fog at roof height. Cold overcast morning light. A wide photograph from eye level, 24mm lens, deep focus.
-2. Location wide, reverse: From the top of a cobbled lane, looking back down between soot-dark sandstone houses with stepped gables toward a low town of steep slate roofs. Far beyond the roofs, an enormous cathedral rises, its tower fused with a colossal worn stone figure. Cold overcast morning light. A wide photograph from eye level, 24mm lens, deep focus.
+2. Location wide, from the far end: From the top of a cobbled lane, looking down between soot-dark sandstone houses with stepped gables toward a low town of steep slate roofs. Far beyond the roofs, an enormous cathedral rises, its tower fused with a colossal worn stone figure. Cold overcast morning light. A wide photograph from eye level, 24mm lens, deep focus.
 3. Close-up: A close-up of a woman in her thirties with dark hair pinned back and tired grey eyes, the collar of a dark wool coat turned up. Her skin shows faint lines and a cold flush. Behind her, a soft blur of wet stone and one warm window. Overcast light from the left. 85mm lens, shallow depth of field.
 4. Close-up, hands: An insert of an old man's hands holding a lit candle stub in a plain iron holder on a worn stone windowsill. Wax runs over the iron. Rain beads on the lead-glass window behind, soft and out of focus. Warm candlelight from below, deep shadow around it. 100mm lens, shallow depth of field.
 5. Scene: A young man in a plain dark suit waits under a pointed stone arcade at blue dusk, hands in his pockets, looking across the empty square. Behind him, narrow Gothic houses with a few warm windows. One thin cable sags between two roofs. Light from a single iron street lamp. A medium shot, eye level, 35mm lens.
@@ -108,6 +127,7 @@ CHECKLIST (run on every prompt before returning it)
 4. Every detail readable at its distance?
 5. Real faces, grounded clothes named by material and cut?
 6. No never-word (ornate, intricate, highly detailed, brass, crystal lamps, clocks, glitter, gadgets)?
+7. Its own picture: no word that points at another view (reverse, looking back, the same, again, this frame)?
 7. Dear Annete: real old-town Gothic first, one or two strange elements, the cyberpunk trace small?
 8. No character name, real city, landmark or coined term?
 9. In a multi-view set, place line and light line identical in every view?

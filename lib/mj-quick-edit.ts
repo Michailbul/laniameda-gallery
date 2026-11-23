@@ -2,7 +2,7 @@
 // bar, ⌥E, say what to change). Client-safe helpers shared by the Convex
 // runner (convex/promptEditRunner.ts) and the extension route.
 
-import { CINEMATIC_RULES_GENERAL, DEAR_ANNETE_CINEMATIC, MJ_PROMPT_KNOWLEDGE } from "./mj-prompt-knowledge";
+import { CINEMATIC_RULES_GENERAL, DEAR_ANNETE_CINEMATIC, MJ_PROMPT_KNOWLEDGE, STANDALONE_VIEW_RULE } from "./mj-prompt-knowledge";
 import { SHOT_SCALE_RULES } from "./writer-scale";
 import { WRITER_MODELS, WRITER_MODEL_KEYS, type WriterModel, type WriterRoute } from "./writer-models";
 
@@ -95,6 +95,8 @@ export function buildQuickEditMessages({ prompt, selection, instruction, system,
   }
   const systemText = [
     rules?.trim() || QUICK_EDIT_SYSTEM_DEFAULT,
+    // Always on, his own system prompt included: an ordinary prompt is its own picture.
+    `${STANDALONE_VIEW_RULE}\n(An edit prompt the instruction asks for, for an edit model with its images, may name its inputs.)`,
     /^dear-annete/.test(worldKey ?? "") ? DEAR_ANNETE_CINEMATIC : "",
     worldBrief?.trim() ? `${worldBrief.trim()}\n\nThe edit stays inside this world. Still change only what the instruction asks, and still return the edited text and nothing else.` : "",
     system?.trim() ? `Project context (what we like, what to avoid):\n${system.trim()}` : "",
