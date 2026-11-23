@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { MJ_QUEUE_LIMITS, MJ_QUEUE_STATUSES } from "./mj-queue";
+import { MJ_THREAD_LIMITS } from "./mj-thread";
 
 // Agent-facing Midjourney queue payloads, shared by /api/agent/mj-queue,
 // /api/extension/mj-queue and the MCP tool schemas.
@@ -99,6 +100,67 @@ export const mjQueueDeleteThreadSchema = z.object({
 export const mjQueueArchiveSchema = z.object({
   batch: z.string().trim().min(1).max(MJ_QUEUE_LIMITS.batch).describe("The thread's label or id thr-xxxxxxxx."),
   restore: z.boolean().optional().describe("true brings an archived thread back into the queue."),
+});
+
+// ── A thread's runs and chat (convex/mjThreads.ts, 23 Nov 2026) ──
+
+const threadRef = z.string().trim().min(1).max(MJ_QUEUE_LIMITS.batch).describe("The thread: its label or its id thr-xxxxxxxx.");
+const codeList = z.array(z.string().trim().min(1).max(40)).max(MJ_QUEUE_LIMITS.profileCodes);
+const clearNumber = (min: number, max: number) => z.number().min(min).max(max).nullable().optional();
+
+export const mjRecipeSchema = z.object({
+  profileCodes: codeList.optional().describe("Replaces each prompt's --profile list (moodboard and profile codes; m<id> for a moodboard id). [] removes every profile."),
+  addProfileCodes: codeList.optional().describe("Codes added to each prompt's own list."),
+  removeProfileCodes: codeList.optional().describe("Codes taken out of each prompt's own list."),
+  srefs: z.array(z.string().trim().min(1).max(MJ_QUEUE_LIMITS.url)).max(MJ_QUEUE_LIMITS.styleRefs).optional()
+    .describe("Replaces the --sref list: numeric codes (code::weight allowed) or public image URLs. [] removes every sref."),
+  params: z.string().max(MJ_QUEUE_LIMITS.params).optional().describe("Replaces the whole params line; the fields below apply on top."),
+  stylize: clearNumber(0, 1000).describe("--stylize; null removes it."),
+  chaos: clearNumber(0, 100).describe("--chaos; null removes it."),
+  weird: clearNumber(0, 3000).describe("--weird; null removes it."),
+  ar: z.string().regex(/^\d{1,3}:\d{1,3}$/).nullable().optional().describe("--ar like 16:9; null removes it."),
+  raw: z.boolean().optional().describe("true adds --raw, false leaves it out (Standard)."),
+  hd: z.boolean().optional().describe("true adds --hd, false leaves it out."),
+  opening: z.string().max(MJ_THREAD_LIMITS.opening).optional()
+    .describe("The keyword opening every prompt starts with, e.g. Painted storybook animation frame. Swaps the thread's shared first sentence (or is put in front); \"\" removes it."),
+}).describe("Only what changes. Everything left out stays as each prompt has it.");
+
+export const mjThreadReadSchema = z.object({
+  batch: threadRef,
+});
+
+export const mjThreadMessageSchema = z.object({
+  batch: threadRef,
+  text: z.string().trim().min(1).max(MJ_THREAD_LIMITS.reply).describe("Your reply to Michael in plain words: what you changed, or your question."),
+  replyTo: z.string().trim().min(1).optional().describe("The id of Michael's message you answer (from read_mj_thread). Left out, the reply closes every waiting message."),
+  changes: z.array(z.string().trim().min(1).max(MJ_THREAD_LIMITS.change)).max(MJ_THREAD_LIMITS.changes).optional()
+    .describe("What you changed in the thread, one plain line each (Edited #3; Run 2 queued: 39 prompts · stylize 750)."),
+  run: z.number().int().min(1).optional().describe("The run your change queued, when it was a rerun."),
+});
+
+const itemRefs = z.array(z.string().trim().min(1)).min(1).max(MJ_QUEUE_LIMITS.itemsPerBatch);
+
+export const mjThreadRerunSchema = z.object({
+  batch: threadRef,
+  fromRun: z.number().int().min(1).optional().describe("Rerun every prompt of this run (default: the latest run), skipped ones left out."),
+  items: itemRefs.optional().describe("Instead: only these prompts (mjq:<id> or bare ids), from any run."),
+  recipe: mjRecipeSchema.optional(),
+  prompts: z.array(z.object({
+    itemId: z.string().trim().min(1),
+    prompt: z.string().min(1).max(MJ_QUEUE_LIMITS.prompt).describe("The new prose for this prompt's copy."),
+  })).max(MJ_QUEUE_LIMITS.itemsPerBatch).optional().describe("New words for some of the copies; the originals keep theirs."),
+  note: z.string().max(MJ_THREAD_LIMITS.note).optional().describe("Why this run, in plain words, shown with the run."),
+});
+
+export const mjThreadEditSchema = z.object({
+  batch: threadRef,
+  recipe: mjRecipeSchema,
+  items: itemRefs.optional().describe("Only these prompts (mjq:<id> or bare ids); default every prompt still to send. Sent ones keep theirs: rerun them instead."),
+});
+
+export const mjThreadChatAskSchema = z.object({
+  batch: threadRef,
+  text: z.string().trim().min(1).max(MJ_THREAD_LIMITS.message),
 });
 
 export type MjQueueUpdateInput = z.infer<typeof mjQueueUpdateSchema>;

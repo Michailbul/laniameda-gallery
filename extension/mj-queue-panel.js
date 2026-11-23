@@ -86,6 +86,13 @@
     archive: { open: false, loading: false, batches: [], error: "", restoring: "" },
     paramsDraft: null,
     applyingParams: false,
+    // The open thread's runs and chat (its own read brings them), the run
+    // shown per thread, the rerun form and the chat's drafts and writer.
+    thread: null,
+    runFilter: {},
+    rerun: null,
+    rerunning: false,
+    chat: { busy: "", drafts: {}, showAll: {}, error: "", errorFor: "", offer: null, retryId: "", writer: "" },
   };
 
   const space = (value) => String(value == null ? "" : value).replace(/\s+/g, " ").trim();
@@ -208,6 +215,7 @@
     }
     const batches = Array.isArray(res.batches) ? res.batches : [];
     let items = Array.isArray(res.items) ? res.items : [];
+    let thread = null;
     // The full list is capped, so a thread's own prompts are loaded on their own:
     // a thread past the cap would otherwise open empty.
     const threadKey = state.batchKey;
@@ -216,19 +224,21 @@
       if (own.ok && Array.isArray(own.items)) {
         items = items.filter((item) => item.batchKey !== threadKey).concat(own.items);
       }
+      if (own.ok && own.thread && own.thread.batchKey === threadKey) thread = own.thread;
     }
     // Quiet polls redraw only when something changed, so the list never flickers or jumps.
-    const signature = JSON.stringify([batches, items]);
+    const signature = JSON.stringify([batches, items, thread]);
     if (quiet && !state.error && signature === state.signature) return;
     state.signature = signature;
     state.error = "";
     state.batches = batches;
     state.items = items;
+    if (thread || state.thread?.batchKey !== threadKey) state.thread = thread;
     if (!state.batches.some((batch) => batch.batchKey === state.batchKey)) {
       state.batchKey = railOrder()[0] || H().threadOrder(state.batches, "all")[0] || "";
       if (state.view === "thread" && !state.batchKey) state.view = "threads";
     }
-    if ((state.editingId || state.sliding || state.stylizing || state.applyingParams) && quiet) return;
+    if ((state.editingId || state.sliding || state.stylizing || state.applyingParams || state.rerun) && quiet) return;
     render();
   }
 
@@ -811,6 +821,9 @@
     state.editingId = null;
     state.editDraft = null;
     state.message = "";
+    if (state.batchKey !== state.thread?.batchKey) state.thread = null;
+    state.rerun = null;
+    if (state.chat.errorFor !== batchKey) state.chat.error = "";
     remember({ [KEYS.view]: "thread", [KEYS.batch]: batchKey });
     render();
     root.querySelector(".mjq-main")?.scrollTo(0, 0);
@@ -1169,10 +1182,26 @@
       el("span", "mjq-title", item.title || space(item.prompt).split(" ").slice(0, 7).join(" ")),
       el("span", `mjq-status mjq-status--${item.status}`, STATUS_LABEL[item.status] || item.status),
     );
-    if (item.requeuedFrom) {
+    const runs = threadState()?.latestRun || 1;
+    if (runs > 1 || runOfItem(item) > 1) {
+      const badge = el("span", "mjq-again mjq-runbadge", `R${runOfItem(item)}`);
+      badge.title = `Run ${runOfItem(item)} of this thread`;
+      head.insertBefore(badge, head.lastChild);
+    } else if (item.requeuedFrom) {
       const again = el("span", "mjq-again", "Again");
       again.title = "Queued again from a sent prompt";
       head.insertBefore(again, head.lastChild);
+    }
+    if (state.rerun && state.rerun.scope === "pick") {
+      const tick = el("input", "mjq-pick");
+      tick.type = "checkbox";
+      tick.checked = state.rerun.pick.has(item.id);
+      tick.setAttribute("aria-label", "Rerun this prompt");
+      tick.addEventListener("change", () => {
+        if (tick.checked) state.rerun.pick.add(item.id); else state.rerun.pick.delete(item.id);
+        render();
+      });
+      head.insertBefore(tick, head.firstChild);
     }
     card.appendChild(head);
     // A restyle of a locked location prompt: which place, in which style, how.
@@ -1462,6 +1491,424 @@
     return bar;
   }
 
+  // ── Runs and chat of a thread (23 Nov 2026) ──
+  // Every prompt belongs to a run. Rerun copies chosen prompts into the next
+  // run with a new recipe (profiles and moodboards, sref, stylize, chaos,
+  // aspect, raw, hd, the keyword opening); the earlier runs keep their sent
+  // commands, jobs and frames. The chat under the title is the thread's own
+  // conversation with the agent: the writer (This Mac / Cloud · fal / Cloud ·
+  // Pika, the same picker as Grow) answers and changes the thread; agents on
+  // MCP read and answer the same chat. Nothing here sends anything.
+
+  const threadState = () => (state.thread && state.thread.batchKey === state.batchKey ? state.thread : null);
+  const runOfItem = (item) => item.run || 1;
+  const runFilterOf = () => state.runFilter[state.batchKey] ?? null;
+  const splitCodes = (text) => String(text || "").split(/[\s,]+/).map((code) => code.trim().replace(/^--?p(?:rofile)?$/, "")).filter(Boolean);
+
+  function runsStrip(items) {
+    const thread = threadState();
+    const runs = thread?.runs?.length ? thread.runs : [{ run: 1, count: items.length, settings: "", sent: 0, queued: 0 }];
+    const strip = el("div", "mjq-runs");
+    const line = el("div", "mjq-runs-line");
+    const current = runFilterOf();
+    const allBtn = button(`All ${items.length}`, `mjq-run${current == null ? " mjq-run--on" : ""}`, () => setRunFilter(null), "Every run of this thread");
+    line.appendChild(allBtn);
+    for (const run of runs) {
+      const node = button("", `mjq-run${current === run.run ? " mjq-run--on" : ""}`, () => setRunFilter(run.run));
+      node.append(el("i", "mjq-run-dot"), el("b", "", `Run ${run.run}`), el("span", "mjq-run-count", String(run.count)));
+      node.title = [
+        `Run ${run.run}: ${run.count} prompts${run.sent ? ` · ${run.sent} sent` : ""}${run.queued ? ` · ${run.queued} to send` : ""}`,
+        run.settings ? `Carries: ${run.settings}` : "",
+        run.label ? `Changed: ${run.label}` : "",
+        run.note ? `Why: ${run.note}` : "",
+      ].filter(Boolean).join("\n");
+      line.appendChild(node);
+    }
+    const rerunBtn = button(state.rerun ? "Close rerun" : "Rerun…", "mjq-btn--small mjq-btn--primary mjq-run-go", () => {
+      state.rerun = state.rerun ? null : rerunDraft(items);
+      render();
+    }, "Run this thread again as the next run, with other profiles, styles or settings. The earlier runs keep their jobs and frames.");
+    rerunBtn.disabled = !items.length || state.rerunning;
+    line.appendChild(rerunBtn);
+    strip.appendChild(line);
+    const shown = current != null ? runs.find((run) => run.run === current) : runs[runs.length - 1];
+    if (shown && (shown.settings || shown.label)) {
+      const meta = el("p", "mjq-run-meta");
+      meta.append(el("b", "", `Run ${shown.run}`), el("span", "", shown.settings || ""));
+      if (shown.label) meta.append(el("span", "mjq-run-changed", `changed: ${shown.label}`));
+      strip.appendChild(meta);
+    }
+    return strip;
+  }
+
+  function setRunFilter(run) {
+    state.runFilter = { ...state.runFilter, [state.batchKey]: run };
+    render();
+  }
+
+  // The form starts from what the chosen run carries; only what he changes goes in the recipe.
+  function rerunDraft(items) {
+    const thread = threadState();
+    const latest = thread?.latestRun || Math.max(1, ...items.map(runOfItem));
+    const fromRun = runFilterOf() ?? latest;
+    return { fromRun, scope: "all", pick: new Set(), values: rerunBase(items, fromRun), edited: {}, error: "" };
+  }
+
+  function rerunBase(items, fromRun) {
+    const run = threadState()?.runs?.find((entry) => entry.run === fromRun);
+    const own = items.filter((item) => runOfItem(item) === fromRun);
+    const first = own[0] || items[0] || {};
+    const params = String(first.params || "");
+    const flag = (name) => (new RegExp(`(?:^|\\s)--(?:${name})\\s+(\\S+)`, "i").exec(params) || [])[1] || "";
+    return {
+      profiles: (first.profileCodes || []).join(" "),
+      srefs: (first.styleRefs || []).map((ref) => ref.code || ref.url || "").filter(Boolean).join(" "),
+      stylize: flag("stylize|s"),
+      chaos: flag("chaos|c"),
+      ar: flag("ar|aspect"),
+      raw: /(?:^|\s)(?:--raw|--style\s+raw)(?=\s|$)/i.test(params),
+      hd: /(?:^|\s)--hd(?=\s|$)/i.test(params),
+      opening: run?.opening || "",
+      note: "",
+    };
+  }
+
+  function rerunRecipe(draft) {
+    const recipe = {};
+    const v = draft.values;
+    const e = draft.edited;
+    if (e.profiles) recipe.profileCodes = splitCodes(v.profiles);
+    if (e.srefs) recipe.srefs = splitCodes(v.srefs);
+    for (const key of ["stylize", "chaos"]) {
+      if (!e[key]) continue;
+      const text = String(v[key]).trim();
+      if (!text) recipe[key] = null;
+      else if (!/^\d+$/.test(text)) throw new Error(`${capital(key)} is a number.`);
+      else recipe[key] = Number(text);
+    }
+    if (e.ar) {
+      const text = String(v.ar).trim();
+      if (text && !/^\d{1,3}:\d{1,3}$/.test(text)) throw new Error("Aspect is two numbers like 16:9.");
+      recipe.ar = text || null;
+    }
+    if (e.raw) recipe.raw = Boolean(v.raw);
+    if (e.hd) recipe.hd = Boolean(v.hd);
+    if (e.opening) recipe.opening = String(v.opening).trim();
+    return recipe;
+  }
+
+  function rerunForm(items) {
+    const draft = state.rerun;
+    const thread = threadState();
+    const runs = thread?.runs?.length ? thread.runs.map((run) => run.run) : [1];
+    const next = (thread?.latestRun || Math.max(1, ...items.map(runOfItem))) + 1;
+    const box = el("div", "mjq-rerun");
+    box.appendChild(el("p", "mjq-rerun-title", `Run ${next}`));
+
+    const head = el("div", "mjq-rerun-row");
+    const from = el("select", "mjq-count-select");
+    from.setAttribute("aria-label", "Rerun from which run");
+    for (const n of runs) {
+      const option = el("option", "", `from run ${n}`);
+      option.value = String(n);
+      if (n === draft.fromRun) option.selected = true;
+      from.appendChild(option);
+    }
+    from.addEventListener("change", () => {
+      draft.fromRun = Number(from.value);
+      draft.values = rerunBase(items, draft.fromRun);
+      draft.edited = {};
+      render();
+    });
+    const scope = el("div", "mjq-seg");
+    const own = items.filter((item) => runOfItem(item) === draft.fromRun && item.status !== "skipped");
+    const all = button(`All ${own.length}`, `mjq-seg-btn${draft.scope === "all" ? " mjq-seg-btn--on" : ""}`, () => { draft.scope = "all"; render(); });
+    const pick = button(`Ticked ${draft.pick.size}`, `mjq-seg-btn${draft.scope === "pick" ? " mjq-seg-btn--on" : ""}`, () => { draft.scope = "pick"; render(); },
+      "Tick the prompts to rerun on their cards below (any run)");
+    scope.append(all, pick);
+    head.append(from, scope);
+    box.appendChild(head);
+
+    const fields = el("div", "mjq-pfields mjq-rerun-fields");
+    const field = (key, label, placeholder, width, inputMode = "text") => {
+      const wrap = el("label", `mjq-pfield${width === 0 ? " mjq-pfield--wide" : ""}`);
+      const input = el("input", `mjq-pinput${draft.edited[key] ? " mjq-pinput--edited" : ""}`);
+      input.type = "text";
+      input.inputMode = inputMode;
+      if (width) input.style.width = `${width}px`;
+      input.value = draft.values[key] ?? "";
+      input.placeholder = placeholder;
+      input.addEventListener("input", () => {
+        draft.values[key] = input.value;
+        draft.edited[key] = true;
+        input.classList.add("mjq-pinput--edited");
+        draft.error = "";
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); void submitRerun(items); }
+      });
+      wrap.append(el("span", "mjq-plabel", label), input);
+      return wrap;
+    };
+    fields.append(
+      field("profiles", "Profiles · moodboards", "codes, space between", 0),
+      field("srefs", "Sref", "codes or image URLs", 0),
+      field("opening", "Opening", "Painted storybook animation frame.", 0),
+      field("stylize", "Stylize", "—", 56, "numeric"),
+      field("chaos", "Chaos", "—", 48, "numeric"),
+      field("ar", "Aspect", "16:9", 60),
+    );
+    const toggles = el("div", "mjq-seg");
+    for (const key of ["raw", "hd"]) {
+      const on = Boolean(draft.values[key]);
+      const node = button(key === "raw" ? (on ? "Raw" : "Standard") : (on ? "HD" : "No HD"), `mjq-seg-btn${on ? " mjq-seg-btn--on" : ""}${draft.edited[key] ? " mjq-seg-btn--edited" : ""}`, () => {
+        draft.values[key] = !on;
+        draft.edited[key] = true;
+        render();
+      }, key === "raw" ? "--raw on or off for the new run" : "--hd on or off for the new run");
+      toggles.appendChild(node);
+    }
+    fields.appendChild(toggles);
+    box.appendChild(fields);
+    const note = el("input", "mjq-pinput mjq-rerun-note");
+    note.type = "text";
+    note.placeholder = "Why this run (shown with it)";
+    note.value = draft.values.note || "";
+    note.addEventListener("input", () => { draft.values.note = note.value; });
+    box.appendChild(note);
+
+    const open = items.filter((item) => item.status === "queued" || item.status === "injected");
+    const actions = el("div", "mjq-rerun-row");
+    const count = draft.scope === "pick" ? draft.pick.size : own.length;
+    const go = button(state.rerunning ? "Queueing…" : `Queue run ${next} · ${count}`, "mjq-btn--primary", () => submitRerun(items),
+      "Copies these prompts into a new run with the changes, queued for you to send. The earlier runs stay as they are.");
+    go.disabled = state.rerunning || !count;
+    const edit = button(`Change ${open.length} to send`, "mjq-btn--small", () => submitThreadEdit(items),
+      "No new run: put these changes on the prompts still to send. Sent ones keep theirs.");
+    edit.disabled = state.rerunning || !open.length;
+    actions.append(go, edit, button("Cancel", "mjq-btn--small mjq-btn--ghost", () => { state.rerun = null; render(); }));
+    box.appendChild(actions);
+    if (draft.error) box.appendChild(el("p", "mjq-warn", draft.error));
+    return box;
+  }
+
+  async function submitRerun() {
+    const draft = state.rerun;
+    if (!draft || state.rerunning) return;
+    let recipe;
+    try {
+      recipe = rerunRecipe(draft);
+    } catch (err) {
+      draft.error = err.message;
+      render();
+      return;
+    }
+    const body = { action: "rerun", batch: state.batchKey, recipe };
+    if (draft.scope === "pick") {
+      if (!draft.pick.size) { draft.error = "Tick the prompts to rerun first."; render(); return; }
+      body.items = [...draft.pick];
+    } else body.fromRun = draft.fromRun;
+    if (String(draft.values.note || "").trim()) body.note = String(draft.values.note).trim();
+    state.rerunning = true;
+    document.activeElement?.blur?.();
+    render();
+    const res = await call({ method: "POST", body });
+    state.rerunning = false;
+    if (!res.ok) {
+      draft.error = `Not queued. ${String(res.error || "").slice(0, 140)}`;
+      render();
+      return;
+    }
+    state.rerun = null;
+    state.items = state.items.concat(res.items || []);
+    state.batches = H().recount(state.batches, state.items);
+    state.runFilter = { ...state.runFilter, [state.batchKey]: res.run };
+    state.filter = "open";
+    state.message = `Run ${res.run} queued: ${(res.items || []).length} prompts · ${res.label}. Run ${res.fromRun} stays as it was. Next · Send when ready.`;
+    render();
+    void refresh({ quiet: true });
+  }
+
+  async function submitThreadEdit() {
+    const draft = state.rerun;
+    if (!draft || state.rerunning) return;
+    let recipe;
+    try {
+      recipe = rerunRecipe(draft);
+    } catch (err) {
+      draft.error = err.message;
+      render();
+      return;
+    }
+    if (!Object.keys(recipe).length) { draft.error = "Change a field first."; render(); return; }
+    const body = { action: "editThread", batch: state.batchKey, recipe };
+    if (draft.scope === "pick" && draft.pick.size) body.items = [...draft.pick];
+    state.rerunning = true;
+    render();
+    const res = await call({ method: "POST", body });
+    state.rerunning = false;
+    if (!res.ok) {
+      draft.error = `Not saved. ${String(res.error || "").slice(0, 140)}`;
+      render();
+      return;
+    }
+    state.rerun = null;
+    state.message = `${capital(res.label)} on ${res.changed} prompts to send${res.leftAlone ? `; ${res.leftAlone} sent or skipped keep theirs` : ""}.`;
+    void refresh({ quiet: true });
+    render();
+  }
+
+  // ── The chat ──
+
+  const CHAT_SHOWN = 4;
+
+  function chatBox() {
+    const thread = threadState();
+    const messages = thread?.messages || [];
+    const box = el("section", "mjq-chat");
+    const head = el("div", "mjq-chat-head");
+    head.append(el("span", "mjq-chat-title", "Chat"), el("span", "mjq-chat-count", messages.length ? String(messages.length) : ""));
+    if (thread?.waiting) head.appendChild(el("span", "mjq-chat-waiting", `${thread.waiting} waiting`));
+    head.appendChild(el("span", "mjq-grow"));
+    head.appendChild(el("span", "mjq-chat-writer", state.chat.writer || ""));
+    box.appendChild(head);
+
+    const all = state.chat.showAll[state.batchKey];
+    const shown = all ? messages : messages.slice(-CHAT_SHOWN);
+    if (messages.length > shown.length) {
+      box.appendChild(button(`Show ${messages.length - shown.length} earlier`, "mjq-btn--small mjq-btn--ghost mjq-chat-more", () => {
+        state.chat.showAll = { ...state.chat.showAll, [state.batchKey]: true };
+        render();
+      }));
+    }
+    const list = el("div", "mjq-chat-list");
+    for (const message of shown) list.appendChild(chatMessage(message));
+    if (state.chat.busy === state.batchKey) {
+      const typing = el("div", "mjq-msg mjq-msg--agent mjq-msg--typing");
+      typing.append(el("span", "mjq-msg-who", state.chat.writer || "writer"), el("p", "mjq-msg-text", "Writing…"));
+      list.appendChild(typing);
+    }
+    if (!messages.length && state.chat.busy !== state.batchKey) {
+      list.appendChild(el("p", "mjq-chat-empty", "Ask for a change: “make the next ten darker”, “add a reverse shot of the patio”, “swap the profile to CAS Main 1”, “rerun all at stylize 750”."));
+    }
+    box.appendChild(list);
+
+    const form = el("div", "mjq-chat-form");
+    const input = el("textarea", "mjq-chat-input");
+    input.rows = 1;
+    input.placeholder = "Write to the agent…";
+    input.value = state.chat.drafts[state.batchKey] || "";
+    input.disabled = state.chat.busy === state.batchKey;
+    const grow = () => { input.style.height = "auto"; input.style.height = `${Math.min(140, input.scrollHeight)}px`; };
+    input.addEventListener("input", () => {
+      state.chat.drafts = { ...state.chat.drafts, [state.batchKey]: input.value };
+      grow();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+        event.preventDefault();
+        void sendChat({ text: input.value });
+      }
+      if (event.key === "Escape") input.blur();
+    });
+    const send = button(state.chat.busy === state.batchKey ? "…" : "Send", "mjq-btn--primary mjq-chat-send", () => sendChat({ text: input.value }));
+    send.addEventListener("mousedown", (event) => event.preventDefault());
+    send.disabled = state.chat.busy === state.batchKey;
+    form.append(input, send);
+    box.appendChild(form);
+    setTimeout(grow, 0);
+    if (state.chat.error && state.chat.errorFor === state.batchKey) {
+      const err = el("div", "mjq-chat-error");
+      err.appendChild(el("span", "", state.chat.error));
+      if (state.chat.offer) {
+        const offer = state.chat.offer;
+        err.appendChild(button(offer.label, "mjq-btn--small mjq-chat-offer", () => sendChat({ messageId: state.chat.retryId, mode: offer.mode, model: offer.model })));
+      }
+      if (state.chat.retryId) err.appendChild(button("Retry", "mjq-btn--small mjq-btn--ghost", () => sendChat({ messageId: state.chat.retryId })));
+      box.appendChild(err);
+    }
+    return box;
+  }
+
+  function chatMessage(message) {
+    const mine = message.role === "michael";
+    const node = el("div", `mjq-msg mjq-msg--${mine ? "michael" : "agent"}`);
+    const who = el("div", "mjq-msg-head");
+    who.append(el("span", "mjq-msg-who", mine ? "Michael" : message.author || "agent"), el("span", "mjq-msg-when", ago(message.createdAt)));
+    if (message.run) who.appendChild(el("span", "mjq-msg-run", `Run ${message.run}`));
+    node.appendChild(who);
+    node.appendChild(el("p", "mjq-msg-text", message.text));
+    if (message.changes?.length) {
+      const list = el("ul", "mjq-msg-changes");
+      for (const change of message.changes) list.appendChild(el("li", /^Not done/.test(change) ? "mjq-msg-miss" : "", change));
+      node.appendChild(list);
+    }
+    if (mine && message.status === "waiting" && state.chat.busy !== state.batchKey) {
+      const wait = el("p", "mjq-msg-wait", message.error ? `No answer yet: ${message.error}` : "Waiting for an answer (the writer or an agent).");
+      node.appendChild(wait);
+      const again = button("Ask the writer", "mjq-btn--small mjq-btn--ghostline", () => sendChat({ messageId: message.id }));
+      node.appendChild(again);
+    }
+    return node;
+  }
+
+  async function sendChat({ text = "", messageId = "", mode, model } = {}) {
+    const batchKey = state.batchKey;
+    if (!batchKey || state.chat.busy) return;
+    const body = String(text || "").trim();
+    if (!messageId && !body) return;
+    state.chat.busy = batchKey;
+    state.chat.error = "";
+    state.chat.offer = null;
+    if (!messageId) {
+      // Shown at once; the reread brings the stored one.
+      const thread = threadState();
+      if (thread) thread.messages = [...(thread.messages || []), { id: `local-${Date.now()}`, role: "michael", author: "Michael", text: body, createdAt: Date.now() }];
+      state.chat.drafts = { ...state.chat.drafts, [batchKey]: "" };
+    }
+    document.activeElement?.blur?.();
+    render();
+    const res = await new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ action: "mjThreadChat", batch: batchKey, text: body, messageId: messageId || undefined, mode, model }, (answer) => {
+          const error = chrome.runtime.lastError && chrome.runtime.lastError.message;
+          resolve(error ? { ok: false, error } : answer || { ok: false, error: "No answer." });
+        });
+      } catch (err) {
+        resolve({ ok: false, error: String(err?.message || err) });
+      }
+    });
+    state.chat.busy = "";
+    if (!res.ok) {
+      state.chat.error = String(res.error || "The writer failed.").slice(0, 220);
+      state.chat.errorFor = batchKey;
+      state.chat.offer = res.offer || null;
+      state.chat.retryId = res.messageId || messageId || "";
+      if (res.stage === "post" && body) state.chat.drafts = { ...state.chat.drafts, [batchKey]: body };
+    } else {
+      state.chat.retryId = "";
+      if (res.run) state.runFilter = { ...state.runFilter, [batchKey]: res.run };
+    }
+    void readWriter();
+    await refresh({ quiet: true });
+    render();
+  }
+
+  async function readWriter() {
+    const res = await new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ action: "writer" }, (answer) => resolve(chrome.runtime.lastError ? null : answer));
+      } catch {
+        resolve(null);
+      }
+    });
+    const label = res?.ok ? String(res.label || "") : "";
+    if (label !== state.chat.writer) {
+      state.chat.writer = label;
+      render();
+    }
+  }
+
   function renderThread(box) {
     const batch = state.batches.find((entry) => entry.batchKey === state.batchKey);
     if (!batch) {
@@ -1480,7 +1927,12 @@
     );
     box.appendChild(nav);
     box.appendChild(el("h2", "mjq-ttitle", capital(H().threadName(batch))));
-    const counts = H().filterCounts(items);
+    box.appendChild(runsStrip(items));
+    if (state.rerun) box.appendChild(rerunForm(items));
+    box.appendChild(chatBox());
+    const runShown = runFilterOf();
+    const runItems = runShown == null ? items : items.filter((item) => runOfItem(item) === runShown);
+    const counts = H().filterCounts(runItems);
 
     // The send bar: Next puts the next prompt in the bar; Send sends what the
     // bar holds (his click, one job) and puts the next one in.
@@ -1521,18 +1973,17 @@
       tabs.appendChild(tab);
     }
     box.appendChild(tabs);
-    if (state.filter === "sent" && counts.sent) {
-      const sentItems = items.filter((item) => item.status === "sent");
+    if (state.filter === "sent" && counts.sent && !state.rerun) {
       const bulk = el("div", "mjq-requeue");
-      const all = button(state.requeuing ? "Queueing…" : `Queue all ${sentItems.length} again`, "mjq-btn--primary", () => requeue(sentItems),
-        "Copy every sent prompt of this thread back into the queue, to send the round again (e.g. at another stylize). The sent ones stay as they are.");
-      all.disabled = state.requeuing;
-      bulk.append(all, el("span", "mjq-requeue-meta", "Same words, codes and seeds. Then set the stylize."));
+      const all = button("Rerun as a new run…", "mjq-btn--primary", () => { state.rerun = rerunDraft(items); render(); },
+        "Run this round again as the next run, with other profiles, styles or settings. The sent ones stay as they are, with their jobs and frames.");
+      all.disabled = state.rerunning;
+      bulk.append(all, el("span", "mjq-requeue-meta", "Same words; change the profiles, sref, stylize, chaos, aspect, raw, hd or opening."));
       box.appendChild(bulk);
     }
     if (state.message) box.appendChild(el("p", "mjq-message", state.message));
     const list = el("div", "mjq-list");
-    const shown = H().filterItems(items, state.filter, state.activeId);
+    const shown = H().filterItems(runItems, state.filter, state.activeId);
     if (!shown.length) list.appendChild(el("p", "mjq-empty", state.filter === "open" ? "Everything in this thread is sent or skipped." : "Nothing here."));
     for (const item of shown) list.appendChild(itemCard(item, items.indexOf(item)));
     box.appendChild(list);
@@ -1741,6 +2192,7 @@
     state.wide = root.clientWidth >= WIDE_PX;
     render();
     void readTab();
+    void readWriter();
     void refresh({ quiet: !state.loading });
     timer = setInterval(() => {
       if (state.sending && Date.now() - state.sendingAt > SENDING_STALE_MS) setSending(false);

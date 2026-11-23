@@ -25,6 +25,8 @@ const MJ_QUEUE_ROUTE_PATH = "/api/extension/mj-queue";
 const QUICK_EDIT_ROUTE_PATH = "/api/extension/prompt-edit";
 const DESCRIBE_ROUTE_PATH = "/api/extension/prompt-describe";
 const EXPAND_ROUTE_PATH = "/api/extension/prompt-expand";
+// The agent in an MJ Queue thread's chat (mj-queue-panel.js, 23 Nov 2026).
+const THREAD_CHAT_ROUTE_PATH = "/api/extension/mj-thread-chat";
 // The collections the writer's cinematic shots can come from (Grow card → Shots → from).
 const SHOTS_ROUTE_PATH = "/api/extension/cinematic-shots";
 const WORLD_ROUTE_PATH = "/api/extension/prompt-world";
@@ -1284,7 +1286,7 @@ const WRITER_KEYS = { mode: "writerMode", model: "writerModel", rules: "writerRu
 const writerChoice = globalThis.SaveToGalleryWriterChoice;
 // Models the bridge can run (DeepSeek is cloud only). An older bridge lists fewer in /health.
 const WRITER_LOCAL_MODELS = ["haiku", "sonnet", "opus", "fable"];
-const WRITER_TOOL_BY_PATH = { [EXPAND_ROUTE_PATH]: "grow", [DESCRIBE_ROUTE_PATH]: "describe", [QUICK_EDIT_ROUTE_PATH]: "edit" };
+const WRITER_TOOL_BY_PATH = { [EXPAND_ROUTE_PATH]: "grow", [DESCRIBE_ROUTE_PATH]: "describe", [QUICK_EDIT_ROUTE_PATH]: "edit", [THREAD_CHAT_ROUTE_PATH]: "chat" };
 let writerSeen = { at: 0, up: false, models: [] };
 
 async function writerSettings() {
@@ -1420,6 +1422,33 @@ async function writerRequest(message) {
     local: settings.mode === "local" && up && bridgeRuns(settings.model),
     label: writerChoice.label(settings.mode, settings.model),
   };
+}
+
+// A thread's chat (mj-queue-panel.js): Michael's message goes into the
+// thread's chat first (so an agent on MCP can answer it too), then the writer
+// answers where the picker says (This Mac, Cloud · fal, Cloud · Pika) and the
+// gallery applies what it changes. A retry (messageId, after "Try …") answers
+// the same message again. A failure leaves the message waiting, with why, and
+// carries the other place as an offer. Nothing is sent to Midjourney.
+async function threadChatRequest(message) {
+  const batch = String(message.batch || "").trim();
+  if (!batch) return { ok: false, error: "No thread." };
+  if (writerChoice.WHERE_KEYS.includes(message.mode)) {
+    await writerRequest({ do: "set", mode: message.mode, model: message.model });
+  }
+  let messageId = message.messageId ? String(message.messageId) : "";
+  if (!messageId) {
+    const text = String(message.text || "").trim();
+    if (!text) return { ok: false, error: "Write something first." };
+    const posted = await mjQueueRequest({ method: "POST", body: { action: "chat", batch, text } });
+    if (!posted?.ok || !posted.message?.id) return { ok: false, error: posted?.error || "Not saved.", stage: "post" };
+    messageId = posted.message.id;
+  }
+  const settings = await writerSettings();
+  const res = await writerCall(THREAD_CHAT_ROUTE_PATH, { batch, messageId, model: settings.model });
+  if (res?.ok) return { ...res, messageId };
+  await mjQueueRequest({ method: "POST", body: { action: "chatFailed", messageId, error: String(res?.error || "The writer failed.").slice(0, 300) } }).catch(() => null);
+  return { ...res, ok: false, messageId };
 }
 
 // Quick edit of a Midjourney prompt (mj-quick-edit.js): the gallery runs one
@@ -2020,6 +2049,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message.action === "mjExpand") {
     expandRequest(message, sender)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "mjThreadChat") {
+    threadChatRequest(message)
       .then(sendResponse)
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;

@@ -4,7 +4,10 @@ import { api } from "@/convex/_generated/api";
 import { requireAgentAuth, AgentAuthError, type AgentTokenScope } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
 import { clientErrorMessage } from "@/lib/server/route-error";
-import { mjQueueAddSchema, mjQueueArchiveSchema, mjQueueItemRef, mjQueueListSchema, mjQueueUpdateSchema } from "@/lib/mj-queue-contract";
+import {
+  mjQueueAddSchema, mjQueueArchiveSchema, mjQueueItemRef, mjQueueListSchema, mjQueueUpdateSchema,
+  mjThreadEditSchema, mjThreadMessageSchema, mjThreadReadSchema, mjThreadRerunSchema,
+} from "@/lib/mj-queue-contract";
 import { MJ_THREAD_ID, threadIdOf } from "@/lib/mj-queue";
 import { mjQueueUrl } from "@/lib/gallery-routes";
 
@@ -12,9 +15,13 @@ import { mjQueueUrl } from "@/lib/gallery-routes";
 // read the queue back with the composed commands, edit, reorder or skip.
 // Sending stays Michael's own click in the extension's Queue panel.
 
-const actions = ["list", "queue", "update", "archive"] as const;
+// thread: a thread's runs and chat; reply: an agent's answer in the chat;
+// rerun: chosen prompts copied into the next run with a new recipe; edit: a
+// recipe on the prompts still to send (23 Nov 2026).
+const actions = ["list", "queue", "update", "archive", "thread", "reply", "rerun", "edit"] as const;
 const scopes: Record<(typeof actions)[number], AgentTokenScope> = {
   list: "gallery:read", queue: "gallery:write", update: "gallery:write", archive: "gallery:write",
+  thread: "gallery:read", reply: "gallery:write", rerun: "gallery:write", edit: "gallery:write",
 };
 
 // `url` is the thread's page on the gallery website (the world's Queue tab, or
@@ -75,6 +82,47 @@ export async function POST(request: Request) {
     if (action === "archive") {
       const input = mjQueueArchiveSchema.parse(body);
       const result = await client.mutation(api.mjQueue.archiveThread, { ownerUserId, batch: input.batch, restore: input.restore });
+      return NextResponse.json({ ...result, threadId: threadIdOf(result.batchKey) });
+    }
+    if (action === "thread") {
+      const { batch } = mjThreadReadSchema.parse(body);
+      const [state, list] = await Promise.all([
+        client.query(api.mjThreads.threadState, { ownerUserId, batch }),
+        client.query(api.mjQueue.listQueue, { ownerUserId, batch: await resolveThread(client, ownerUserId, batch) }),
+      ]);
+      return NextResponse.json({
+        ...state, url: threadUrl(state.batchKey, state.worldKey),
+        messages: state.messages.map((message) => ({ ...message, ref: `msg:${message.id}` })),
+        items: list.items.filter((item) => item.batchKey === state.batchKey).map((item, index) => ({
+          n: index + 1, ref: mjQueueItemRef(item.id), id: item.id, run: item.run ?? 1, status: item.status, title: item.title,
+          prompt: item.prompt, profileCodes: item.profileCodes, params: item.params, command: item.command, jobId: item.jobId, sentAt: item.sentAt,
+        })),
+      });
+    }
+    if (action === "reply") {
+      const input = mjThreadMessageSchema.parse(body);
+      const author = `agent:${agent.label || agent.tokenPrefix}`.slice(0, 80);
+      const message = await client.mutation(api.mjThreads.postMessage, {
+        ownerUserId, batch: input.batch, role: "agent", author, text: input.text, changes: input.changes,
+        run: input.run, replyTo: input.replyTo?.replace(/^msg:/, ""),
+      });
+      return NextResponse.json({ message: { ...message, ref: `msg:${message.id}` } });
+    }
+    if (action === "rerun") {
+      const input = mjThreadRerunSchema.parse(body);
+      const createdBy = `agent:${agent.label || agent.tokenPrefix} · rerun`.slice(0, 80);
+      const result = await client.mutation(api.mjThreads.rerunThread, {
+        ownerUserId, batch: input.batch, fromRun: input.fromRun, itemIds: input.items, recipe: input.recipe,
+        prompts: input.prompts, note: input.note, createdBy,
+      });
+      return NextResponse.json({
+        ...result, threadId: threadIdOf(result.batchKey), url: threadUrl(result.batchKey, result.items[0]?.worldKey),
+        count: result.items.length, items: result.items.map(withRef),
+      });
+    }
+    if (action === "edit") {
+      const input = mjThreadEditSchema.parse(body);
+      const result = await client.mutation(api.mjThreads.editThread, { ownerUserId, batch: input.batch, recipe: input.recipe, itemIds: input.items });
       return NextResponse.json({ ...result, threadId: threadIdOf(result.batchKey) });
     }
     const input = mjQueueUpdateSchema.parse(body);

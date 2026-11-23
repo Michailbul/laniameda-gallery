@@ -79,6 +79,8 @@ import type * as mjQueue from "../mjQueue.js";
 import type * as mjQueueValidators from "../mjQueueValidators.js";
 import type * as mjQuickRunner from "../mjQuickRunner.js";
 import type * as mjQuickRuns from "../mjQuickRuns.js";
+import type * as mjThreadChat from "../mjThreadChat.js";
+import type * as mjThreads from "../mjThreads.js";
 import type * as moodboardValidators from "../moodboardValidators.js";
 import type * as moodboards from "../moodboards.js";
 import type * as newspaper from "../newspaper.js";
@@ -218,6 +220,8 @@ declare const fullApi: ApiFromModules<{
   mjQueueValidators: typeof mjQueueValidators;
   mjQuickRunner: typeof mjQuickRunner;
   mjQuickRuns: typeof mjQuickRuns;
+  mjThreadChat: typeof mjThreadChat;
+  mjThreads: typeof mjThreads;
   moodboardValidators: typeof moodboardValidators;
   moodboards: typeof moodboards;
   newspaper: typeof newspaper;

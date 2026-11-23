@@ -13,7 +13,7 @@ import {
   inspirationPrivateMediaFields, inspirationSourceFields, inspirationVersionFields,
   inspirationCaptureFields, inspirationPrivateDeletionFields, assetCaptureFields,
 } from "./inspirationValidators";
-import { mjQueueItemFields } from "./mjQueueValidators";
+import { mjQueueItemFields, mjThreadMessageFields, mjThreadRunFields } from "./mjQueueValidators";
 import { lockedPromptFields, lockedPromptRevisionFields } from "./lockedPromptValidators";
 import { promptRunFields, promptSetFields, stylePresetFields } from "./promptGridValidators";
 import { folderScopeValidator, productionBriefFields, projectDetailsValidator } from "./projectValidators";
@@ -69,6 +69,11 @@ export default defineSchema({
     .index("by_owner_batchKey_order", ["ownerUserId", "batchKey", "order"])
     .index("by_owner_ingestKey", ["ownerUserId", "ingestKey"])
     .index("by_owner_updatedAt", ["ownerUserId", "updatedAt"]),
+  // A thread's reruns and chat (convex/mjThreads.ts, 23 Nov 2026).
+  mjThreadRuns: defineTable(mjThreadRunFields)
+    .index("by_owner_batchKey_run", ["ownerUserId", "batchKey", "run"]),
+  mjThreadMessages: defineTable(mjThreadMessageFields)
+    .index("by_owner_batchKey_createdAt", ["ownerUserId", "batchKey", "createdAt"]),
   // Production briefs of a project (convex/projects.ts): what the director or
   // producers sent (a design brief, the storyboard, the script, photo sets),
   // with who sent it, when and why, its private files and its pictures.

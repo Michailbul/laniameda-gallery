@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.43.0 (23 Nov 2026)
+
+MJ Queue: a chat per thread, and reruns as runs
+- **Chat** under every thread's title: write to the agent ("make the next
+  ten darker", "add a reverse shot of the patio", "swap the profile to CAS
+  Main 1", "rerun all at stylize 750") and it changes the thread: edits,
+  adds, skips, moves, sets a recipe on the prompts to send, or queues a
+  rerun. Each answer lists what it changed. The writer runs where the
+  writer pick says (This Mac, Cloud · fal, Cloud · Pika); when it fails, the
+  message stays waiting and the card offers the other place. Agents on MCP
+  read and answer the same chat; the history stays with the thread.
+- **Runs**: a timeline of runs under the title (All · Run 1 · Run 2 …); a
+  click shows one run, hovering shows what it carries and what changed.
+  Cards show R1, R2 … once a thread has more than one run.
+- **Rerun…** opens the next run's recipe, filled from the run you rerun:
+  profiles and moodboards, sref, keyword opening, stylize, chaos, aspect,
+  Raw / Standard, HD, and why. Queue all of a run or only ticked prompts.
+  The earlier runs stay as they were, with their jobs and frames.
+  "Change N to send" puts the same changes on the prompts still to send
+  instead. The sent tab's "Queue all again" became "Rerun as a new run…".
+- Nothing is ever sent by itself: every job is still your own click.
+
 ## 0.42.0 (22 Nov 2026)
 
 Random: levels and locks, one click each

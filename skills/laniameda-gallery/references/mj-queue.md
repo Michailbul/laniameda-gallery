@@ -90,6 +90,66 @@ item with `position` (0-based in its batch); `status: skipped` sets it aside,
 `queued` puts it back. Agents never set `sent`: that is recorded by the
 extension after Michael's click.
 
+## Chat and runs (23 Nov 2026)
+
+Every thread has its own **chat** with Michael and a series of **runs**
+(run 1, run 2 …). Both show under the thread's title in the extension's MJ
+Queue tab and on the gallery's Queue page, live.
+
+**Runs.** Every prompt belongs to a run (`run` on the item, 1 when unset;
+`runs` on the batch is the newest). A rerun copies prompts into the next run
+with a new recipe; the earlier runs stay exactly as they were, with their sent
+commands, job ids and filed frames. Each copy carries its own profile codes,
+srefs and params, and `requeuedFrom` points at the original, so a frame is
+always traceable to the exact combination (board + profile + keyword) that
+made it. File results per run as before (file_run_results,
+file_restyle_results read each item's own settings).
+
+- `read_mj_thread {batch}`: the thread's runs (each with `settings`, what its
+  prompts carry, e.g. `e6pj8eo ejo6q4d · stylize 300 · chaos 25 · 16:9 · hd`,
+  its `opening` (the keyword opening its prompts share), and for reruns
+  `label` (what changed), `recipe`, `note`, `fromRun`), the chat (`messages`,
+  `waiting` = Michael's unanswered ones) and the prompts numbered #1, #2 …
+  with run, status, command and job id.
+- `rerun_mj_thread {batch, fromRun?, items?, recipe?, prompts?, note?}`:
+  every prompt of the latest run (or of `fromRun`, skipped ones left out; or
+  only `items`, from any run) is copied, queued, as the next run. `recipe`
+  holds only what changes:
+  `profileCodes` (replace; [] removes all), `addProfileCodes`,
+  `removeProfileCodes`, `srefs` (codes, `code::weight` or image URLs; [] removes
+  all), `params` (a whole new params line), `stylize`, `chaos`, `weird`, `ar`
+  (null removes the flag), `raw`, `hd` (true/false), `opening` (swaps the
+  thread's shared first sentence, e.g. "Painted storybook animation frame.",
+  or puts it in front; "" removes it). `prompts: [{itemId, prompt}]` gives
+  some copies new words. `note` says why, in plain words.
+- `edit_mj_thread {batch, recipe, items?}`: the same recipe on the prompts
+  still to send, in place (no new run). Sent and skipped ones keep theirs
+  (`leftAlone`): rerun them instead.
+- Nothing is sent: a rerun only queues. Michael sends every job.
+
+**Chat.** Michael writes to the agent in the thread ("make the next ten
+darker", "add a reverse shot of the patio", "swap the profile to CAS Main 1",
+"rerun all at stylize 750"). His message is stored first (`status: waiting`);
+then the writer (the extension's pick: This Mac, Cloud · fal or Cloud · Pika,
+the same routes as Grow; on the website fal or Pika) answers with a reply and
+operations on the thread (edit, add, skip, restore, move, recipe on prompts to
+send, rerun), which the gallery checks and applies; the answer lists what
+changed, one line each ("Edited #3", "Run 2 queued: 39 prompts · stylize 750",
+"Not done: #4 is sent: rerun it to change it"). If the writer fails, the
+message stays waiting with why, and the card offers the other place.
+
+Agents on MCP answer the same chat:
+1. `read_mj_thread` and look at `waiting` and the newest `messages`.
+2. Make the change with the queue tools (update_mj_queue_item,
+   queue_mj_prompts into the same thread, edit_mj_thread, rerun_mj_thread).
+3. `reply_mj_thread {batch, text, replyTo?, changes?, run?}`: a sentence or
+   two in plain words and what you changed, one line each. `replyTo` (the
+   message id, `msg:<id>` or bare) closes that message; left out, the reply
+   closes every waiting one.
+
+Prompts in the chat follow the house rules: describe what the camera sees,
+never names of characters, places or coined terms; keep the camera distance.
+
 ## In Midjourney (the extension, 0.22+)
 
 The queue is the MJ Queue tab of the extension's side panel (next to Add to
