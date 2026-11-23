@@ -14,7 +14,7 @@ import { enforceMjVersion } from "./mj-version";
 import { wordsOnly } from "./mj-describe";
 import { MJ_BANNED_PROFILE_CODES } from "./mj-queue";
 import { SHOT_SCALE_RULES } from "./writer-scale";
-import { CINEMATIC_RULES_GENERAL, DEAR_ANNETE_CINEMATIC } from "./mj-prompt-knowledge";
+import { CINEMATIC_RULES_GENERAL, DEAR_ANNETE_CINEMATIC, STANDALONE_VIEW_RULE } from "./mj-prompt-knowledge";
 
 export const EXPAND_LIMITS = {
   // A data URL of a 1024 px JPEG is about 300 KB; 3 MB leaves room for PNGs.
@@ -44,7 +44,7 @@ export const EXPAND_PRESETS: ExpandPreset[] = [
   {
     key: "angles", label: "New angles", count: 6,
     hint: "The same moment from six other camera positions.",
-    brief: `Same subject, same place, same moment, same light. Six other camera positions: (1) the reverse angle, looking back the way this camera looks, (2) a low angle close to the subject, (3) a high angle looking down on the subject, (4) a side-on profile view, (5) an over-the-shoulder view from behind someone or something in this frame, (6) a far, long-lens view from across the place with the subject small. Say what each new position reveals that this frame hides (the wall behind the camera, the far end of the street). Wardrobe, props and weather stay identical, in the same words.`,
+    brief: `This subject, this place, this moment and this light, from six other camera positions: (1) the camera turned around: standing where this frame's subject faces, toward where this camera stood, (2) a low angle close to the subject, (3) a high angle looking down on the subject, (4) a side-on profile view, (5) an over-the-shoulder view from behind someone or something in this frame, (6) a far, long-lens view from across the place with the subject small. Write each as its own view: what that camera faces and what stands there (the wall, the far end of the street), never "reverse", "looking back" or "the same". Wardrobe, props and weather keep identical describing words.`,
   },
   {
     key: "close", label: "Close-ups", count: 6,
@@ -53,8 +53,8 @@ export const EXPAND_PRESETS: ExpandPreset[] = [
   },
   {
     key: "wide", label: "Wides", count: 6,
-    hint: "The place: establishing wide, reverse, full room or street, high, low, from afar.",
-    brief: `Six wide shots of the place this frame belongs to: (1) the establishing wide with the subject small in it, (2) the wide reverse angle from the opposite end, (3) the full room or the full street seen straight on, quiet and empty, (4) the high wide from a window, a roof or a hill, (5) the low wide from the ground, the sky or ceiling large, (6) the far wide from outside the place, its edge and its surroundings. The place is the grammatical subject of each. A wide lens, deep focus. Never a tight crop.`,
+    hint: "The place: establishing wide, from the far end, full room or street, high, low, from afar.",
+    brief: `Six wide shots of the place this frame belongs to: (1) the establishing wide with the subject small in it, (2) the wide from the far end of the place, facing its open end, described as its own view, (3) the full room or the full street seen straight on, quiet and empty, (4) the high wide from a window, a roof or a hill, (5) the low wide from the ground, the sky or ceiling large, (6) the far wide from outside the place, its edge and its surroundings. The place is the grammatical subject of each. A wide lens, deep focus. Never a tight crop.`,
   },
   {
     key: "cast", label: "Cast", count: 6,
@@ -74,7 +74,7 @@ export const EXPAND_PRESETS: ExpandPreset[] = [
   {
     key: "world", label: "World kit", count: 8,
     hint: "Eight frames that turn this picture into a world.",
-    brief: `The starter kit that turns this frame into a world: (1) the establishing wide, (2) the wide reverse angle, (3) an interior that belongs here, (4) a street-level or ground-level corner, (5) a lead character full length, (6) a second person, (7) a vehicle, machine or key prop, (8) a close detail insert. One look across all eight.`,
+    brief: `The starter kit that turns this frame into a world: (1) the establishing wide, (2) the wide from the far end of the place, described as its own view, (3) an interior that belongs here, (4) a street-level or ground-level corner, (5) a lead character full length, (6) a second person, (7) a vehicle, machine or key prop, (8) a close detail insert. One look across all eight.`,
   },
   {
     key: "scene", label: "Cinematic scene", count: 7,
@@ -96,7 +96,7 @@ export const EXPAND_PRESETS: ExpandPreset[] = [
     hint: "Seven wide views of the place this frame is in.",
     brief: `Seven wide views of the place this frame is in, as one location set:
 (1) the establishing wide: the whole place from its open end,
-(2) the wide reverse: from the far end, looking back the way this camera looks, and say what that reveals,
+(2) the far-end wide: the camera at the far end of the place, facing its open end; describe what stands there as its own view,
 (3) the wide from a doorway or a corner: from inside an arch, a doorway or a corner, the frame edge dark and close,
 (4) the high wide: from an upper window or a roof, looking down across the whole place,
 (5) the establishing wide again at blue dusk or at night under wet lamplight: a new LIGHT LINE only, every architecture word identical,
@@ -158,7 +158,8 @@ export const GROW_LOCK = `GROW RULES THAT ALWAYS HOLD (they outrank anything abo
 - Think from the camera. Describe only what is visible from that position and distance:
   Close-up and extreme close-up: the character or object fills the frame. Describe its surface in detail: skin and its lines, hair, the weave and folds of the fabric, embroidery and stitching, metal wear, ornament, how the light falls across it. Behind it, only soft shapes.
   Medium and full shots: the figure from the waist or the knees, or head to toe; the pose, the hands, what is within reach, the near background.
-  Wide and establishing shots: the place leads. Describe the background, the architecture, the land and sky, the objects around, where the figures stand and how small they are. No fine texture on anything small in the frame.`;
+  Wide and establishing shots: the place leads. Describe the background, the architecture, the land and sky, the objects around, where the figures stand and how small they are. No fine texture on anything small in the frame.
+${STANDALONE_VIEW_RULE}`;
 
 /** Grow's own system prompt, before the world's files and notes: what the extension shows and may replace. */
 export const EXPAND_SYSTEM_DEFAULT = `${EXPAND_BASE_RULES}\n\n${CINEMATIC_RULES_GENERAL}`;

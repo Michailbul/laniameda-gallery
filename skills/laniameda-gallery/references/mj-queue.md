@@ -186,6 +186,17 @@ the extension and the agents skip it; Undo sent puts it back to queued. Every
 thread and prompt has a copyable id (thr-…, mjq:…) to paste to an agent. The
 page never submits anything to Midjourney.
 
+## Writer rules for every Midjourney prompt (23 Nov 2026)
+
+- Every prompt is its own picture: Midjourney starts each job from nothing,
+  so no prompt says "reverse", "looking back", "the other side", "the same",
+  "again" or "this frame". Describe what the camera sees from where it
+  stands. Such pointing words belong only to edit prompts for a model that
+  is given the image (Seedream 5.5 Pro with references).
+- The extension's writer (Grow, quick edit) reads a world's files only when
+  Michael picked that world (Grow's WORLD row, the quick edit's world chip).
+  It never guesses one from the codes.
+
 ## Cinematic shots shelf (shot layouts)
 
 CINEMATIC › CINEMATIC SHOTS holds film frames Michael keeps as shot layouts.

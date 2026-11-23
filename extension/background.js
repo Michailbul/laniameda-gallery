@@ -1463,8 +1463,9 @@ async function quickEditRequest(message) {
     model: (await writerSettings()).model,
     // The gallery reads the world from the prompt's own codes and hands the
     // writer that world's files; the world picked in the bar is the fallback.
-    world: "auto",
-    fallbackWorld: message.fallbackWorld && message.fallbackWorld !== "none" ? String(message.fallbackWorld) : undefined,
+    // Only the world picked for the quick edit is read (Michael, 23 Nov 2026):
+    // never one guessed from the prompt's codes.
+    world: message.fallbackWorld && message.fallbackWorld !== "none" && message.fallbackWorld !== "auto" ? String(message.fallbackWorld) : "none",
     shots: await writerShots(),
   };
   return writerCall(QUICK_EDIT_ROUTE_PATH, body);

@@ -33,7 +33,7 @@
   const MOVES = [
     { key: "angles", label: "Angles", count: 6, hot: "1", hint: "The same moment from six other camera positions." },
     { key: "close", label: "Close-ups", count: 6, hot: "2", hint: "Six close shots cut from this frame." },
-    { key: "wide", label: "Wides", count: 6, hot: "3", hint: "The place: establishing wide, reverse, full room or street, high, low, from afar." },
+    { key: "wide", label: "Wides", count: 6, hot: "3", hint: "The place: establishing wide, from the far end, full room or street, high, low, from afar." },
     { key: "cast", label: "Cast", count: 6, hot: "4", hint: "Six real-looking people who live in this world." },
     { key: "details", label: "Props", count: 6, hot: "5", hint: "Six objects of this world, each alone in the frame." },
     { key: "story", label: "Story", count: 7, hot: "6", hint: "A short story from this frame: seven shots, ready as a thread." },
@@ -41,7 +41,7 @@
     { key: "scene", label: "Cinematic scene", count: 7, hot: "8", hint: "Seven moments from a real film set in this world." },
     { key: "place", label: "Cinematic location", count: 7, hot: "9", hint: "Seven other places of this world, each an establishing wide." },
     { key: "replay", label: "Replay", count: 10, hot: "0", hint: "Your last 10 Midjourney prompts, rewritten one by one in this frame's look." },
-    { key: "location", label: "Location", count: 7, hot: "L", hint: "Seven wide views of the place this frame is in: establishing, reverse, doorway, high, dusk, one small figure, from afar." },
+    { key: "location", label: "Location", count: 7, hot: "L", hint: "Seven wide views of the place this frame is in: establishing, far end, doorway, high, dusk, one small figure, from afar." },
   ];
   /** The move for a key event's code (Digit1 … Digit0, KeyL), or null. */
   function moveForCode(code) {
@@ -541,6 +541,10 @@
     select:focus{border-color:var(--coral)}
     select.wr{max-width:none;flex:none;padding:0 3px;}
     select.from{max-width:168px;flex:0 1 auto}
+    select.world{max-width:210px;flex:0 1 auto;color:var(--ink2)}
+    select.world.on{color:var(--ink);border-color:var(--coral)}
+    .world-hint button.fits{height:22px;padding:0 8px;border:1px dashed var(--line);border-radius:6px;background:none;color:var(--ink2);cursor:pointer;font:700 8.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.06em;text-transform:uppercase}
+    .world-hint button.fits:hover{color:var(--ink);border-color:var(--coral)}
     select.from:disabled{opacity:.4}
     .wr{flex:none;height:22px;padding:0 7px;border:1px solid var(--line);border-radius:6px;background:#191919;color:var(--ink2);cursor:pointer;font:700 8.5px/1 "JetBrains Mono",ui-monospace,monospace;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
     .wr.mac{color:#79B791;border-color:rgba(121,183,145,.45)}
@@ -661,12 +665,13 @@
     <div class="head">
       <img class="thumb" alt="">
       <div class="meta">
-        <div class="top"><span class="name"><i></i>Grow</span><select title="World: its rules steer the writer, its moodboards vary the results, and queued prompts go to its threads."></select><select class="wr" aria-label="Writer model"></select><button class="x" type="button" title="Close (Esc)">×</button></div>
+        <div class="top"><span class="name"><i></i>Grow</span><select class="wr" aria-label="Writer model"></select><button class="x" type="button" title="Close (Esc)">×</button></div>
         <div class="src"></div>
       </div>
     </div>
     <div class="codes"></div>
     <div class="opts">
+      <div class="opt"><b>World</b><select class="world" aria-label="World" title="Only the world you pick here steers the writer (its rules, cast and moodboards) and gets the queued prompts. No world: the writer works from the picture and its prompt only."></select><span class="world-hint"></span></div>
       <div class="opt"><b>Use image as</b><div class="seg attach" role="group" aria-label="Use this image as"></div></div>
       <div class="opt"><b>Shots</b><div class="seg shotmode" role="group" aria-label="Cinematic shots"></div><select class="from" aria-label="Shots from"></select></div>
       <div class="opt"><button class="flip vary" type="button" title="Each result swaps or adds one moodboard of this world. Taste profiles stay.">Vary moodboards</button><button class="flip replay" type="button" title="The writer gets your last 10 Midjourney prompts and reuses their subjects and views in this frame's look.">Replay previous prompts</button></div>
@@ -691,7 +696,8 @@
   const thumb = $(".thumb");
   const srcEl = $(".src");
   const codesEl = $(".codes");
-  const worldSelect = $(".top select:not(.wr)");
+  const worldSelect = $("select.world");
+  const worldHint = $(".world-hint");
   const writerButton = $(".wr");
   const attachSeg = $(".seg.attach");
   const shotSeg = $(".seg.shotmode");
@@ -720,7 +726,7 @@
 
   const state = {
     open: false, folded: false, el: null, source: null, sourceReady: null, prepared: null,
-    worlds: [], world: "auto", found: null, keepImages: false,
+    worlds: [], world: "none", found: null, keepImages: false,
     attach: "none", vary: true, replay: false, shots: shotSettingsOf(null), shotSources: null, shotSourcesAt: 0,
     busy: false, move: null, items: [], sel: 0, set: "", logline: "", editing: -1, thread: "", runId: "",
     runs: [], runAt: 0, showRecent: false, history: [],
@@ -945,9 +951,12 @@
 
   // ── Worlds ──
 
-  // "Auto" reads the world from the frame's codes; a named world overrides it.
+  // Only the world he picks is used (Michael, 23 Nov 2026: "we only load the
+  // world if it's the world I want, and I should be able to select it"). The
+  // world the frame's codes or its save point at is only a hint, never loaded.
   function paintWorlds() {
-    const options = [{ key: "auto", name: autoWorldLabel(state.found) }, { key: "none", name: "No world" }, ...state.worlds];
+    const fits = state.found?.world?.key || "";
+    const options = [{ key: "none", name: "No world" }, ...state.worlds.map((world) => ({ ...world, name: world.key === fits ? `${world.name} · fits this frame` : world.name }))];
     worldSelect.replaceChildren(...options.map((world) => {
       const option = document.createElement("option");
       option.value = world.key;
@@ -955,20 +964,33 @@
       option.selected = world.key === state.world;
       return option;
     }));
-    worldSelect.title = state.world === "auto"
-      ? state.found?.world ? `${state.found.by === "frame" ? "This frame is saved in" : "This frame's codes point at"} ${state.found.world.name}. The writer reads its own files: ${(state.found.read || []).join(", ") || "its rule file"}.` : "The world is read from where the frame is saved, or from its codes. Pick one here to set it yourself."
-      : state.world === "none" ? "No world: the writer works from the picture and its prompt only." : "The writer reads this world's own files (rules, learnings, cast, bible).";
+    worldSelect.classList.toggle("on", state.world !== "none");
+    worldHint.replaceChildren();
+    if (state.world === "none" && fits && state.worlds.some((world) => world.key === fits)) {
+      const use = document.createElement("button");
+      use.type = "button";
+      use.className = "fits";
+      use.textContent = `Use ${state.found.world.name}?`;
+      use.title = `${state.found.by === "frame" ? "This frame is saved in" : "This frame's codes point at"} ${state.found.world.name}. Nothing of it is used unless you pick it.`;
+      use.addEventListener("click", () => {
+        state.world = fits;
+        setLocal({ [STORE.world]: state.world });
+        paintWorlds();
+      });
+      worldHint.appendChild(use);
+    }
   }
-  // The world the writer will read for: the picked one, or the one found.
-  const worldKey = () => (state.world === "auto" ? state.found?.world?.key || "" : state.world === "none" ? "" : state.world);
-  const worldName = () => (state.world === "auto" ? state.found?.world?.name || "" : state.world === "none" ? "" : state.worlds.find((world) => world.key === state.world)?.name || "");
+  // The world the writer reads for: only the picked one.
+  const worldKey = () => (state.world === "none" ? "" : state.world);
+  const worldName = () => (state.world === "none" ? "" : state.worlds.find((world) => world.key === state.world)?.name || "");
   let worldsLoaded = false;
   async function loadSettings() {
     const stored = await local([STORE.world, STORE.oldSref, STORE.attach, STORE.vary, STORE.replay, STORE.shots]);
     state.shots = shotSettingsOf(stored[STORE.shots]);
     paintShots();
     void loadShotSources();
-    state.world = stored[STORE.world] || "auto";
+    // Only a world he picked is used (Michael, 23 Nov 2026): the old "auto" reads as none.
+    state.world = stored[STORE.world] && stored[STORE.world] !== "auto" ? stored[STORE.world] : "none";
     state.attach = stored[STORE.attach] ? attachOf(stored[STORE.attach]) : stored[STORE.oldSref] === true ? "sref" : "none";
     state.vary = stored[STORE.vary] !== false;
     state.replay = stored[STORE.replay] === true;
@@ -979,7 +1001,7 @@
     if (res?.ok) {
       worldsLoaded = true;
       state.worlds = res.worlds || [];
-      if (state.world !== "none" && state.world !== "auto" && !state.worlds.some((world) => world.key === state.world)) state.world = "auto";
+      if (state.world !== "none" && !state.worlds.some((world) => world.key === state.world)) state.world = "none";
       paintWorlds();
     }
   }
@@ -1280,7 +1302,6 @@
       }));
       if (state.source !== source) return;
       if (!res?.ok) throw Object.assign(new Error(res?.error || "Could not write the prompts."), { offer: res?.offer, steer });
-      if (settings.world === "auto" && res.worldKey) { state.found = { world: { key: res.worldKey, name: res.world }, tie: [], read: res.read || [], by: res.worldBy }; paintWorlds(); }
       let items = (res.items || []).map((item) => ({ ...item, text: item.prompt, queued: false }));
       let varied = "";
       if (settings.vary && items.length) {
