@@ -37,7 +37,8 @@ export type MjQueueStatus = (typeof MJ_QUEUE_STATUSES)[number];
 
 export const MJ_QUEUE_LIMITS = {
   itemsPerCall: 50,
-  itemsPerBatch: 200,
+  // A thread with its reruns (39 prompts × a few runs) fits.
+  itemsPerBatch: 400,
   batch: 120,
   title: 120,
   prompt: 6000,

@@ -69,6 +69,9 @@ export const mjQueueItemFields = {
   // A copy queued again from a sent prompt (to rerun it, e.g. at another
   // stylize); the sent original keeps its job and its filed frames.
   requeuedFrom: v.optional(v.id("mjQueueItems")),
+  // The run of the thread this prompt belongs to (convex/mjThreads.ts): 1 when
+  // unset; a rerun copies prompts into the next run with a new recipe.
+  run: v.optional(v.number()),
   status: mjQueueStatusValidator,
   injectedAt: v.optional(v.number()),
   sentAt: v.optional(v.number()),
@@ -82,4 +85,64 @@ export const mjQueueItemFields = {
   createdBy: v.string(),
   createdAt: v.number(),
   updatedAt: v.number(),
+};
+
+// A recipe a rerun or a thread edit applied (lib/mj-thread.ts MjRecipe).
+export const mjRecipeValidator = v.object({
+  profileCodes: v.optional(v.array(v.string())),
+  addProfileCodes: v.optional(v.array(v.string())),
+  removeProfileCodes: v.optional(v.array(v.string())),
+  srefs: v.optional(v.array(v.string())),
+  params: v.optional(v.string()),
+  stylize: v.optional(v.union(v.number(), v.null())),
+  chaos: v.optional(v.union(v.number(), v.null())),
+  weird: v.optional(v.union(v.number(), v.null())),
+  ar: v.optional(v.union(v.string(), v.null())),
+  raw: v.optional(v.boolean()),
+  hd: v.optional(v.boolean()),
+  opening: v.optional(v.string()),
+});
+
+// One run of a thread after the first (a rerun): which run it came from,
+// the recipe it applied, which prompts it copied and who asked for it.
+// Run 1 has no row: its settings are read from its prompts.
+export const mjThreadRunFields = {
+  ownerUserId: v.string(),
+  batchKey: v.string(),
+  batch: v.string(),
+  worldKey: v.optional(v.string()),
+  run: v.number(),
+  fromRun: v.number(),
+  recipe: mjRecipeValidator,
+  label: v.string(),
+  note: v.optional(v.string()),
+  itemCount: v.number(),
+  // The chat message that asked for it, when one did.
+  messageId: v.optional(v.id("mjThreadMessages")),
+  createdBy: v.string(),
+  createdAt: v.number(),
+};
+
+export const mjThreadRoleValidator = v.union(v.literal("michael"), v.literal("agent"));
+
+// One message of a thread's chat. Michael's wait for an answer ("waiting")
+// until the writer or an agent on MCP answers ("answered"); a writer failure
+// leaves it waiting with the error, so an agent can still pick it up.
+export const mjThreadMessageFields = {
+  ownerUserId: v.string(),
+  batchKey: v.string(),
+  batch: v.string(),
+  worldKey: v.optional(v.string()),
+  role: mjThreadRoleValidator,
+  author: v.string(),
+  text: v.string(),
+  // What the answer changed in the thread, in plain words, one line each.
+  changes: v.optional(v.array(v.string())),
+  // A rerun this answer queued.
+  run: v.optional(v.number()),
+  replyTo: v.optional(v.id("mjThreadMessages")),
+  status: v.optional(v.union(v.literal("waiting"), v.literal("answered"))),
+  error: v.optional(v.string()),
+  model: v.optional(v.string()),
+  createdAt: v.number(),
 };

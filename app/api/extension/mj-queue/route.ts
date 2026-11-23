@@ -6,7 +6,7 @@ import { clientErrorMessage } from "@/lib/server/route-error";
 import { etagJson } from "@/lib/server/etag-json";
 import {
   mjQueueAddSchema, mjQueueDeleteThreadSchema, mjQueueForkSchema, mjQueueListSchema, mjQueueParamsSchema,
-  mjQueueRequeueSchema, mjQueueUpdateSchema,
+  mjQueueRequeueSchema, mjQueueUpdateSchema, mjThreadChatAskSchema, mjThreadEditSchema, mjThreadRerunSchema,
 } from "@/lib/mj-queue-contract";
 
 // The extension's MJ Queue tab (side panel): GET reads the batches and
@@ -16,7 +16,11 @@ import {
 // sent prompts again as new copies, (action "fork") copies one prompt into a
 // new Test or Random thread once per profile mix, (action "params") sets the
 // params of many prompts still to send at once, and (action "deleteThread")
-// deletes every prompt of a thread.
+// deletes every prompt of a thread. A thread's own read (?batch=) also brings
+// its runs and chat (thread); (action "rerun") copies prompts into the next
+// run with a new recipe, (action "editThread") sets a recipe on the prompts
+// still to send, (action "chat") puts Michael's message in the thread's chat
+// for the writer (/api/extension/mj-thread-chat) or an agent to answer.
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -37,8 +41,15 @@ export async function GET(request: Request) {
       includeDone: params.get("includeDone") === "false" ? false : undefined,
       archived: params.get("archived") === "true" ? true : undefined,
     });
-    const result = await getServerConvexClient(ownerUserId).query(api.mjQueue.listQueue, { ownerUserId, ...input });
-    return etagJson(request, { ok: true, ...result }, CORS_HEADERS);
+    const client = getServerConvexClient(ownerUserId);
+    const [result, thread] = await Promise.all([
+      client.query(api.mjQueue.listQueue, { ownerUserId, ...input }),
+      // An older backend, or a thread that is gone, costs only the chat.
+      input.batch && !input.archived
+        ? client.query(api.mjThreads.threadState, { ownerUserId, batch: input.batch }).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    return etagJson(request, { ok: true, ...result, ...(thread ? { thread } : {}) }, CORS_HEADERS);
   } catch (error) {
     return corsJson({ error: clientErrorMessage(error, "Could not load the Midjourney queue.") }, 400);
   }
@@ -81,6 +92,36 @@ export async function POST(request: Request) {
       const restore = action === "restoreThread";
       const result = await getServerConvexClient(ownerUserId).mutation(api.mjQueue.archiveThread, { ownerUserId, batch, restore });
       return corsJson({ ok: true, ...result, deleted: restore ? 0 : result.changed, archived: !restore });
+    }
+    if (action === "rerun") {
+      const input = mjThreadRerunSchema.parse(body);
+      const result = await getServerConvexClient(ownerUserId).mutation(api.mjThreads.rerunThread, {
+        ownerUserId, batch: input.batch, fromRun: input.fromRun, itemIds: input.items, recipe: input.recipe,
+        prompts: input.prompts, note: input.note, createdBy: "extension · rerun",
+      });
+      return corsJson({ ok: true, ...result });
+    }
+    if (action === "editThread") {
+      const input = mjThreadEditSchema.parse(body);
+      const result = await getServerConvexClient(ownerUserId).mutation(api.mjThreads.editThread, {
+        ownerUserId, batch: input.batch, recipe: input.recipe, itemIds: input.items,
+      });
+      return corsJson({ ok: true, ...result });
+    }
+    if (action === "chat") {
+      const input = mjThreadChatAskSchema.parse(body);
+      const message = await getServerConvexClient(ownerUserId).mutation(api.mjThreads.postMessage, {
+        ownerUserId, batch: input.batch, role: "michael", author: "Michael", text: input.text,
+      });
+      return corsJson({ ok: true, message });
+    }
+    if (action === "chatFailed") {
+      const { messageId, error } = body as { messageId?: unknown; error?: unknown };
+      if (typeof messageId !== "string" || !messageId) throw new Error("messageId is required.");
+      await getServerConvexClient(ownerUserId).mutation(api.mjThreads.markWriterFailed, {
+        ownerUserId, messageId, error: typeof error === "string" ? error : "The writer failed.",
+      });
+      return corsJson({ ok: true });
     }
     // {action: "requeue", itemIds}: sent prompts queued again as new copies.
     if (action === "requeue") {

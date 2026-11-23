@@ -8,6 +8,7 @@ import { ArrowLeft, Check, Copy, Loader2, RotateCcw } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { threadIdOf } from "@/lib/mj-queue";
 import { mjQueuePath } from "@/lib/gallery-routes";
+import { RerunForm, RunStrip, THREAD_PANEL_CSS, ThreadChat, runOf } from "./mj-thread-panel";
 
 // The Midjourney queue on the gallery website: the same threads and prompts
 // as the extension's MJ Queue tab (same Convex rows, live both ways), for
@@ -224,7 +225,7 @@ export function MjQueueBoard({ ownerUserId, worldKey, worldName, standalone = fa
 
   return (
     <div ref={rootRef} className={`mjq${standalone ? " is-page" : ""}`}>
-      <style href="lm-mj-queue" precedence="default">{CSS}</style>
+      <style href="lm-mj-queue" precedence="default">{CSS + THREAD_PANEL_CSS}</style>
       {header}
       {rail === undefined ? (
         <div className="mjq-state"><Loader2 size={16} className="animate-spin" aria-label="Loading" /></div>
@@ -268,11 +269,18 @@ function ThreadView({ ownerUserId, thread, worldName, showWorld, onBack }: {
 }) {
   const { isAuthenticated } = useConvexAuth();
   const data = useQuery(api.mjQueue.listQueue, isAuthenticated ? { ownerUserId, batch: thread.batch } : "skip");
+  // Its runs and chat (convex/mjThreads.ts): a small read of its own.
+  const state = useQuery(api.mjThreads.threadState, isAuthenticated ? { ownerUserId, batch: thread.batch } : "skip");
   const [filter, setFilter] = useState<"all" | "open" | "done">("all");
+  const [runShown, setRunShown] = useState<number | null>(null);
+  const [rerunOpen, setRerunOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const { copied, copy } = useCopy();
   const items = useMemo(() => (data?.items ?? []).filter((item) => item.batchKey === thread.batchKey), [data, thread.batchKey]);
-  const left = items.filter(isOpen);
-  const shown = items.filter((item) => filter === "all" || (filter === "open" ? isOpen(item) : !isOpen(item)));
+  const runItems = runShown == null ? items : items.filter((item) => runOf(item) === runShown);
+  const left = runItems.filter(isOpen);
+  const shown = runItems.filter((item) => filter === "all" || (filter === "open" ? isOpen(item) : !isOpen(item)));
+  const multiRun = (state?.latestRun ?? 1) > 1;
 
   return <section className="mjq-thread-view" aria-label={thread.batch}>
     <div className="mjq-thread-head">
@@ -292,19 +300,25 @@ function ThreadView({ ownerUserId, thread, worldName, showWorld, onBack }: {
         {thread.skipped ? <span>{thread.skipped} skipped</span> : null}
         <IdChip value={thread.threadId} title="Copy the thread id to give an agent" />
       </p>
+      <RunStrip state={state} total={items.length} shown={runShown} onShow={setRunShown} rerunOpen={rerunOpen} onRerun={() => setRerunOpen((open) => !open)} />
       <div className="mjq-seg" role="tablist" aria-label="Which prompts">
-        <button type="button" role="tab" aria-selected={filter === "all"} onClick={() => setFilter("all")}>All {items.length}</button>
+        <button type="button" role="tab" aria-selected={filter === "all"} onClick={() => setFilter("all")}>All {runItems.length}</button>
         <button type="button" role="tab" aria-selected={filter === "open"} onClick={() => setFilter("open")}>To send {left.length}</button>
-        <button type="button" role="tab" aria-selected={filter === "done"} onClick={() => setFilter("done")}>Done {items.length - left.length}</button>
+        <button type="button" role="tab" aria-selected={filter === "done"} onClick={() => setFilter("done")}>Done {runItems.length - left.length}</button>
       </div>
     </div>
+    {rerunOpen && <RerunForm key={state?.latestRun ?? 1} ownerUserId={ownerUserId} batch={thread.batch} state={state} items={items}
+      onClose={() => setRerunOpen(false)}
+      onDone={(run, text) => { setRerunOpen(false); setNotice(text); if (run) { setRunShown(run); setFilter("open"); } }} />}
+    {notice && <p className="mjq-note">{notice}</p>}
+    <ThreadChat ownerUserId={ownerUserId} batch={thread.batch} state={state} onRun={(run) => { setRunShown(run); setFilter("open"); }} />
     {data === undefined ? (
       <div className="mjq-state"><Loader2 size={16} className="animate-spin" aria-label="Loading" /></div>
     ) : shown.length === 0 ? (
       <p className="mjq-empty">{filter === "open" ? "Everything in this thread is sent." : "Nothing here."}</p>
     ) : (
       <ol className="mjq-items">
-        {shown.map((item) => <PromptRow key={item.id} ownerUserId={ownerUserId} item={item} index={items.indexOf(item) + 1}
+        {shown.map((item) => <PromptRow key={item.id} ownerUserId={ownerUserId} item={item} index={items.indexOf(item) + 1} run={multiRun ? runOf(item) : undefined}
           copied={copied === item.id} onCopy={() => void copy(item.id, item.command)} />)}
       </ol>
     )}
@@ -322,8 +336,8 @@ function refTiles(item: Item) {
   return tiles;
 }
 
-function PromptRow({ ownerUserId, item, index, copied, onCopy }: {
-  ownerUserId: string; item: Item; index: number; copied: boolean; onCopy: () => void;
+function PromptRow({ ownerUserId, item, index, run, copied, onCopy }: {
+  ownerUserId: string; item: Item; index: number; run?: number; copied: boolean; onCopy: () => void;
 }) {
   const update = useMutation(api.mjQueue.updateItem);
   const [expanded, setExpanded] = useState(false);
@@ -362,6 +376,7 @@ function PromptRow({ ownerUserId, item, index, copied, onCopy }: {
       <div className="mjq-item-top">
         <span className="mjq-n">{String(index).padStart(2, "0")}</span>
         <span className="mjq-item-title">{item.title || "Untitled prompt"}</span>
+        {run ? <span className="mjq-item-run" title={`Run ${run} of this thread`}>R{run}</span> : null}
         <span className={`mjq-status s-${item.status}`}>{STATUS_LABEL[item.status]}</span>
       </div>
       {item.lockedPromptId ? <div className="mjq-locked">

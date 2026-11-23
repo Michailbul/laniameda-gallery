@@ -62,16 +62,18 @@ const batchOutValidator = v.object({
   createdAt: v.number(),
   updatedAt: v.number(),
   archivedAt: v.optional(v.number()),
+  // The thread's newest run (1 until a rerun).
+  runs: v.optional(v.number()),
 });
 
-const text = (value: string | null | undefined, max: number, label: string) => {
+export const text = (value: string | null | undefined, max: number, label: string) => {
   const trimmed = value?.trim();
   if (!trimmed) return undefined;
   if (trimmed.length > max) throw new ConvexError(`${label} is limited to ${max} characters.`);
   return trimmed;
 };
 
-const toOut = (row: Item) => {
+export const toOut = (row: Item) => {
   const { _id, _creationTime, ownerUserId, ...rest } = row;
   void _creationTime;
   void ownerUserId;
@@ -122,7 +124,7 @@ export async function resolveRefs(ctx: Ctx, owner: string, inputs: RefInput[] | 
   return out;
 }
 
-const cleanCodes = (codes: string[] | undefined) => {
+export const cleanCodes = (codes: string[] | undefined) => {
   const out = [...new Set((codes ?? []).map((code) => code.trim().replace(/^--?p(?:rofile)?\s+/, "")).filter(Boolean))];
   if (out.length > MJ_QUEUE_LIMITS.profileCodes) throw new ConvexError(`At most ${MJ_QUEUE_LIMITS.profileCodes} profile codes.`);
   for (const code of out) {
@@ -131,7 +133,7 @@ const cleanCodes = (codes: string[] | undefined) => {
   return out;
 };
 
-async function ownedRows(ctx: Ctx, owner: string) {
+export async function ownedRows(ctx: Ctx, owner: string) {
   const rows: Item[] = [];
   for (const candidate of resolveUserIdCandidates(owner)) {
     rows.push(...await ctx.db.query("mjQueueItems")
@@ -151,7 +153,7 @@ export async function batchRows(ctx: Ctx, owner: string, batchKey: string) {
   return rows.sort((a, b) => a.order - b.order || a.createdAt - b.createdAt);
 }
 
-async function itemFor(ctx: Ctx, owner: string, ref: string) {
+export async function itemFor(ctx: Ctx, owner: string, ref: string) {
   const id = ctx.db.normalizeId("mjQueueItems", ref.trim().replace(/^mjq(?:ueue)?:/, ""));
   const row = id ? await ctx.db.get(id) : null;
   if (!row || !canActorAccessOwnerUserId(owner, row.ownerUserId)) throw new ConvexError(`No queued prompt ${ref}.`);
@@ -194,6 +196,7 @@ export const listQueue = ownerQuery({
       };
       entry.total += 1;
       entry[row.status] += 1;
+      entry.runs = Math.max(entry.runs ?? 1, row.run ?? 1);
       entry.createdAt = Math.min(entry.createdAt, row.createdAt);
       entry.updatedAt = Math.max(entry.updatedAt, row.updatedAt);
       if (row.archivedAt !== undefined) entry.archivedAt = Math.max(entry.archivedAt ?? 0, row.archivedAt);
@@ -416,14 +419,17 @@ export const requeueItems = ownerMutation({
       if (!sources.some((other) => other._id === row._id)) sources.push(row);
     }
     sources.sort((a, b) => a.batchKey.localeCompare(b.batchKey) || a.order - b.order || a.createdAt - b.createdAt);
-    const threads = new Map<string, { maxOrder: number; count: number }>();
+    const threads = new Map<string, { maxOrder: number; count: number; run: number }>();
     const now = Date.now();
     const out = [];
     for (const source of sources) {
       let thread = threads.get(source.batchKey);
       if (!thread) {
         const rows = await batchRows(ctx, owner, source.batchKey);
-        thread = { maxOrder: rows.reduce((max, row) => Math.max(max, row.order), 0), count: rows.length };
+        thread = {
+          maxOrder: rows.reduce((max, row) => Math.max(max, row.order), 0), count: rows.length,
+          run: rows.reduce((max, row) => Math.max(max, row.run ?? 1), 1),
+        };
         threads.set(source.batchKey, thread);
       }
       if (thread.count >= MJ_QUEUE_LIMITS.itemsPerBatch) {
@@ -439,6 +445,7 @@ export const requeueItems = ownerMutation({
       const doc = {
         ...fields,
         order: thread.maxOrder,
+        run: thread.run > 1 ? thread.run : undefined,
         requeuedFrom: source.requeuedFrom ?? _id,
         status: "queued" as const,
         createdBy: "extension · queued again",

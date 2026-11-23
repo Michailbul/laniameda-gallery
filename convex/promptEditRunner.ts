@@ -32,7 +32,7 @@ const FAL_CHAT = "https://fal.run/openrouter/router/openai/v1/chat/completions";
 const PIKA_CHAT = "https://api.dev.pika.art/v1/chat/completions";
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
-type Message = { role: "system" | "user"; content: string | Part[] };
+export type Message = { role: "system" | "user"; content: string | Part[] };
 
 const plainError = (provider: string, status: number, body: string) => {
   const text = body.slice(0, 300);
@@ -57,9 +57,15 @@ async function chat(provider: WriterProvider, key: string, model: string, messag
   });
   const body = await response.text();
   if (!response.ok) throw new Error(plainError(provider === "fal" ? "fal" : "Pika", response.status, body));
-  const data = JSON.parse(body) as { id?: string; choices?: Array<{ message?: { content?: string } }> };
-  const text = data.choices?.[0]?.message?.content ?? "";
-  if (!text.trim()) throw new Error(`${provider === "fal" ? "fal" : "Pika"} returned nothing`);
+  const data = JSON.parse(body) as { id?: string; choices?: Array<{ finish_reason?: string; message?: { content?: unknown } }> };
+  const content = data.choices?.[0]?.message?.content;
+  // Some routes answer in parts ([{type:"text", text}]) instead of one string.
+  const text = typeof content === "string" ? content
+    : Array.isArray(content) ? content.map((part) => (typeof part?.text === "string" ? part.text : "")).join("") : "";
+  if (!text.trim()) {
+    const stop = data.choices?.[0]?.finish_reason;
+    throw new Error(`${provider === "fal" ? "fal" : "Pika"} returned nothing${stop && stop !== "stop" ? ` (stopped: ${stop})` : ""}`);
+  }
   // The provider's own id for the call, so a write can be traced on fal or Pika.
   const requestId = (typeof data.id === "string" && data.id) || response.headers.get("x-fal-request-id") || response.headers.get("x-request-id") || undefined;
   return { text, requestId: requestId ? requestId.slice(0, 120) : undefined };
@@ -68,34 +74,34 @@ async function chat(provider: WriterProvider, key: string, model: string, messag
 // The local writer (lib/local-writer.ts): stage "messages" returns what the
 // writer would be sent, and stage "finish" takes the raw answer of a run on the
 // user's own Mac in place of a provider call.
-const localArg = v.optional(v.object({
+export const localArg = v.optional(v.object({
   stage: v.union(v.literal("messages"), v.literal("finish")),
   raw: v.optional(v.string()),
   model: v.optional(v.string()),
   ms: v.optional(v.number()),
 }));
-const localMessages = v.object({ local: v.object({ messages: v.any(), maxTokens: v.number() }) });
+export const localMessages = v.object({ local: v.object({ messages: v.any(), maxTokens: v.number() }) });
 // The writer's model (lib/writer-models.ts) and the art director's own system
 // prompt for the tool (extension: MJ settings → Writer). Every answer carries
 // the system prompt it was written with, so the extension can show it.
 // An unknown model name falls back to Haiku (pickWriterModel).
-const modelArg = v.optional(v.string());
+export const modelArg = v.optional(v.string());
 // Where a cloud call runs: only fal, or only Pika. Left out, fal then Pika.
-const providerArg = v.optional(v.union(v.literal("fal"), v.literal("pika")));
-const rulesArg = v.optional(v.string());
-const cleanRules = (rules?: string) => {
+export const providerArg = v.optional(v.union(v.literal("fal"), v.literal("pika")));
+export const rulesArg = v.optional(v.string());
+export const cleanRules = (rules?: string) => {
   const text = rules?.trim();
   if (!text) return undefined;
   if (text.length > WRITER_RULES_LIMIT) throw new ConvexError(`Your system prompt is too long: keep it under ${WRITER_RULES_LIMIT} characters.`);
   return text;
 };
-const systemOf = (messages: Message[]) => {
+export const systemOf = (messages: Message[]) => {
   const content = messages.find((message) => message.role === "system")?.content;
   return typeof content === "string" ? content : "";
 };
-type LocalArg = { stage: "messages" | "finish"; raw?: string; model?: string; ms?: number } | undefined;
-type LocalMessages = { local: { messages: Message[]; maxTokens: number } };
-const finishLocally = (local: LocalArg) => {
+export type LocalArg = { stage: "messages" | "finish"; raw?: string; model?: string; ms?: number } | undefined;
+export type LocalMessages = { local: { messages: Message[]; maxTokens: number } };
+export const finishLocally = (local: LocalArg) => {
   if (local?.stage !== "finish") return null;
   if ((local.raw ?? "").length > LOCAL_WRITER_LIMITS.raw) throw new ConvexError("The local answer is too long.");
   try { return localAnswer(local); } catch (error) { throw new ConvexError(error instanceof Error ? error.message : "The local writer returned nothing."); }
@@ -104,8 +110,8 @@ const finishLocally = (local: LocalArg) => {
 // The world's own files for the writer (convex/writerBrief.ts): the rule
 // file, learnings, cast, bible and stories of the world the work belongs to.
 // A world that cannot be read costs the brief, never the prompt.
-type WorldBrief = { world: { key: string; name: string } | null; auto: boolean; by?: "frame" | "codes"; tie: string[]; style?: string; read: string[]; chars: number; text: string };
-const briefFields = {
+export type WorldBrief = { world: { key: string; name: string } | null; auto: boolean; by?: "frame" | "codes"; tie: string[]; style?: string; read: string[]; chars: number; text: string };
+export const briefFields = {
   world: v.optional(v.string()),
   worldKey: v.optional(v.string()),
   worldAuto: v.optional(v.boolean()),
@@ -114,11 +120,11 @@ const briefFields = {
   worldStyle: v.optional(v.string()),
   read: v.optional(v.array(v.string())),
 };
-type BriefMeta = { world?: string; worldKey?: string; worldAuto?: boolean; worldBy?: string; worldTie?: string[]; worldStyle?: string; read?: string[] };
-const briefMeta = (brief: WorldBrief | null): BriefMeta => (brief?.world
+export type BriefMeta = { world?: string; worldKey?: string; worldAuto?: boolean; worldBy?: string; worldTie?: string[]; worldStyle?: string; read?: string[] };
+export const briefMeta = (brief: WorldBrief | null): BriefMeta => (brief?.world
   ? { world: brief.world.name, worldKey: brief.world.key, worldAuto: brief.auto, worldBy: brief.by, worldStyle: brief.style, read: brief.read }
   : brief?.tie.length ? { worldTie: brief.tie } : {});
-async function worldBriefOf(
+export async function worldBriefOf(
   ctx: Pick<ActionCtx, "runQuery">,
   args: { ownerUserId: string; world?: string; fallbackWorld?: string; command?: string; frame?: string; tier: BriefTier },
 ): Promise<WorldBrief | null> {
@@ -223,7 +229,7 @@ export const rewrite = ownerAction({
  * is given (it never switches to the other by itself: the extension offers
  * that), else fal first and Pika when fal is blocked.
  */
-async function runRoutes(
+export async function runRoutes(
   ctx: Parameters<typeof resolveProviderKey>[0], owner: string, model: QuickEditModel, messages: Message[], failure: string,
   maxTokens?: number, provider?: WriterProvider,
 ) {
@@ -242,7 +248,16 @@ async function runRoutes(
       continue;
     }
     try {
-      const { text: raw, requestId } = await chat(route.provider, key, route.model, messages, maxTokens);
+      let answer;
+      try {
+        answer = await chat(route.provider, key, route.model, messages, maxTokens);
+      } catch (error) {
+        // An empty answer is a passing hiccup (Pika, 23 Nov 2026: "Pika returned nothing"
+        // on a Grow that worked the next time): ask the same route once more.
+        if (!/returned nothing/.test(error instanceof Error ? error.message : "")) throw error;
+        answer = await chat(route.provider, key, route.model, messages, maxTokens);
+      }
+      const { text: raw, requestId } = answer;
       return { raw, model: route.label, provider: route.provider, ms: Date.now() - started, notes, ...(requestId ? { requestId } : {}) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
