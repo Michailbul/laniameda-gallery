@@ -84,7 +84,16 @@ describe("the writer's cinematic shot library", () => {
     expect(randomShots(cards, 4, 42).map((entry) => entry.id)).toEqual(first);
     expect(randomShots(cards, 4, 43).map((entry) => entry.id)).not.toEqual(first);
     // Never more than the writer is given whole.
-    expect(randomShots(cards, 30, 1).length).toBe(8);
+    expect(randomShots(cards, 30, 1).length).toBe(10);
+  });
+
+  test("random draws a varied set: every shot type before any repeats", () => {
+    const kinds = ["wide", "close-up", "over-the-shoulder", "top-down"];
+    const cards = Array.from({ length: 24 }, (_, index) => card(String(index), `Shot ${index}`, kinds[index % 4]!, [kinds[index % 4]!]));
+    for (const seed of [1, 2, 3, 99]) {
+      const firstFour = randomShots(cards, 7, seed).slice(0, 4).map((entry) => entry.tags.find((tag) => kinds.includes(tag)));
+      expect(new Set(firstFour).size).toBe(4);
+    }
   });
 
   test("a random block hands out the shots in order and names its collection", () => {

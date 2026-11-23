@@ -15,12 +15,12 @@ export const CINEMATIC_SHOTS_PARENT = "CINEMATIC";
 export const CINEMATIC_SHOT_LIMITS = {
   /** Cards scanned on the shelf. */
   scan: 300,
-  /** Cards given whole to the writer. */
-  picked: 8,
+  /** Cards given whole to the writer (a 10-prompt Grow gets one each). */
+  picked: 10,
   /** Characters of one base prompt. */
   basePrompt: 900,
   /** The whole block, in characters. */
-  block: 9000,
+  block: 12000,
 } as const;
 
 /** A request that asks for shots, framing or a camera layout. */
@@ -95,12 +95,33 @@ export function shuffleShots<T>(items: T[], seed: number) {
   return out;
 }
 
-/** Random layouts: `count` different shots drawn from the collection. */
-export const randomShots = (cards: ShotCard[], count: number, seed: number) =>
-  shuffleShots(cards, seed).slice(0, Math.max(1, Math.min(CINEMATIC_SHOT_LIMITS.picked, Math.round(count))));
-
 // Tags that only say where a frame came from; they never decide a match.
 const SOURCE_TAGS = new Set(["inspiration", "cinematography", "film-still", "live-action", "cinematic-shot", "better-call-saul"]);
+
+/**
+ * Random layouts: `count` different shots drawn from the collection, as a
+ * varied set (23 Nov 2026): one of each shot type first (wide, close-up,
+ * over-the-shoulder …, by the card's first shot tag), in random order, then
+ * more at random once every type is in.
+ */
+export function randomShots(cards: ShotCard[], count: number, seed: number) {
+  const want = Math.max(1, Math.min(CINEMATIC_SHOT_LIMITS.picked, Math.round(count)));
+  const shuffled = shuffleShots(cards, seed);
+  const kindOf = (card: ShotCard) => card.tags.find((tag) => !SOURCE_TAGS.has(tag)) ?? (card.shotName.toLowerCase() || card.id);
+  const seen = new Set<string>();
+  const first: ShotCard[] = [];
+  const rest: ShotCard[] = [];
+  for (const card of shuffled) {
+    const kind = kindOf(card);
+    if (seen.has(kind)) rest.push(card);
+    else {
+      seen.add(kind);
+      first.push(card);
+    }
+  }
+  return [...first, ...rest].slice(0, want);
+}
+
 const STOP = new Set(["a", "an", "the", "of", "in", "on", "at", "and", "or", "to", "for", "with", "from", "by", "is", "it", "this", "that", "me", "my", "some", "pls", "please", "make", "give", "write", "prompt", "prompts", "shot", "shots", "cinematic", "frame", "like", "more", "new", "one", "two"]);
 
 const words = (text: string) => text.toLowerCase().replace(/[’']/g, "").split(/[^a-z0-9-]+/).flatMap((word) => word.includes("-") ? [word, ...word.split("-")] : [word])
@@ -145,9 +166,10 @@ export function shotsBlock(picked: ShotCard[], all: ShotCard[], options: { rando
   const where = options.from ? ` from the collection "${options.from}"` : "";
   const head = options.random
     ? [
-      `CINEMATIC SHOTS LIBRARY: the art director asked for random shot layouts${where} (${all.length} there). ${picked.length === 1 ? "This one was" : `These ${picked.length} were`} drawn for this run:`,
+      `CINEMATIC SHOTS LIBRARY: the art director asked for random shot layouts${where} (${all.length} there). ${picked.length === 1 ? "This one was" : `These ${picked.length} were`} drawn for this run, one per prompt:`,
       "- Give each prompt one of these shots, in order: prompt 1 takes shot 1, prompt 2 takes shot 2, and start again at shot 1 when there are more prompts than shots. A single rewrite takes shot 1.",
       "- Keep that shot's camera: shot size, lens feel, camera height and angle, where things sit in the frame, the staging in depth and the direction of the light.",
+      "- The move says what each prompt shows; the shot says how the camera frames it. Where they disagree, keep the move's subject and borrow the shot's composition, angle, lens and staging.",
     ]
     : [
       `CINEMATIC SHOTS LIBRARY: the art director's saved shot layouts${where} (${all.length} there). The request asks for cinematic shots or a camera layout, so build on these:`,
@@ -155,7 +177,8 @@ export function shotsBlock(picked: ShotCard[], all: ShotCard[], options: { rando
     ];
   const lines = [
     ...head,
-    "- Recast it in this frame's world, people and look: the source prompt's style words and the world's files decide what the people, places and materials are. The base prompts are layouts, never a look to copy.",
+    "- Adapt each shot to this world: keep its kind of moment (someone waiting at a window, two people across a table, a figure crossing a square) and play it with this world's own people, places, costumes, props and vehicles, from the world's files and this frame. Never keep the film's people, places, clothes, cars, signs or era: they become this world's.",
+    "- Write each prompt in this frame's look: its style words and opening, word for word. The base prompts are layouts, never a look or a story to copy.",
     "- Never write a card's title, the words \"cinematic shot\", a show name or an id into a prompt.",
     "",
     ...picked.map((card, index) => `${index + 1}. ${card.title}${card.shotName ? ` · ${card.shotName}` : ""}${card.tags.some((tag) => !SOURCE_TAGS.has(tag)) ? ` [${card.tags.filter((tag) => !SOURCE_TAGS.has(tag)).join(", ")}]` : ""}\n   ${card.basePrompt}`),
