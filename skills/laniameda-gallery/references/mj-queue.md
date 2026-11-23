@@ -110,7 +110,9 @@ file_restyle_results read each item's own settings).
   its `opening` (the keyword opening its prompts share), and for reruns
   `label` (what changed), `recipe`, `note`, `fromRun`), the chat (`messages`,
   `waiting` = Michael's unanswered ones) and the prompts numbered #1, #2 …
-  with run, status, command and job id.
+  with run, status, command and job id, and `look`: every code the thread uses
+  by its moodboard or profile name (`used: true`) plus the world's other
+  moodboards and active profiles, to pick by name.
 - `rerun_mj_thread {batch, fromRun?, items?, recipe?, prompts?, note?}`:
   every prompt of the latest run (or of `fromRun`, skipped ones left out; or
   only `items`, from any run) is copied, queued, as the next run. `recipe`

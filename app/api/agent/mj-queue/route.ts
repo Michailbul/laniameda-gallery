@@ -86,12 +86,15 @@ export async function POST(request: Request) {
     }
     if (action === "thread") {
       const { batch } = mjThreadReadSchema.parse(body);
-      const [state, list] = await Promise.all([
+      const [state, list, look] = await Promise.all([
         client.query(api.mjThreads.threadState, { ownerUserId, batch }),
         client.query(api.mjQueue.listQueue, { ownerUserId, batch: await resolveThread(client, ownerUserId, batch) }),
+        client.query(api.mjThreads.threadLook, { ownerUserId, batch }).catch(() => null),
       ]);
       return NextResponse.json({
         ...state, url: threadUrl(state.batchKey, state.worldKey),
+        // The thread's codes by name (used: in its prompts) and the world's other moodboards and profiles.
+        look: look?.codes ?? [],
         messages: state.messages.map((message) => ({ ...message, ref: `msg:${message.id}` })),
         items: list.items.filter((item) => item.batchKey === state.batchKey).map((item, index) => ({
           n: index + 1, ref: mjQueueItemRef(item.id), id: item.id, run: item.run ?? 1, status: item.status, title: item.title,

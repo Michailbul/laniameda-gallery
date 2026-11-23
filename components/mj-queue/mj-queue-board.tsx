@@ -271,6 +271,8 @@ function ThreadView({ ownerUserId, thread, worldName, showWorld, onBack }: {
   const data = useQuery(api.mjQueue.listQueue, isAuthenticated ? { ownerUserId, batch: thread.batch } : "skip");
   // Its runs and chat (convex/mjThreads.ts): a small read of its own.
   const state = useQuery(api.mjThreads.threadState, isAuthenticated ? { ownerUserId, batch: thread.batch } : "skip");
+  // Its moodboard and profile codes by name, and the world's others (Run again).
+  const look = useQuery(api.mjThreads.threadLook, isAuthenticated ? { ownerUserId, batch: thread.batch } : "skip");
   const [filter, setFilter] = useState<"all" | "open" | "done">("all");
   const [runShown, setRunShown] = useState<number | null>(null);
   const [rerunOpen, setRerunOpen] = useState(false);
@@ -300,14 +302,14 @@ function ThreadView({ ownerUserId, thread, worldName, showWorld, onBack }: {
         {thread.skipped ? <span>{thread.skipped} skipped</span> : null}
         <IdChip value={thread.threadId} title="Copy the thread id to give an agent" />
       </p>
-      <RunStrip state={state} total={items.length} shown={runShown} onShow={setRunShown} rerunOpen={rerunOpen} onRerun={() => setRerunOpen((open) => !open)} />
+      <RunStrip state={state} look={look?.codes} total={items.length} shown={runShown} onShow={setRunShown} rerunOpen={rerunOpen} onRerun={() => setRerunOpen((open) => !open)} />
       <div className="mjq-seg" role="tablist" aria-label="Which prompts">
         <button type="button" role="tab" aria-selected={filter === "all"} onClick={() => setFilter("all")}>All {runItems.length}</button>
         <button type="button" role="tab" aria-selected={filter === "open"} onClick={() => setFilter("open")}>To send {left.length}</button>
         <button type="button" role="tab" aria-selected={filter === "done"} onClick={() => setFilter("done")}>Done {runItems.length - left.length}</button>
       </div>
     </div>
-    {rerunOpen && <RerunForm key={state?.latestRun ?? 1} ownerUserId={ownerUserId} batch={thread.batch} state={state} items={items}
+    {rerunOpen && <RerunForm key={state?.latestRun ?? 1} ownerUserId={ownerUserId} batch={thread.batch} state={state} look={look?.codes} items={items}
       onClose={() => setRerunOpen(false)}
       onDone={(run, text) => { setRerunOpen(false); setNotice(text); if (run) { setRunShown(run); setFilter("open"); } }} />}
     {notice && <p className="mjq-note">{notice}</p>}

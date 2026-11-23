@@ -89,6 +89,7 @@
     // The open thread's runs and chat (its own read brings them), the run
     // shown per thread, the rerun form and the chat's drafts and writer.
     thread: null,
+    look: null,
     runFilter: {},
     rerun: null,
     rerunning: false,
@@ -220,7 +221,10 @@
     // a thread past the cap would otherwise open empty.
     const threadKey = state.batchKey;
     if (threadKey && batches.some((batch) => batch.batchKey === threadKey)) {
-      const own = await call({ method: "GET", query: { batch: threadKey } });
+      // The thread's moodboards and profiles by name come once per thread opened.
+      const wantLook = state.look?.batchKey !== threadKey;
+      const own = await call({ method: "GET", query: { batch: threadKey, ...(wantLook ? { look: "1" } : {}) } });
+      if (own.ok && own.look && own.look.batchKey === threadKey) state.look = own.look;
       if (own.ok && Array.isArray(own.items)) {
         items = items.filter((item) => item.batchKey !== threadKey).concat(own.items);
       }
@@ -1192,7 +1196,7 @@
       again.title = "Queued again from a sent prompt";
       head.insertBefore(again, head.lastChild);
     }
-    if (state.rerun && state.rerun.scope === "pick") {
+    if (state.rerun && state.rerun.picking) {
       const tick = el("input", "mjq-pick");
       tick.type = "checkbox";
       tick.checked = state.rerun.pick.has(item.id);
@@ -1505,6 +1509,14 @@
   const runFilterOf = () => state.runFilter[state.batchKey] ?? null;
   const splitCodes = (text) => String(text || "").split(/[\s,]+/).map((code) => code.trim().replace(/^--?p(?:rofile)?$/, "")).filter(Boolean);
 
+  // "pkdjfdf syleg2x · stylize 400" reads "STYLE · Chiseled Painted Cinematic + ANDROMEDA · stylize 400".
+  function namedSettings(settings) {
+    return String(settings || "").split(" · ").map((part) => {
+      const tokens = part.split(" ");
+      return tokens.every((token) => /^[A-Za-z0-9]{5,40}$/.test(token)) ? tokens.map(nameOfCode).join(" + ") : part;
+    }).join(" · ");
+  }
+
   function runsStrip(items) {
     const thread = threadState();
     const runs = thread?.runs?.length ? thread.runs : [{ run: 1, count: items.length, settings: "", sent: 0, queued: 0 }];
@@ -1518,23 +1530,24 @@
       node.append(el("i", "mjq-run-dot"), el("b", "", `Run ${run.run}`), el("span", "mjq-run-count", String(run.count)));
       node.title = [
         `Run ${run.run}: ${run.count} prompts${run.sent ? ` · ${run.sent} sent` : ""}${run.queued ? ` · ${run.queued} to send` : ""}`,
-        run.settings ? `Carries: ${run.settings}` : "",
+        run.settings ? `Look: ${namedSettings(run.settings)}` : "",
         run.label ? `Changed: ${run.label}` : "",
         run.note ? `Why: ${run.note}` : "",
       ].filter(Boolean).join("\n");
       line.appendChild(node);
     }
-    const rerunBtn = button(state.rerun ? "Close rerun" : "Rerun…", "mjq-btn--small mjq-btn--primary mjq-run-go", () => {
+    const rerunBtn = button(state.rerun ? "Close" : "Run again…", "mjq-btn--small mjq-btn--primary mjq-run-go", () => {
       state.rerun = state.rerun ? null : rerunDraft(items);
       render();
-    }, "Run this thread again as the next run, with other profiles, styles or settings. The earlier runs keep their jobs and frames.");
+    }, "Copy these prompts into a new run with other moodboards, profiles or settings. The earlier runs keep their jobs and frames.");
     rerunBtn.disabled = !items.length || state.rerunning;
     line.appendChild(rerunBtn);
     strip.appendChild(line);
     const shown = current != null ? runs.find((run) => run.run === current) : runs[runs.length - 1];
     if (shown && (shown.settings || shown.label)) {
       const meta = el("p", "mjq-run-meta");
-      meta.append(el("b", "", `Run ${shown.run}`), el("span", "", shown.settings || ""));
+      const named = namedSettings(shown.settings);
+      meta.append(el("b", "", `Run ${shown.run}`), el("span", "", named));
       if (shown.label) meta.append(el("span", "mjq-run-changed", `changed: ${shown.label}`));
       strip.appendChild(meta);
     }
@@ -1546,148 +1559,262 @@
     render();
   }
 
-  // The form starts from what the chosen run carries; only what he changes goes in the recipe.
+  // ── The rerun card (23 Nov 2026, second pass: "hard to understand what we
+  // are rerunning"). One plain sentence says what the new run will be; the
+  // look shows moodboards and profiles by name; stylize is a slider, aspect a
+  // few presets, Raw and HD switches; sref, chaos, opening words and a note
+  // wait under More. Only what he changes goes into the recipe.
+
+  const lookOf = () => (state.look && state.look.batchKey === state.batchKey ? state.look.codes || [] : []);
+  const nameOfCode = (code) => lookOf().find((entry) => entry.code === code)?.name || code;
+  const ASPECTS = ["7:3", "16:9", "3:2", "1:1", "2:3", "9:16"];
+  const flagIn = (params, names) => (new RegExp(`(?:^|\\s)--(?:${names})\\s+(\\S+)`, "i").exec(String(params || "")) || [])[1] || "";
+
+  function rerunBase(items, fromRun) {
+    const run = threadState()?.runs?.find((entry) => entry.run === fromRun);
+    const own = items.filter((item) => runOfItem(item) === fromRun && item.status !== "skipped");
+    const first = own[0] || items[0] || {};
+    const params = String(first.params || "");
+    const stylize = flagIn(params, "stylize|s");
+    return {
+      codes: [...(first.profileCodes || [])],
+      srefs: (first.styleRefs || []).map((ref) => ref.code || ref.url || "").filter(Boolean).join(" "),
+      stylize: stylize === "" ? null : Number(stylize),
+      chaos: flagIn(params, "chaos|c"),
+      ar: flagIn(params, "ar|aspect"),
+      raw: /(?:^|\s)(?:--raw|--style\s+raw)(?=\s|$)/i.test(params),
+      hd: /(?:^|\s)--hd(?=\s|$)/i.test(params),
+      opening: run?.opening || "",
+    };
+  }
+
   function rerunDraft(items) {
     const thread = threadState();
     const latest = thread?.latestRun || Math.max(1, ...items.map(runOfItem));
     const fromRun = runFilterOf() ?? latest;
-    return { fromRun, scope: "all", pick: new Set(), values: rerunBase(items, fromRun), edited: {}, error: "" };
+    const base = rerunBase(items, fromRun);
+    return { fromRun, picking: false, pick: new Set(), base, values: { ...base, codes: [...base.codes], note: "" }, more: false, error: "" };
   }
 
-  function rerunBase(items, fromRun) {
-    const run = threadState()?.runs?.find((entry) => entry.run === fromRun);
-    const own = items.filter((item) => runOfItem(item) === fromRun);
-    const first = own[0] || items[0] || {};
-    const params = String(first.params || "");
-    const flag = (name) => (new RegExp(`(?:^|\\s)--(?:${name})\\s+(\\S+)`, "i").exec(params) || [])[1] || "";
-    return {
-      profiles: (first.profileCodes || []).join(" "),
-      srefs: (first.styleRefs || []).map((ref) => ref.code || ref.url || "").filter(Boolean).join(" "),
-      stylize: flag("stylize|s"),
-      chaos: flag("chaos|c"),
-      ar: flag("ar|aspect"),
-      raw: /(?:^|\s)(?:--raw|--style\s+raw)(?=\s|$)/i.test(params),
-      hd: /(?:^|\s)--hd(?=\s|$)/i.test(params),
-      opening: run?.opening || "",
-      note: "",
-    };
-  }
-
+  // The recipe: only what differs from the run it starts from.
   function rerunRecipe(draft) {
     const recipe = {};
     const v = draft.values;
-    const e = draft.edited;
-    if (e.profiles) recipe.profileCodes = splitCodes(v.profiles);
-    if (e.srefs) recipe.srefs = splitCodes(v.srefs);
-    for (const key of ["stylize", "chaos"]) {
-      if (!e[key]) continue;
-      const text = String(v[key]).trim();
-      if (!text) recipe[key] = null;
-      else if (!/^\d+$/.test(text)) throw new Error(`${capital(key)} is a number.`);
-      else recipe[key] = Number(text);
+    const b = draft.base;
+    if (v.codes.join(" ") !== b.codes.join(" ")) recipe.profileCodes = [...v.codes];
+    if (splitCodes(v.srefs).join(" ") !== splitCodes(b.srefs).join(" ")) recipe.srefs = splitCodes(v.srefs);
+    if (v.stylize !== b.stylize) recipe.stylize = v.stylize;
+    const chaos = String(v.chaos).trim();
+    if (chaos !== String(b.chaos).trim()) {
+      if (chaos && !/^\d+$/.test(chaos)) throw new Error("Chaos is a number from 0 to 100.");
+      recipe.chaos = chaos ? Number(chaos) : null;
     }
-    if (e.ar) {
-      const text = String(v.ar).trim();
-      if (text && !/^\d{1,3}:\d{1,3}$/.test(text)) throw new Error("Aspect is two numbers like 16:9.");
-      recipe.ar = text || null;
+    const ar = String(v.ar).trim();
+    if (ar !== String(b.ar).trim()) {
+      if (ar && !/^\d{1,3}:\d{1,3}$/.test(ar)) throw new Error("Aspect is two numbers like 16:9.");
+      recipe.ar = ar || null;
     }
-    if (e.raw) recipe.raw = Boolean(v.raw);
-    if (e.hd) recipe.hd = Boolean(v.hd);
-    if (e.opening) recipe.opening = String(v.opening).trim();
+    if (v.raw !== b.raw) recipe.raw = v.raw;
+    if (v.hd !== b.hd) recipe.hd = v.hd;
+    if (String(v.opening).trim() !== String(b.opening).trim()) recipe.opening = String(v.opening).trim();
     return recipe;
+  }
+
+  // "Adds Golden Hour. Drops Anya. Stylize 400 → 750": the changes in his words.
+  function rerunChanges(draft) {
+    const v = draft.values;
+    const b = draft.base;
+    const out = [];
+    for (const code of v.codes) if (!b.codes.includes(code)) out.push(`Adds ${nameOfCode(code)}`);
+    for (const code of b.codes) if (!v.codes.includes(code)) out.push(`Drops ${nameOfCode(code)}`);
+    if (v.stylize !== b.stylize) out.push(`Stylize ${b.stylize ?? "default"} → ${v.stylize ?? "default"}`);
+    if (String(v.ar).trim() !== String(b.ar).trim()) out.push(`Aspect ${b.ar || "default"} → ${String(v.ar).trim() || "default"}`);
+    if (v.raw !== b.raw) out.push(v.raw ? "Raw on" : "Raw off");
+    if (v.hd !== b.hd) out.push(v.hd ? "HD on" : "HD off");
+    if (String(v.chaos).trim() !== String(b.chaos).trim()) out.push(`Chaos ${b.chaos || "0"} → ${String(v.chaos).trim() || "0"}`);
+    if (splitCodes(v.srefs).join(" ") !== splitCodes(b.srefs).join(" ")) out.push("New sref");
+    if (String(v.opening).trim() !== String(b.opening).trim()) out.push("New opening words");
+    return out;
   }
 
   function rerunForm(items) {
     const draft = state.rerun;
+    const v = draft.values;
     const thread = threadState();
     const runs = thread?.runs?.length ? thread.runs.map((run) => run.run) : [1];
-    const next = (thread?.latestRun || Math.max(1, ...items.map(runOfItem))) + 1;
-    const box = el("div", "mjq-rerun");
-    box.appendChild(el("p", "mjq-rerun-title", `Run ${next}`));
+    const next = Math.max(thread?.latestRun || 1, ...runs) + 1;
+    const own = items.filter((item) => runOfItem(item) === draft.fromRun && item.status !== "skipped");
+    const count = draft.picking ? draft.pick.size : own.length;
+    const box = el("section", "mjq-rr");
 
-    const head = el("div", "mjq-rerun-row");
-    const from = el("select", "mjq-count-select");
-    from.setAttribute("aria-label", "Rerun from which run");
-    for (const n of runs) {
-      const option = el("option", "", `from run ${n}`);
-      option.value = String(n);
-      if (n === draft.fromRun) option.selected = true;
-      from.appendChild(option);
+    const head = el("div", "mjq-rr-head");
+    head.append(el("h3", "mjq-rr-title", `New run · Run ${next}`), el("span", "mjq-grow"));
+    head.appendChild(button("Cancel", "mjq-btn--small mjq-btn--ghost", () => { state.rerun = null; render(); }));
+    box.appendChild(head);
+    const lead = el("p", "mjq-rr-lead");
+    lead.append(`Makes a copy of ${draft.picking ? "the prompts you tick" : `all ${own.length} prompts`} from `);
+    if (runs.length > 1) {
+      const from = el("select", "mjq-rr-from");
+      from.setAttribute("aria-label", "Copy from which run");
+      for (const n of runs) {
+        const option = el("option", "", `Run ${n}`);
+        option.value = String(n);
+        if (n === draft.fromRun) option.selected = true;
+        from.appendChild(option);
+      }
+      from.addEventListener("change", () => {
+        draft.fromRun = Number(from.value);
+        draft.base = rerunBase(items, draft.fromRun);
+        draft.values = { ...draft.base, codes: [...draft.base.codes], note: v.note };
+        render();
+      });
+      lead.appendChild(from);
+    } else lead.append(el("b", "", `Run ${draft.fromRun}`));
+    lead.append(` and changes only what you set below. Run ${draft.fromRun} stays as it is, with its jobs and frames.`);
+    box.appendChild(lead);
+
+    // Look: the moodboards and profiles, by name.
+    const look = el("div", "mjq-rr-row");
+    look.appendChild(el("span", "mjq-rr-label", "Look"));
+    const chips = el("div", "mjq-rr-chips");
+    for (const code of v.codes) {
+      const entry = lookOf().find((item) => item.code === code);
+      const chip = el("span", `mjq-rr-chip${draft.base.codes.includes(code) ? "" : " mjq-rr-chip--new"}`);
+      chip.title = `${entry?.kind === "profile" ? "Profile" : entry?.kind === "moodboard" ? "Moodboard" : "Code"} ${code}`;
+      if (entry?.thumbUrl) {
+        const img = el("img", "mjq-rr-thumb");
+        img.src = entry.thumbUrl;
+        img.alt = "";
+        img.loading = "lazy";
+        chip.appendChild(img);
+      }
+      chip.append(el("span", "", nameOfCode(code)));
+      const drop = button("×", "mjq-rr-x", () => { v.codes = v.codes.filter((other) => other !== code); render(); }, `Take ${nameOfCode(code)} out`);
+      chip.appendChild(drop);
+      chips.appendChild(chip);
     }
-    from.addEventListener("change", () => {
-      draft.fromRun = Number(from.value);
-      draft.values = rerunBase(items, draft.fromRun);
-      draft.edited = {};
+    if (!v.codes.length) chips.appendChild(el("span", "mjq-rr-none", "No moodboard or profile"));
+    const options = lookOf().filter((entry) => !v.codes.includes(entry.code) && entry.kind !== "code");
+    const addSelect = el("select", "mjq-rr-add");
+    addSelect.setAttribute("aria-label", "Add a moodboard or profile");
+    const placeholder = el("option", "", options.length ? "+ Add" : lookOf().length ? "All added" : "+ Add (loading…)");
+    placeholder.value = "";
+    addSelect.appendChild(placeholder);
+    for (const kind of ["moodboard", "profile"]) {
+      const group = el("optgroup");
+      group.label = kind === "moodboard" ? "Moodboards" : "Profiles";
+      for (const entry of options.filter((item) => item.kind === kind)) {
+        const option = el("option", "", entry.name);
+        option.value = entry.code;
+        group.appendChild(option);
+      }
+      if (group.children.length) addSelect.appendChild(group);
+    }
+    addSelect.disabled = !options.length;
+    addSelect.addEventListener("change", () => {
+      if (addSelect.value && v.codes.length < 10) v.codes = [...v.codes, addSelect.value];
       render();
     });
-    const scope = el("div", "mjq-seg");
-    const own = items.filter((item) => runOfItem(item) === draft.fromRun && item.status !== "skipped");
-    const all = button(`All ${own.length}`, `mjq-seg-btn${draft.scope === "all" ? " mjq-seg-btn--on" : ""}`, () => { draft.scope = "all"; render(); });
-    const pick = button(`Ticked ${draft.pick.size}`, `mjq-seg-btn${draft.scope === "pick" ? " mjq-seg-btn--on" : ""}`, () => { draft.scope = "pick"; render(); },
-      "Tick the prompts to rerun on their cards below (any run)");
-    scope.append(all, pick);
-    head.append(from, scope);
-    box.appendChild(head);
+    chips.appendChild(addSelect);
+    look.appendChild(chips);
+    box.appendChild(look);
 
-    const fields = el("div", "mjq-pfields mjq-rerun-fields");
-    const field = (key, label, placeholder, width, inputMode = "text") => {
-      const wrap = el("label", `mjq-pfield${width === 0 ? " mjq-pfield--wide" : ""}`);
-      const input = el("input", `mjq-pinput${draft.edited[key] ? " mjq-pinput--edited" : ""}`);
-      input.type = "text";
-      input.inputMode = inputMode;
-      if (width) input.style.width = `${width}px`;
-      input.value = draft.values[key] ?? "";
-      input.placeholder = placeholder;
-      input.addEventListener("input", () => {
-        draft.values[key] = input.value;
-        draft.edited[key] = true;
-        input.classList.add("mjq-pinput--edited");
-        draft.error = "";
-      });
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") { event.preventDefault(); void submitRerun(items); }
-      });
-      wrap.append(el("span", "mjq-plabel", label), input);
-      return wrap;
-    };
-    fields.append(
-      field("profiles", "Profiles · moodboards", "codes, space between", 0),
-      field("srefs", "Sref", "codes or image URLs", 0),
-      field("opening", "Opening", "Painted storybook animation frame.", 0),
-      field("stylize", "Stylize", "—", 56, "numeric"),
-      field("chaos", "Chaos", "—", 48, "numeric"),
-      field("ar", "Aspect", "16:9", 60),
-    );
-    const toggles = el("div", "mjq-seg");
-    for (const key of ["raw", "hd"]) {
-      const on = Boolean(draft.values[key]);
-      const node = button(key === "raw" ? (on ? "Raw" : "Standard") : (on ? "HD" : "No HD"), `mjq-seg-btn${on ? " mjq-seg-btn--on" : ""}${draft.edited[key] ? " mjq-seg-btn--edited" : ""}`, () => {
-        draft.values[key] = !on;
-        draft.edited[key] = true;
-        render();
-      }, key === "raw" ? "--raw on or off for the new run" : "--hd on or off for the new run");
-      toggles.appendChild(node);
+    // Stylize: a slider.
+    const sty = el("div", "mjq-rr-row");
+    sty.appendChild(el("span", "mjq-rr-label", "Stylize"));
+    const range = el("input", "mjq-stylize-range");
+    range.type = "range";
+    range.min = "0";
+    range.max = "1000";
+    range.step = "25";
+    range.value = String(v.stylize ?? 100);
+    range.setAttribute("aria-label", "Stylize of the new run");
+    const readout = el("b", `mjq-stylize-value${v.stylize !== draft.base.stylize ? " mjq-rr-changed" : ""}`, v.stylize == null ? "—" : String(v.stylize));
+    range.addEventListener("pointerdown", () => { state.sliding = true; });
+    range.addEventListener("input", () => { readout.textContent = range.value; });
+    range.addEventListener("change", () => {
+      state.sliding = false;
+      v.stylize = Number(range.value);
+      render();
+    });
+    range.addEventListener("pointerup", () => setTimeout(() => { if (state.sliding) { state.sliding = false; render(); } }, 0));
+    sty.append(range, readout);
+    box.appendChild(sty);
+
+    // Aspect presets, Raw and HD.
+    const shape = el("div", "mjq-rr-row");
+    shape.appendChild(el("span", "mjq-rr-label", "Aspect"));
+    const seg = el("div", "mjq-seg");
+    const presets = ASPECTS.includes(v.ar) || !v.ar ? ASPECTS : [v.ar, ...ASPECTS];
+    for (const ratio of presets) {
+      seg.appendChild(button(ratio, `mjq-seg-btn${v.ar === ratio ? " mjq-seg-btn--on" : ""}`, () => { v.ar = ratio; render(); }));
     }
-    fields.appendChild(toggles);
-    box.appendChild(fields);
-    const note = el("input", "mjq-pinput mjq-rerun-note");
-    note.type = "text";
-    note.placeholder = "Why this run (shown with it)";
-    note.value = draft.values.note || "";
-    note.addEventListener("input", () => { draft.values.note = note.value; });
-    box.appendChild(note);
+    shape.appendChild(seg);
+    const toggles = el("div", "mjq-seg");
+    toggles.appendChild(button("Raw", `mjq-seg-btn${v.raw ? " mjq-seg-btn--on" : ""}`, () => { v.raw = !v.raw; render(); }, "--raw on or off"));
+    toggles.appendChild(button("HD", `mjq-seg-btn${v.hd ? " mjq-seg-btn--on" : ""}`, () => { v.hd = !v.hd; render(); }, "--hd on or off"));
+    shape.appendChild(toggles);
+    box.appendChild(shape);
+
+    // More: sref, chaos, opening words, a note.
+    const more = button(draft.more ? "Less" : "More: sref, chaos, opening words, note", "mjq-btn--small mjq-btn--ghost mjq-rr-more", () => { draft.more = !draft.more; render(); });
+    box.appendChild(more);
+    if (draft.more) {
+      const fields = el("div", "mjq-pfields mjq-rr-more-fields");
+      const field = (key, label, placeholder, wide) => {
+        const wrap = el("label", `mjq-pfield${wide ? " mjq-pfield--wide" : ""}`);
+        const input = el("input", "mjq-pinput");
+        input.type = "text";
+        input.value = v[key] ?? "";
+        input.placeholder = placeholder;
+        input.addEventListener("input", () => { v[key] = input.value; draft.error = ""; });
+        input.addEventListener("change", () => render());
+        wrap.append(el("span", "mjq-plabel", label), input);
+        return wrap;
+      };
+      fields.append(
+        field("opening", "Opening words", "Painted storybook animation frame.", true),
+        field("srefs", "Sref codes or image links", "none", true),
+        field("chaos", "Chaos", "0", false),
+        field("note", "Note (why this run)", "optional", true),
+      );
+      box.appendChild(fields);
+    }
+
+    // Which prompts.
+    const which = el("div", "mjq-rr-row");
+    which.appendChild(el("span", "mjq-rr-label", "Prompts"));
+    const pick = el("div", "mjq-seg");
+    pick.appendChild(button(`All ${own.length}`, `mjq-seg-btn${draft.picking ? "" : " mjq-seg-btn--on"}`, () => { draft.picking = false; render(); }));
+    pick.appendChild(button(draft.picking ? `${draft.pick.size} ticked` : "Pick some", `mjq-seg-btn${draft.picking ? " mjq-seg-btn--on" : ""}`, () => { draft.picking = true; render(); },
+      "Tick the prompts to copy on their cards below"));
+    which.appendChild(pick);
+    if (draft.picking) which.appendChild(el("span", "mjq-rr-hint", "Tick them on the cards below."));
+    box.appendChild(which);
+
+    // What will happen, in one sentence.
+    const changes = rerunChanges(draft);
+    const sum = el("p", "mjq-rr-sum");
+    if (!changes.length) sum.append(`Nothing changed yet: Run ${next} would repeat Run ${draft.fromRun} exactly.`);
+    else sum.append(el("b", "", `Run ${next}: ${count} prompt${count === 1 ? "" : "s"}.`), ` ${changes.join(". ")}.`);
+    box.appendChild(sum);
+
+    const actions = el("div", "mjq-rr-row");
+    const go = button(state.rerunning ? "Queueing…" : `Queue Run ${next} · ${count} prompt${count === 1 ? "" : "s"}`, "mjq-btn--primary", () => submitRerun(),
+      "Puts the copies in the queue for you to send. Nothing is sent by itself.");
+    go.disabled = state.rerunning || !count;
+    actions.appendChild(go);
+    box.appendChild(actions);
 
     const open = items.filter((item) => item.status === "queued" || item.status === "injected");
-    const actions = el("div", "mjq-rerun-row");
-    const count = draft.scope === "pick" ? draft.pick.size : own.length;
-    const go = button(state.rerunning ? "Queueing…" : `Queue run ${next} · ${count}`, "mjq-btn--primary", () => submitRerun(items),
-      "Copies these prompts into a new run with the changes, queued for you to send. The earlier runs stay as they are.");
-    go.disabled = state.rerunning || !count;
-    const edit = button(`Change ${open.length} to send`, "mjq-btn--small", () => submitThreadEdit(items),
-      "No new run: put these changes on the prompts still to send. Sent ones keep theirs.");
-    edit.disabled = state.rerunning || !open.length;
-    actions.append(go, edit, button("Cancel", "mjq-btn--small mjq-btn--ghost", () => { state.rerun = null; render(); }));
-    box.appendChild(actions);
+    if (open.length && changes.length) {
+      const alt = el("p", "mjq-rr-alt");
+      alt.append(`${open.length} prompt${open.length === 1 ? " in this thread is" : "s in this thread are"} not sent yet. `);
+      const edit = button("Put these changes on them instead", "mjq-rr-link", () => submitThreadEdit());
+      edit.disabled = state.rerunning;
+      alt.appendChild(edit);
+      box.appendChild(alt);
+    }
     if (draft.error) box.appendChild(el("p", "mjq-warn", draft.error));
     return box;
   }
@@ -1704,8 +1831,8 @@
       return;
     }
     const body = { action: "rerun", batch: state.batchKey, recipe };
-    if (draft.scope === "pick") {
-      if (!draft.pick.size) { draft.error = "Tick the prompts to rerun first."; render(); return; }
+    if (draft.picking) {
+      if (!draft.pick.size) { draft.error = "Tick the prompts to copy first."; render(); return; }
       body.items = [...draft.pick];
     } else body.fromRun = draft.fromRun;
     if (String(draft.values.note || "").trim()) body.note = String(draft.values.note).trim();
@@ -1724,7 +1851,7 @@
     state.batches = H().recount(state.batches, state.items);
     state.runFilter = { ...state.runFilter, [state.batchKey]: res.run };
     state.filter = "open";
-    state.message = `Run ${res.run} queued: ${(res.items || []).length} prompts · ${res.label}. Run ${res.fromRun} stays as it was. Next · Send when ready.`;
+    state.message = `Run ${res.run} is in the queue: ${(res.items || []).length} prompts. Run ${res.fromRun} stays as it was. Next · Send when you are ready.`;
     render();
     void refresh({ quiet: true });
   }
@@ -1740,9 +1867,9 @@
       render();
       return;
     }
-    if (!Object.keys(recipe).length) { draft.error = "Change a field first."; render(); return; }
+    if (!Object.keys(recipe).length) { draft.error = "Change something first."; render(); return; }
     const body = { action: "editThread", batch: state.batchKey, recipe };
-    if (draft.scope === "pick" && draft.pick.size) body.items = [...draft.pick];
+    if (draft.picking && draft.pick.size) body.items = [...draft.pick];
     state.rerunning = true;
     render();
     const res = await call({ method: "POST", body });
@@ -1752,8 +1879,9 @@
       render();
       return;
     }
+    const changed = rerunChanges(draft).join(". ");
     state.rerun = null;
-    state.message = `${capital(res.label)} on ${res.changed} prompts to send${res.leftAlone ? `; ${res.leftAlone} sent or skipped keep theirs` : ""}.`;
+    state.message = `Changed ${res.changed} prompts not sent yet: ${changed}. No new run.`;
     void refresh({ quiet: true });
     render();
   }
@@ -1975,10 +2103,10 @@
     box.appendChild(tabs);
     if (state.filter === "sent" && counts.sent && !state.rerun) {
       const bulk = el("div", "mjq-requeue");
-      const all = button("Rerun as a new run…", "mjq-btn--primary", () => { state.rerun = rerunDraft(items); render(); },
+      const all = button("Run again…", "mjq-btn--primary", () => { state.rerun = rerunDraft(items); render(); },
         "Run this round again as the next run, with other profiles, styles or settings. The sent ones stay as they are, with their jobs and frames.");
       all.disabled = state.rerunning;
-      bulk.append(all, el("span", "mjq-requeue-meta", "Same words; change the profiles, sref, stylize, chaos, aspect, raw, hd or opening."));
+      bulk.append(all, el("span", "mjq-requeue-meta", "A new run with the same words: change the look or the stylize."));
       box.appendChild(bulk);
     }
     if (state.message) box.appendChild(el("p", "mjq-message", state.message));
