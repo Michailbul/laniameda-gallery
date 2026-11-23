@@ -42,14 +42,17 @@ export async function GET(request: Request) {
       archived: params.get("archived") === "true" ? true : undefined,
     });
     const client = getServerConvexClient(ownerUserId);
-    const [result, thread] = await Promise.all([
+    const own = input.batch && !input.archived;
+    const [result, thread, look] = await Promise.all([
       client.query(api.mjQueue.listQueue, { ownerUserId, ...input }),
       // An older backend, or a thread that is gone, costs only the chat.
-      input.batch && !input.archived
-        ? client.query(api.mjThreads.threadState, { ownerUserId, batch: input.batch }).catch(() => null)
+      own ? client.query(api.mjThreads.threadState, { ownerUserId, batch: input.batch! }).catch(() => null) : Promise.resolve(null),
+      // ?look=1 (once per thread opened): its codes by name and the world's boards and profiles.
+      own && params.get("look") === "1"
+        ? client.query(api.mjThreads.threadLook, { ownerUserId, batch: input.batch! }).catch(() => null)
         : Promise.resolve(null),
     ]);
-    return etagJson(request, { ok: true, ...result, ...(thread ? { thread } : {}) }, CORS_HEADERS);
+    return etagJson(request, { ok: true, ...result, ...(thread ? { thread } : {}), ...(look ? { look } : {}) }, CORS_HEADERS);
   } catch (error) {
     return corsJson({ error: clientErrorMessage(error, "Could not load the Midjourney queue.") }, 400);
   }

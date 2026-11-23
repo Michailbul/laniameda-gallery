@@ -3,6 +3,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
+import { resolveAssetThumbUrl } from "./r2_url";
 import {
   batchRows, cleanCodes, mjQueueItemOutValidator, ownedRows, resolveRef, text, toOut,
 } from "./mjQueue";
@@ -448,6 +449,78 @@ export const writerFailed = internalMutation({
 
 // ── The chat writer's side (convex/mjThreadChat.ts) ──
 
+type LookEntry = { code: string; name: string; kind: "moodboard" | "profile" | "code"; used: boolean; thumbUrl?: string };
+
+/**
+ * The thread's moodboard and profile codes by name (unknown codes keep the
+ * code as their name), then the world's other moodboards and active profiles:
+ * what the rerun card and the chat writer offer by name.
+ */
+async function lookOf(ctx: Ctx, owner: string, thread: { rows: Item[]; worldFolderId?: Id<"folders"> }): Promise<LookEntry[]> {
+  const out: LookEntry[] = [];
+  const seen = new Set<string>();
+  const add = (entry: LookEntry) => {
+    if (!entry.code || seen.has(entry.code)) return;
+    seen.add(entry.code);
+    out.push(entry);
+  };
+  // A board's cover picture, small, so the card shows the look, not a code.
+  const coverOf = async (assetId: Id<"assets"> | undefined) => {
+    const asset = assetId ? await ctx.db.get(assetId) : null;
+    return asset ? (await resolveAssetThumbUrl(ctx, asset)) ?? undefined : undefined;
+  };
+  const candidates = resolveUserIdCandidates(owner);
+  for (const code of new Set(thread.rows.flatMap((row) => row.profileCodes))) {
+    let named: LookEntry | null = null;
+    for (const candidate of candidates) {
+      if (named) break;
+      const board = await ctx.db.query("moodboards").withIndex("by_owner_mjCode", (q) => q.eq("ownerUserId", candidate).eq("mjCode", code)).first();
+      if (board) { named = { code, name: board.name, kind: "moodboard", used: true, thumbUrl: await coverOf(board.coverAssetId) }; break; }
+      const profile = await ctx.db.query("mjProfiles").withIndex("by_owner_code", (q) => q.eq("ownerUserId", candidate).eq("code", code)).first();
+      if (profile) named = { code, name: profile.name, kind: "profile", used: true };
+    }
+    add(named ?? { code, name: code, kind: "code", used: true });
+  }
+  const root = thread.worldFolderId;
+  if (root) {
+    // A world's boards sit on its root or one collection below it.
+    const inWorld = new Map<string, boolean>();
+    const belongs = async (folderId: Id<"folders">) => {
+      if (folderId === root) return true;
+      if (!inWorld.has(folderId)) inWorld.set(folderId, (await ctx.db.get(folderId))?.parentFolderId === root);
+      return inWorld.get(folderId)!;
+    };
+    for (const candidate of candidates) {
+      const boards = await ctx.db.query("moodboards").withIndex("by_owner_updatedAt", (q) => q.eq("ownerUserId", candidate)).order("desc").take(300);
+      for (const board of boards) {
+        if (board.mjCode && !seen.has(board.mjCode) && await belongs(board.folderId)) {
+          add({ code: board.mjCode, name: board.name, kind: "moodboard", used: false, thumbUrl: await coverOf(board.coverAssetId) });
+        }
+      }
+      const all = await ctx.db.query("mjProfiles").withIndex("by_owner_normalizedName", (q) => q.eq("ownerUserId", candidate)).take(300);
+      for (const profile of all) {
+        if (profile.status === "active" && profile.uses.some((use) => use.worldFolderId === root)) add({ code: profile.code, name: profile.name, kind: "profile", used: false });
+      }
+    }
+  }
+  return out;
+}
+
+const lookEntryValidator = v.object({
+  code: v.string(), name: v.string(), kind: v.union(v.literal("moodboard"), v.literal("profile"), v.literal("code")), used: v.boolean(),
+  thumbUrl: v.optional(v.string()),
+});
+
+/** The thread's codes by name and the world's moodboards and profiles (the rerun card's picker). Read once per thread opened. */
+export const threadLook = ownerQuery({
+  args: { ownerUserId: v.string(), batch: v.string() },
+  returns: v.object({ batchKey: v.string(), codes: v.array(lookEntryValidator) }),
+  handler: async (ctx, args) => {
+    const thread = await threadFor(ctx, args.ownerUserId, args.batch);
+    return { batchKey: thread.batchKey, codes: await lookOf(ctx, args.ownerUserId, thread) };
+  },
+});
+
 /** What the writer is shown: the prompts, runs, chat so far and the world's profiles and moodboards. */
 export const chatContext = internalQuery({
   args: { ownerUserId: v.string(), batch: v.string(), messageId: v.string() },
@@ -460,36 +533,7 @@ export const chatContext = internalQuery({
     if (message.batchKey !== thread.batchKey) throw new ConvexError("That message belongs to another thread.");
     const history = state.messages.filter((entry) => entry.createdAt < message.createdAt || (entry.createdAt === message.createdAt && entry.id !== message._id))
       .map((entry) => ({ role: entry.role, text: entry.text, changes: entry.changes }));
-    const profiles: Array<{ name: string; code: string; kind: string }> = [];
-    const seen = new Set<string>();
-    const add = (name: string, code: string | undefined, kind: string) => {
-      if (!code || seen.has(code)) return;
-      seen.add(code);
-      profiles.push({ name, code, kind });
-    };
-    const candidates = resolveUserIdCandidates(owner);
-    // Codes the thread already uses, named.
-    for (const code of new Set(thread.rows.flatMap((row) => row.profileCodes))) {
-      let named = false;
-      for (const candidate of candidates) {
-        if (named) break;
-        const board = await ctx.db.query("moodboards").withIndex("by_owner_mjCode", (q) => q.eq("ownerUserId", candidate).eq("mjCode", code)).first();
-        if (board) { add(board.name, code, "moodboard"); named = true; continue; }
-        const profile = await ctx.db.query("mjProfiles").withIndex("by_owner_code", (q) => q.eq("ownerUserId", candidate).eq("code", code)).first();
-        if (profile) { add(profile.name, code, "profile"); named = true; }
-      }
-    }
-    // The world's own moodboards and profiles.
-    if (thread.worldFolderId) {
-      for (const candidate of candidates) {
-        const boards = await ctx.db.query("moodboards").withIndex("by_owner_updatedAt", (q) => q.eq("ownerUserId", candidate)).order("desc").take(300);
-        for (const board of boards) if (board.folderId === thread.worldFolderId && board.mjCode) add(board.name, board.mjCode, "moodboard");
-        const all = await ctx.db.query("mjProfiles").withIndex("by_owner_normalizedName", (q) => q.eq("ownerUserId", candidate)).take(300);
-        for (const profile of all) {
-          if (profile.status === "active" && profile.uses.some((use) => use.worldFolderId === thread.worldFolderId)) add(profile.name, profile.code, "profile");
-        }
-      }
-    }
+    const profiles = (await lookOf(ctx, owner, thread)).map(({ name, code, kind }) => ({ name, code, kind }));
     return {
       batch: thread.batch,
       batchKey: thread.batchKey,

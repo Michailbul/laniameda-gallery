@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.43.2 (23 Nov 2026)
+
+Run again, in plain words
+- "Rerun…" is now **Run again…**, and its card says what will happen in one
+  sentence: "Makes a copy of all 20 prompts from Run 1 and changes only what
+  you set below. Run 1 stays as it is." Under it, live: "Run 2: 20 prompts.
+  Adds ANDROMEDA · Chiseled Golden. Stylize 400 → 750."
+- Moodboards and profiles show by name with their cover picture; × takes
+  one out, "+ Add" lists the world's others by name. No codes to type.
+- Stylize is a slider, aspect a row of presets, Raw and HD switches. Sref,
+  chaos, the opening words and a note wait under "More".
+- Codes in the runs line read as names too.
+
 ## 0.43.1 (23 Nov 2026)
 
 - Thread chat without boxes: your messages are the only bubbles; the
