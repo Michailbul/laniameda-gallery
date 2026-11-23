@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.43.1 (23 Nov 2026)
+
+- Thread chat without boxes: your messages are the only bubbles; the
+  agent's answers sit on the ground as plain text with their change lines,
+  and the chat has hairlines instead of a card around it.
+
 ## 0.43.0 (23 Nov 2026)
 
 MJ Queue: a chat per thread, and reruns as runs

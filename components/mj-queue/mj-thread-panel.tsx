@@ -320,16 +320,16 @@ export const THREAD_PANEL_CSS = `
 .mjr-fields .mjq-seg button[aria-pressed="true"]{background:var(--lm-ink);color:var(--lm-paper)}
 .mjr-field input[data-edited="true"],.mjq-seg button[data-edited="true"]{border-color:var(--lm-amber,#e8a838);box-shadow:inset 0 -2px 0 var(--lm-amber,#e8a838)}
 .mjr-actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.mjc{display:flex;flex-direction:column;gap:8px;margin:12px 0 6px;padding:12px;border:1px solid var(--lm-border-strong);border-radius:var(--lm-radius);background:var(--lm-surface-1)}
+.mjc{display:flex;flex-direction:column;gap:12px;margin:12px 0 6px;padding:12px 0 14px;border-top:1px solid var(--lm-border);border-bottom:1px solid var(--lm-border)}
 .mjc-head{display:flex;align-items:center;gap:10px;font:600 9.5px/1 var(--lm-font);letter-spacing:.12em;text-transform:uppercase;color:var(--lm-text-ghost)}
 .mjc-head b{font:800 11px/1 var(--lm-font-display);letter-spacing:.14em;color:var(--lm-text-secondary)}
 .mjc-head .hot{color:var(--lm-coral)}
 .mjc-sp{flex:1 1 auto}
-.mjc-list{display:flex;flex-direction:column;gap:8px;max-height:360px;overflow-y:auto;scrollbar-width:thin}
+.mjc-list{display:flex;flex-direction:column;gap:16px;max-height:360px;overflow-y:auto;scrollbar-width:thin}
 .mjc-empty{margin:0;font:500 12.5px/1.45 var(--lm-font-display);color:var(--lm-text-ghost)}
 .mjc-msg{display:flex;flex-direction:column;gap:4px;max-width:88%;padding:8px 11px;border-radius:var(--lm-radius);border:1px solid var(--lm-border)}
 .mjc-msg.is-michael{align-self:flex-end;background:var(--lm-surface-2);border-color:var(--lm-border-strong)}
-.mjc-msg.is-agent{align-self:flex-start;background:var(--lm-paper)}
+.mjc-msg.is-agent{align-self:stretch;max-width:none;padding:0;border:0;border-radius:0;background:none}
 .mjc-msg.is-typing p{color:var(--lm-text-ghost)}
 .mjc-who{display:flex;align-items:baseline;gap:8px;font:600 9.5px/1 var(--lm-font);letter-spacing:.06em;color:var(--lm-text-ghost)}
 .mjc-who b{font:800 9.5px/1 var(--lm-font-display);letter-spacing:.12em;text-transform:uppercase;color:var(--lm-text-secondary)}
