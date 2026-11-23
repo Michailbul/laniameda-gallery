@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.43.3 (23 Nov 2026)
+
+Grow writes more, and shots fit the world
+- Every Grow move writes at least six prompts: Angles, Close-ups, Wides,
+  Cast and Props 6; Story, Cinematic scene, Cinematic location and Location
+  7; World kit 8; Replay 10. A typed idea writes 6. Each move lists more
+  distinct shots, so the extra prompts are new views, not repeats.
+- Shots on Random draw a varied set (one of each shot type first), one shot
+  per prompt, up to 10. With a collection picked under "from", Grow draws a
+  random set from it on Auto too.
+- The writer keeps each shot's camera and kind of moment and plays it with
+  the world's own people, places, costumes and props; the film's people,
+  places, clothes, cars and era never come through.
+
 ## 0.43.2 (23 Nov 2026)
 
 Run again, in plain words

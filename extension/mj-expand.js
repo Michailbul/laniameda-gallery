@@ -31,17 +31,17 @@
 
   // `hot` is the key on the card: 1–9, 0, L. ⌃ + the key runs it steered by the typed idea.
   const MOVES = [
-    { key: "angles", label: "Angles", count: 3, hot: "1", hint: "The same moment from three other camera positions." },
-    { key: "close", label: "Close-ups", count: 3, hot: "2", hint: "Three close shots cut from this frame." },
-    { key: "wide", label: "Wides", count: 3, hot: "3", hint: "The place: establishing wide, wide reverse, the full room or street." },
-    { key: "cast", label: "Cast", count: 3, hot: "4", hint: "Three real-looking people who live in this world." },
-    { key: "details", label: "Props", count: 4, hot: "5", hint: "Four objects of this world, each alone in the frame." },
-    { key: "story", label: "Story", count: 6, hot: "6", hint: "A short story from this frame: six shots, ready as a thread." },
+    { key: "angles", label: "Angles", count: 6, hot: "1", hint: "The same moment from six other camera positions." },
+    { key: "close", label: "Close-ups", count: 6, hot: "2", hint: "Six close shots cut from this frame." },
+    { key: "wide", label: "Wides", count: 6, hot: "3", hint: "The place: establishing wide, reverse, full room or street, high, low, from afar." },
+    { key: "cast", label: "Cast", count: 6, hot: "4", hint: "Six real-looking people who live in this world." },
+    { key: "details", label: "Props", count: 6, hot: "5", hint: "Six objects of this world, each alone in the frame." },
+    { key: "story", label: "Story", count: 7, hot: "6", hint: "A short story from this frame: seven shots, ready as a thread." },
     { key: "world", label: "World kit", count: 8, hot: "7", hint: "Eight frames that turn this picture into a world." },
-    { key: "scene", label: "Cinematic scene", count: 4, hot: "8", hint: "Four moments from a real film set in this world." },
-    { key: "place", label: "Cinematic location", count: 4, hot: "9", hint: "Four other places of this world, each an establishing wide." },
+    { key: "scene", label: "Cinematic scene", count: 7, hot: "8", hint: "Seven moments from a real film set in this world." },
+    { key: "place", label: "Cinematic location", count: 7, hot: "9", hint: "Seven other places of this world, each an establishing wide." },
     { key: "replay", label: "Replay", count: 10, hot: "0", hint: "Your last 10 Midjourney prompts, rewritten one by one in this frame's look." },
-    { key: "location", label: "Location", count: 6, hot: "L", hint: "Six wide views of the place this frame is in: establishing, reverse, doorway, high, dusk, one small figure." },
+    { key: "location", label: "Location", count: 7, hot: "L", hint: "Seven wide views of the place this frame is in: establishing, reverse, doorway, high, dusk, one small figure, from afar." },
   ];
   /** The move for a key event's code (Digit1 … Digit0, KeyL), or null. */
   function moveForCode(code) {

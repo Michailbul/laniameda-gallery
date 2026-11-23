@@ -42,34 +42,34 @@ const LOCATION_LINES = `Write a fixed PLACE LINE first (architecture style, mate
 // The moves. `brief` is what the writer is told; `hint` is the tooltip.
 export const EXPAND_PRESETS: ExpandPreset[] = [
   {
-    key: "angles", label: "New angles", count: 3,
-    hint: "The same moment from three other camera positions.",
-    brief: `Same subject, same place, same moment, same light. Three other camera positions: (1) the reverse angle, looking back the way this camera looks, (2) a low or a high angle close to the subject, (3) a side-on or over-the-shoulder view. Say what each new position reveals that this frame hides (the wall behind the camera, the far end of the street). Wardrobe, props and weather stay identical, in the same words.`,
+    key: "angles", label: "New angles", count: 6,
+    hint: "The same moment from six other camera positions.",
+    brief: `Same subject, same place, same moment, same light. Six other camera positions: (1) the reverse angle, looking back the way this camera looks, (2) a low angle close to the subject, (3) a high angle looking down on the subject, (4) a side-on profile view, (5) an over-the-shoulder view from behind someone or something in this frame, (6) a far, long-lens view from across the place with the subject small. Say what each new position reveals that this frame hides (the wall behind the camera, the far end of the street). Wardrobe, props and weather stay identical, in the same words.`,
   },
   {
-    key: "close", label: "Close-ups", count: 3,
-    hint: "Three close shots cut from this frame.",
-    brief: `Three close shots cut from this frame, as an editor would: (1) the face or the main object, (2) hands or a telling detail in use, (3) a material insert (fabric, metal, glass, a worn surface) under this frame's light. A long lens, shallow depth of field. The background of each is what sits right behind it in this frame, out of focus.`,
+    key: "close", label: "Close-ups", count: 6,
+    hint: "Six close shots cut from this frame.",
+    brief: `Six close shots cut from this frame, as an editor would: (1) the face or the main object, (2) the eyes or the face in extreme close-up, (3) hands or a telling detail in use, (4) a second person's or a second object's close-up, (5) a material insert (fabric, metal, glass, a worn surface) under this frame's light, (6) a small object in the scene that tells the story. A long lens, shallow depth of field. The background of each is what sits right behind it in this frame, out of focus.`,
   },
   {
-    key: "wide", label: "Wides", count: 3,
-    hint: "The place: establishing wide, wide reverse, the full room or street.",
-    brief: `Three wide shots of the place this frame belongs to: (1) the establishing wide with the subject small in it, (2) the wide reverse angle from the opposite end, (3) the full room or the full street seen straight on, quiet and empty. The place is the grammatical subject of each. Eye level or slightly above, a wide lens, deep focus. Never a tight crop.`,
+    key: "wide", label: "Wides", count: 6,
+    hint: "The place: establishing wide, reverse, full room or street, high, low, from afar.",
+    brief: `Six wide shots of the place this frame belongs to: (1) the establishing wide with the subject small in it, (2) the wide reverse angle from the opposite end, (3) the full room or the full street seen straight on, quiet and empty, (4) the high wide from a window, a roof or a hill, (5) the low wide from the ground, the sky or ceiling large, (6) the far wide from outside the place, its edge and its surroundings. The place is the grammatical subject of each. A wide lens, deep focus. Never a tight crop.`,
   },
   {
-    key: "cast", label: "Cast", count: 3,
-    hint: "Three real-looking people who live in this world.",
-    brief: `Three real-looking people of this world who are not in this frame, in grounded, believable clothes (a dark wool coat, a plain suit, a simple dress) named by material and cut. A creature only when the art director asks. Each prompt: one person alone, full length, standing in a corner of this same place, a 35mm or 50mm lens, eye level. Real faces with lines and uneven skin, natural hair. Give each two or three traits nobody else has (hair, one garment, build). Name nobody.`,
+    key: "cast", label: "Cast", count: 6,
+    hint: "Six real-looking people who live in this world.",
+    brief: `Six real-looking people of this world who are not in this frame, of different ages, builds and trades, in grounded, believable clothes (a dark wool coat, a plain suit, a simple dress) named by material and cut. A creature only when the art director asks. Each prompt: one person alone, full length, standing in a corner of this same place, a 35mm or 50mm lens, eye level. Real faces with lines and uneven skin, natural hair. Give each two or three traits nobody else has (hair, one garment, build). Name nobody.`,
   },
   {
-    key: "details", label: "Props", count: 4,
-    hint: "Four objects of this world, each alone in the frame.",
-    brief: `Four objects of this world, each alone as the subject: (1) a vehicle, (2) a tool or an everyday instrument, (3) a piece of furniture or an architectural detail, (4) a small personal thing. Each rests on a surface from this frame, in this frame's light. One object per frame, clear silhouette, a medium-close shot.`,
+    key: "details", label: "Props", count: 6,
+    hint: "Six objects of this world, each alone in the frame.",
+    brief: `Six objects of this world, each alone as the subject: (1) a vehicle, (2) a tool or an everyday instrument, (3) a piece of furniture, (4) an architectural detail (a door, a window, a lamp, a railing), (5) a small personal thing, (6) something to eat, drink or read. Each rests on a surface from this frame, in this frame's light. One object per frame, clear silhouette, a medium-close shot.`,
   },
   {
-    key: "story", label: "Story", count: 6,
-    hint: "A short story from this frame, six shots, ready as a thread.",
-    brief: `Invent a short story this frame could be the first or the middle beat of. Give its one-sentence LOGLINE, then six beats as six shots with real shot variety: an establishing wide, a medium shot with action, a close-up, an insert, the turning point, the closing image. The same people in every beat: repeat their wardrobe and hair words verbatim. One place family, one light logic (the hour may move on). Each TITLE is the beat in plain words.`,
+    key: "story", label: "Story", count: 7,
+    hint: "A short story from this frame, seven shots, ready as a thread.",
+    brief: `Invent a short story this frame could be the first or the middle beat of. Give its one-sentence LOGLINE, then seven beats as seven shots with real shot variety: an establishing wide, a medium shot with action, a close-up, an insert, a reaction, the turning point, the closing image. The same people in every beat: repeat their wardrobe and hair words verbatim. One place family, one light logic (the hour may move on). Each TITLE is the beat in plain words.`,
   },
   {
     key: "world", label: "World kit", count: 8,
@@ -77,14 +77,14 @@ export const EXPAND_PRESETS: ExpandPreset[] = [
     brief: `The starter kit that turns this frame into a world: (1) the establishing wide, (2) the wide reverse angle, (3) an interior that belongs here, (4) a street-level or ground-level corner, (5) a lead character full length, (6) a second person, (7) a vehicle, machine or key prop, (8) a close detail insert. One look across all eight.`,
   },
   {
-    key: "scene", label: "Cinematic scene", count: 4,
-    hint: "Four moments from a real film set in this world.",
-    brief: `Four new scenes of this world, each one frame from a real film, as a cinematographer would shoot it. Real-looking people doing ordinary, specific things (waiting, reading a letter, pouring tea, crossing a square). Four different shot sizes across the set: a wide, a full shot, a medium, a close-up. Each prompt names its shot size, lens, camera height and one motivated light with its direction. One subject per frame and empty space around it. Behaviour over emotion.`,
+    key: "scene", label: "Cinematic scene", count: 7,
+    hint: "Seven moments from a real film set in this world.",
+    brief: `Seven new scenes of this world, each one frame from a real film, as a cinematographer would shoot it. Real-looking people doing ordinary, specific things (waiting, reading a letter, pouring tea, crossing a square). Every shot size across the set: an extreme wide, a wide, a full shot, a medium, a medium close-up, a close-up and an over-the-shoulder or two-shot. Each prompt names its shot size, lens, camera height and one motivated light with its direction. One subject per frame and empty space around it. Behaviour over emotion.`,
   },
   {
-    key: "place", label: "Cinematic location", count: 4,
-    hint: "Four other places of this world, each an establishing wide.",
-    brief: `Four other places that belong to this frame's world, as a location scout would shoot them for a film: (1) a street or lane, (2) a square, courtyard or bridge, (3) a full interior room, (4) the town seen from a height or its edge. Each is an establishing wide: the place is the grammatical subject, a 24mm or 28mm lens, deep focus, verticals straight, eye level or slightly low. Two or three architectural features, the weather, one light, at most one strange element. People small or absent.`,
+    key: "place", label: "Cinematic location", count: 7,
+    hint: "Seven other places of this world, each an establishing wide.",
+    brief: `Seven other places that belong to this frame's world, as a location scout would shoot them for a film: (1) a street or lane, (2) a square, courtyard or bridge, (3) a full interior room, (4) a second interior of another kind (a workshop, a hall, a shop, a kitchen), (5) a place of passage (a station, a stair, a gate, a quay), (6) the land around the town (fields, a shore, a forest edge, a road), (7) the town seen from a height or its edge. Each is an establishing wide: the place is the grammatical subject, a 24mm or 28mm lens, deep focus, verticals straight, eye level or slightly low. Two or three architectural features, the weather, one light, at most one strange element. People small or absent.`,
   },
   {
     key: "replay", label: "Replay", count: 10, replay: true,
@@ -92,15 +92,16 @@ export const EXPAND_PRESETS: ExpandPreset[] = [
     brief: `Rewrite each of the PREVIOUS PROMPTS below, one by one and in their order, into this frame's world and look. Keep each one's subject, view, shot size and idea. Replace its style, medium, world and film words with this frame's own (its world words and style words, word for word). One entry per previous prompt; its TITLE names the previous prompt's subject.`,
   },
   {
-    key: "location", label: "Location", count: 6, location: true,
-    hint: "Six wide views of the place this frame is in.",
-    brief: `Six wide views of the place this frame is in, as one location set:
+    key: "location", label: "Location", count: 7, location: true,
+    hint: "Seven wide views of the place this frame is in.",
+    brief: `Seven wide views of the place this frame is in, as one location set:
 (1) the establishing wide: the whole place from its open end,
 (2) the wide reverse: from the far end, looking back the way this camera looks, and say what that reveals,
 (3) the wide from a doorway or a corner: from inside an arch, a doorway or a corner, the frame edge dark and close,
 (4) the high wide: from an upper window or a roof, looking down across the whole place,
 (5) the establishing wide again at blue dusk or at night under wet lamplight: a new LIGHT LINE only, every architecture word identical,
-(6) the empty wide with one small figure: the establishing wide with the place empty but for one small distant person in a dark coat.
+(6) the empty wide with one small figure: the establishing wide with the place empty but for one small distant person in a dark coat,
+(7) the long-lens wide from far off: an 85mm from outside the place, its layers stacked and compressed, the same LIGHT LINE.
 ${LOCATION_LINES}`,
   },
 ];

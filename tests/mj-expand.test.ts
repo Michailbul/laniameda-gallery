@@ -78,7 +78,9 @@ describe("mj-expand: the source command", () => {
 describe("mj-expand: the writer", () => {
   test("eleven moves, each with a count and a brief", () => {
     expect(EXPAND_PRESETS.map((preset) => preset.key)).toEqual(["angles", "close", "wide", "cast", "details", "story", "world", "scene", "place", "replay", "location"]);
-    expect(expandPreset("story")?.count).toBe(6);
+    expect(expandPreset("story")?.count).toBe(7);
+    // Every move writes at least six prompts (Michael, 23 Nov 2026: "at least 6-7").
+    for (const preset of EXPAND_PRESETS) expect(preset.count).toBeGreaterThanOrEqual(6);
     expect(expandPreset("nope")).toBeNull();
     // The extension's chips are the same moves in the same order.
     expect(page().MOVES.map((move) => [move.key, move.count])).toEqual(EXPAND_PRESETS.map((preset) => [preset.key, preset.count]));

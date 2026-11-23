@@ -148,7 +148,9 @@ async function shotsOf(
 ): Promise<Shots | null> {
   const mode = shotModeOf(settings?.mode);
   if (mode === "off") return null;
-  const random = mode === "random";
+  // A Grow run with a collection picked under "from" draws a random set from it
+  // on Auto too (Michael, 23 Nov 2026): picking a collection means use it.
+  const random = mode === "random" || Boolean(use.always && settings?.from?.trim());
   if (!(random && use.always) && !asksForShots(...asks)) return null;
   try {
     const shots = await ctx.runQuery(internal.cinematicShots.forWriter, {
@@ -409,7 +411,7 @@ export const expand = ownerAction({
     if (preset?.replay && !previous.length) throw new ConvexError("No previous prompts to replay. Make a few in Midjourney first.");
     const count = preset?.replay
       ? previous.length
-      : Math.min(EXPAND_LIMITS.maxCount, Math.max(1, Math.round(args.count ?? preset?.count ?? 3)));
+      : Math.min(EXPAND_LIMITS.maxCount, Math.max(1, Math.round(args.count ?? preset?.count ?? 6)));
     if (args.srefUrl && !/^https:\/\/\S+$/.test(args.srefUrl)) throw new ConvexError("The style reference must be an https link.");
     const attach: ExpandAttach = (EXPAND_ATTACH as readonly string[]).includes(args.attach ?? "") ? args.attach as ExpandAttach : "none";
     if (attach !== "none" && !/^https:\/\/\S+$/.test(args.attachUrl ?? "")) throw new ConvexError("The picture to attach must be an https link.");

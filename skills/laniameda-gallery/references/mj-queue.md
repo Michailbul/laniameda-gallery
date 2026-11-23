@@ -205,7 +205,13 @@ The Shots switch (Grow card row "Shots", quick edit chip; one setting,
 `writerShots` in the extension's local storage) decides how: Off; Auto (the
 default: the closest shots when the request asks for shots, framing or an
 angle); Random (every Grow run draws random layouts, one per prompt; a quick
-edit draws one when it asks for a shot or an angle). The Grow card's "from"
+edit draws one when it asks for a shot or an angle). A random draw is a varied
+set: one of each shot type first (wide, close-up, over-the-shoulder …), then
+more at random, up to 10 for a 10-prompt Grow. A Grow run with a collection
+picked under "from" draws a random set from it on Auto too. The writer keeps
+each shot's camera and kind of moment and plays it with the world's own
+people, places, costumes, props and vehicles; the film's people, places,
+clothes, cars and era never come through. The Grow card's "from"
 picks the collection: CINEMATIC SHOTS (default), CINEMATIC, or any
 collection under them, each with the collections under it. Frames without a
 shot card are used by their agentDescription or description. The card's
