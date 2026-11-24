@@ -27,7 +27,7 @@ const bodySchema = z.object({
   image: z.string().min(12).max(EXPAND_LIMITS.image),
   command: z.string().max(EXPAND_LIMITS.command).optional(),
   preset: z.enum(EXPAND_PRESET_KEYS).optional(),
-  idea: z.string().max(EXPAND_LIMITS.idea).optional(),
+  idea: z.string().optional(),
   count: z.number().int().min(1).max(EXPAND_LIMITS.maxCount).optional(),
   world: z.string().max(120).optional(),
   fallbackWorld: z.string().max(120).optional(),

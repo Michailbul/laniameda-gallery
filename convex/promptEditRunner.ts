@@ -406,7 +406,7 @@ export const expand = ownerAction({
     const command = (args.command ?? "").slice(0, EXPAND_LIMITS.command);
     const preset = expandPreset(args.preset);
     if (args.preset && !preset) throw new ConvexError("That move does not exist.");
-    const idea = args.idea?.trim().slice(0, EXPAND_LIMITS.idea) || undefined;
+    const idea = args.idea?.trim() || undefined;
     if (!preset && !idea) throw new ConvexError("Pick a move or say an idea.");
     const previous = cleanPrevious(args.previous);
     if (preset?.replay && !previous.length) throw new ConvexError("No previous prompts to replay. Make a few in Midjourney first.");
