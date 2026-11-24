@@ -3259,6 +3259,23 @@ html.stg-x-capturing .stg-badge {
   box-sizing: border-box;
 }
 .stg-fh-root *, .stg-fh-root *::before, .stg-fh-root *::after { box-sizing: border-box; }
+.stg-fh-threadbar, .stg-fh-chatopts, .stg-fh-chatbox { display: flex; align-items: center; gap: 8px; }
+.stg-fh-threadbar select { flex: 1; min-width: 0; }
+.stg-fh-threadbar select, .stg-fh-threadbar button, .stg-fh-chatopts select, .stg-fh-chatbox button, .stg-fh-message button { background: var(--fh-raise); color: var(--fh-ink); border: 1px solid var(--fh-line); border-radius: 6px; padding: 7px; font-size: 11px; }
+.stg-fh-source-drop { padding: 10px; border: 1px dashed var(--fh-line2); border-radius: 7px; color: var(--fh-ink2); font-size: 11px; text-align: center; }
+.stg-fh-chatlog { max-height: 210px; overflow: auto; scrollbar-width: thin; }
+.stg-fh-message { margin: 7px 0; padding: 9px; background: var(--fh-raise); border-radius: 7px; font-size: 12px; line-height: 1.5; }
+.stg-fh-message b { color: var(--fh-coral); font-size: 10px; }
+.stg-fh-message p { margin: 4px 0; white-space: pre-wrap; color: var(--fh-ink); }
+.stg-fh-message small { display: block; overflow-wrap: anywhere; color: var(--fh-ink3); }
+.stg-fh-chatopts { justify-content: space-between; color: var(--fh-ink2); font-size: 11px; }
+.stg-fh-chatopts label { display: flex; align-items: center; gap: 5px; }
+.stg-fh-chatopts select { max-width: 60%; }
+.stg-fh-chatinput, .stg-fh-root textarea.stg-fh-idea { min-width: 0; flex: 1; resize: vertical; padding: 8px; border: 1px solid var(--fh-line2); border-radius: 6px; background: var(--fh-raise); color: var(--fh-ink); font: 12px/1.5 var(--fh-sans); }
+.stg-fh-chatbox button { align-self: stretch; }
+.stg-fh-draftlabel { font-size: 10px; color: var(--fh-ink2); }
+.stg-fh-root textarea:focus { outline: 1px solid var(--fh-coral); }
+.stg-fh-root textarea.stg-fh-idea { height: auto; min-height: 74px; }
 .stg-fh-ring {
   position: fixed; display: none; pointer-events: none; z-index: 2147483645; border-radius: 6px;
   box-shadow: 0 0 0 2px var(--fh-coral), 0 0 0 5px rgba(242, 97, 87, 0.2), 0 0 30px rgba(242, 97, 87, 0.3);

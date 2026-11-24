@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   EXPAND_PRESETS, buildExpandMessages, cleanPrevious, composeExpanded, expandPreset, imageWeightOf, lookNoteOf, parseExpandAnswer, splitCommand,
 } from "../lib/mj-expand";
@@ -407,7 +408,7 @@ describe("every Midjourney prompt is its own picture (23 Nov 2026)", () => {
 });
 
 describe("Grow uses only the world he picks (23 Nov 2026)", () => {
-  const card = () => require("node:fs").readFileSync(require("node:path").join(import.meta.dir, "..", "extension", "mj-expand.js"), "utf8") as string;
+  const card = () => readFileSync(new URL("../extension/mj-expand.js", import.meta.url), "utf8");
   test("the world picker has its own labelled row, defaults to No world and never guesses", () => {
     const source = card();
     expect(source).toContain('<div class="opt"><b>World</b><select class="world"');

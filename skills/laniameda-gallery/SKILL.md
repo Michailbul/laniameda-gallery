@@ -4,7 +4,7 @@ description: >-
   Michael's gallery: save and find media, references, reusable Skills, Worlds,
   named Characters, collections, tags, native Stories/Scripts, X bookmarks and
   separate YouTube research. Use for gallery saves, organization, reference selection and retrieval.
-version: 1.47.0
+version: 1.48.0
 ---
 
 # Laniameda Gallery
@@ -190,6 +190,14 @@ Semantic indexing is asynchronous; stored readback and search readiness are
 separate checks. Leave the retired pillar field unset on ordinary saves.
 
 ## Find and inspect
+
+Midjourney image editing conversations (extension Edit image / Option-Z):
+`list_image_edit_threads`, then `read_image_edit_thread {id}` shows the original,
+selected source, chat, prompt draft and generated takes with lineage. Reply
+with `reply_image_edit_thread {id,text,prompt?,key}` using a stable retry key.
+It updates the conversation/draft only; Michael clicks Run and Keep himself.
+The chat's per-thread Gallery toggle gives its writer reading access only.
+See references/data-model.md for the storage and consent contract.
 
 "Is this frame in the gallery?" for a local board: `find_assets` with up to
 500 Midjourney job URLs, file names (`mj-<job>-<i>.png`), short board ids

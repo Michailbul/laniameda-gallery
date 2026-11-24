@@ -1,7 +1,7 @@
 // Fast helper. Point at a generated picture on midjourney.com and press ⌥F
 // (or hold ⌥ and click the EDIT tag): a card opens beside the frame. Type
 // what to change (or click a quick chip), pick a model (1–4 while the line is
-// empty), how many takes (⇧1–⇧4), and press Enter. The gallery runs it on fal
+// empty), how many takes (⇧1–⇧3), and press Enter. The gallery runs it on fal
 // with its own key; the takes come back into the card next to the source.
 //
 // Review: ←/→ pick a take, hold Space (or press on the picture) to see the
@@ -102,7 +102,8 @@
     placeBeside, barWithImage, frameUrls, urlFromDrop, anyInFlight, flattenTakes, stepSelection, takeLabel, fantasyNote, priceText,
   };
 
-  if (typeof document === "undefined" || typeof location === "undefined" || !/(^|\.)midjourney\.com$/i.test(location.hostname)) return;
+  const panelMode = typeof location !== "undefined" && location.protocol === "chrome-extension:" && location.pathname.endsWith("/image-edit.html");
+  if (typeof document === "undefined" || typeof location === "undefined" || (!panelMode && !/(^|\.)midjourney\.com$/i.test(location.hostname))) return;
   if (globalScope.__saveToGalleryFastHelper) return;
   globalScope.__saveToGalleryFastHelper = true;
 
@@ -117,7 +118,7 @@
   const FALLBACK_MODELS = [
     { id: "seedream-5.5", chip: "Seedream 5.5", name: "Seedream 5.5", hint: "Edit and restyle. Keeps the look of the frame.", default: true },
     { id: "krea-3", chip: "Krea 3", name: "Krea 3", hint: "The edit model. Keeps the frame, changes what you name." },
-    { id: "gpt-flare", chip: "GPT Flare", name: "GPT Image 2.5 Flare", hint: "Change one thing. Never for composing scenes." },
+    { id: "gpt-flare", chip: "GPT 2.6", name: "GPT Image 2.6 Flare", hint: "Change one thing. Never for composing scenes." },
     { id: "nano-21", chip: "Nano 2.1", name: "Nano Banana 2.1", hint: "Good at keeping a face from a reference." },
     { id: "upscale-2k", chip: "Upscale 2K", name: "SeedVR2 upscale", hint: "Twice the size, same picture.", tool: true },
   ];
@@ -242,18 +243,20 @@
   // ── DOM ──
 
   const ring = el("div", "stg-fh-ring");
-  const tag = el("div", "stg-fh-tag", "<i></i>Edit<kbd>⌥F</kbd>");
+  const tag = el("div", "stg-fh-tag", "<i></i>Edit<kbd>⌥Z</kbd>");
   const toast = el("div", "stg-fh-toast");
   const root = el("div", "stg-fh-root");
   root.tabIndex = -1;
   root.setAttribute("role", "dialog");
-  root.setAttribute("aria-label", "Fast edit");
+  root.setAttribute("aria-label", "Image edit");
   root.innerHTML = `
     <div class="stg-fh-head">
-      <div class="stg-fh-name"><i></i>Fast edit</div>
+      <div class="stg-fh-name"><i></i>Image edit</div>
       <select class="stg-fh-world" title="Keep saves into this world"></select>
       <button type="button" class="stg-fh-x" title="Close (Esc)">×</button>
     </div>
+    <div class="stg-fh-threadbar"><select class="stg-fh-threads" aria-label="Edit threads"><option value="">Edit threads</option></select><button type="button" class="stg-fh-new">New</button><button type="button" class="stg-fh-original">Original</button></div>
+    <div class="stg-fh-source-drop" tabindex="0">Drop a Midjourney image to start an edit · ⌥Z on a frame</div>
     <div class="stg-fh-stage">
       <img class="stg-fh-main" alt="">
       <div class="stg-fh-pip" title="The source. Hold Space, or press on the picture, to see it full size."><img alt=""></div>
@@ -264,8 +267,12 @@
     <div class="stg-fh-takes"></div>
     <div class="stg-fh-acts"></div>
     <div class="stg-fh-fantasy"></div>
+    <div class="stg-fh-chatlog" role="log" aria-label="Edit conversation"></div>
+    <div class="stg-fh-chatopts"><label><input type="checkbox" class="stg-fh-gallery"> Gallery access</label><select class="stg-fh-writer" aria-label="Prompt writer"></select></div>
+    <div class="stg-fh-chatbox"><textarea class="stg-fh-chatinput" rows="2" maxlength="6000" placeholder="Tell the agent what to polish…"></textarea><button type="button" class="stg-fh-chatgo">Ask agent</button></div>
+    <label class="stg-fh-draftlabel">Edit prompt · review it, then Run</label>
     <div class="stg-fh-ask">
-      <input class="stg-fh-idea" type="text" spellcheck="false" autocomplete="off" placeholder="What should change?">
+      <textarea class="stg-fh-idea" rows="3" maxlength="2000" spellcheck="false" autocomplete="off" placeholder="Write an edit prompt, or ask the agent above"></textarea>
       <button type="button" class="stg-fh-go" title="Run (Enter)">Run</button>
     </div>
     <div class="stg-fh-tpls"></div>
@@ -274,7 +281,7 @@
     </div>
     <div class="stg-fh-row stg-fh-row--refs">
       <div class="stg-fh-refs"></div>
-      <div class="stg-fh-count" title="How many takes (⇧1–⇧4)"></div>
+      <div class="stg-fh-count" title="How many takes (⇧1–⇧3)"></div>
     </div>
     <div class="stg-fh-line"></div>
     <div class="stg-fh-recent"><b>Recent</b><div class="stg-fh-strip"></div></div>
@@ -282,6 +289,8 @@
 
   const $ = (selector) => root.querySelector(selector);
   const ui = {
+    threads: $(".stg-fh-threads"), sourceDrop: $(".stg-fh-source-drop"), original: $(".stg-fh-original"), newThread: $(".stg-fh-new"),
+    chatlog: $(".stg-fh-chatlog"), chatinput: $(".stg-fh-chatinput"), chatgo: $(".stg-fh-chatgo"), gallery: $(".stg-fh-gallery"), writer: $(".stg-fh-writer"),
     world: $(".stg-fh-world"), stage: $(".stg-fh-stage"), main: $(".stg-fh-main"), pip: $(".stg-fh-pip"), pipImg: $(".stg-fh-pip img"),
     chip: $(".stg-fh-chip"), wait: $(".stg-fh-wait"), src: $(".stg-fh-src"), takes: $(".stg-fh-takes"), acts: $(".stg-fh-acts"),
     fantasy: $(".stg-fh-fantasy"), idea: $(".stg-fh-idea"), go: $(".stg-fh-go"), tpls: $(".stg-fh-tpls"), models: $(".stg-fh-models"),
@@ -290,7 +299,7 @@
 
   const mount = () => {
     if (!alive()) { teardown(); return false; }
-    for (const node of [ring, tag, toast, root]) if (!node.isConnected) document.documentElement.appendChild(node);
+    for (const node of [ring, tag, toast, root]) if (!node.isConnected) (panelMode ? document.body : document.documentElement).appendChild(node);
     return true;
   };
   function teardown() {
@@ -299,12 +308,168 @@
   }
 
   const state = {
+    thread: null, threads: [], threadReady: null, chatting: false, requestKey: null, requestThreadId: null,
     open: false, node: null, source: null, catalog: null, models: FALLBACK_MODELS, templates: FALLBACK_TEMPLATES,
     model: "seedream-5.5", count: 1, section: "scene", worlds: [], worldKey: "", refs: [],
     runs: [], sel: -1, comparing: false, fantasyOpen: false, projects: null, project: "", asRef: false, motion: "",
     busy: false, recent: [], href: location.href,
   };
   const bySource = new Map(); // source key → runs started on it this session
+
+  function framePayload(source) {
+    return { url: source.upload?.url || source.rendered, ...(source.upload || {}),
+      ...(source.tile ? { mjJobId: source.tile.jobId, mjIndex: source.tile.index } : {}),
+      ...(source.pageUrl ? { pageUrl: source.pageUrl } : {}), ...(source.command ? { prompt: source.command.slice(0, 6000) } : {}) };
+  }
+  function sourceFromFrame(frame, key) {
+    return { key: key || `run:${frame.parentRunId}:${frame.parentIndex}`, rendered: frame.url, tile: frame.mjJobId ? { jobId: frame.mjJobId, index: frame.mjIndex || 0 } : null,
+      urls: [], pageUrl: frame.pageUrl, command: frame.prompt || "", aspect: frame.width && frame.height ? frame.width / frame.height : 16 / 9, upload: { ...frame } };
+  }
+  function paintChat() {
+    ui.gallery.checked = Boolean(state.thread?.galleryEnabled);
+    ui.chatgo.disabled = state.chatting || !state.thread;
+    ui.idea.disabled = state.chatting;
+    ui.threads.disabled = state.chatting || state.busy;
+    ui.chatlog.replaceChildren(...(state.thread?.messages || []).map(message => {
+      const row = el("div", `stg-fh-message stg-fh-message--${message.role}`);
+      const label = el("b"); label.textContent = message.role === "michael" ? "You" : "Agent";
+      const text = el("p"); text.textContent = message.text;
+      row.append(label, text);
+      if (message.prompt) {
+        const use = el("button"); use.type = "button"; use.textContent = "Use this prompt";
+        use.addEventListener("click", () => { ui.idea.value = message.prompt; void saveThread({ draft: message.prompt }); }); row.append(use);
+      }
+      if (message.reads?.length) { const reads = el("small"); reads.textContent = `Gallery read: ${message.reads.join(", ")}`; row.append(reads); }
+      if (message.role === "michael" && !state.thread.messages.some(entry => entry.id === `${message.id}:answer`)) {
+        const retry = el("button"); retry.type = "button"; retry.textContent = "Retry answer"; retry.disabled = state.chatting;
+        retry.addEventListener("click", () => void chat(message.id)); row.append(retry);
+      }
+      return row;
+    }));
+    ui.chatlog.scrollTop = ui.chatlog.scrollHeight;
+    scheduleLayout();
+  }
+  async function loadThreads() {
+    const res = await ask("threadList");
+    if (!res?.ok) return;
+    state.threads = res.threads || [];
+    ui.threads.replaceChildren(new Option("Edit threads…", ""), ...state.threads.map(thread => new Option(thread.title, thread.id)));
+    ui.threads.value = state.thread?._id || "";
+  }
+  function adoptThread(thread, runs, keepSource) {
+    state.thread = thread;
+    state.model = thread.model; state.count = Math.min(3, thread.count); state.worldKey = thread.world || "";
+    ui.idea.value = thread.draft;
+    const restored = sourceFromFrame(thread.activeSource, thread.activeSource.parentRunId ? undefined : thread.key);
+    if (keepSource && state.source) Object.assign(state.source, restored); else state.source = restored;
+    state.runs = runs || []; state.sel = state.runs.length ? 0 : -1;
+    state.refs = []; state.fantasyOpen = false;
+    setLocal({ stgImageEditLastThread: thread._id });
+    paintChat(); paintSource(); paintRefs(); paintWorlds(); paintControls(); paintAll(); pollSoon();
+  }
+  async function loadThread(id) {
+    if (state.chatting || state.busy) return;
+    const res = await ask("threadRead", { id });
+    if (!res?.ok) { setLine(esc(res?.error || "Could not reopen the edit."), "err"); return; }
+    state.node = null;
+    state.open = true; mount(); root.classList.add("stg-fh-show", "stg-fh-in");
+    adoptThread(res.thread, res.runs);
+    state.threadReady = Promise.resolve();
+    void loadThreads(); layout();
+  }
+  async function ensureThread(source) {
+    try {
+      const upload = source.upload || await prepareSource(source);
+      if (!source.command) source.command = await readCommand(source);
+      source.upload = upload;
+      const res = await ask("threadCreate", { body: { key: source.key, source: framePayload(source) } });
+      if (!res?.ok || !res.thread) throw new Error(res?.error || "Could not save the edit thread.");
+      const full = await ask("threadRead", { id: res.thread._id });
+      if (!full?.ok) throw new Error(full?.error || "Could not read the edit thread.");
+      if (state.source !== source) return;
+      // A reopened frame resumes the last selected take, with every earlier run.
+      adoptThread(full.thread, full.runs, !full.thread.activeSource.parentRunId);
+      void loadThreads();
+    } catch (error) { if (state.source === source) setLine(esc(error?.message || error), "err"); }
+  }
+  async function saveThread(patch, id = state.thread?._id) {
+    if (!id) return;
+    const res = await ask("threadUpdate", { body: { id, ...patch } });
+    if (!res?.ok) throw new Error(res?.error || "Could not save the edit.");
+    if (state.thread?._id === id) { state.thread = res.thread; paintChat(); }
+    return res.thread;
+  }
+  let draftTimer;
+  function saveControls() {
+    clearTimeout(draftTimer);
+    const id = state.thread?._id;
+    const patch = { draft: ui.idea.value, model: state.model, count: state.count, world: state.worldKey };
+    draftTimer = setTimeout(() => { void saveThread(patch, id).catch(error => setLine(esc(error.message), "err")); }, 400);
+  }
+  async function chat(retryId) {
+    if (state.chatting) return;
+    const text = retryId ? state.thread?.messages.find(message => message.id === retryId)?.text : ui.chatinput.value.trim(); if (!text) return;
+    await state.threadReady;
+    const id = state.thread?._id; if (!id) { setLine("Open an image first.", "err"); return; }
+    state.chatting = true; paintChat();
+    clearTimeout(draftTimer);
+    const messageId = retryId || crypto.randomUUID();
+    try {
+      const consent = globalScope.SaveToGalleryEditConsent?.galleryConsent(text);
+      if (!retryId) await saveThread({ draft: ui.idea.value, model: state.model, count: state.count, world: state.worldKey, activeSource: framePayload(state.source),
+        ...(consent !== undefined ? { galleryEnabled: consent } : {}), message: { id: messageId, role: "michael", text } }, id);
+      if (!retryId) ui.chatinput.value = "";
+      setLine("<span class='stg-fh-spin'></span><span>Preparing your edit prompt…</span>");
+      const res = await ask("chat", { id, messageId });
+      if (!res?.ok) throw new Error(res?.error || "The writer could not answer.");
+      if (state.thread?._id !== id) return;
+      if (res.thread) { state.thread = res.thread; ui.idea.value = res.thread.draft; }
+      paintChat(); setLine("Prompt ready. Review it, then Run.");
+    } catch (error) { setLine(esc(error?.message || error), "err"); }
+    finally { state.chatting = false; paintChat(); }
+  }
+  ui.chatgo.addEventListener("click", () => void chat());
+  ui.chatinput.addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); void chat(); } });
+  ui.gallery.addEventListener("change", () => void saveThread({ galleryEnabled: ui.gallery.checked }).catch(error => setLine(esc(error.message), "err")));
+  ui.idea.addEventListener("input", saveControls);
+  ui.threads.addEventListener("change", () => { if (ui.threads.value) void loadThread(ui.threads.value); });
+  ui.newThread.addEventListener("click", () => {
+    if (!state.thread || state.busy || state.chatting) return;
+    const source = sourceFromFrame(state.thread.source, `edit:${crypto.randomUUID()}`);
+    state.source = source; state.thread = null; state.runs = []; state.sel = -1; state.requestKey = null;
+    ui.idea.value = ""; paintAll(); paintChat();
+    state.threadReady = ensureThread(source);
+  });
+  ui.original.addEventListener("click", () => {
+    if (!state.thread || state.busy || state.chatting) return;
+    state.source = sourceFromFrame(state.thread.source, state.thread.key);
+    void saveThread({ activeSource: state.thread.source }).catch(error => setLine(esc(error.message), "err"));
+    paintSource(); paintStage(); setLine("Editing the original image.");
+  });
+  void ask("writer").then(res => {
+    if (res?.ok) globalScope.SaveToGalleryWriterChoice?.fill(ui.writer, res, { vision: true });
+  });
+  ui.writer.addEventListener("change", () => {
+    const choice = globalScope.SaveToGalleryWriterChoice?.parse(ui.writer.value);
+    if (choice) void ask("writer", { choice });
+  });
+
+  function openUrl(url) {
+    const tile = adapter()?.getSaveSelection(url, "");
+    const source = { key: tile ? `${tile.jobId}-${tile.index}` : url, rendered: url, tile, urls: frameUrls(tile, url), pageUrl: tile ? `https://www.midjourney.com/jobs/${tile.jobId}?index=${tile.index}` : "", command: "", aspect: 16 / 9, upload: null };
+    state.source = source; state.node = null; state.thread = null; state.runs = []; state.sel = -1;
+    state.open = true; mount(); root.classList.add("stg-fh-show", "stg-fh-in");
+    paintSource(); paintControls(); paintAll(); paintChat();
+    state.threadReady = ensureThread(source);
+    void loadCatalog(); void loadThreads(); scheduleLayout();
+  }
+  ui.sourceDrop.addEventListener("dragover", event => { event.preventDefault(); event.stopPropagation(); });
+  ui.sourceDrop.addEventListener("drop", event => {
+    event.preventDefault(); event.stopPropagation();
+    const dt = event.dataTransfer;
+    const url = urlFromDrop({ uri: dt?.getData("text/uri-list"), text: dt?.getData("text/plain"), html: dt?.getData("text/html") });
+    if (url) openUrl(url); else setLine("Drop a Midjourney image here.");
+  });
 
   let toastTimer = null;
   function showToast(text) {
@@ -324,6 +489,7 @@
   let frame = 0;
   function layout() {
     if (!state.open) return;
+    if (panelMode) return;
     const node = state.node;
     const rect = node && node.isConnected ? node.getBoundingClientRect() : null;
     const visible = rect && rect.width > 0 && rect.bottom > 0 && rect.top < innerHeight;
@@ -352,7 +518,7 @@
       button.addEventListener("click", () => pickModel(model.id));
       return button;
     }));
-    ui.count.replaceChildren(...[1, 2, 3, 4].map((n) => {
+    ui.count.replaceChildren(...[1, 2, 3].map((n) => {
       const button = el("button", `stg-fh-n${n === state.count ? " stg-fh-on" : ""}`, `×${n}`);
       button.type = "button";
       button.title = `${n} take${n > 1 ? "s" : ""} (⇧${n})`;
@@ -379,18 +545,20 @@
     const tool = modelOf(state.model)?.tool;
     const price = priceText(perTake(state.model), state.count);
     ui.go.innerHTML = `${tool ? esc(modelOf(state.model).chip) : "Run"}${price ? `<em>${esc(price)}</em>` : ""}`;
-    ui.go.disabled = state.busy || !state.source;
+    ui.go.disabled = state.busy || state.chatting || !state.source || !state.thread;
   }
 
   function pickModel(id) {
     state.model = id;
     setLocal({ [STORE.model]: id });
     paintControls();
+    saveControls();
   }
   function pickCount(n) {
     state.count = n;
     setLocal({ [STORE.count]: n });
     paintControls();
+    saveControls();
   }
   function useTemplate(template) {
     if (template.model) {
@@ -426,9 +594,8 @@
   }
   let worldsLoaded = false;
   async function loadWorlds() {
-    const stored = await local([STORE.world, STORE.dockWorld]);
     // The dock's world unless a world was picked here.
-    state.worldKey = String(stored[STORE.world] || stored[STORE.dockWorld] || "");
+    state.worldKey = state.thread?.world || "";
     paintWorlds();
     if (worldsLoaded) return;
     const res = await ask("worlds");
@@ -438,7 +605,7 @@
     if (state.worldKey && !state.worlds.some((world) => world.key === state.worldKey)) state.worldKey = "";
     paintWorlds();
   }
-  ui.world.addEventListener("change", () => { state.worldKey = ui.world.value; setLocal({ [STORE.world]: state.worldKey }); });
+  ui.world.addEventListener("change", () => { state.worldKey = ui.world.value; setLocal({ [STORE.world]: state.worldKey }); saveControls(); });
   const currentWorld = () => state.worlds.find((world) => world.key === state.worldKey) || null;
 
   // ── References ──
@@ -488,7 +655,7 @@
   function open(node) {
     if (!adapter()) return;
     const target = node || mediaAt(pointer.x, pointer.y) || mainMedia();
-    if (!target) { showToast("Point at a picture, then ⌥F"); return; }
+    if (!target) { showToast("Point at a picture, then ⌥Z"); return; }
     if (!mount()) return;
     globalScope.SaveToGalleryExpand?.close?.();
     hideTag();
@@ -502,10 +669,13 @@
       state.sel = state.runs.length ? 0 : -1;
       state.refs = [];
       state.fantasyOpen = false;
+      state.thread = null;
       ui.idea.value = "";
       void readCommand(source).then((command) => { source.command = command; if (state.source === source) paintSource(); });
       void prepareSource(source);
+      state.threadReady = ensureThread(source);
     }
+    if (same && !state.thread) state.threadReady = ensureThread(state.source);
     state.open = true;
     root.classList.add("stg-fh-show");
     requestAnimationFrame(() => root.classList.add("stg-fh-in"));
@@ -516,6 +686,7 @@
     void loadWorlds();
     void loadCatalog();
     void loadRecent();
+    void loadThreads();
     pollSoon();
     layout();
     ui.idea.focus();
@@ -536,6 +707,8 @@
     state.sel = 0;
     state.refs = [];
     state.node = null;
+    state.thread = null;
+    state.threadReady = ensureThread(source);
     paintSource();
     paintRefs();
     paintAll();
@@ -590,20 +763,29 @@
   }
 
   async function run(opts = {}) {
-    if (state.busy || !state.source) return;
+    if (state.busy || state.chatting || !state.source) return;
+    clearTimeout(draftTimer);
     const model = opts.model || state.model;
     const instruction = clean(opts.instruction != null ? opts.instruction : ui.idea.value);
     if (!instruction && !modelOf(model)?.tool) { setLine("Say what to change, or click a chip."); ui.idea.focus(); return; }
-    const source = opts.source || state.source;
+    let source = opts.source || state.source;
+    if (opts.source) state.source = opts.source;
     state.busy = true;
     paintPrice();
     setLine(`<span class="stg-fh-spin"></span><span>${source.upload?.r2Key || source.upload?.url ? "Sending to fal…" : "Reading the frame…"}</span>`);
     try {
+      await state.threadReady;
+      const thread = state.thread;
+      source = opts.source || state.source;
+      if (!thread) throw new Error("The edit thread is not ready. Reopen the image and try again.");
+      if (state.requestThreadId !== thread._id) { state.requestKey = null; state.requestThreadId = thread._id; }
+      await saveThread({ draft: instruction, model, count: opts.count || state.count, activeSource: framePayload(source) });
       const upload = source.upload?.url ? source.upload : await prepareSource(source);
       const refs = opts.refs || await refPayloads();
       const world = currentWorld();
       const res = await ask("start", {
         run: {
+          threadId: thread._id, requestKey: state.requestKey || (state.requestKey = crypto.randomUUID()),
           model, instruction, count: opts.count || state.count,
           source: {
             ...(upload.r2Key ? { r2Key: upload.r2Key } : { url: upload.url }),
@@ -619,6 +801,7 @@
         },
       });
       if (!res?.ok || !res.run) throw new Error(res?.error || "The gallery did not start it.");
+      state.requestKey = null;
       if (state.source !== source) return;
       state.runs = [res.run, ...state.runs];
       bySource.set(source.key, state.runs);
@@ -632,6 +815,7 @@
     } finally {
       state.busy = false;
       paintPrice();
+      paintChat();
     }
   }
 
@@ -646,8 +830,10 @@
   async function poll() {
     if (!state.open || !alive()) return;
     const ids = state.runs.filter((entry) => entry.status === "queued" || entry.status === "running").map((entry) => entry._id);
+    const threadId = state.thread?._id;
     if (!ids.length) return;
     const res = await ask("runs", { ids });
+    if (state.thread?._id !== threadId) return;
     if (res?.ok && Array.isArray(res.runs)) {
       const fresh = new Map(res.runs.map((entry) => [entry._id, entry]));
       const before = state.runs.map((entry) => entry.status).join();
@@ -685,7 +871,7 @@
         ? `<span class="stg-fh-spin"></span>`
         : take.status === "error"
           ? `<span class="stg-fh-x2">!</span>`
-          : `<img alt="" src="${esc(take.thumbUrl || take.url)}">`);
+          : `<img alt="" loading="lazy" decoding="async" src="${esc(take.thumbUrl || take.url)}">`);
       tile.type = "button";
       tile.title = take.status === "error" ? take.error || "Failed" : `${takeLabel(owner, take)}\n${owner.instruction}`;
       if (take.review === "kept") tile.appendChild(el("u", "stg-fh-pill", "Kept"));
@@ -754,7 +940,7 @@
     const reviewing = takes().length > 0;
     ui.keys.innerHTML = reviewing
       ? "<span><b>←→</b> pick</span><span><b>Space</b> source</span><span><b>1</b> keep</span><span><b>2</b> drop</span><span><b>E</b> edit</span><span><b>/</b> type</span><span><b>Esc</b> close</span>"
-      : "<span><b>↵</b> run</span><span><b>1–4</b> model</span><span><b>⇧1–4</b> takes</span><span><b>⇧-click</b> add reference</span><span><b>Esc</b> close</span>";
+      : "<span><b>↵</b> run</span><span><b>1–4</b> model</span><span><b>⇧1–3</b> takes</span><span><b>⇧-click</b> add reference</span><span><b>Esc</b> close</span>";
   }
 
   function replaceRun(updated) {
@@ -803,10 +989,9 @@
       upload: { url: take.url, width: take.width, height: take.height, parentRunId: owner._id, parentIndex: take.index },
     };
     state.source = source;
-    state.runs = bySource.get(source.key) || [];
-    state.sel = state.runs.length ? 0 : -1;
     state.fantasyOpen = false;
     ui.idea.value = "";
+    void saveThread({ activeSource: framePayload(source), draft: "" }).catch(error => setLine(esc(error.message), "err"));
     paintSource();
     paintAll();
     setLine("<span>Editing that take. Say what to change next.</span>");
@@ -819,9 +1004,8 @@
     const owner = entry?.run || state.runs[0];
     if (!owner) return;
     const source = state.source;
-    const upload = owner.source.url && !source?.upload ? { url: owner.source.url, width: owner.source.width, height: owner.source.height } : source?.upload;
-    if (source && upload) source.upload = upload;
-    void run({ model: owner.model, instruction: owner.instruction, count: owner.count });
+    const repeatedSource = sourceFromFrame(owner.source, source?.key);
+    void run({ model: owner.model, instruction: owner.instruction, count: Math.min(3, owner.count), source: repeatedSource });
   }
 
   function toBar() {
@@ -960,6 +1144,7 @@
   const plain = (event) => !event.metaKey && !event.ctrlKey && !event.altKey;
   function onCardKey(event) {
     const active = document.activeElement;
+    if (active === ui.chatinput && event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); void chat(); return; }
     const inIdea = active === ui.idea;
     const inField = Boolean(active && active !== ui.idea && active.matches?.("input, textarea, select"));
     const digit = /^Digit([1-4])$/.exec(event.code)?.[1];
@@ -969,10 +1154,10 @@
       if (state.fantasyOpen) { state.fantasyOpen = false; paintFantasy(); root.focus(); } else close();
       return;
     }
-    if (digit && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey && !inField) { event.preventDefault(); pickCount(Number(digit)); return; }
+    if (digit && Number(digit) <= 3 && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey && !inField) { event.preventDefault(); pickCount(Number(digit)); return; }
     if (inField) return;
     if (inIdea) {
-      if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); void run(); return; }
+      if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); void run(); return; }
       if (digit && plain(event) && !ui.idea.value) { event.preventDefault(); const model = editModels()[Number(digit) - 1]; if (model) pickModel(model.id); return; }
       if (event.key === "ArrowUp" && takes().length && !ui.idea.value) { event.preventDefault(); root.focus(); return; }
       return;
@@ -1017,7 +1202,8 @@
 
   window.addEventListener("keydown", (event) => {
     if (!alive()) { teardown(); return; }
-    if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.code === "KeyF") {
+    if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && ["KeyF", "KeyZ"].includes(event.code)) {
+      if (event.target?.closest?.("input, textarea, [contenteditable='true']") || event.isComposing || event.repeat) return;
       event.preventDefault();
       event.stopPropagation();
       hideTag();
@@ -1055,6 +1241,7 @@
 
   // A click elsewhere closes the card; ⇧-click on a frame adds it as a reference.
   document.addEventListener("mousedown", (event) => {
+    if (panelMode) return;
     if (!state.open || !alive()) return;
     if (event.composedPath().includes(root) || event.composedPath().includes(tag)) return;
     if (event.shiftKey) {
@@ -1086,10 +1273,35 @@
   void local([STORE.model, STORE.count, STORE.section]).then((stored) => {
     if (typeof stored[STORE.model] === "string") state.model = stored[STORE.model];
     const n = Number(stored[STORE.count]);
-    if (n >= 1 && n <= 4) state.count = n;
+    if (n >= 1 && n <= 3) state.count = n;
     if (SECTIONS.some(([value]) => value === stored[STORE.section])) state.section = stored[STORE.section];
   });
 
   globalScope.SaveToGalleryFastHelper.open = open;
   globalScope.SaveToGalleryFastHelper.close = close;
+  let refreshingThread = false;
+  setInterval(async () => {
+    if (!state.open || state.busy || state.chatting || !state.thread || refreshingThread || root.contains(document.activeElement) && document.activeElement?.matches("input, textarea, select")) return;
+    refreshingThread = true;
+    const id = state.thread._id;
+    try {
+      const head = await ask("threadHead", { id });
+      if (!head?.ok || state.thread?._id !== id || head.updatedAt <= state.thread.updatedAt) return;
+      const fresh = await ask("threadRead", { id });
+      if (fresh?.ok && state.thread?._id === id && !state.busy && !state.chatting) {
+        const selection = state.sel;
+        adoptThread(fresh.thread, fresh.runs);
+        state.sel = Math.min(selection, takes().length - 1); paintAll();
+      }
+    } finally { refreshingThread = false; }
+  }, 15000);
+  if (panelMode) {
+    mount(); state.open = true; root.classList.add("stg-fh-show", "stg-fh-in");
+    paintControls(); paintChat(); void loadThreads(); void loadWorlds();
+    void local("stgImageEditLastThread").then(stored => { if (stored.stgImageEditLastThread) void loadThread(stored.stgImageEditLastThread); });
+    addEventListener("message", event => {
+      if (event.source !== parent || event.origin !== location.origin || event.data?.type !== "image-edit-visible") return;
+      state.open = Boolean(event.data.visible); if (state.open) pollSoon(); else clearTimeout(pollTimer);
+    });
+  }
 })(typeof globalThis !== "undefined" ? globalThis : self);

@@ -170,7 +170,10 @@ const destinationFolderId = async () => {
 };
 
 const setExtensionMode = (mode, { persist = false } = {}) => {
-  extensionMode = mode === "bookmark" || mode === "queue" || mode === "edit" || mode === "describe" ? mode : "add";
+  extensionMode = ["bookmark", "queue", "edit", "describe", "image-edit"].includes(mode) ? mode : "add";
+  const isImageEdit = extensionMode === "image-edit";
+  document.getElementById("imageEditModeTab")?.setAttribute("aria-selected", String(isImageEdit));
+  globalThis.SaveToGalleryImageEditPanel?.setVisible(isImageEdit);
   const isDescribe = extensionMode === "describe";
   describeModeTabEl?.setAttribute("aria-selected", String(isDescribe));
   if (describeRootEl) describeRootEl.hidden = !isDescribe;
@@ -189,7 +192,7 @@ const setExtensionMode = (mode, { persist = false } = {}) => {
   // The MJ Queue tab takes the whole panel; the gallery settings hide.
   document.body.classList.toggle("mjq-mode", isQueue);
   globalThis.SaveToGalleryMjQueuePanel?.setVisible(isQueue);
-  const label = { add: "add", bookmark: "bookmark", queue: "queue", edit: "mj settings", describe: "describe" }[extensionMode];
+  const label = { add: "add", bookmark: "bookmark", queue: "queue", edit: "mj settings", describe: "describe", "image-edit": "image edit" }[extensionMode];
   modeBadgeEl.textContent = `${label} mode · v${chrome.runtime.getManifest().version}`;
   if (persist) {
     void chrome.storage.sync.set({ [EXTENSION_MODE_KEY]: extensionMode });
@@ -988,6 +991,7 @@ editModeTabEl?.addEventListener("click", () => {
 describeModeTabEl?.addEventListener("click", () => {
   setExtensionMode("describe", { persist: true });
 });
+document.getElementById("imageEditModeTab")?.addEventListener("click", () => setExtensionMode("image-edit", { persist: true }));
 // describe-panel.js switches here when a right-click sends it a picture.
 globalThis.SaveToGalleryPanelMode = (mode) => setExtensionMode(mode, { persist: true });
 

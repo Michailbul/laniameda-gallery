@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.44.0 (24 Nov 2026)
+
+- Option-Z on a Midjourney image opens its editing conversation. Option-F
+  still works. The new Edit image tab accepts a dragged Midjourney image.
+- Ask the agent for a prompt, review or edit the draft, then Run with
+  Seedream 5.5 (default), Krea 3, GPT Image 2.6 Flare or Nano Banana 2.1.
+  Choose 1, 2 or 3 takes. Chat uses the existing Mac/fal/Pika writer choice.
+- Threads keep the original, selected source, chat, prompts and every run
+  in the Gallery backend, available on both Macs and through Gallery MCP.
+  Editing a take continues the conversation; Original returns to its source.
+- Gallery access starts off. Enable the switch or say "Use my gallery".
+  The agent uses the live MCP reading tools and records its reads in chat.
+  Writing, stars and publishing are not included. Images still require Run.
+- Local writer 1.5.0 omits Midjourney version rules for image-edit requests.
+
+Requires matching frontend routes and Convex functions before installation.
+
 ## 0.43.4 (23 Nov 2026)
 
 Every prompt is its own picture; only your world
