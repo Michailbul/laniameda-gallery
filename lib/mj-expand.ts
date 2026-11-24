@@ -20,7 +20,6 @@ export const EXPAND_LIMITS = {
   // A data URL of a 1024 px JPEG is about 300 KB; 3 MB leaves room for PNGs.
   image: 3_000_000,
   command: 8000,
-  idea: 800,
   system: 8000,
   maxCount: 10,
   /** Previous Midjourney prompts the writer may replay (newest first). */
