@@ -25,7 +25,7 @@ over to the next one instead of running the extension out of time.
 import base64, json, os, queue, re, subprocess, sys, threading, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 HOME = os.path.expanduser("~")
 CONF_DIR = os.path.join(HOME, ".config", "laniameda", "writer")
 MODELS = {"haiku": "claude-haiku-5-5", "sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5", "fable": "claude-fable-5-2"}
@@ -211,14 +211,14 @@ def run_once(args, turn, env, cwd, idle, deadline):
     return result, "".join(errors)[-300:].strip(), stop
 
 
-def run_claude(conf, system, blocks, model, max_tokens):
+def run_claude(conf, system, blocks, model, max_tokens, purpose=None):
     turn = json.dumps({"type": "user", "message": {"role": "user", "content": blocks}}) + "\n"
     # Partial messages keep events coming while Claude thinks and writes: silence means a hang.
     args = [conf["claude"], "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
             "--model", MODELS[model], "--tools", "", "--strict-mcp-config", "--no-session-persistence",
             "--disable-slash-commands", "--setting-sources", "",
             "--effort", conf["effort"] if conf.get("effort") in EFFORTS else "low",
-            "--system-prompt", (system or "You are a careful writing assistant. Answer with the text asked for and nothing else.") + "\n\n" + VERSION_RULE]
+            "--system-prompt", (system or "You are a careful writing assistant. Answer with the text asked for and nothing else.") + ("\n\n" + VERSION_RULE if purpose != "image-edit" else "")]
     home = os.path.join(CONF_DIR, "claude-home")
     cwd = os.path.join(CONF_DIR, "cwd")
     os.makedirs(home, exist_ok=True); os.makedirs(cwd, exist_ok=True)
@@ -248,7 +248,7 @@ def run_claude(conf, system, blocks, model, max_tokens):
         text = str((result or {}).get("result") or "").strip()
         # A cut answer comes back as text that ends in an API error line: that is a failure, not a result.
         if result and result.get("subtype") == "success" and not result.get("is_error") and text and "API Error:" not in text:
-            return enforce_version(str(result["result"])), name
+            return (str(result["result"]) if purpose == "image-edit" else enforce_version(str(result["result"]))), name
         if stop and not result:
             last = "Claude took too long to answer." if stop == "it took too long" else stop + "."
             log("account %s failed: %s" % (os.path.basename(path), stop))
@@ -353,7 +353,7 @@ class Handler(BaseHTTPRequestHandler):
         if not RUNNING.acquire(timeout=30):
             return self.reply(429, {"ok": False, "error": "The local writer is busy. Try again."})
         try:
-            text, account = run_claude(conf, system, blocks, model, body.get("maxTokens") or 1500)
+            text, account = run_claude(conf, system, blocks, model, body.get("maxTokens") or 1500, body.get("purpose"))
         except RuntimeError as error:
             log("failed %s: %s" % (model, str(error)[:200].replace("\n", " ")))
             return self.reply(502, {"ok": False, "error": str(error)})

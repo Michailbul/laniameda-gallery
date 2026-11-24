@@ -1,0 +1,4 @@
+.stg-image-edit-panel { margin: 0; background: #0a0805; }
+.stg-image-edit-panel .stg-fh-root { position: relative; inset: auto; width: 100%; max-width: none; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
+.stg-image-edit-panel .stg-fh-x { display: none; }
+.stg-image-edit-panel .stg-fh-stage { max-height: 280px; }

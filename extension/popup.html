@@ -1052,6 +1052,9 @@
         title="A picture into our Midjourney prompt, with a style lock"
       >Describe</button>
       <button
+        id="imageEditModeTab" class="mode-tab" type="button" role="tab" aria-selected="false" aria-controls="imageEditRoot" title="Polish a picture with an agent, Seedream 5.5 and edit threads"
+      >Edit image</button>
+      <button
         id="editModeTab"
         class="mode-tab"
         type="button"
@@ -1065,6 +1068,7 @@
     <section id="mjqRoot" role="tabpanel" aria-labelledby="queueModeTab" hidden></section>
     <section id="qeRoot" role="tabpanel" aria-labelledby="editModeTab" hidden></section>
     <section id="dsRoot" role="tabpanel" aria-labelledby="describeModeTab" hidden></section>
+    <section id="imageEditRoot" role="tabpanel" aria-labelledby="imageEditModeTab" hidden></section>
 
     <section id="addModePanel" class="section" role="tabpanel" aria-labelledby="addModeTab">
       <div class="drop-heading">
@@ -1306,6 +1310,7 @@
   <script src="mj-hotkeys-settings.js"></script>
   <script src="collection-classification.js"></script>
   <script src="drop-upload.js"></script>
+  <script src="image-edit-panel.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

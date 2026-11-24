@@ -155,6 +155,8 @@ export const startRun = ownerMutation({
   args: {
     ownerUserId: v.string(),
     model: v.string(),
+    threadId: v.optional(v.string()),
+    requestKey: v.optional(v.string()),
     instruction: v.string(),
     count: v.number(),
     source: v.object({
@@ -174,6 +176,18 @@ export const startRun = ownerMutation({
   },
   returns: v.object({ runId: v.id("mjQuickRuns"), estimateUsd: v.number(), run: publicRun }),
   handler: async (ctx, args) => {
+    if (args.requestKey && args.requestKey.length > 100) throw new ConvexError("Invalid send key.");
+    if (args.requestKey) {
+      for (const owner of resolveUserIdCandidates(args.ownerUserId)) {
+        const old = await ctx.db.query("mjQuickRuns").withIndex("by_owner_request", q => q.eq("ownerUserId", owner).eq("requestKey", args.requestKey)).unique();
+        if (old) return { runId: old._id, estimateUsd: old.estimateUsd, run: toPublic(old) };
+      }
+    }
+    const threadId = args.threadId ? ctx.db.normalizeId("mjImageEditThreads", args.threadId) : null;
+    const thread = threadId ? await ctx.db.get(threadId) : null;
+    if (args.threadId && (!thread || !canActorAccessOwnerUserId(args.ownerUserId, thread.ownerUserId))) throw new ConvexError("That edit thread is unavailable.");
+    if (thread && args.count > 3) throw new ConvexError("Choose 1, 2 or 3 takes.");
+    if (thread && thread.runIds.length >= 100) throw new ConvexError("Start another edit thread to keep this history.");
     const plan = planFastRun({
       modelId: args.model, instruction: args.instruction, count: args.count, refs: args.refs.length,
       width: args.source.width, height: args.source.height,
@@ -197,6 +211,7 @@ export const startRun = ownerMutation({
     const now = Date.now();
     const clip = (value: string | undefined, max: number) => (value ? value.slice(0, max) : undefined);
     const runId = await ctx.db.insert("mjQuickRuns", {
+      ...(args.requestKey ? { requestKey: args.requestKey.slice(0, 100) } : {}),
       ownerUserId: args.ownerUserId,
       source: {
         r2Key: clip(args.source.r2Key, 500),
@@ -230,6 +245,7 @@ export const startRun = ownerMutation({
       updatedAt: now,
     });
     await ctx.scheduler.runAfter(0, submitRun, { runId });
+    if (thread) await ctx.db.patch(thread._id, { runIds: [...thread.runIds, runId], draft: plan.instruction, updatedAt: now });
     const run = (await ctx.db.get(runId))!;
     return { runId, estimateUsd: plan.totalUsd, run: toPublic(run) };
   },

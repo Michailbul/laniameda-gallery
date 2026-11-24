@@ -1311,12 +1311,12 @@ async function writerBridgeUp(fresh = false) {
 }
 const bridgeRuns = (model) => WRITER_LOCAL_MODELS.includes(model) && writerSeen.models.includes(model);
 
-async function writerBridgeWrite(messages, maxTokens, model) {
+async function writerBridgeWrite(messages, maxTokens, model, purpose) {
   try {
     const response = await fetch(`${WRITER_BRIDGE}/v1/write`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages, maxTokens, model }),
+      body: JSON.stringify({ messages, maxTokens, model, purpose }),
       // Opus and Fable on a whole world bible need longer than Haiku.
       signal: AbortSignal.timeout(model === "haiku" ? 120_000 : 200_000),
     });
@@ -1376,7 +1376,7 @@ async function writerCall(path, body) {
   const prepared = await post({ ...full, local: { stage: "messages" } });
   if (!prepared?.ok) return failed("local", `The gallery could not prepare the local run: ${prepared?.error || "it refused the request"}.`);
   if (!prepared.local?.messages) return failed("local", "This gallery has no local runs yet.");
-  const written = await writerBridgeWrite(prepared.local.messages, prepared.local.maxTokens, model);
+  const written = await writerBridgeWrite(prepared.local.messages, prepared.local.maxTokens, model, path === "/api/extension/image-edit-chat" ? "image-edit" : undefined);
   if (!written.ok) return failed("local", `The writer on this Mac failed: ${written.error}.`);
   const res = await post({ ...full, local: { stage: "finish", raw: written.text, model: written.model, ms: written.ms } });
   return res?.ok ? res : failed("local", res?.error || "Could not write.");
@@ -2341,6 +2341,31 @@ async function fastFantasySend(message) {
 async function fastRequest(message) {
   const op = String(message.action || "").slice("fast:".length);
   switch (op) {
+    case "writer":
+      return writerRequest(message.choice ? { do: "set", ...message.choice } : {});
+    case "threadList":
+      return describeFetchJson("/api/extension/image-edit", { method: "GET" });
+    case "threadHead":
+      return describeFetchJson(`/api/extension/image-edit?id=${encodeURIComponent(message.id)}&head=1`, { method: "GET" });
+    case "threadRead":
+      return describeFetchJson(`/api/extension/image-edit?id=${encodeURIComponent(message.id)}`, { method: "GET" });
+    case "threadCreate":
+      return describeFetchJson("/api/extension/image-edit", { method: "POST", body: JSON.stringify({ ...message.body, action: "create" }) });
+    case "threadUpdate":
+      return describeFetchJson("/api/extension/image-edit", { method: "POST", body: JSON.stringify({ ...message.body, action: "update" }) });
+    case "chat": {
+      const results = [];
+      for (let step = 0; step < 4; step++) {
+        const res = await writerCall("/api/extension/image-edit-chat", { id: message.id, messageId: message.messageId, results });
+        if (!res?.ok || !res.tools?.length) return res;
+        for (const call of res.tools.slice(0, 3)) {
+          if (results.length >= 9) return { ok: false, error: "The writer reached the Gallery reading limit. Ask a more specific question." };
+          const read = await describeFetchJson("/api/extension/image-edit-gallery", { method: "POST", body: JSON.stringify({ id: message.id, name: call.name, arguments: call.arguments }) });
+          results.push({ name: call.name, result: JSON.stringify(read?.ok ? read.result : { error: read?.error || "Gallery read failed." }).slice(0, 40000) });
+        }
+      }
+      return { ok: false, error: "The writer reached the Gallery reading limit. Your message is saved." };
+    }
     case "catalog": {
       const q = new URLSearchParams({ catalog: "1" });
       if (message.width) q.set("w", String(Math.round(message.width)));

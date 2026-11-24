@@ -31,7 +31,7 @@ export const FAST_MODELS: readonly FastModel[] = [
     hint: "The edit model. Keeps the frame, changes what you name.",
   },
   {
-    id: "gpt-flare", name: "GPT Image 2.5 Flare", chip: "GPT Flare", endpoint: "openai/gpt-image-2.5/flare/edit", maxRefs: 7,
+    id: "gpt-flare", name: "GPT Image 2.6 Flare", chip: "GPT 2.6", endpoint: "openai/gpt-image-2.6/flare/edit", maxRefs: 7,
     hint: "Change one thing. Never for composing scenes.",
   },
   {
@@ -190,6 +190,8 @@ export const fastStartSchema = z.object({
     height: z.number().int().positive().max(20000).optional(),
   })),
   refs: z.array(imageRef).max(FAST_LIMITS.refs).default([]),
+  threadId: z.string().trim().max(80).optional(),
+  requestKey: z.string().trim().min(1).max(100).optional(),
   world: z.object({
     key: z.string().trim().max(120).optional(),
     name: z.string().trim().max(200).optional(),

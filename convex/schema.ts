@@ -1,4 +1,5 @@
 import { defineSchema, defineTable } from "convex/server";
+import { imageEditFields } from "./mjImageEditValidators";
 import { v } from "convex/values";
 import { presetFiltersValidator, storyFields } from "./storyValidators";
 import {
@@ -425,7 +426,11 @@ export default defineSchema({
   // (convex/mjQuickRuns.ts, convex/mjQuickRunner.ts). Takes stay here until
   // Michael keeps one (saved to the gallery as an asset) or drops it; a take
   // sent to Fantasy Studio records the draft it became there.
+  mjImageEditThreads: defineTable(imageEditFields)
+    .index("by_owner_updated", ["ownerUserId", "updatedAt"])
+    .index("by_owner_key", ["ownerUserId", "key"]),
   mjQuickRuns: defineTable({
+    requestKey: v.optional(v.string()),
     ownerUserId: v.string(),
     source: v.object({
       // The frame as fal reads it: an R2 key the extension uploaded, or a public URL.
@@ -489,7 +494,8 @@ export default defineSchema({
     finishedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
-  }).index("by_owner_createdAt", ["ownerUserId", "createdAt"]),
+  }).index("by_owner_createdAt", ["ownerUserId", "createdAt"])
+    .index("by_owner_request", ["ownerUserId", "requestKey"]),
   // Every picture an asset has been: its original and each approved in-place
   // edit, append-only. The asset row always shows one of them (matched by
   // media key); restoring a version copies its media back onto the same

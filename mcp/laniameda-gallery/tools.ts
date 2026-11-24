@@ -241,6 +241,19 @@ export function registerGalleryTools(mcpServer: McpServer, options: GalleryToolO
     : mcpServer;
 
   const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+  server.registerTool("list_image_edit_threads", {
+    title: "List image edit conversations", annotations: readAnnotations,
+    description: "The owner's recent Midjourney image-edit threads, shared with the extension on both Macs. Read one before replying; never starts generation.", inputSchema: {},
+  }, async () => jsonText(await apiFetch("/api/agent/image-edits", { action: "list" })));
+  server.registerTool("read_image_edit_thread", {
+    title: "Read an image edit conversation", annotations: readAnnotations,
+    description: "Read the original and currently selected image, conversation, editable prompt draft and generated runs with source lineage. Only reading; never spends credit.", inputSchema: { id: z.string().max(80) },
+  }, async input => jsonText(await apiFetch("/api/agent/image-edits", { action: "read", ...input })));
+  server.registerTool("reply_image_edit_thread", {
+    title: "Reply in an image edit conversation", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    description: "Reply to the owner in an image edit thread and optionally update its editable image-edit prompt. Supply a stable key for retry deduplication. No generation, publication or Gallery-access changes: the owner reviews the prompt and clicks Run.",
+    inputSchema: { id: z.string().max(80), text: z.string().min(1).max(6000), prompt: z.string().max(2000).optional(), key: z.string().min(1).max(80) },
+  }, async input => jsonText(await apiFetch("/api/agent/image-edits", { action: "reply", ...input })));
   server.registerTool("list_srefs", {
     title: "List Midjourney srefs", annotations: readAnnotations,
     description: "Read every reusable Midjourney sref recipe in an owned collection, grouped by exact codes, weights and versions. Includes saved example images, full prompts, notes and source links. Resolve the Midjourney Srefs collection with list_collections first.",

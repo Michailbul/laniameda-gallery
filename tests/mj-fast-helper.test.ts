@@ -32,7 +32,7 @@ describe("models", () => {
     expect(DEFAULT_FAST_MODEL.id).toBe("seedream-5.5");
     expect(FAST_MODELS.filter((model) => !model.tool).map((model) => model.id)).toEqual(["seedream-5.5", "krea-3", "gpt-flare", "nano-21"]);
     expect(FAST_MODELS.map((model) => model.endpoint)).toEqual([
-      "bytedance/seedream/v5.5/edit", "krea/v3/edit", "openai/gpt-image-2.5/flare/edit", "google/nano-banana-2.1/edit", "fal-ai/seedvr/upscale/image",
+      "bytedance/seedream/v5.5/edit", "krea/v3/edit", "openai/gpt-image-2.6/flare/edit", "google/nano-banana-2.1/edit", "fal-ai/seedvr/upscale/image",
     ]);
   });
 
@@ -79,7 +79,7 @@ describe("prices and plans", () => {
   test("a take's price per model", () => {
     expect(fastTakeUsd(fastModelById("seedream-5.5")!)).toBe(0.03);
     expect(fastTakeUsd(fastModelById("krea-3")!, 1456, 816)).toBe(0.0594);
-    expect(fastTakeUsd(fastModelById("gpt-flare")!)).toBe(0.055);
+    expect(fastTakeUsd(fastModelById("gpt-flare")!)).toBe(0.1);
     expect(fastTakeUsd(fastModelById("upscale-2k")!, 1456, 816)).toBe(0.0048);
     expect(priceLabel(0.03, 1)).toBe("≈ $0.030");
     expect(priceLabel(0.03, 3)).toBe("≈ $0.090 · 3 × $0.030");

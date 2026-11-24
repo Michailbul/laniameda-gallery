@@ -206,7 +206,7 @@ export function buildEditInput(endpoint: string, prompt: string, urls: string[],
   if (endpoint === "bytedance/seedream-5.0-pro/image-to-image") {
     return { prompt, image_urls: urls, size: "1.5K", aspect_ratio: aspectOf(w, h) };
   }
-  if (endpoint.startsWith("openai/gpt-image-2.5/")) return { prompt, image_urls: urls, quality: "high" };
+  if (endpoint.startsWith("openai/gpt-image-2.5/") || endpoint.startsWith("openai/gpt-image-2.6/")) return { prompt, image_urls: urls, quality: "high" };
   if (endpoint.startsWith("openai/gpt-image-2.5-")) {
     return { prompt, image_urls: urls, aspect_ratio: aspectOf(w, h), resolution: "1K" };
   }

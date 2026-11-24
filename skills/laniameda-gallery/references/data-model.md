@@ -1,5 +1,30 @@
 # Data model
 
+## Image editing conversations (extension 0.44.0)
+
+`mjImageEditThreads` are private owner-scoped conversations: original and active
+source image, model, 1–3 takes, editable prompt draft, per-thread Gallery reading
+consent, append-only messages and ordered `mjQuickRuns` ids. They are separate
+from Midjourney prompt queue jobs; editing never submits a Midjourney job.
+Indexes `by_owner_updated` and `by_owner_key` serve recent threads and idempotent
+frame reopening. No asset/publication flags are changed by creating a thread.
+The existing quick-run table adds optional `requestKey` and `by_owner_request`:
+the same send key returns the existing run and never schedules it twice.
+
+MCP: `list_image_edit_threads {}`, `read_image_edit_thread {id}` and
+`reply_image_edit_thread {id,text,prompt?,key}`. Read before replying. Reuse the
+same key for a retry. Replying can update the draft but never runs images,
+changes Gallery consent, saves assets, stars or publishes. Michael clicks Run
+and Keep. Reads need owner gallery:read; replies need gallery:write.
+Threads stop accepting messages at 200 messages/400k stored characters or runs
+at 100, preserving all history; use New to start a fresh conversation on the original.
+
+Extension routes: `/api/extension/image-edit` (create, update, list, read),
+`image-edit-chat` (writer), `image-edit-gallery` (consent-checked MCP reads).
+Gallery reads reuse actual MCP registrations through an isolated in-process
+gallery:read context after extension authentication. No agent bearer token or
+provider key is sent to the page. The writer cannot grant itself access.
+
 Midjourney sref libraries use normal collections and existing media/bookmarks.
 Explicit text recipes use prompts with domain `midjourney-sref`, promptType
 `other`, workflowType `asset_recipe` and modelProvider `midjourney`. `promptSections.finalPrompt` is the

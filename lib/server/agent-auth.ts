@@ -1,4 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
+import { resolveExtensionOwnerUserId, validateExtensionToken } from "./extension-auth";
 import { makeFunctionReference } from "convex/server";
 import type { Id } from "@/convex/_generated/dataModel";
 import { getServerConvexClient } from "@/lib/server/convex";
@@ -8,7 +10,7 @@ import { GUEST_READ_SCOPE, grantingScope, type AgentTokenScope, type StoredToken
 export type { AgentTokenScope } from "@/lib/agent-scopes";
 
 export type AgentAuthContext = {
-  tokenId: Id<"agentTokens">;
+  tokenId?: Id<"agentTokens">;
   ownerUserId: string;
   tokenPrefix: string;
   label: string;
@@ -66,7 +68,19 @@ const bearerTokenFromRequest = (request: Request) => {
   return token || undefined;
 };
 
+// In-process delegation only. No bearer token or owner id is accepted from the
+// writer. The extension's existing authenticated owner can opt into reads;
+// writes still fail their ordinary scope check. AsyncLocalStorage isolates
+// concurrent requests and never changes the authenticated token globally.
+const delegatedReader = new AsyncLocalStorage<AgentAuthContext>();
+export const withExtensionGalleryReader = <T>(request: Request, work: () => Promise<T>): Promise<T> => {
+  if (!validateExtensionToken(request)) throw new AgentAuthError("Unauthorized extension request.");
+  return delegatedReader.run({ ownerUserId: resolveExtensionOwnerUserId(), tokenPrefix: "extension", label: "Image edit chat", scopes: ["gallery:read"] }, work);
+};
+
 const authenticate = async (request: Request): Promise<AgentAuthContext> => {
+  const delegated = delegatedReader.getStore();
+  if (delegated) return delegated;
   const token = bearerTokenFromRequest(request);
   if (!token) {
     throw new AgentAuthError("Missing bearer token.");
