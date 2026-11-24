@@ -8,6 +8,22 @@ Technical notes and lessons learned. Update this when you hit a quirk.
 
 ## Convex
 
+- Read bandwidth, not calls, is the Convex bill (16 Nov 2026: 137 GiB of
+  database I/O and 96 GiB of action egress in a month, against 50 + 50
+  included). A reactive query pays its whole read again every time anything it
+  read changes, so a card list that reads full rows it does not show is paid
+  per agent write. Stream with `for await` and break when a card is full
+  instead of `.collect()`; read stored counts (`folders.memberCount`,
+  `publicMemberCount`) instead of link rows; give a small flagged subset its
+  own index (`by_isPublic_isFeatured_createdAt`). Tests can measure reads:
+  `harness.db.reads` in `tests/helpers/mock-convex-context.ts`.
+- Convex's query cache keys on the identity's subject, issuer and custom
+  claims, not on `iat`/`jti`, so a freshly minted actor token per request still
+  gets cache hits. Cache hits cost a function call but no database bandwidth.
+- `semanticIndex:reindexAsset` downloads the original image for the pixel lane.
+  Pass `textEdit: true` from any writer that leaves the picture alone (see
+  `textEditDefersPixel` in `convex/semanticStorage.ts`).
+
 - Local owner testing needs `CONVEX_AUTH_PRIVATE_KEY` (15 Nov 2026). It is a
   Vercel *sensitive* variable, so `vercel env pull` writes it empty and a
   local dev server can neither mint the owner's nor a reviewer's Convex token

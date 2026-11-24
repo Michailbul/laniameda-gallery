@@ -606,7 +606,7 @@ const mergeRepeatedSaveMetadata = async (
   }
   if (Object.keys(fill).length > 0) {
     await ctx.db.patch(asset._id, fill);
-    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id, textEdit: true });
   }
 
   if (input.folderId) {
@@ -924,7 +924,7 @@ export const setAgentDescription = ownerMutation({
 
     const patch = agentDescriptionPatch(args.agentDescription ?? "", args.source);
     await ctx.db.patch(asset._id, patch);
-    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id, textEdit: true });
     return {
       assetId: asset._id,
       agentDescription: patch.agentDescription,
@@ -952,7 +952,7 @@ export const setAssetRole = signedOwnerMutation({
       throw new ConvexError("Asset role changed since inventory. Refresh the plan.");
     }
     await ctx.db.patch(asset._id, { assetRole: role });
-    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+    await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id, textEdit: true });
     return { assetId: asset._id, assetRole: role, updated: true };
   },
 });
@@ -1162,7 +1162,7 @@ export const setAssetStarred = ownerMutation({
     await ctx.db.patch(asset._id, { starredAt, starNote, ...curation });
     if ("isPublic" in curation) await syncPublicCollectionMembership(ctx, asset._id);
     if ("isFeatured" in curation) {
-      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id });
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId: asset._id, textEdit: true });
     }
 
     return { assetId: asset._id, starredAt, starNote };
@@ -1440,6 +1440,7 @@ export const updateAssetMetadata = ownerMutation({
 
     await ctx.scheduler.runAfter(0, reindexAssetAction, {
       assetId: args.assetId,
+      textEdit: true,
     });
 
     const promptIdsToSync = Array.from(
@@ -3364,6 +3365,7 @@ export const setAssetCuration = mutation({
     await syncPublicCollectionMembership(ctx, args.assetId);
     await ctx.scheduler.runAfter(0, reindexAssetAction, {
       assetId: args.assetId,
+      textEdit: true,
     });
 
     return {
@@ -3449,7 +3451,7 @@ export const bulkSetAssetCuration = mutation({
         curatedAt,
       });
       await syncPublicCollectionMembership(ctx, assetId);
-      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId, textEdit: true });
       updatedAssetIds.push(assetId);
     }
 
@@ -3532,7 +3534,7 @@ export const bulkSetFolderCuration = mutation({
         curatedAt,
       });
       await syncPublicCollectionMembership(ctx, assetId);
-      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId });
+      await ctx.scheduler.runAfter(0, reindexAssetAction, { assetId, textEdit: true });
       updatedCount += 1;
     }
 
@@ -4976,6 +4978,7 @@ export const setAssetTags = ownerMutation({
     // Tags feed the embedding text, so the vector goes stale without this.
     await ctx.scheduler.runAfter(0, reindexAssetAction, {
       assetId: args.assetId,
+      textEdit: true,
     });
     return { assetId: args.assetId, tagIds };
   },
@@ -5308,6 +5311,7 @@ export const mergeDuplicateAssets = internalMutation({
     await recountFolderMembers(ctx, Array.from(keeperFolderIds) as Id<"folders">[]);
     await ctx.scheduler.runAfter(0, reindexAssetAction, {
       assetId: keeper.asset._id,
+      textEdit: true,
     });
 
     return {

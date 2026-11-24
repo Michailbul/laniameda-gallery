@@ -87,24 +87,28 @@ class InMemoryQuery {
   }
 
   async collect() {
-    return this.execute();
+    return this.db.recordReads(this.table, this.execute());
   }
 
   async *[Symbol.asyncIterator]() {
     // Convex helpers consume the underlying indexed iterator, including the
-    // creation-time and ID tie breakers of real Convex indexes.
-    yield* this.execute(true);
+    // creation-time and ID tie breakers of real Convex indexes. Like Convex,
+    // a document counts as read only once the iterator yields it.
+    for (const doc of this.execute(true)) {
+      this.db.recordReads(this.table, [doc]);
+      yield doc;
+    }
   }
 
   async take(limit: number) {
-    return this.execute().slice(0, limit);
+    return this.db.recordReads(this.table, this.execute().slice(0, limit));
   }
 
   async paginate({ cursor, numItems }: { cursor: string | null; numItems: number }) {
     const offset = cursor === null ? 0 : Number(cursor);
     if (!Number.isInteger(offset) || offset < 0) throw new Error("Invalid mock cursor");
     const docs = this.execute();
-    const page = docs.slice(offset, offset + numItems);
+    const page = this.db.recordReads(this.table, docs.slice(offset, offset + numItems));
     return { page, isDone: offset + page.length >= docs.length, continueCursor: String(offset + page.length) };
   }
 
@@ -116,12 +120,12 @@ class InMemoryQuery {
     if (docs.length > 1) {
       throw new Error(`Expected unique result in table ${this.table} but found ${docs.length}`);
     }
-    return docs[0];
+    return this.db.recordReads(this.table, docs)[0];
   }
 
   async first() {
     const docs = this.execute();
-    return docs.length > 0 ? docs[0] : null;
+    return docs.length > 0 ? this.db.recordReads(this.table, [docs[0]!])[0]! : null;
   }
 
   private execute(indexTieBreakers = false) {
@@ -200,12 +204,36 @@ class InMemoryQuery {
   }
 }
 
+// What the code under test read, per table: documents and their JSON bytes.
+// Convex bills database bandwidth by the documents a function reads, so a
+// test can compare read volume before and after a change.
+export type ReadStats = Record<string, { docs: number; bytes: number }>;
+
 class InMemoryDB {
   private readonly tables = new Map<string, Map<string, AnyDoc>>();
   private readonly counters = new Map<string, number>();
   private lastCreation = 0;
+  public reads: ReadStats = {};
 
   constructor(public readonly indexOrder: Record<string, string[]> = {}) {}
+
+  recordReads<T>(table: string, docs: T[]) {
+    const entry = (this.reads[table] ??= { docs: 0, bytes: 0 });
+    for (const doc of docs) {
+      entry.docs += 1;
+      entry.bytes += JSON.stringify(doc).length;
+    }
+    return docs;
+  }
+
+  resetReads() {
+    this.reads = {};
+  }
+
+  readBytes(table?: string) {
+    if (table) return this.reads[table]?.bytes ?? 0;
+    return Object.values(this.reads).reduce((sum, entry) => sum + entry.bytes, 0);
+  }
 
   private ensureTable(table: string) {
     let docs = this.tables.get(table);
@@ -224,6 +252,7 @@ class InMemoryDB {
     const table = id.split(":")[0] ?? "";
     if (!table) return null;
     const doc = this.ensureTable(table).get(id) ?? null;
+    if (doc) this.recordReads(table, [doc]);
     return doc as T | null;
   }
 

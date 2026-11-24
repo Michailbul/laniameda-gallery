@@ -1078,6 +1078,9 @@ export default defineSchema({
     // asset leads the grid even when its natural page hasn't streamed in yet.
     .index("by_owner_starredAt", ["ownerUserId", "starredAt"])
     .index("by_isPublic_createdAt", ["isPublic", "createdAt"])
+    // The home's featured reel: public + featured pieces only, so the page no
+    // longer reads the newest 2,000 public assets to find a few dozen.
+    .index("by_isPublic_isFeatured_createdAt", ["isPublic", "isFeatured", "createdAt"])
     .index("by_isPublic_kind_createdAt", ["isPublic", "kind", "createdAt"])
     .index("by_isPublic_pillar_createdAt", ["isPublic", "pillar", "createdAt"])
     .index("by_owner_modelName_createdAt", ["ownerUserId", "modelName", "createdAt"])
