@@ -247,8 +247,14 @@ export function registerGalleryTools(mcpServer: McpServer, options: GalleryToolO
   }, async () => jsonText(await apiFetch("/api/agent/image-edits", { action: "list" })));
   server.registerTool("read_image_edit_thread", {
     title: "Read an image edit conversation", annotations: readAnnotations,
-    description: "Read the original and currently selected image, conversation, editable prompt draft and generated runs with source lineage. Only reading; never spends credit.", inputSchema: { id: z.string().max(80) },
+    description: "Read the original and currently selected image, conversation, editable prompt draft and generated runs with source lineage. Also returns timeline (messages and runs in order, takes named r1t1, r1t2 …, each kept, dropped or pending, Michael's notes with the take they are about), takeNames (name → run id, index, picture URL) and limitUsd, the most one agent run may cost in this thread (0 = Michael runs edits himself). Only reading; never spends credit.", inputSchema: { id: z.string().max(80) },
   }, async input => jsonText(await apiFetch("/api/agent/image-edits", { action: "read", ...input })));
+  server.registerTool("run_image_edit", {
+    title: "Run an edit in an image edit conversation", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    description: "Start one edit run (fal; Seedream 5.5 by default) in an image edit thread, within the spend limit Michael set on that thread (read_image_edit_thread limitUsd). take (r3t2) edits that take, otherwise the image being edited now. text is the line Michael reads next to the takes. A run over the limit is not started and comes back as skipped. Supply a stable key: repeating it returns the same run. Read the thread first; run only what the conversation asks for.",
+    inputSchema: { id: z.string().max(80), prompt: z.string().min(1).max(2000), text: z.string().min(1).max(6000), key: z.string().min(1).max(80),
+      model: z.string().max(40).optional(), count: z.number().int().min(1).max(3).optional(), take: z.string().regex(/^r\d{1,3}t[1-3]$/).optional() },
+  }, async input => jsonText(await apiFetch("/api/agent/image-edits", { action: "run", ...input })));
   server.registerTool("reply_image_edit_thread", {
     title: "Reply in an image edit conversation", annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     description: "Reply to the owner in an image edit thread and optionally update its editable image-edit prompt. Supply a stable key for retry deduplication. No generation, publication or Gallery-access changes: the owner reviews the prompt and clicks Run.",

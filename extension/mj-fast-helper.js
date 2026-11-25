@@ -75,6 +75,30 @@
     return out;
   }
 
+  // Runs are named in the order they ran (r1, r2 …) and takes r3t2, the same
+  // names the agent uses, so "about r3t2" means one picture to both of you.
+  function runNumbers(runs) {
+    const ordered = [...(runs || [])].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    return new Map(ordered.map((run, i) => [run._id, i + 1]));
+  }
+  function takeName(numbers, ref) {
+    const n = ref && numbers.get(ref.runId);
+    return n ? `r${n}t${ref.index + 1}` : "";
+  }
+  // The most one agent answer may spend running an edit by itself (the
+  // gallery's DEFAULT_AGENT_CAP_USD is the default; 0 = it only suggests).
+  const CAP_CHOICES = [[0, "Suggests only"], [0.1, "Runs ≤ $0.10"], [0.2, "Runs ≤ $0.20"], [0.5, "Runs ≤ $0.50"], [1, "Runs ≤ $1"]];
+  const DEFAULT_CAP = 0.2;
+
+  // The conversation as it happened: messages and runs in time order.
+  function timelineOf(messages, runs) {
+    const numbers = runNumbers(runs);
+    return [
+      ...(messages || []).map((message) => ({ kind: "message", at: message.createdAt || 0, message })),
+      ...(runs || []).map((run) => ({ kind: "run", at: run.createdAt || 0, run, n: numbers.get(run._id) })),
+    ].sort((a, b) => a.at - b.at || (a.kind === "run" ? 1 : -1));
+  }
+
   function stepSelection(count, current, delta) {
     if (!count) return -1;
     if (current < 0) return delta < 0 ? count - 1 : 0;
@@ -110,6 +134,7 @@
   // Merged, not replaced: a second load keeps the running copy's open/close hooks.
   globalScope.SaveToGalleryFastHelper = Object.assign(globalScope.SaveToGalleryFastHelper || {}, {
     placeBeside, barWithImage, frameUrls, urlFromDrop, anyInFlight, flattenTakes, stepSelection, takeLabel, fantasyNote, priceText, ago,
+    runNumbers, takeName, timelineOf, CAP_CHOICES,
   });
 
   const panelMode = typeof location !== "undefined" && location.protocol === "chrome-extension:" && location.pathname.endsWith("/image-edit.html");
@@ -291,8 +316,9 @@
     </div>
     <div class="stg-fh-line"></div>
     <div class="stg-fh-agent">
-      <div class="stg-fh-chatopts"><b>Agent</b><span>writes the prompt</span><select class="stg-fh-writer" aria-label="Prompt writer"></select><label title="Let the agent read your gallery for this edit"><input type="checkbox" class="stg-fh-gallery"> Gallery</label></div>
+      <div class="stg-fh-chatopts"><b>Agent</b><select class="stg-fh-cap" aria-label="What the agent may run by itself" title="The most one answer may spend running an edit by itself"></select><span></span><select class="stg-fh-writer" aria-label="Prompt writer"></select><label title="Let the agent read your gallery for this edit"><input type="checkbox" class="stg-fh-gallery"> Gallery</label></div>
       <div class="stg-fh-chatlog" role="log" aria-label="Edit conversation"></div>
+      <div class="stg-fh-about" hidden><img alt=""><span></span><button type="button" aria-label="Not about this take">×</button></div>
       <div class="stg-fh-chatbox"><textarea class="stg-fh-chatinput" rows="1" maxlength="6000" placeholder="Ask the agent: “make it feel like late autumn”…"></textarea><button type="button" class="stg-fh-chatgo">Ask</button></div>
     </div>
     <div class="stg-fh-recent"><b>Recent</b><div class="stg-fh-strip"></div></div>
@@ -302,6 +328,7 @@
   const ui = {
     threads: $(".stg-fh-threads"), sourceDrop: $(".stg-fh-source-drop"), original: $(".stg-fh-original"), newThread: $(".stg-fh-new"), forget: $(".stg-fh-forget"),
     chatlog: $(".stg-fh-chatlog"), chatinput: $(".stg-fh-chatinput"), chatgo: $(".stg-fh-chatgo"), gallery: $(".stg-fh-gallery"), writer: $(".stg-fh-writer"),
+    cap: $(".stg-fh-cap"), about: $(".stg-fh-about"),
     world: $(".stg-fh-world"), stage: $(".stg-fh-stage"), main: $(".stg-fh-main"), pip: $(".stg-fh-pip"), pipImg: $(".stg-fh-pip img"),
     chip: $(".stg-fh-chip"), wait: $(".stg-fh-wait"), src: $(".stg-fh-src"), takes: $(".stg-fh-takes"), acts: $(".stg-fh-acts"),
     fantasy: $(".stg-fh-fantasy"), idea: $(".stg-fh-idea"), go: $(".stg-fh-go"), tpls: $(".stg-fh-tpls"), models: $(".stg-fh-models"),
@@ -324,6 +351,7 @@
     model: "seedream-5.5", count: 1, section: "scene", worlds: [], worldKey: "", refs: [],
     runs: [], sel: -1, comparing: false, fantasyOpen: false, projects: null, project: "", asRef: false, motion: "",
     busy: false, recent: [], href: location.href,
+    about: null, // {runId, index}: the take the next message is about
   };
   const bySource = new Map(); // source key → runs started on it this session
 
@@ -343,24 +371,137 @@
     paintThreadBar();
     ui.idea.disabled = state.chatting;
     ui.threads.disabled = state.chatting || state.busy;
-    ui.chatlog.replaceChildren(...(state.thread?.messages || []).map(message => {
-      const row = el("div", `stg-fh-message stg-fh-message--${message.role}`);
-      const label = el("b"); label.textContent = message.role === "michael" ? "You" : "Agent";
-      const text = el("p"); text.textContent = message.text;
-      row.append(label, text);
-      if (message.prompt) {
-        const use = el("button"); use.type = "button"; use.textContent = "Use this prompt";
-        use.addEventListener("click", () => { ui.idea.value = message.prompt; void saveThread({ draft: message.prompt }); }); row.append(use);
-      }
-      if (message.reads?.length) { const reads = el("small"); reads.textContent = `Gallery read: ${message.reads.join(", ")}`; row.append(reads); }
-      if (message.role === "michael" && !state.thread.messages.some(entry => entry.id === `${message.id}:answer`)) {
-        const retry = el("button"); retry.type = "button"; retry.textContent = "Retry answer"; retry.disabled = state.chatting;
-        retry.addEventListener("click", () => void chat(message.id)); row.append(retry);
-      }
-      return row;
-    }));
-    ui.chatlog.scrollTop = ui.chatlog.scrollHeight;
+    const cap = state.thread?.agentCapUsd ?? DEFAULT_CAP;
+    if (!ui.cap.options.length) ui.cap.replaceChildren(...CAP_CHOICES.map(([value, label]) => new Option(label, String(value))));
+    ui.cap.value = String(CAP_CHOICES.some(([value]) => value === cap) ? cap : DEFAULT_CAP);
+    // The conversation: your messages, the agent's answers and every run with its takes.
+    const timeline = state.thread ? timelineOf(state.thread.messages, state.runs) : [];
+    const numbers = runNumbers(state.runs);
+    ui.chatlog.classList.toggle("stg-fh-has", timeline.length > 0);
+    const atBottom = ui.chatlog.scrollHeight - ui.chatlog.scrollTop - ui.chatlog.clientHeight < 24;
+    ui.chatlog.replaceChildren(...timeline.map((item) => item.kind === "run" ? runRow(numbers, item.run, item.n) : messageRow(numbers, item.message)));
+    if (atBottom || timeline.length !== paintChat.count) ui.chatlog.scrollTop = ui.chatlog.scrollHeight;
+    paintChat.count = timeline.length;
+    paintAbout();
     scheduleLayout();
+  }
+  function chatButton(label, onClick, cls = "") {
+    const button = el("button", cls); button.type = "button"; button.textContent = label;
+    button.addEventListener("click", onClick); return button;
+  }
+  function takeOf(ref) {
+    const owner = ref && state.runs.find((item) => item._id === ref.runId);
+    const take = owner?.takes.find((item) => item.index === ref.index);
+    return owner && take ? { run: owner, take } : null;
+  }
+  // Show a take on the stage.
+  function showTake(ref) {
+    const i = takes().findIndex((entry) => entry.run._id === ref.runId && entry.take.index === ref.index);
+    if (i >= 0) { state.sel = i; paintAll(); }
+  }
+  function paintAbout() {
+    const found = takeOf(state.about);
+    ui.about.hidden = !found;
+    if (!found) { state.about = null; return; }
+    ui.about.querySelector("img").src = found.take.thumbUrl || found.take.url || "";
+    ui.about.querySelector("span").textContent = `About ${takeName(runNumbers(state.runs), state.about)}`;
+  }
+  ui.about.querySelector("button").addEventListener("click", () => { state.about = null; paintAbout(); });
+  // A take in the conversation: click shows it and makes your next message about it.
+  function takeThumb(numbers, owner, take) {
+    const ref = { runId: owner._id, index: take.index };
+    const done = take.status === "done";
+    const thumb = el("button", `stg-fh-tthumb stg-fh-tthumb--${take.status === "error" ? "error" : take.review || "pending"}`,
+      done ? `<img alt="" src="${esc(take.thumbUrl || take.url || "")}">` : take.status === "error" ? "<i>!</i>" : `<span class="stg-fh-spin"></span>`);
+    thumb.type = "button";
+    thumb.append(el("em", "", esc(takeName(numbers, ref))));
+    thumb.title = done ? "Show it, and talk about it" : take.error || "Still running";
+    if (done) thumb.addEventListener("click", () => { showTake(ref); state.about = ref; paintAbout(); ui.chatinput.focus(); });
+    return thumb;
+  }
+  function runRow(numbers, owner, n) {
+    const row = el("div", "stg-fh-runrow");
+    const from = owner.source?.parentRunId ? takeName(numbers, { runId: owner.source.parentRunId, index: owner.source.parentIndex || 0 }) : "";
+    const usd = owner.costUsd ?? owner.estimateUsd;
+    row.append(el("div", "stg-fh-runhead", `<b>r${n}</b><span>${esc(owner.modelName)}${from ? ` · from ${esc(from)}` : ""}</span><small>${Number.isFinite(usd) ? `$${usd.toFixed(2)}` : ""}</small>`));
+    row.append(el("p", "stg-fh-runprompt", esc(owner.instruction)));
+    const strip = el("div", "stg-fh-tstrip");
+    strip.append(...owner.takes.map((take) => takeThumb(numbers, owner, take)));
+    row.append(strip);
+    return row;
+  }
+  function messageRow(numbers, message) {
+    const row = el("div", `stg-fh-message stg-fh-message--${message.role}`);
+    const label = el("b"); label.textContent = message.role === "michael" ? "You" : "Agent";
+    const text = el("p"); text.textContent = message.text;
+    row.append(label);
+    const about = message.take && takeOf(message.take);
+    if (about) {
+      const chip = el("button", "stg-fh-aboutchip", `<img alt="" src="${esc(about.take.thumbUrl || about.take.url || "")}"><span>${esc(takeName(numbers, message.take))}</span>`);
+      chip.type = "button"; chip.addEventListener("click", () => showTake(message.take)); row.append(chip);
+    }
+    row.append(text);
+    const buttons = el("div", "stg-fh-msgacts");
+    if (message.prompt) buttons.append(chatButton("Use this prompt", () => { ui.idea.value = message.prompt; void saveThread({ draft: message.prompt }); }));
+    let first = true;
+    for (const [i, action] of (message.actions || []).entries()) {
+      if (action.type === "run") {
+        const ran = first && message.ran; first = false;
+        if (ran) {
+          const n = numbers.get(ran.runId);
+          buttons.append(chatButton(n ? `Ran r${n} · $${ran.estimateUsd.toFixed(2)}` : "Running…", () => showTake({ runId: ran.runId, index: 0 }), "stg-fh-done"));
+        } else {
+          const on = action.take ? ` on ${takeName(numbers, action.take)}` : "";
+          buttons.append(chatButton(`Run it${on}`, (event) => { event.currentTarget.disabled = true; void runAction(action); }, "stg-fh-main"));
+        }
+      } else if (action.type === "queue") {
+        buttons.append(chatButton("Add to Midjourney Queue", (event) => void queueAction(message, i, action, event.currentTarget)));
+      } else if (action.type === "save") {
+        const found = takeOf(action.take);
+        const kept = found?.take.review === "kept";
+        const name = takeName(numbers, action.take);
+        buttons.append(chatButton(kept ? `${name} is in the gallery` : `Save ${name} to gallery`, (event) => void saveAction(action, event.currentTarget), kept ? "stg-fh-done" : ""));
+      }
+    }
+    if (message.role === "michael" && !state.thread.messages.some(entry => entry.id === `${message.id}:answer`)) {
+      const retry = chatButton("Retry answer", () => void chat(message.id)); retry.disabled = state.chatting; buttons.append(retry);
+    }
+    if (buttons.childNodes.length) row.append(buttons);
+    if (message.skipped) row.append(el("small", "", esc(`Not run by itself: ${message.skipped}`)));
+    if (message.reads?.length) row.append(el("small", "", esc(`Gallery read: ${message.reads.join(", ")}`)));
+    return row;
+  }
+  // The agent's offers, done on your click.
+  function runAction(action) {
+    const found = action.take && takeOf(action.take);
+    return run({ instruction: action.prompt, model: action.model || state.model, count: action.count || 1, ...(found ? { source: sourceOfTake(found.run, found.take) } : {}) });
+  }
+  async function queueAction(message, i, action, button) {
+    button.disabled = true;
+    const found = action.take && takeOf(action.take);
+    const title = clean(state.thread?.title || "").slice(0, 60) || "Image edit";
+    const res = await ask("queue", {
+      batch: `Image edits · ${title}`, world: state.worldKey || undefined,
+      item: { ingestKey: `edit:${message.id}:${i}`, title: action.title || undefined, prompt: action.prompt,
+        ...(found ? { imagePrompts: [{ url: found.take.url, label: takeName(runNumbers(state.runs), action.take) }] } : {}),
+        ...(action.profileCodes?.length ? { profileCodes: action.profileCodes } : {}), ...(action.params ? { params: action.params } : {}),
+        note: "From the image edit conversation." },
+    });
+    if (!res?.ok) { button.disabled = false; setLine(esc(res?.error || "Could not add it to the queue."), "err"); return; }
+    button.textContent = "In the Midjourney Queue";
+    button.classList.add("stg-fh-done");
+    setLine("Added to your Midjourney Queue. Send it from there.");
+  }
+  async function saveAction(action, button) {
+    const found = takeOf(action.take);
+    if (!found || found.take.review === "kept") return;
+    button.disabled = true;
+    const world = currentWorld();
+    const res = await ask("save", { body: { runId: found.run._id, index: found.take.index, section: action.section || state.section, ...(world?.worldId ? { folderId: world.worldId } : {}) } });
+    if (!res?.ok) { button.disabled = false; setLine(esc(res?.error || "Could not save."), "err"); return; }
+    if (res.run) replaceRun(res.run);
+    setLine(`<span>Kept in ${esc(world?.name || "the gallery")}.</span>`);
+    paintChat();
   }
   // The thread bar: earlier edits (cloud, any browser), and what can be done with this one.
   function paintThreadBar() {
@@ -469,15 +610,26 @@
     const messageId = retryId || crypto.randomUUID();
     try {
       const consent = globalScope.SaveToGalleryEditConsent?.galleryConsent(text);
+      const about = !retryId && takeOf(state.about) ? state.about : null;
       if (!retryId) await saveThread({ draft: ui.idea.value, model: state.model, count: state.count, world: state.worldKey, activeSource: framePayload(state.source),
-        ...(consent !== undefined ? { galleryEnabled: consent } : {}), message: { id: messageId, role: "michael", text } }, id);
-      if (!retryId) ui.chatinput.value = "";
-      setLine("<span class='stg-fh-spin'></span><span>Preparing your edit prompt…</span>");
+        ...(consent !== undefined ? { galleryEnabled: consent } : {}), message: { id: messageId, role: "michael", text, ...(about ? { take: about } : {}) } }, id);
+      if (!retryId) { ui.chatinput.value = ""; state.about = null; paintAbout(); }
+      setLine("<span class='stg-fh-spin'></span><span>The agent is looking…</span>");
       const res = await ask("chat", { id, messageId });
       if (!res?.ok) throw new Error(res?.error || "The writer could not answer.");
       if (state.thread?._id !== id) return;
       if (res.thread) { state.thread = res.thread; ui.idea.value = res.thread.draft; }
-      paintChat(); setLine("Prompt ready. Review it, then Run.");
+      if (res.ran) {
+        // The agent started a run within its limit: bring it (and the picture it edits) in.
+        const full = await ask("threadRead", { id });
+        if (full?.ok && state.thread?._id === id) {
+          state.thread = full.thread; state.runs = full.runs || []; state.sel = 0;
+          if (state.source) bySource.set(state.source.key, state.runs);
+          paintAll(); pollSoon(POLL_MS);
+        }
+        setLine(`<span class="stg-fh-spin"></span><span>The agent is running it · $${Number(res.ran.estimateUsd || 0).toFixed(2)}</span>`);
+      } else setLine(res.thread?.messages?.at(-1)?.skipped ? "The agent's run is over its limit. Run it yourself if you want it." : "Prompt ready. Review it, then Run.");
+      paintChat();
     } catch (error) { setLine(esc(error?.message || error), "err"); }
     finally { state.chatting = false; paintChat(); }
   }
@@ -487,6 +639,13 @@
     const on = ui.gallery.checked;
     if (!state.source) return;
     void threadFor(state.source).then(() => saveThread({ galleryEnabled: on })).catch(error => { ui.gallery.checked = !on; setLine(esc(error.message), "err"); });
+  });
+  ui.cap.addEventListener("change", () => {
+    const value = Number(ui.cap.value);
+    if (!state.source || !Number.isFinite(value)) return;
+    void threadFor(state.source).then(() => saveThread({ agentCapUsd: value }))
+      .then(() => setLine(value ? `The agent may run edits up to $${value.toFixed(2)} an answer.` : "The agent only suggests; you run every edit."))
+      .catch(error => setLine(esc(error.message), "err"));
   });
   ui.idea.addEventListener("input", saveControls);
   ui.threads.addEventListener("change", () => { if (ui.threads.value && ui.threads.value !== state.thread?._id) void loadThread(ui.threads.value); });
@@ -958,7 +1117,7 @@
     paintActions();
     paintFantasy();
     paintKeys();
-    scheduleLayout();
+    paintChat();
   }
 
   function paintStage() {
@@ -1055,13 +1214,7 @@
   function editFurther() {
     const entry = selected();
     if (!entry || entry.take.status !== "done") return;
-    const { run: owner, take } = entry;
-    const source = {
-      key: `run:${owner._id}:${take.index}`,
-      rendered: take.url, tile: null, urls: [], pageUrl: owner.source.pageUrl, command: owner.source.prompt || "",
-      aspect: take.width && take.height ? take.width / take.height : state.source?.aspect || 16 / 9,
-      upload: { url: take.url, width: take.width, height: take.height, parentRunId: owner._id, parentIndex: take.index },
-    };
+    const source = sourceOfTake(entry.run, entry.take);
     state.source = source;
     state.fantasyOpen = false;
     ui.idea.value = "";
@@ -1071,6 +1224,16 @@
     paintThreadBar();
     setLine("<span>Editing that take. Say what to change next.</span>");
     ui.idea.focus();
+  }
+
+  // A finished take as the picture a new run edits (a chained edit).
+  function sourceOfTake(owner, take) {
+    return {
+      key: `run:${owner._id}:${take.index}`,
+      rendered: take.url, tile: null, urls: [], pageUrl: owner.source.pageUrl, command: owner.source.prompt || "",
+      aspect: take.width && take.height ? take.width / take.height : state.source?.aspect || 16 / 9,
+      upload: { url: take.url, width: take.width, height: take.height, parentRunId: owner._id, parentIndex: take.index },
+    };
   }
 
   // R: the same run again, same frame, words, model and count.

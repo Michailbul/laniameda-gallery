@@ -3282,7 +3282,35 @@ html.stg-x-capturing .stg-badge {
 .stg-fh-chatopts select { flex: none; max-width: 120px; height: 22px; padding: 0 4px; border-radius: 6px; border: 1px solid var(--fh-line); background: var(--fh-ground); color: var(--fh-ink2); font: 700 9.5px/1 var(--fh-mono); outline: none; }
 .stg-fh-chatopts label { flex: none; display: flex; align-items: center; gap: 4px; color: var(--fh-ink2); font: 700 9.5px/1 var(--fh-mono); letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
 .stg-fh-chatopts input { margin: 0; accent-color: var(--fh-teal); }
-.stg-fh-chatlog { display: none; max-height: 200px; overflow: auto; scrollbar-width: thin; flex-direction: column; gap: 6px; }
+.stg-fh-chatlog { display: none; max-height: 320px; overflow: auto; scrollbar-width: thin; flex-direction: column; gap: 6px; }
+/* A run in the conversation: model, cost, its prompt and its takes. */
+.stg-fh-runrow { padding: 7px 8px 8px; border-radius: 8px; border: 1px solid var(--fh-line); background: transparent; }
+.stg-fh-runhead { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.stg-fh-runhead b { flex: none; color: var(--fh-ink); font: 800 10px/1 var(--fh-mono); letter-spacing: 0.06em; }
+.stg-fh-runhead span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fh-ink2); font: 700 9.5px/1 var(--fh-mono); text-transform: uppercase; letter-spacing: 0.06em; }
+.stg-fh-runhead small { flex: none; color: var(--fh-ink3); font: 600 9.5px/1 var(--fh-mono); }
+.stg-fh-runprompt { margin: 5px 0 6px; color: var(--fh-ink2); font: 500 11px/1.4 var(--fh-sans); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.stg-fh-tstrip { display: flex; gap: 5px; }
+.stg-fh-tthumb { position: relative; width: 64px; aspect-ratio: 4 / 3; padding: 0; border-radius: 6px; border: 1px solid var(--fh-line); background: var(--fh-ground); overflow: hidden; cursor: pointer; display: grid; place-items: center; }
+.stg-fh-tthumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.stg-fh-tthumb em { position: absolute; left: 3px; bottom: 3px; padding: 2px 4px; border-radius: 4px; background: rgba(10, 8, 5, 0.78); color: var(--fh-ink); font: 700 8.5px/1 var(--fh-mono); font-style: normal; }
+.stg-fh-tthumb i { color: var(--fh-coral); font: 800 14px/1 var(--fh-sans); font-style: normal; }
+.stg-fh-tthumb:hover { border-color: var(--fh-ink2); }
+.stg-fh-tthumb--kept { border-color: var(--fh-teal); }
+.stg-fh-tthumb--kept em { background: var(--fh-teal); color: #0A0805; }
+.stg-fh-tthumb--dropped img { opacity: 0.35; filter: grayscale(1); }
+/* "About r3t2": which take your next message (or an earlier one) is about. */
+.stg-fh-about { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 7px; background: var(--fh-ground); }
+.stg-fh-about img { width: 34px; height: 24px; object-fit: cover; border-radius: 4px; }
+.stg-fh-about span { flex: 1; color: var(--fh-ink2); font: 700 9.5px/1 var(--fh-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.stg-fh-about button { flex: none; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--fh-ink3); font: 700 13px/1 var(--fh-sans); cursor: pointer; }
+.stg-fh-about button:hover { color: var(--fh-ink); }
+.stg-fh-aboutchip { display: inline-flex; align-items: center; gap: 5px; margin: 5px 0 0; padding: 2px 6px 2px 2px; border-radius: 6px; border: 1px solid var(--fh-line); background: none; color: var(--fh-ink2); font: 700 9px/1 var(--fh-mono); cursor: pointer; }
+.stg-fh-aboutchip img { width: 28px; height: 20px; object-fit: cover; border-radius: 4px; }
+.stg-fh-msgacts { display: flex; flex-wrap: wrap; gap: 5px; }
+.stg-fh-message .stg-fh-main { border-color: var(--fh-coral); color: var(--fh-coral); }
+.stg-fh-message .stg-fh-done { border-color: transparent; background: rgba(121, 183, 145, 0.14); color: var(--fh-teal); }
+.stg-fh-message button:disabled { opacity: 0.5; cursor: default; }
 .stg-fh-chatlog.stg-fh-has { display: flex; }
 .stg-fh-message { padding: 8px 9px; background: var(--fh-ground); border-radius: 8px; font-size: 12px; line-height: 1.5; }
 .stg-fh-message--michael { background: rgba(255, 244, 234, 0.06); }

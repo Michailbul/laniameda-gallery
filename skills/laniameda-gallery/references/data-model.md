@@ -24,6 +24,23 @@ frame is opened (`GET ?key=` looks a frame's thread up without creating one), a
 thread is titled from its first draft, and `remove` forgets a thread (its runs
 and kept assets stay).
 
+Since extension 0.46.0 the conversation is one timeline. Every run shows in it
+with its takes, named in the order they ran (`r3t2` = run 3, take 2), each kept,
+dropped or pending. A message may carry `take {runId,index}` (Michael's note on
+a take). Agent answers may carry `actions` (at most 3): `run {prompt,model?,count?,take?}`,
+`queue {prompt,title?,take?,profileCodes?,params?}` (a Midjourney V8.2 prompt held in
+his MJ Queue until he sends it) and `save {take,section?}`. `agentCapUsd` (default
+$0.20, 0 = suggest only, at most $2) is the most one answer may spend: the first run
+action within it starts by itself (`ran {runId,estimateUsd}`, request key
+`agent:<message id>`, so a retry never runs twice); otherwise `skipped` says why and
+the run waits for his click. Queue and save are always his click. The writer sees the
+whole timeline and up to six takes (noted and kept first, then the newest).
+
+MCP: `read_image_edit_thread` also returns `timeline`, `takeNames` and `limitUsd`.
+`run_image_edit {id,prompt,text,key,model?,count?,take?}` starts one run inside the
+thread's limit (gallery:write) and records it as an agent message; over the limit it
+returns `skipped` and starts nothing.
+
 Extension routes: `/api/extension/image-edit` (create, update, list, read, find by key, remove),
 `image-edit-chat` (writer), `image-edit-gallery` (consent-checked MCP reads).
 Gallery reads reuse actual MCP registrations through an isolated in-process

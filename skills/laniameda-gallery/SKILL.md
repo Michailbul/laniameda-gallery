@@ -195,7 +195,9 @@ Midjourney image editing conversations (extension Edit image / Option-Z):
 `list_image_edit_threads`, then `read_image_edit_thread {id}` shows the original,
 selected source, chat, prompt draft and generated takes with lineage. Reply
 with `reply_image_edit_thread {id,text,prompt?,key}` using a stable retry key.
-It updates the conversation/draft only; Michael clicks Run and Keep himself.
+It updates the conversation/draft only. `run_image_edit {id,prompt,text,key,take?}`
+starts one edit inside the spend limit Michael set on that thread (`limitUsd` in the
+read; takes are named r1t1, r1t2 …); over the limit nothing runs. Keep stays his.
 The chat's per-thread Gallery toggle gives its writer reading access only.
 See references/data-model.md for the storage and consent contract.
 

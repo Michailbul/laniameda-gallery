@@ -18,6 +18,9 @@ type PageApi = {
   takeLabel: (run: Run, take: Take) => string;
   fantasyNote: (run: Partial<Run>) => string;
   priceText: (perTake: number, count: number) => string;
+  runNumbers: (runs: Array<{ _id: string; createdAt: number }>) => Map<string, number>;
+  takeName: (numbers: Map<string, number>, ref: { runId: string; index: number } | null) => string;
+  timelineOf: (messages: Array<{ text: string; createdAt: number }>, runs: Array<{ _id: string; createdAt: number }>) => Array<{ kind: string; n?: number; message?: { text: string } }>;
 };
 const page = () => (globalThis as typeof globalThis & { SaveToGalleryFastHelper: PageApi }).SaveToGalleryFastHelper;
 
@@ -150,6 +153,16 @@ describe("route payloads", () => {
     expect(fastPostSchema.parse({ action: "save", runId: "r1", index: 0 })).toMatchObject({ section: "scene" });
     expect(fastPostSchema.safeParse({ action: "review", runId: "r1", index: 0, review: "kept" }).success).toBe(false);
     expect(fastPostSchema.parse({ action: "fantasy", runId: "r1", index: 1, draftId: "d1", project: "Film" })).toMatchObject({ draftId: "d1" });
+  });
+});
+
+describe("the conversation", () => {
+  test("runs and messages share one timeline, runs named in the order they ran", () => {
+    const runs = [{ _id: "b", createdAt: 30 }, { _id: "a", createdAt: 10 }];
+    const timeline = page().timelineOf([{ text: "night", createdAt: 5 }, { text: "too blue", createdAt: 20 }], runs);
+    expect(timeline.map((item) => item.kind === "run" ? `r${item.n}` : item.message!.text)).toEqual(["night", "r1", "too blue", "r2"]);
+    expect(page().takeName(page().runNumbers(runs), { runId: "b", index: 1 })).toBe("r2t2");
+    expect(page().takeName(page().runNumbers(runs), { runId: "zz", index: 0 })).toBe("");
   });
 });
 
