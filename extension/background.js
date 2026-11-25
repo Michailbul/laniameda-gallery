@@ -10,6 +10,7 @@ importScripts(
   "midjourney-adapter.js",
   "midjourney-copy-list.js",
   "writer-choice.js",
+  "history-sync.js",
 );
 
 const saveTargets = globalThis.SaveToGallerySaveTargets;
@@ -83,11 +84,17 @@ const BUILTIN_DISABLED_HOSTS = [
   "127.0.0.1",
 ];
 
+// A route may carry its own query ("/api/extension/image-edit?id=…"). The
+// query goes in url.search: put into the pathname, its "?" became "%3F" and
+// every such read answered 404 (image-edit threads, quick-run catalog, run
+// progress and Recent, fixed in 0.45.0).
 function normalizeRouteUrl(rawValue, routePath) {
   const value =
     typeof rawValue === "string" && rawValue.trim()
       ? rawValue.trim()
       : DEFAULT_API_URL;
+  const [pathname, ...rest] = String(routePath || "/").split("?");
+  const search = rest.length ? `?${rest.join("?")}` : "";
 
   try {
     const url = new URL(value);
@@ -95,13 +102,14 @@ function normalizeRouteUrl(rawValue, routePath) {
       url.protocol = "https:";
       url.hostname = CANONICAL_API_HOST;
     }
-    url.pathname = routePath;
-    url.search = "";
+    url.pathname = pathname;
+    url.search = search;
     url.hash = "";
     return url.toString();
   } catch {
     const fallback = new URL(DEFAULT_API_URL);
-    fallback.pathname = routePath;
+    fallback.pathname = pathname;
+    fallback.search = search;
     return fallback.toString();
   }
 }
@@ -2203,6 +2211,35 @@ chrome.commands.onCommand.addListener((command) => {
   });
 });
 
+// ---- Shared Recent lists (history-sync.js) ----
+// Grow's pictures and the caught describes are the same in every browser the
+// extension runs in: a change here goes up a moment later, and a card that
+// shows the list asks for the gallery's copy when it opens.
+
+const historySync = globalThis.SaveToGalleryHistorySync.createSyncer({
+  fetchJson: describeFetchJson,
+  storage: { get: (key) => chrome.storage.local.get(key), set: (value) => chrome.storage.local.set(value) },
+});
+const historyTimers = {};
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  for (const [kind, spec] of Object.entries(globalThis.SaveToGalleryHistorySync.KINDS)) {
+    const change = changes[spec.storageKey];
+    if (!change || historySync.isOwnWrite(kind, change.newValue)) continue;
+    clearTimeout(historyTimers[kind]);
+    historyTimers[kind] = setTimeout(() => void historySync.sync(kind, { force: true }), 2000);
+  }
+});
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.action !== "historySync") return false;
+  const kinds = message.kind ? [message.kind] : Object.keys(globalThis.SaveToGalleryHistorySync.KINDS);
+  Promise.all(kinds.map((kind) => historySync.sync(kind, { force: Boolean(message.force) })))
+    .then((results) => sendResponse(results.length === 1 ? results[0] : { ok: results.every((r) => r?.ok), results }))
+    .catch((err) => sendResponse({ ok: false, error: err?.message || String(err) }));
+  return true;
+});
+chrome.runtime.onStartup.addListener(() => { void historySync.sync("grow"); void historySync.sync("describe"); });
+
 // ---- fast: the Midjourney fast helper (mj-fast-helper.js, ⌥F) ----
 // One frame, one instruction, a fal model, 1–4 takes, through the gallery
 // (/api/extension/quick-run, which runs fal on the owner's key). The worker
@@ -2349,6 +2386,10 @@ async function fastRequest(message) {
       return describeFetchJson(`/api/extension/image-edit?id=${encodeURIComponent(message.id)}&head=1`, { method: "GET" });
     case "threadRead":
       return describeFetchJson(`/api/extension/image-edit?id=${encodeURIComponent(message.id)}`, { method: "GET" });
+    case "threadFind":
+      return describeFetchJson(`/api/extension/image-edit?key=${encodeURIComponent(String(message.key || "").slice(0, 160))}`, { method: "GET" });
+    case "threadRemove":
+      return describeFetchJson("/api/extension/image-edit", { method: "POST", body: JSON.stringify({ action: "remove", id: message.id }) });
     case "threadCreate":
       return describeFetchJson("/api/extension/image-edit", { method: "POST", body: JSON.stringify({ ...message.body, action: "create" }) });
     case "threadUpdate":

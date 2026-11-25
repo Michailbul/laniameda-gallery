@@ -3259,23 +3259,47 @@ html.stg-x-capturing .stg-badge {
   box-sizing: border-box;
 }
 .stg-fh-root *, .stg-fh-root *::before, .stg-fh-root *::after { box-sizing: border-box; }
-.stg-fh-threadbar, .stg-fh-chatopts, .stg-fh-chatbox { display: flex; align-items: center; gap: 8px; }
-.stg-fh-threadbar select { flex: 1; min-width: 0; }
-.stg-fh-threadbar select, .stg-fh-threadbar button, .stg-fh-chatopts select, .stg-fh-chatbox button, .stg-fh-message button { background: var(--fh-raise); color: var(--fh-ink); border: 1px solid var(--fh-line); border-radius: 6px; padding: 7px; font-size: 11px; }
-.stg-fh-source-drop { padding: 10px; border: 1px dashed var(--fh-line2); border-radius: 7px; color: var(--fh-ink2); font-size: 11px; text-align: center; }
-.stg-fh-chatlog { max-height: 210px; overflow: auto; scrollbar-width: thin; }
-.stg-fh-message { margin: 7px 0; padding: 9px; background: var(--fh-raise); border-radius: 7px; font-size: 12px; line-height: 1.5; }
-.stg-fh-message b { color: var(--fh-coral); font-size: 10px; }
-.stg-fh-message p { margin: 4px 0; white-space: pre-wrap; color: var(--fh-ink); }
-.stg-fh-message small { display: block; overflow-wrap: anywhere; color: var(--fh-ink3); }
-.stg-fh-chatopts { justify-content: space-between; color: var(--fh-ink2); font-size: 11px; }
-.stg-fh-chatopts label { display: flex; align-items: center; gap: 5px; }
-.stg-fh-chatopts select { max-width: 60%; }
-.stg-fh-chatinput, .stg-fh-root textarea.stg-fh-idea { min-width: 0; flex: 1; resize: vertical; padding: 8px; border: 1px solid var(--fh-line2); border-radius: 6px; background: var(--fh-raise); color: var(--fh-ink); font: 12px/1.5 var(--fh-sans); }
-.stg-fh-chatbox button { align-self: stretch; }
-.stg-fh-draftlabel { font-size: 10px; color: var(--fh-ink2); }
-.stg-fh-root textarea:focus { outline: 1px solid var(--fh-coral); }
-.stg-fh-root textarea.stg-fh-idea { height: auto; min-height: 74px; }
+/* Every row keeps its size: a long card scrolls, it never squashes the picture. */
+.stg-fh-root > * { flex-shrink: 0; }
+.stg-fh-root [hidden] { display: none !important; }
+.stg-fh-threadbar { display: flex; align-items: center; gap: 5px; padding: 0 10px 8px; }
+.stg-fh-threadbar select { flex: 1; min-width: 0; height: 26px; padding: 0 6px; border-radius: 7px; border: 1px solid var(--fh-line); background: var(--fh-raise); color: var(--fh-ink); font: 600 11px/1 var(--fh-sans); outline: none; }
+.stg-fh-threadbar select:focus { border-color: var(--fh-coral); }
+.stg-fh-threadbar button { flex: none; height: 26px; padding: 0 8px; border-radius: 7px; border: 1px solid var(--fh-line); background: none; color: var(--fh-ink2); font: 700 9.5px/1 var(--fh-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+.stg-fh-threadbar button:hover { color: var(--fh-ink); border-color: var(--fh-line2); }
+.stg-fh-threadbar .stg-fh-forget:hover { color: var(--fh-coral); border-color: rgba(242, 97, 87, 0.5); }
+.stg-fh-source-drop { margin: 0 10px 10px; padding: 34px 12px; border: 1px dashed var(--fh-line2); border-radius: 10px; color: var(--fh-ink); font: 700 12px/1.5 var(--fh-sans); text-align: center; }
+.stg-fh-source-drop span { color: var(--fh-ink3); font: 600 10px/1.5 var(--fh-mono); }
+.stg-fh-root.stg-fh-drop .stg-fh-source-drop { border-color: var(--fh-teal); color: var(--fh-teal); }
+/* Nothing open yet (side panel): only the drop zone and the thread list. */
+.stg-fh-root.stg-fh-empty .stg-fh-stage, .stg-fh-root.stg-fh-empty .stg-fh-src, .stg-fh-root.stg-fh-empty .stg-fh-ask,
+.stg-fh-root.stg-fh-empty .stg-fh-tpls, .stg-fh-root.stg-fh-empty .stg-fh-row, .stg-fh-root.stg-fh-empty .stg-fh-agent,
+.stg-fh-root.stg-fh-empty .stg-fh-keys { display: none; }
+.stg-fh-agent { margin: 10px 10px 0; padding: 8px; border-radius: 10px; background: var(--fh-raise); border: 1px solid var(--fh-line); display: flex; flex-direction: column; gap: 7px; }
+.stg-fh-chatopts { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.stg-fh-chatopts b { flex: none; font: 800 9.5px/1 var(--fh-sans); letter-spacing: 0.14em; text-transform: uppercase; }
+.stg-fh-chatopts span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fh-ink3); font: 600 9.5px/1 var(--fh-mono); }
+.stg-fh-chatopts select { flex: none; max-width: 120px; height: 22px; padding: 0 4px; border-radius: 6px; border: 1px solid var(--fh-line); background: var(--fh-ground); color: var(--fh-ink2); font: 700 9.5px/1 var(--fh-mono); outline: none; }
+.stg-fh-chatopts label { flex: none; display: flex; align-items: center; gap: 4px; color: var(--fh-ink2); font: 700 9.5px/1 var(--fh-mono); letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
+.stg-fh-chatopts input { margin: 0; accent-color: var(--fh-teal); }
+.stg-fh-chatlog { display: none; max-height: 200px; overflow: auto; scrollbar-width: thin; flex-direction: column; gap: 6px; }
+.stg-fh-chatlog.stg-fh-has { display: flex; }
+.stg-fh-message { padding: 8px 9px; background: var(--fh-ground); border-radius: 8px; font-size: 12px; line-height: 1.5; }
+.stg-fh-message--michael { background: rgba(255, 244, 234, 0.06); }
+.stg-fh-message b { color: var(--fh-ink3); font: 800 8.5px/1 var(--fh-sans); letter-spacing: 0.14em; text-transform: uppercase; }
+.stg-fh-message--agent b { color: var(--fh-teal); }
+.stg-fh-message p { margin: 4px 0 0; white-space: pre-wrap; color: var(--fh-ink); }
+.stg-fh-message small { display: block; margin-top: 4px; overflow-wrap: anywhere; color: var(--fh-ink3); font: 600 9.5px/1.4 var(--fh-mono); }
+.stg-fh-message button { margin-top: 6px; height: 22px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--fh-line2); background: none; color: var(--fh-ink); font: 700 9px/1 var(--fh-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+.stg-fh-message button:hover { border-color: var(--fh-coral); color: var(--fh-coral); }
+.stg-fh-chatbox { display: flex; gap: 5px; align-items: stretch; }
+.stg-fh-chatinput { flex: 1; min-width: 0; min-height: 30px; max-height: 120px; resize: none; padding: 7px 9px; border: 1px solid var(--fh-line); border-radius: 7px; background: var(--fh-ground); color: var(--fh-ink); font: 500 12px/1.4 var(--fh-sans); outline: none; }
+.stg-fh-chatinput:focus { border-color: var(--fh-coral); }
+.stg-fh-chatinput::placeholder { color: var(--fh-ink3); }
+.stg-fh-chatgo { flex: none; min-width: 52px; padding: 0 10px; border-radius: 7px; border: 1px solid var(--fh-line2); background: none; color: var(--fh-ink); font: 800 10px/1 var(--fh-sans); letter-spacing: 0.1em; text-transform: uppercase; }
+.stg-fh-chatgo:hover { border-color: var(--fh-ink2); }
+.stg-fh-chatgo:disabled { opacity: 0.4; cursor: default; }
+.stg-fh-root textarea.stg-fh-idea { flex: 1; min-width: 0; min-height: 64px; max-height: 200px; resize: vertical; }
 .stg-fh-ring {
   position: fixed; display: none; pointer-events: none; z-index: 2147483645; border-radius: 6px;
   box-shadow: 0 0 0 2px var(--fh-coral), 0 0 0 5px rgba(242, 97, 87, 0.2), 0 0 30px rgba(242, 97, 87, 0.3);
@@ -3409,8 +3433,8 @@ html.stg-x-capturing .stg-badge {
 
 .stg-fh-ask { display: flex; gap: 5px; padding: 10px 10px 0; }
 .stg-fh-idea {
-  flex: 1; min-width: 0; height: 34px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--fh-line2); background: var(--fh-raise);
-  color: var(--fh-ink); font: 500 13px/1 var(--fh-sans); outline: none;
+  flex: 1; min-width: 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--fh-line2); background: var(--fh-raise);
+  color: var(--fh-ink); font: 500 13px/1.45 var(--fh-sans); outline: none;
 }
 .stg-fh-idea:focus { border-color: var(--fh-coral); }
 .stg-fh-idea::placeholder { color: var(--fh-ink3); }

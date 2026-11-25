@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.45.0 (25 Nov 2026)
+
+- Image edit (⌥Z) works again: every gallery read with a query in its address
+  (the frame's thread, the model list, run progress, Recent) answered 404,
+  so threads never loaded, Run stayed off and takes never came back.
+- Opening a frame no longer creates an empty thread; the first Run or Ask
+  does. Threads are named after their prompt, with their age, and Forget
+  removes one. Typing is never replaced by a thread that loads late.
+- A cleaner card: the picture keeps its size (the card scrolls), the prompt
+  and Run come first, the agent sits in its own box below, and the drop zone
+  shows only in the side panel before a picture is open.
+- Grow's Recent pictures and the caught describes are the same in every
+  browser: each list is merged with the gallery's copy (new extensionHistory
+  table and /api/extension/history).
+
+Requires the matching Convex functions and frontend route.
+
 ## 0.44.0 (24 Nov 2026)
 
 - Option-Z on a Midjourney image opens its editing conversation. Option-F
