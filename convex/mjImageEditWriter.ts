@@ -1,12 +1,12 @@
 "use node";
 import { v, ConvexError } from "convex/values";
-import { signedOwnerAction as action } from "./actor";
+import { signedOwnerAction as ownerAction } from "./actor";
 import { buildImageEditMessages, parseImageEditAnswer } from "../lib/mj-image-edit-chat";
 import { cleanRules, finishLocally, localArg, localMessages, modelArg, providerArg, rulesArg, runRoutes, type LocalMessages } from "./promptEditRunner";
 import { pickWriterModel } from "../lib/writer-models";
 import type { QuickEditModel } from "../lib/mj-quick-edit";
 
-export const answer = action({
+export const answer = ownerAction({
   args: { ownerUserId: v.string(), context: v.any(), tools: v.array(v.any()), results: v.array(v.any()), model: modelArg, provider: providerArg, rules: rulesArg, local: localArg },
   returns: v.union(localMessages, v.object({ reply: v.string(), prompt: v.optional(v.string()), tools: v.array(v.object({ name: v.string(), arguments: v.any() })), model: v.string(), provider: v.string(), systemPrompt: v.string() })),
   handler: async (ctx, args): Promise<LocalMessages | { reply: string; prompt?: string; tools: Array<{ name: string; arguments: Record<string, unknown> }>; model: string; provider: string; systemPrompt: string }> => {

@@ -19,11 +19,26 @@ and Keep. Reads need owner gallery:read; replies need gallery:write.
 Threads stop accepting messages at 200 messages/400k stored characters or runs
 at 100, preserving all history; use New to start a fresh conversation on the original.
 
-Extension routes: `/api/extension/image-edit` (create, update, list, read),
+Since extension 0.45.0 a thread is created on the first Run or Ask, not when a
+frame is opened (`GET ?key=` looks a frame's thread up without creating one), a
+thread is titled from its first draft, and `remove` forgets a thread (its runs
+and kept assets stay).
+
+Extension routes: `/api/extension/image-edit` (create, update, list, read, find by key, remove),
 `image-edit-chat` (writer), `image-edit-gallery` (consent-checked MCP reads).
 Gallery reads reuse actual MCP registrations through an isolated in-process
 gallery:read context after extension authentication. No agent bearer token or
 provider key is sent to the page. The writer cannot grant itself access.
+
+## Extension Recent lists (extension 0.45.0)
+
+`extensionHistory` keeps the browser extension's Recent lists the same in every
+browser: kind `grow` (Grow's pictures with their runs, newest 40) and `describe`
+(caught Midjourney describes, newest 24), one owner-scoped row per picture with
+the extension's own JSON in `entry`, `at` for order and `rev` for the merge
+(a write based on an older `rev` is refused and merged by the browser).
+Indexes `by_owner_kind_at`, `by_owner_kind_key`. Route `/api/extension/history`
+(GET `?kind=`, POST `{kind, rows}`). Agents have no tools for it; it is UI state.
 
 Midjourney sref libraries use normal collections and existing media/bookmarks.
 Explicit text recipes use prompts with domain `midjourney-sref`, promptType

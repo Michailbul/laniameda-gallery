@@ -176,4 +176,6 @@
   void paintRecent();
   void paintGrow();
   void takePending();
+  // The same Recent in every browser: fetch the gallery's copy (history-sync.js).
+  try { chrome.runtime.sendMessage({ action: "historySync" }, () => void chrome.runtime.lastError); } catch { /* reloaded */ }
 })(typeof globalThis !== "undefined" ? globalThis : self);

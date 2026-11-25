@@ -1114,13 +1114,28 @@
     }
   }
 
-  // ── History of runs (chrome.storage.local) ──
+  // ── History of runs (chrome.storage.local, shared across browsers by history-sync.js) ──
 
   async function loadHistory() {
     const stored = await local([STORE.history]);
     state.history = Array.isArray(stored[STORE.history]) ? stored[STORE.history] : [];
     return state.history;
   }
+  // Ask the worker for the gallery's copy; a change lands through onChanged below.
+  const syncHistory = (force = false) => void sendRaw({ action: "historySync", kind: "grow", force });
+  try {
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area !== "local" || !changes[STORE.history]) return;
+      state.history = Array.isArray(changes[STORE.history].newValue) ? changes[STORE.history].newValue : [];
+      if (state.showRecent) renderRecent();
+      // Runs of the open picture made in another browser show up here too.
+      const entry = state.source && !state.busy ? entryOf(state.history, state.source.key) : null;
+      if (entry && entry.runs.length !== state.runs.length) {
+        state.runs = entry.runs;
+        paintRuns();
+      }
+    });
+  } catch { /* extension reloaded */ }
   let saveTimer = null;
   function saveHistory() {
     clearTimeout(saveTimer);
@@ -1205,6 +1220,7 @@
     }
     await adopt(describeSource(target), target);
     present();
+    syncHistory();
   }
 
   // From the Recent list or the side panel: a picture grown before.
@@ -1357,7 +1373,7 @@
     const act = event.target?.dataset?.run;
     if (act === "older") stepRun(1);
     if (act === "newer") stepRun(-1);
-    if (act === "recent") { state.showRecent = !state.showRecent; renderResults(); }
+    if (act === "recent") { state.showRecent = !state.showRecent; renderResults(); if (state.showRecent) syncHistory(true); }
   });
 
   function renderRecent() {

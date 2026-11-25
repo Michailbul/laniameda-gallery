@@ -1,11 +1,12 @@
 import { ConvexError, v } from "convex/values";
-import { signedOwnerMutation as mutation, signedOwnerQuery as query } from "./actor";
+import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import { editFrame, imageEditFields } from "./mjImageEditValidators";
 import { fastModelById } from "../lib/mj-fast-helper";
 import { buildR2PublicUrl } from "./r2_url";
 
+const DEFAULT_TITLE = "Midjourney edit";
 const threadOut = v.object({ _id: v.id("mjImageEditThreads"), _creationTime: v.number(), ...imageEditFields });
 const owned = async (ctx: QueryCtx | MutationCtx, owner: string, id: string) => {
   const key = ctx.db.normalizeId("mjImageEditThreads", id);
@@ -14,16 +15,16 @@ const owned = async (ctx: QueryCtx | MutationCtx, owner: string, id: string) => 
   return row;
 };
 
-export const read = query({
+export const read = ownerQuery({
   args: { ownerUserId: v.string(), id: v.string() }, returns: threadOut,
   handler: (ctx, args) => owned(ctx, args.ownerUserId, args.id),
 });
-export const head = query({
+export const head = ownerQuery({
   args: { ownerUserId: v.string(), id: v.string() }, returns: v.object({ updatedAt: v.number() }),
   handler: async (ctx, args) => ({ updatedAt: (await owned(ctx, args.ownerUserId, args.id)).updatedAt }),
 });
 
-export const list = query({
+export const list = ownerQuery({
   args: { ownerUserId: v.string() },
   returns: v.array(v.object({ id: v.id("mjImageEditThreads"), title: v.string(), image: v.string(), updatedAt: v.number() })),
   handler: async (ctx, args) => {
@@ -34,7 +35,29 @@ export const list = query({
   },
 });
 
-export const create = mutation({
+// The frame's thread, if it has one: opening a picture creates nothing.
+export const find = ownerQuery({
+  args: { ownerUserId: v.string(), key: v.string() }, returns: v.union(threadOut, v.null()),
+  handler: async (ctx, args) => {
+    for (const owner of resolveUserIdCandidates(args.ownerUserId)) {
+      const row = await ctx.db.query("mjImageEditThreads").withIndex("by_owner_key", q => q.eq("ownerUserId", owner).eq("key", args.key)).unique();
+      if (row) return row;
+    }
+    return null;
+  },
+});
+
+// Forget a thread (its runs and kept takes stay in the gallery).
+export const remove = ownerMutation({
+  args: { ownerUserId: v.string(), id: v.string() }, returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await owned(ctx, args.ownerUserId, args.id);
+    await ctx.db.delete(row._id);
+    return null;
+  },
+});
+
+export const create = ownerMutation({
   args: { ownerUserId: v.string(), key: v.string(), source: editFrame }, returns: threadOut,
   handler: async (ctx, args) => {
     if (!args.key || args.key.length > 160 || args.source.url.length > 2000 || !args.source.url.startsWith("https://")) throw new ConvexError("Invalid image.");
@@ -45,13 +68,13 @@ export const create = mutation({
     const now = Date.now();
     const source = { ...args.source, url: (args.source.r2Key ? buildR2PublicUrl(args.source.r2Key) : null) || args.source.url };
     const id = await ctx.db.insert("mjImageEditThreads", { ownerUserId: args.ownerUserId, key: args.key,
-      title: (source.prompt || "Midjourney edit").slice(0, 100), source, activeSource: source,
+      title: (source.prompt || DEFAULT_TITLE).slice(0, 100), source, activeSource: source,
       model: "seedream-5.5", count: 1, draft: "", galleryEnabled: false, messages: [], runIds: [], createdAt: now, updatedAt: now });
     return (await ctx.db.get(id))!;
   },
 });
 
-export const update = mutation({
+export const update = ownerMutation({
   args: { ownerUserId: v.string(), id: v.string(), draft: v.optional(v.string()), model: v.optional(v.string()), count: v.optional(v.number()),
     galleryEnabled: v.optional(v.boolean()), world: v.optional(v.string()), activeSource: v.optional(editFrame),
     message: v.optional(v.object({ id: v.string(), role: v.union(v.literal("michael"), v.literal("agent")), text: v.string(),
@@ -77,7 +100,9 @@ export const update = mutation({
     void _owner; void _id;
     const messages = message && !row.messages.some(m => m.id === message.id)
       ? [...row.messages, { ...message, text: message.text.slice(0, 6000), prompt: message.prompt?.slice(0, 2000), reads: message.reads?.slice(0, 24), createdAt: Date.now() }] : row.messages;
-    await ctx.db.patch(row._id, { ...patch, messages, updatedAt: Date.now() });
+    // A thread is named after what it asks for, once it asks for something.
+    const named = row.title === DEFAULT_TITLE && patch.draft?.trim() ? { title: patch.draft.trim().replace(/\s+/g, " ").slice(0, 100) } : {};
+    await ctx.db.patch(row._id, { ...patch, ...named, messages, updatedAt: Date.now() });
     return (await ctx.db.get(row._id))!;
   },
 });

@@ -426,6 +426,20 @@ export default defineSchema({
   // (convex/mjQuickRuns.ts, convex/mjQuickRunner.ts). Takes stay here until
   // Michael keeps one (saved to the gallery as an asset) or drops it; a take
   // sent to Fantasy Studio records the draft it became there.
+  // Each browser's Grow and Describe history (the extension's Recent lists),
+  // one row per picture, so every copy of the extension on any machine shows
+  // the same Recent (convex/extensionHistory.ts). `entry` is the extension's
+  // own JSON for that picture; `rev` orders writes for the merge.
+  extensionHistory: defineTable({
+    ownerUserId: v.string(),
+    kind: v.union(v.literal("grow"), v.literal("describe")),
+    key: v.string(),
+    at: v.number(),
+    rev: v.number(),
+    entry: v.string(),
+  })
+    .index("by_owner_kind_at", ["ownerUserId", "kind", "at"])
+    .index("by_owner_kind_key", ["ownerUserId", "kind", "key"]),
   mjImageEditThreads: defineTable(imageEditFields)
     .index("by_owner_updated", ["ownerUserId", "updatedAt"])
     .index("by_owner_key", ["ownerUserId", "key"]),

@@ -92,6 +92,15 @@
     return `From Midjourney · ${run?.modelName || "fast helper"}${what ? `: ${what}` : ""}`.slice(0, 200);
   }
 
+  // "now", "5 min", "2 h", "3 d" for the thread list.
+  function ago(at, now = Date.now()) {
+    const minutes = Math.max(0, Math.round((now - (at || now)) / 60000));
+    if (minutes < 1) return "now";
+    if (minutes < 60) return `${minutes} min`;
+    const hours = Math.round(minutes / 60);
+    return hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} d`;
+  }
+
   const usd = (n) => `$${Number(n || 0).toFixed(n > 0 && n < 0.1 ? 3 : 2)}`;
   function priceText(perTake, count) {
     if (!(perTake > 0)) return "";
@@ -99,7 +108,7 @@
   }
 
   globalScope.SaveToGalleryFastHelper = {
-    placeBeside, barWithImage, frameUrls, urlFromDrop, anyInFlight, flattenTakes, stepSelection, takeLabel, fantasyNote, priceText,
+    placeBeside, barWithImage, frameUrls, urlFromDrop, anyInFlight, flattenTakes, stepSelection, takeLabel, fantasyNote, priceText, ago,
   };
 
   const panelMode = typeof location !== "undefined" && location.protocol === "chrome-extension:" && location.pathname.endsWith("/image-edit.html");
@@ -255,8 +264,8 @@
       <select class="stg-fh-world" title="Keep saves into this world"></select>
       <button type="button" class="stg-fh-x" title="Close (Esc)">×</button>
     </div>
-    <div class="stg-fh-threadbar"><select class="stg-fh-threads" aria-label="Edit threads"><option value="">Edit threads</option></select><button type="button" class="stg-fh-new">New</button><button type="button" class="stg-fh-original">Original</button></div>
-    <div class="stg-fh-source-drop" tabindex="0">Drop a Midjourney image to start an edit · ⌥Z on a frame</div>
+    <div class="stg-fh-threadbar"><select class="stg-fh-threads" aria-label="Edit threads" title="Earlier edits, on any of your browsers"><option value="">Earlier edits…</option></select><button type="button" class="stg-fh-new" title="A fresh edit of the same picture">New</button><button type="button" class="stg-fh-original" title="Go back to editing the original picture">Original</button><button type="button" class="stg-fh-forget" title="Forget this edit thread (kept takes stay in the gallery)">Forget</button></div>
+    <div class="stg-fh-source-drop" tabindex="0">Drop a Midjourney image here to edit it<br><span>or press ⌥Z on a frame on midjourney.com</span></div>
     <div class="stg-fh-stage">
       <img class="stg-fh-main" alt="">
       <div class="stg-fh-pip" title="The source. Hold Space, or press on the picture, to see it full size."><img alt=""></div>
@@ -267,12 +276,8 @@
     <div class="stg-fh-takes"></div>
     <div class="stg-fh-acts"></div>
     <div class="stg-fh-fantasy"></div>
-    <div class="stg-fh-chatlog" role="log" aria-label="Edit conversation"></div>
-    <div class="stg-fh-chatopts"><label><input type="checkbox" class="stg-fh-gallery"> Gallery access</label><select class="stg-fh-writer" aria-label="Prompt writer"></select></div>
-    <div class="stg-fh-chatbox"><textarea class="stg-fh-chatinput" rows="2" maxlength="6000" placeholder="Tell the agent what to polish…"></textarea><button type="button" class="stg-fh-chatgo">Ask agent</button></div>
-    <label class="stg-fh-draftlabel">Edit prompt · review it, then Run</label>
     <div class="stg-fh-ask">
-      <textarea class="stg-fh-idea" rows="3" maxlength="2000" spellcheck="false" autocomplete="off" placeholder="Write an edit prompt, or ask the agent above"></textarea>
+      <textarea class="stg-fh-idea" rows="3" maxlength="2000" spellcheck="false" autocomplete="off" placeholder="What to change… (Enter runs)"></textarea>
       <button type="button" class="stg-fh-go" title="Run (Enter)">Run</button>
     </div>
     <div class="stg-fh-tpls"></div>
@@ -284,12 +289,17 @@
       <div class="stg-fh-count" title="How many takes (⇧1–⇧3)"></div>
     </div>
     <div class="stg-fh-line"></div>
+    <div class="stg-fh-agent">
+      <div class="stg-fh-chatopts"><b>Agent</b><span>writes the prompt</span><select class="stg-fh-writer" aria-label="Prompt writer"></select><label title="Let the agent read your gallery for this edit"><input type="checkbox" class="stg-fh-gallery"> Gallery</label></div>
+      <div class="stg-fh-chatlog" role="log" aria-label="Edit conversation"></div>
+      <div class="stg-fh-chatbox"><textarea class="stg-fh-chatinput" rows="1" maxlength="6000" placeholder="Ask the agent: “make it feel like late autumn”…"></textarea><button type="button" class="stg-fh-chatgo">Ask</button></div>
+    </div>
     <div class="stg-fh-recent"><b>Recent</b><div class="stg-fh-strip"></div></div>
     <div class="stg-fh-keys"></div>`;
 
   const $ = (selector) => root.querySelector(selector);
   const ui = {
-    threads: $(".stg-fh-threads"), sourceDrop: $(".stg-fh-source-drop"), original: $(".stg-fh-original"), newThread: $(".stg-fh-new"),
+    threads: $(".stg-fh-threads"), sourceDrop: $(".stg-fh-source-drop"), original: $(".stg-fh-original"), newThread: $(".stg-fh-new"), forget: $(".stg-fh-forget"),
     chatlog: $(".stg-fh-chatlog"), chatinput: $(".stg-fh-chatinput"), chatgo: $(".stg-fh-chatgo"), gallery: $(".stg-fh-gallery"), writer: $(".stg-fh-writer"),
     world: $(".stg-fh-world"), stage: $(".stg-fh-stage"), main: $(".stg-fh-main"), pip: $(".stg-fh-pip"), pipImg: $(".stg-fh-pip img"),
     chip: $(".stg-fh-chip"), wait: $(".stg-fh-wait"), src: $(".stg-fh-src"), takes: $(".stg-fh-takes"), acts: $(".stg-fh-acts"),
@@ -327,7 +337,9 @@
   }
   function paintChat() {
     ui.gallery.checked = Boolean(state.thread?.galleryEnabled);
-    ui.chatgo.disabled = state.chatting || !state.thread;
+    ui.chatgo.disabled = state.chatting || !state.source;
+    ui.chatlog.classList.toggle("stg-fh-has", Boolean(state.thread?.messages?.length));
+    paintThreadBar();
     ui.idea.disabled = state.chatting;
     ui.threads.disabled = state.chatting || state.busy;
     ui.chatlog.replaceChildren(...(state.thread?.messages || []).map(message => {
@@ -349,17 +361,36 @@
     ui.chatlog.scrollTop = ui.chatlog.scrollHeight;
     scheduleLayout();
   }
+  // The thread bar: earlier edits (cloud, any browser), and what can be done with this one.
+  function paintThreadBar() {
+    const editingTake = Boolean(state.source?.upload?.parentRunId);
+    ui.original.hidden = !state.thread || !editingTake;
+    ui.newThread.hidden = !state.thread;
+    ui.forget.hidden = !state.thread;
+    if (!state.thread) { ui.forget.textContent = "Forget"; forgetArmed = false; }
+    ui.sourceDrop.hidden = !panelMode || Boolean(state.source);
+    root.classList.toggle("stg-fh-empty", !state.source);
+  }
+  const threadLabel = (thread) => {
+    const title = clean(thread.title) && thread.title !== "Midjourney edit" ? clean(thread.title) : "Untitled edit";
+    return `${title.length > 56 ? `${title.slice(0, 55)}…` : title} · ${ago(thread.updatedAt)}`;
+  };
   async function loadThreads() {
     const res = await ask("threadList");
     if (!res?.ok) return;
     state.threads = res.threads || [];
-    ui.threads.replaceChildren(new Option("Edit threads…", ""), ...state.threads.map(thread => new Option(thread.title, thread.id)));
+    const current = state.thread && !state.threads.some((thread) => thread.id === state.thread._id)
+      ? [{ id: state.thread._id, title: state.thread.title, updatedAt: state.thread.updatedAt }] : [];
+    ui.threads.replaceChildren(new Option(state.threads.length ? "Earlier edits…" : "No earlier edits", ""),
+      ...[...current, ...state.threads].map(thread => new Option(threadLabel(thread), thread.id)));
     ui.threads.value = state.thread?._id || "";
   }
-  function adoptThread(thread, runs, keepSource) {
+  // replaceDraft: the thread's draft replaces what is typed (picking another
+  // thread, or a reply from another browser); otherwise typing is never lost.
+  function adoptThread(thread, runs, keepSource, replaceDraft = false) {
     state.thread = thread;
-    state.model = thread.model; state.count = Math.min(3, thread.count); state.worldKey = thread.world || "";
-    ui.idea.value = thread.draft;
+    state.model = thread.model; state.count = Math.min(3, thread.count); state.worldKey = thread.world || state.worldKey || "";
+    if (replaceDraft || !ui.idea.value.trim()) ui.idea.value = thread.draft;
     const restored = sourceFromFrame(thread.activeSource, thread.activeSource.parentRunId ? undefined : thread.key);
     if (keepSource && state.source) Object.assign(state.source, restored); else state.source = restored;
     state.runs = runs || []; state.sel = state.runs.length ? 0 : -1;
@@ -373,24 +404,43 @@
     if (!res?.ok) { setLine(esc(res?.error || "Could not reopen the edit."), "err"); return; }
     state.node = null;
     state.open = true; mount(); root.classList.add("stg-fh-show", "stg-fh-in");
-    adoptThread(res.thread, res.runs);
+    adoptThread(res.thread, res.runs, false, true);
     state.threadReady = Promise.resolve();
     void loadThreads(); layout();
   }
-  async function ensureThread(source) {
-    try {
-      const upload = source.upload || await prepareSource(source);
+  // Opening a picture only looks for its thread: a reopened frame resumes its
+  // last selected take, with every earlier run. Nothing is created until Run
+  // or Ask (threadFor), so looking at frames leaves no empty threads behind.
+  async function lookupThread(source) {
+    const res = await ask("threadFind", { key: source.key });
+    if (!res?.ok || !res.thread || state.source !== source || state.thread) return;
+    adoptThread(res.thread, res.runs, !res.thread.activeSource.parentRunId);
+    void loadThreads();
+  }
+  function ensureThread(source) {
+    return lookupThread(source).catch(() => {});
+  }
+  async function threadFor(source) {
+    await state.threadReady;
+    if (state.thread) return state.thread;
+    if (state.creating?.source === source) return state.creating.promise;
+    const promise = (async () => {
+      const upload = source.upload?.r2Key || source.upload?.url ? source.upload : await prepareSource(source);
       if (!source.command) source.command = await readCommand(source);
-      source.upload = upload;
+      source.upload = { ...(source.upload || {}), ...upload };
       const res = await ask("threadCreate", { body: { key: source.key, source: framePayload(source) } });
       if (!res?.ok || !res.thread) throw new Error(res?.error || "Could not save the edit thread.");
-      const full = await ask("threadRead", { id: res.thread._id });
-      if (!full?.ok) throw new Error(full?.error || "Could not read the edit thread.");
-      if (state.source !== source) return;
-      // A reopened frame resumes the last selected take, with every earlier run.
-      adoptThread(full.thread, full.runs, !full.thread.activeSource.parentRunId);
+      if (state.source !== source) throw new Error("The picture changed. Try again.");
+      if (!state.thread) {
+        // A thread found by key may already have runs: read them in.
+        const full = res.thread.runIds?.length ? await ask("threadRead", { id: res.thread._id }) : null;
+        adoptThread(full?.ok ? full.thread : res.thread, full?.ok ? full.runs : state.runs, true);
+      }
       void loadThreads();
-    } catch (error) { if (state.source === source) setLine(esc(error?.message || error), "err"); }
+      return state.thread;
+    })();
+    state.creating = { source, promise };
+    try { return await promise; } finally { if (state.creating?.promise === promise) state.creating = null; }
   }
   async function saveThread(patch, id = state.thread?._id) {
     if (!id) return;
@@ -403,15 +453,17 @@
   function saveControls() {
     clearTimeout(draftTimer);
     const id = state.thread?._id;
+    if (!id) return;
     const patch = { draft: ui.idea.value, model: state.model, count: state.count, world: state.worldKey };
     draftTimer = setTimeout(() => { void saveThread(patch, id).catch(error => setLine(esc(error.message), "err")); }, 400);
   }
   async function chat(retryId) {
     if (state.chatting) return;
     const text = retryId ? state.thread?.messages.find(message => message.id === retryId)?.text : ui.chatinput.value.trim(); if (!text) return;
-    await state.threadReady;
-    const id = state.thread?._id; if (!id) { setLine("Open an image first.", "err"); return; }
+    if (!state.source) { setLine("Open an image first.", "err"); return; }
     state.chatting = true; paintChat();
+    let id;
+    try { id = (await threadFor(state.source))._id; } catch (error) { state.chatting = false; paintChat(); setLine(esc(error?.message || error), "err"); return; }
     clearTimeout(draftTimer);
     const messageId = retryId || crypto.randomUUID();
     try {
@@ -430,21 +482,43 @@
   }
   ui.chatgo.addEventListener("click", () => void chat());
   ui.chatinput.addEventListener("keydown", event => { if (event.key === "Enter" && !event.shiftKey && !event.isComposing) { event.preventDefault(); void chat(); } });
-  ui.gallery.addEventListener("change", () => void saveThread({ galleryEnabled: ui.gallery.checked }).catch(error => setLine(esc(error.message), "err")));
+  ui.gallery.addEventListener("change", () => {
+    const on = ui.gallery.checked;
+    if (!state.source) return;
+    void threadFor(state.source).then(() => saveThread({ galleryEnabled: on })).catch(error => { ui.gallery.checked = !on; setLine(esc(error.message), "err"); });
+  });
   ui.idea.addEventListener("input", saveControls);
-  ui.threads.addEventListener("change", () => { if (ui.threads.value) void loadThread(ui.threads.value); });
+  ui.threads.addEventListener("change", () => { if (ui.threads.value && ui.threads.value !== state.thread?._id) void loadThread(ui.threads.value); });
+  // Forget: two clicks, so a stray one never removes a thread.
+  let forgetArmed = false;
+  ui.forget.addEventListener("click", async () => {
+    if (!state.thread || state.busy || state.chatting) return;
+    if (!forgetArmed) { forgetArmed = true; ui.forget.textContent = "Sure?"; setTimeout(() => { forgetArmed = false; ui.forget.textContent = "Forget"; }, 3000); return; }
+    forgetArmed = false;
+    const id = state.thread._id;
+    const res = await ask("threadRemove", { id });
+    if (!res?.ok) { setLine(esc(res?.error || "Could not forget it."), "err"); return; }
+    if (state.thread?._id === id) {
+      state.thread = null; state.runs = []; state.sel = -1;
+      if (state.source) { state.source.key = `edit:${crypto.randomUUID()}`; bySource.delete(state.source.key); }
+    }
+    setLine("Forgotten. Kept takes stay in the gallery.");
+    paintAll(); paintChat(); void loadThreads();
+  });
   ui.newThread.addEventListener("click", () => {
     if (!state.thread || state.busy || state.chatting) return;
     const source = sourceFromFrame(state.thread.source, `edit:${crypto.randomUUID()}`);
     state.source = source; state.thread = null; state.runs = []; state.sel = -1; state.requestKey = null;
-    ui.idea.value = ""; paintAll(); paintChat();
-    state.threadReady = ensureThread(source);
+    ui.idea.value = ""; paintSource(); paintAll(); paintChat(); void loadThreads();
+    state.threadReady = Promise.resolve();
+    setLine("A fresh edit of the same picture.");
+    ui.idea.focus();
   });
   ui.original.addEventListener("click", () => {
     if (!state.thread || state.busy || state.chatting) return;
     state.source = sourceFromFrame(state.thread.source, state.thread.key);
     void saveThread({ activeSource: state.thread.source }).catch(error => setLine(esc(error.message), "err"));
-    paintSource(); paintStage(); setLine("Editing the original image.");
+    paintSource(); paintStage(); paintThreadBar(); setLine("Editing the original image.");
   });
   void ask("writer").then(res => {
     if (res?.ok) globalScope.SaveToGalleryWriterChoice?.fill(ui.writer, res, { vision: true });
@@ -545,7 +619,7 @@
     const tool = modelOf(state.model)?.tool;
     const price = priceText(perTake(state.model), state.count);
     ui.go.innerHTML = `${tool ? esc(modelOf(state.model).chip) : "Run"}${price ? `<em>${esc(price)}</em>` : ""}`;
-    ui.go.disabled = state.busy || state.chatting || !state.source || !state.thread;
+    ui.go.disabled = state.busy || state.chatting || !state.source;
   }
 
   function pickModel(id) {
@@ -774,10 +848,8 @@
     paintPrice();
     setLine(`<span class="stg-fh-spin"></span><span>${source.upload?.r2Key || source.upload?.url ? "Sending to fal…" : "Reading the frame…"}</span>`);
     try {
-      await state.threadReady;
-      const thread = state.thread;
+      const thread = await threadFor(state.source);
       source = opts.source || state.source;
-      if (!thread) throw new Error("The edit thread is not ready. Reopen the image and try again.");
       if (state.requestThreadId !== thread._id) { state.requestKey = null; state.requestThreadId = thread._id; }
       await saveThread({ draft: instruction, model, count: opts.count || state.count, activeSource: framePayload(source) });
       const upload = source.upload?.url ? source.upload : await prepareSource(source);
@@ -881,6 +953,7 @@
       return tile;
     }));
     ui.takes.classList.toggle("stg-fh-has", list.length > 0);
+    paintThreadBar();
     paintActions();
     paintFantasy();
     paintKeys();
@@ -994,6 +1067,7 @@
     void saveThread({ activeSource: framePayload(source), draft: "" }).catch(error => setLine(esc(error.message), "err"));
     paintSource();
     paintAll();
+    paintThreadBar();
     setLine("<span>Editing that take. Say what to change next.</span>");
     ui.idea.focus();
   }
@@ -1137,6 +1211,7 @@
       tile.addEventListener("click", () => openRun(entry));
       return tile;
     }));
+    scheduleLayout();
   }
 
   // ── Keys ──
@@ -1290,7 +1365,7 @@
       const fresh = await ask("threadRead", { id });
       if (fresh?.ok && state.thread?._id === id && !state.busy && !state.chatting) {
         const selection = state.sel;
-        adoptThread(fresh.thread, fresh.runs);
+        adoptThread(fresh.thread, fresh.runs, false, true);
         state.sel = Math.min(selection, takes().length - 1); paintAll();
       }
     } finally { refreshingThread = false; }
