@@ -739,6 +739,17 @@ export function GalleryDashboard({
   const [curationLoadingAssetId, setCurationLoadingAssetId] =
     useState<string | null>(null);
   const [curationError, setCurationError] = useState<string>();
+  // Shelf piles (a world's child collections) picked by box-select or
+  // shift/⌘-click; the shelf bar deletes them with every frame inside.
+  const [selectedShelfIds, setSelectedShelfIds] = useState<Set<string>>(() => new Set());
+  const replaceShelfSelection = useCallback(
+    (ids: string[]) =>
+      setSelectedShelfIds((current) =>
+        ids.length === current.size && ids.every((id) => current.has(id)) ? current : new Set(ids),
+      ),
+    [],
+  );
+  const [shelfDeleteStatus, setShelfDeleteStatus] = useState<string | null>(null);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -4442,6 +4453,106 @@ export function GalleryDashboard({
     [ownerUserId, deleteFolderMutation, folderNameById],
   );
 
+  // Delete the picked shelves and every frame filed in them (Michael's call,
+  // 26 Nov 2026: "delete shelf and its frames"). The frames are listed first
+  // so the confirm states the exact number; shelves go only after all their
+  // frames are gone, so a failure never leaves a shelf half-emptied unseen.
+  const deleteSelectedShelves = useCallback(async () => {
+    if (!canDeleteInCurrentView || shelfDeleteStatus) return;
+    const shelfIds = Array.from(selectedShelfIds);
+    if (shelfIds.length === 0) return;
+    setShelfDeleteStatus("Counting frames…");
+    const assetIds = new Set<string>();
+    try {
+      for (const folderId of shelfIds) {
+        let cursor: string | null = null;
+        do {
+          const result: { page: Array<{ _id: string }>; isDone: boolean; continueCursor: string } =
+            await convex.query(api.assets.listFolderAssetsPage, {
+              ownerUserId,
+              folderId: folderId as Id<"folders">,
+              paginationOpts: { numItems: 100, cursor },
+            });
+          for (const asset of result.page) assetIds.add(String(asset._id));
+          cursor = result.isDone ? null : result.continueCursor;
+        } while (cursor);
+      }
+    } catch (error) {
+      setShelfDeleteStatus(null);
+      setMoveStatus({
+        text: error instanceof Error ? error.message : "Could not read the shelves.",
+        error: true,
+      });
+      return;
+    }
+    const names = shelfIds.map((id) => folderNameById.get(id) ?? "shelf");
+    const shown = names.slice(0, 3).join(", ") + (names.length > 3 ? ` and ${names.length - 3} more` : "");
+    if (
+      !window.confirm(
+        `Delete ${shelfIds.length} shelf${shelfIds.length === 1 ? "" : "s"} (${shown}) and all ${assetIds.size} frame${assetIds.size === 1 ? "" : "s"} in them, for good?\n\nA frame that is also filed somewhere else is deleted there too. This cannot be undone.`,
+      )
+    ) {
+      setShelfDeleteStatus(null);
+      return;
+    }
+    const results = await deleteAssetSelection(Array.from(assetIds), {
+      via: "dashboard.shelf-selection",
+      onResult: (result, completed, total) => {
+        setShelfDeleteStatus(`Deleting frames ${completed} / ${total}`);
+        if (!result.ok) return;
+        loadedImageIdsRef.current.delete(result.assetId);
+        setHiddenAssetIds((current) => new Set([...current, result.assetId]));
+      },
+    });
+    const failed = results.filter((result) => !result.ok);
+    if (failed.length > 0) {
+      setShelfDeleteStatus(null);
+      setMoveStatus({
+        text: `${failed.length} frame${failed.length === 1 ? "" : "s"} could not be deleted, so the shelves stay. ${failed[0]!.ok ? "" : failed[0]!.error}`,
+        error: true,
+      });
+      return;
+    }
+    try {
+      for (const folderId of shelfIds) {
+        setShelfDeleteStatus(`Removing shelf ${folderNameById.get(folderId) ?? ""}`.trim());
+        await deleteFolderMutation({ ownerUserId, folderId: folderId as Id<"folders"> });
+      }
+      setSelectedShelfIds(new Set());
+      setMoveStatus({
+        text: `Deleted ${shelfIds.length} shelf${shelfIds.length === 1 ? "" : "s"} and ${assetIds.size} frame${assetIds.size === 1 ? "" : "s"}`,
+      });
+    } catch (error) {
+      setMoveStatus({
+        text: error instanceof Error ? error.message : "Frames deleted, but a shelf could not be removed.",
+        error: true,
+      });
+    } finally {
+      setShelfDeleteStatus(null);
+    }
+  }, [
+    canDeleteInCurrentView, convex, deleteFolderMutation, folderNameById, ownerUserId,
+    selectedShelfIds, shelfDeleteStatus,
+  ]);
+
+  // Escape drops the shelf selection; leaving the world drops it too.
+  useEffect(() => {
+    if (selectedShelfIds.size === 0) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) return;
+      setSelectedShelfIds(new Set());
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [selectedShelfIds.size]);
+  const [shelfSelectionFolder, setShelfSelectionFolder] = useState(effectiveSelectedFolderId);
+  if (shelfSelectionFolder !== effectiveSelectedFolderId) {
+    setShelfSelectionFolder(effectiveSelectedFolderId);
+    if (selectedShelfIds.size > 0) setSelectedShelfIds(new Set());
+  }
+
   const createFolderInActiveCollection = useCallback(
     async (name: string): Promise<boolean> => {
       if (!activeCollectionFolder || activeCollectionFolder.parentFolderId) {
@@ -6902,6 +7013,10 @@ export function GalleryDashboard({
                           onCollectionOpen={handleCardCollectionOpen}
                           onStorybookOpen={openStorybook}
                           zoom={gridZoom}
+                          selectedCollectionIds={selectedShelfIds}
+                          onReplaceCollectionSelection={
+                            canDeleteInCurrentView ? replaceShelfSelection : undefined
+                          }
                         />
                       )}
                     />
@@ -6927,6 +7042,10 @@ export function GalleryDashboard({
                     selectedAssetIds={selectedAssetIds}
                     onToggleAssetSelect={toggleAssetSelection}
                     onReplaceSelection={replaceAssetSelection}
+                    selectedCollectionIds={selectedShelfIds}
+                    onReplaceCollectionSelection={
+                      canDeleteInCurrentView ? replaceShelfSelection : undefined
+                    }
                     starrable={canManageFoldersInCurrentView}
                     onToggleStar={handleCardToggleStar}
                     draggableAssets={canManageFoldersInCurrentView}
@@ -7351,6 +7470,83 @@ export function GalleryDashboard({
         onPublished={handlePublished}
       />
       </MountOnceOpen>
+
+      {/* Shelf selection bar — picked shelf piles, deleted with their frames */}
+      {canDeleteInCurrentView && (selectedShelfIds.size > 0 || shelfDeleteStatus) && (
+        <div
+          className={`fixed left-4 right-4 z-[56] flex justify-center pointer-events-none md:right-0 ${sidebarCollapsed ? "md:left-[var(--lm-sidebar-collapsed)]" : "md:left-[var(--lm-sidebar-width)]"}`}
+          style={{ bottom: selectedAssetIds.size > 0 ? "196px" : "104px" }}
+          role="region"
+          aria-label="Shelf selection"
+          aria-busy={Boolean(shelfDeleteStatus)}
+        >
+          <div
+            className="pointer-events-auto flex flex-wrap items-center gap-2 px-4 py-3"
+            style={{
+              backgroundColor: "var(--lm-surface-1)",
+              border: "2px solid var(--lm-ink)",
+              borderRadius: "16px",
+              boxShadow: "var(--shadow-lg)",
+              maxWidth: "min(640px, calc(100vw - 32px))",
+              fontFamily: "var(--lm-font)",
+            }}
+          >
+            <span
+              className="inline-flex items-center px-2.5 py-1"
+              style={{
+                backgroundColor: "var(--lm-coral)",
+                color: "#000",
+                borderRadius: "10px",
+                fontSize: "11px",
+                fontWeight: 800,
+                letterSpacing: "0.10em",
+                textTransform: "uppercase",
+              }}
+            >
+              {selectedShelfIds.size} shel{selectedShelfIds.size === 1 ? "f" : "ves"}
+            </span>
+            <span className="hidden md:inline" style={{ fontSize: "10.5px", color: "var(--lm-text-ghost)" }}>
+              {shelfDeleteStatus ?? "Shift-drag or ⌘-click shelves · Esc to clear"}
+            </span>
+            <button
+              type="button"
+              disabled={Boolean(shelfDeleteStatus)}
+              onClick={() => {
+                void deleteSelectedShelves();
+              }}
+              className="inline-flex items-center gap-1.5"
+              style={{
+                border: "2px solid var(--lm-coral)",
+                color: "var(--lm-coral)",
+                borderRadius: "10px",
+                padding: "6px 12px",
+                fontSize: "11px",
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                opacity: shelfDeleteStatus ? 0.5 : 1,
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" aria-hidden />
+              Delete shelves + frames
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(shelfDeleteStatus)}
+              onClick={() => setSelectedShelfIds(new Set())}
+              className="lm-btn-ghost"
+              style={{
+                border: "2px solid var(--lm-border-strong)",
+                borderRadius: "10px",
+                padding: "6px 12px",
+                fontSize: "11px",
+              }}
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Bulk selection toolbar — visible only when selection is non-empty */}
       {(canCuratePublic || canManageFoldersInCurrentView) && !moodboardPick &&
