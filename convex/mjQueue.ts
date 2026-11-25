@@ -48,6 +48,8 @@ export const mjQueueItemOutValidator = v.object({
   ...publicFields,
   command: v.string(),
   warnings: v.array(v.string()),
+  // On --niji items only: Michael's personal profile codes, which the composer leaves out (V8-only).
+  v8OnlyCodes: v.optional(v.array(v.string())),
 });
 
 const batchOutValidator = v.object({
@@ -73,11 +75,34 @@ export const text = (value: string | null | undefined, max: number, label: strin
   return trimmed;
 };
 
-export const toOut = (row: Item) => {
+const NIJI_PARAM = /(^|\s)(?:--|[–—])niji\b/i;
+
+/** Michael's trained personal profile codes (current and earlier): Midjourney takes them with V8 only. */
+export async function personalProfileCodes(ctx: Ctx, owner: string) {
+  const codes = new Set<string>();
+  for (const candidate of resolveUserIdCandidates(owner)) {
+    const rows = await ctx.db.query("mjProfiles").withIndex("by_owner_normalizedName", (q) => q.eq("ownerUserId", candidate)).collect();
+    for (const row of rows) {
+      codes.add(row.code);
+      for (const old of row.codeHistory) codes.add(old.code);
+    }
+  }
+  return [...codes].filter(Boolean);
+}
+
+const nijiCodes = (row: { params?: string }, v8Only: readonly string[]) =>
+  v8Only.length && NIJI_PARAM.test(row.params ?? "") ? [...v8Only] : undefined;
+
+/** The command for a stored row, with personal profiles left out of a Niji job. */
+export const composeOwned = (row: Parameters<typeof composeMjCommand>[0], v8Only: readonly string[]) =>
+  composeMjCommand({ ...row, v8OnlyCodes: nijiCodes(row, v8Only) });
+
+export const toOut = (row: Item, v8Only: readonly string[] = []) => {
   const { _id, _creationTime, ownerUserId, ...rest } = row;
   void _creationTime;
   void ownerUserId;
-  return { id: _id, ...rest, ...composeMjCommand(row) };
+  const v8OnlyCodes = nijiCodes(row, v8Only);
+  return { id: _id, ...rest, ...(v8OnlyCodes ? { v8OnlyCodes } : {}), ...composeMjCommand({ ...row, v8OnlyCodes }) };
 };
 
 const assetRefPattern = /^asset:/;
@@ -216,9 +241,10 @@ export const listQueue = ownerQuery({
     // so a thread late in the alphabet never loses its open prompts to old sent ones.
     const open = wanted.filter(isOpen).slice(0, MJ_QUEUE_LIMITS.listOpenItems);
     const done = wanted.filter((row) => !isOpen(row)).slice(0, Math.max(0, MJ_QUEUE_LIMITS.listItems - open.length));
+    const v8Only = await personalProfileCodes(ctx, args.ownerUserId);
     const items = [...open, ...done]
       .sort((a, b) => a.batchKey.localeCompare(b.batchKey) || a.order - b.order || a.createdAt - b.createdAt)
-      .map(toOut);
+      .map((row) => toOut(row, v8Only));
     // Batches with prompts still to send first, then the newest.
     const batchList = [...batches.values()].sort((a, b) =>
       Number(b.queued + b.injected > 0) - Number(a.queued + a.injected > 0) || b.updatedAt - a.updatedAt);
@@ -273,7 +299,7 @@ export const queueItems = ownerMutation({
             .withIndex("by_owner_ingestKey", (q) => q.eq("ownerUserId", candidate).eq("ingestKey", ingestKey)).first();
         }
         if (found) {
-          out.push({ id: found._id, ingestKey, created: false, order: found.order, ...composeMjCommand(found) });
+          out.push({ id: found._id, ingestKey, created: false, order: found.order, ...composeOwned(found, await personalProfileCodes(ctx, owner)) });
           continue;
         }
       }
@@ -314,7 +340,7 @@ export const queueItems = ownerMutation({
         updatedAt: now,
       };
       const id = await ctx.db.insert("mjQueueItems", doc);
-      out.push({ id, ingestKey, created: true, order, ...composeMjCommand(doc) });
+      out.push({ id, ingestKey, created: true, order, ...composeOwned(doc, await personalProfileCodes(ctx, owner)) });
     }
     return { batch, batchKey, worldKey: world?.worldKey, items: out };
   },
@@ -396,7 +422,7 @@ export const updateItem = ownerMutation({
     }
     await ctx.db.patch(row._id, patch);
     const saved = await ctx.db.get(row._id);
-    return toOut(saved!);
+    return toOut(saved!, await personalProfileCodes(ctx, args.ownerUserId));
   },
 });
 
@@ -453,7 +479,7 @@ export const requeueItems = ownerMutation({
         updatedAt: now,
       };
       const id = await ctx.db.insert("mjQueueItems", doc);
-      out.push(toOut((await ctx.db.get(id))!));
+      out.push(toOut((await ctx.db.get(id))!, await personalProfileCodes(ctx, args.ownerUserId)));
     }
     return { items: out };
   },
@@ -511,7 +537,7 @@ export const forkItem = ownerMutation({
         createdAt: now,
         updatedAt: now,
       });
-      out.push(toOut((await ctx.db.get(id))!));
+      out.push(toOut((await ctx.db.get(id))!, await personalProfileCodes(ctx, args.ownerUserId)));
     }
     return { batch, batchKey, items: out };
   },
@@ -546,7 +572,7 @@ export const setItemsParams = ownerMutation({
       if (versioned.params !== row.params) {
         await ctx.db.patch(row._id, { params: versioned.params, replacedVersion: versioned.replacedVersion, updatedAt: now });
       }
-      out.push(toOut((await ctx.db.get(row._id))!));
+      out.push(toOut((await ctx.db.get(row._id))!, await personalProfileCodes(ctx, args.ownerUserId)));
     }
     return { items: out, leftAlone };
   },

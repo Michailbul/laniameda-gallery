@@ -33,6 +33,11 @@ const fixtures: Record<string, MjQueueComposable> = {
   niji: { prompt: "a fox", params: "--niji 6 --ar 2:3", profileCodes: ["n9iqix8", "abc"] },
   niji8: { prompt: "a beach town", params: "--niji 8 --stylize 600 --ar 16:9", profileCodes: ["dfvmdw1"] },
   niji8WithV: { prompt: "a beach town", params: "--v 8.2 --niji 8 --ar 16:9" },
+  niji8Profiles: {
+    prompt: "a beach town", params: "--profile xeyqml8 37vd7r6 --niji 8 --raw --ar 16:9",
+    profileCodes: ["e6pj8eo", "2k7kjkp"], v8OnlyCodes: ["2k7kjkp", "37vd7r6"],
+  },
+  v82Profiles: { prompt: "a beach town", params: "--v 8.2 --ar 16:9", profileCodes: ["e6pj8eo", "2k7kjkp"], v8OnlyCodes: ["2k7kjkp"] },
   bannedParams: { prompt: "a fox", params: "--profile n9iqix8 --ar 1:1" },
 };
 
@@ -73,6 +78,15 @@ describe("composeMjCommand", () => {
     expect(composeMjCommand({ prompt: "a fox", params: "—niji 8.1 --raw" }).command).toBe("a fox --niji 8.1 --raw");
     expect(composeMjCommand({ prompt: "a fox", params: "--niji 9" }).command).toBe("a fox --niji 9");
     expect(pinnedVersion("--niji 8 --ar 16:9")).toBe("niji 8");
+  });
+
+  test("a Niji job leaves personal profiles out and keeps moodboards; V8.2 keeps them", () => {
+    expect(composeMjCommand(fixtures.niji8Profiles)).toEqual({
+      command: "a beach town --profile e6pj8eo --profile xeyqml8 --niji 8 --raw --ar 16:9",
+      warnings: ["Personal profile 37vd7r6 2k7kjkp left out: Niji takes moodboards only (personal profiles are V8-only)."],
+    });
+    expect(composeMjCommand({ prompt: "a fox", params: "--niji 8", profileCodes: ["2k7kjkp"], v8OnlyCodes: ["2k7kjkp"] }).command).toBe("a fox --niji 8");
+    expect(composeMjCommand(fixtures.v82Profiles)).toEqual({ command: "a beach town --profile e6pj8eo 2k7kjkp --v 8.2 --ar 16:9", warnings: [] });
   });
 
   test("the AndromedaCartoon profile never reaches a command", () => {

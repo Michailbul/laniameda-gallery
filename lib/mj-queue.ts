@@ -16,6 +16,23 @@ const NIJI_FLAG = /(^|\s)(?:--|[–—])niji(?:\s+(\d+(?:\.\d+)?))?(?=\s|$)/gi;
 const HAS_VERSION = /(^|\s)--(?:v|version)\s+\d/i;
 const ANY_VERSION = /(^|\s)(?:--|[–—])(?:v|version)(?:\s+|(?=\d))\d+(?:\.\d+)?(?=\s|$)/gi;
 export const MJ_BANNED_PROFILE_WARNING = "AndromedaCartoon profile left out: it is never used.";
+// Michael, 25 Nov 2026, after "Personalization 2k7kjkp isn't compatible with --niji 8": trained
+// personal profiles run on V8 only, so a Niji job keeps its moodboard codes and drops them.
+export const nijiProfileWarning = (codes: string[]) =>
+  `Personal profile ${codes.join(" ")} left out: Niji takes moodboards only (personal profiles are V8-only).`;
+
+/** Text without the given codes (and a profile flag they leave empty). */
+export function withoutCodes(text: string, codes: readonly string[]) {
+  const wanted = new Set(codes.map((code) => code.toLowerCase()));
+  if (!wanted.size) return { text: space(text), removed: [] as string[] };
+  const removed: string[] = [];
+  const out = text.replace(/(^|\s)([A-Za-z0-9]{5,12})(?=\s|$)/g, (whole: string, lead: string, token: string) => {
+    if (!wanted.has(token.toLowerCase())) return whole;
+    if (!removed.includes(token)) removed.push(token);
+    return lead;
+  }).replace(BARE_PROFILE_FLAG, "$1");
+  return { text: space(out), removed };
+}
 
 /** Text without the banned profile code (and a profile flag it leaves empty). */
 export function withoutBannedCodes(text: string) {
@@ -82,6 +99,9 @@ export type MjQueueComposable = {
   editRefs?: MjQueueRef[];
   // The retired version an agent pinned (8.1, 7 …) that was stored as --v 8.2.
   replacedVersion?: string;
+  // Michael's trained personal profiles (the gallery's mjProfiles codes). They work
+  // with V8 only, so a --niji 8 job leaves them out (Midjourney refuses them there).
+  v8OnlyCodes?: readonly string[];
 };
 
 const space = (value: string | undefined) => String(value ?? "").replace(/\s+/g, " ").trim();
@@ -134,8 +154,12 @@ export function composeMjCommand(item: MjQueueComposable) {
   const warnings: string[] = [];
   const enforced = enforceMjVersion(space(item.params));
   const nijiFree = withoutNiji(space(enforced.text));
-  const cleanParams = withoutBannedCodes(nijiFree.text);
+  const isNiji = /^niji\b/.test(pinnedVersion(nijiFree.text));
+  const v8Only = isNiji ? [...(item.v8OnlyCodes ?? [])] : [];
+  const nijiClean = withoutCodes(nijiFree.text, v8Only);
+  const cleanParams = withoutBannedCodes(v8Only.length ? nijiClean.text : nijiFree.text);
   const params = cleanParams.text;
+  const droppedForNiji = [...nijiClean.removed];
   for (const from of [item.replacedVersion, ...enforced.replaced]) {
     const note = from ? mjVersionWarning(from) : "";
     if (note && !warnings.includes(note)) warnings.push(note);
@@ -168,9 +192,16 @@ export function composeMjCommand(item: MjQueueComposable) {
   if (space(item.characterRef?.url)) warnings.push("Character reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
 
   const allCodes = [...new Set((item.profileCodes ?? []).map(space).filter(Boolean))];
-  const codes = allCodes.filter((code) => !(MJ_BANNED_PROFILE_CODES as readonly string[]).includes(code.toLowerCase()));
+  const unbanned = allCodes.filter((code) => !(MJ_BANNED_PROFILE_CODES as readonly string[]).includes(code.toLowerCase()));
+  const v8OnlySet = new Set(v8Only.map((code) => code.toLowerCase()));
+  const codes = unbanned.filter((code) => {
+    if (!v8OnlySet.has(code.toLowerCase())) return true;
+    if (!droppedForNiji.includes(code)) droppedForNiji.push(code);
+    return false;
+  });
   if (codes.length) parts.push(`--profile ${codes.join(" ")}`);
-  if (codes.length < allCodes.length || cleanParams.removed || cleanProse.removed) warnings.push(MJ_BANNED_PROFILE_WARNING);
+  if (unbanned.length < allCodes.length || cleanParams.removed || cleanProse.removed) warnings.push(MJ_BANNED_PROFILE_WARNING);
+  if (droppedForNiji.length) warnings.push(nijiProfileWarning(droppedForNiji));
   if (params) parts.push(params);
 
   const edits = (item.editRefs ?? []).map((ref) => space(ref.url)).filter(Boolean).slice(0, 4);

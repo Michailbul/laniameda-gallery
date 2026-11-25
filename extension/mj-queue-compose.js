@@ -37,6 +37,20 @@
   const HAS_VERSION = /(^|\s)--(?:v|version)\s+\d/i;
   const ANY_VERSION = /(^|\s)(?:--|[–—])(?:v|version)(?:\s+|(?=\d))\d+(?:\.\d+)?(?=\s|$)/gi;
   const MJ_BANNED_PROFILE_WARNING = "AndromedaCartoon profile left out: it is never used.";
+  const nijiProfileWarning = (codes) =>
+    `Personal profile ${codes.join(" ")} left out: Niji takes moodboards only (personal profiles are V8-only).`;
+
+  function withoutCodes(text, codes) {
+    const wanted = new Set(codes.map((code) => String(code).toLowerCase()));
+    if (!wanted.size) return { text: space(text), removed: [] };
+    const removed = [];
+    const out = text.replace(/(^|\s)([A-Za-z0-9]{5,12})(?=\s|$)/g, (whole, lead, token) => {
+      if (!wanted.has(token.toLowerCase())) return whole;
+      if (!removed.includes(token)) removed.push(token);
+      return lead;
+    }).replace(BARE_PROFILE_FLAG, "$1");
+    return { text: space(out), removed };
+  }
 
   function withoutBannedCodes(text) {
     const out = text.replace(BANNED_TOKEN, "$1").replace(BARE_PROFILE_FLAG, "$1");
@@ -79,8 +93,12 @@
     const warnings = [];
     const enforced = enforceMjVersion(space(item && item.params));
     const nijiFree = withoutNiji(space(enforced.text));
-    const cleanParams = withoutBannedCodes(nijiFree.text);
+    const isNiji = /^niji\b/.test(pinnedVersion(nijiFree.text));
+    const v8Only = isNiji ? [...((item && item.v8OnlyCodes) || [])] : [];
+    const nijiClean = withoutCodes(nijiFree.text, v8Only);
+    const cleanParams = withoutBannedCodes(v8Only.length ? nijiClean.text : nijiFree.text);
     const params = cleanParams.text;
+    const droppedForNiji = [...nijiClean.removed];
     for (const from of [item && item.replacedVersion, ...enforced.replaced]) {
       const note = from ? mjVersionWarning(from) : "";
       if (note && !warnings.includes(note)) warnings.push(note);
@@ -114,9 +132,16 @@
     if (space(item && item.characterRef && item.characterRef.url)) warnings.push("Character reference left out: V8.2 has none. Attach the picture for the Edit model instead.");
 
     const allCodes = [...new Set(((item && item.profileCodes) || []).map(space).filter(Boolean))];
-    const codes = allCodes.filter((code) => !MJ_BANNED_PROFILE_CODES.includes(code.toLowerCase()));
+    const unbanned = allCodes.filter((code) => !MJ_BANNED_PROFILE_CODES.includes(code.toLowerCase()));
+    const v8OnlySet = new Set(v8Only.map((code) => String(code).toLowerCase()));
+    const codes = unbanned.filter((code) => {
+      if (!v8OnlySet.has(code.toLowerCase())) return true;
+      if (!droppedForNiji.includes(code)) droppedForNiji.push(code);
+      return false;
+    });
     if (codes.length) parts.push(`--profile ${codes.join(" ")}`);
-    if (codes.length < allCodes.length || cleanParams.removed || cleanProse.removed) warnings.push(MJ_BANNED_PROFILE_WARNING);
+    if (unbanned.length < allCodes.length || cleanParams.removed || cleanProse.removed) warnings.push(MJ_BANNED_PROFILE_WARNING);
+    if (droppedForNiji.length) warnings.push(nijiProfileWarning(droppedForNiji));
     if (params) parts.push(params);
 
     const edits = ((item && item.editRefs) || []).map((ref) => space(ref && ref.url)).filter(Boolean).slice(0, 4);
@@ -150,5 +175,5 @@
     return `thr-${hash.toString(16).padStart(8, "0")}`;
   }
 
-  globalScope.SaveToGalleryMjQueueCompose = { composeMjCommand, enforceMjVersion, pinnedVersion, sameCommand, threadIdOf, withoutNiji, withoutBannedCodes };
+  globalScope.SaveToGalleryMjQueueCompose = { composeMjCommand, enforceMjVersion, pinnedVersion, sameCommand, threadIdOf, withoutNiji, withoutBannedCodes, withoutCodes };
 })(typeof globalThis !== "undefined" ? globalThis : self);

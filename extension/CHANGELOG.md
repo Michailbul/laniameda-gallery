@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.46.3 (26 Nov 2026)
+
+- A Niji 8 prompt leaves your personal profiles out (CAS Main 1, GLOBAL and the
+  rest), because Midjourney accepts them only with V8. Moodboard codes stay. The
+  prompt shows a note saying which profile was left out.
+
 ## 0.46.2 (25 Nov 2026)
 
 - Niji 8 works in the Queue: a prompt with `--niji 8` goes out as Niji 8

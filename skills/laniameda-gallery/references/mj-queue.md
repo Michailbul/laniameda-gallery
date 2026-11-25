@@ -48,6 +48,11 @@ the same label join that batch after its last item. Each item:
   apply the same rule. `--niji 8` (and later) is a separate model and stays as
   written, with any `--v` next to it dropped (Michael, 25 Nov 2026: "make sure
   it allows niji8 as well"); `--niji 6`, `--niji 7` and a bare `--niji` become `--v 8.2`.
+  Personal profiles (every code in `mjProfiles`, current and earlier: CAS Main 1
+  `2k7kjkp`, GLOBAL `37vd7r6` …) are V8-only: Midjourney refuses them with
+  `--niji 8`. A Niji item is listed with `v8OnlyCodes` and its command leaves those
+  codes out (from `profileCodes` and from params) with the warning "Personal profile
+  … left out: Niji takes moodboards only". Moodboard codes stay.
 - `omniRef` / `characterRef`: V8.2 has neither; the Edit model replaced both.
   `--oref` is never added; `--cref` only with `--niji 6`. Otherwise the item
   carries a warning he sees: attach the picture as an `editRefs` image instead.
