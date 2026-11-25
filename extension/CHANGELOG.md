@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.45.2 (25 Nov 2026)
+
+- The MJ Queue rail groups threads into projects: threads whose label starts
+  with the same name ("HEEL · the kitchen", "HEEL · the drive") sit in their
+  own HEEL group beside the world's other threads. Two threads make a project;
+  a world's own name never does.
+
 ## 0.45.1 (25 Nov 2026)
 
 - Opening the image edit card (⌥Z) puts Grow (⌥X) away again. After the

@@ -169,3 +169,35 @@ export function composeMjCommand(item: MjQueueComposable) {
   if (!prose && !images.length) warnings.push("No prompt words yet.");
   return { command: parts.join(" "), warnings };
 }
+
+const projectNorm = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * Projects inside a world's queue: a thread labelled "HEEL · the kitchen" belongs to project HEEL when the
+ * first part is not the world's own name and at least two threads of that world share it (Michael, 25 Nov 2026:
+ * "create it a separate project in the queue called Heel"). Returns batchKey → project name as written.
+ * The extension's rail (extension/mj-queue.js projectOf) uses the same rule.
+ */
+export function queueProjects(
+  threads: ReadonlyArray<{ batch: string; batchKey: string; worldKey?: string | null }>,
+  worldName: (worldKey: string | undefined) => string,
+) {
+  const heads = new Map<string, number>();
+  const headOf = (thread: { batch: string; worldKey?: string | null }) => {
+    const parts = thread.batch.split(/\s+·\s+/);
+    if (parts.length < 2) return "";
+    const head = projectNorm(parts[0]!);
+    const world = projectNorm(worldName(thread.worldKey ?? undefined));
+    return head && !world.startsWith(head) ? head : "";
+  };
+  for (const thread of threads) {
+    const head = headOf(thread);
+    if (head) heads.set(`${thread.worldKey ?? ""}::${head}`, (heads.get(`${thread.worldKey ?? ""}::${head}`) ?? 0) + 1);
+  }
+  const out = new Map<string, string>();
+  for (const thread of threads) {
+    const head = headOf(thread);
+    if (head && (heads.get(`${thread.worldKey ?? ""}::${head}`) ?? 0) >= 2) out.set(thread.batchKey, thread.batch.split(/\s+·\s+/)[0]!);
+  }
+  return out;
+}

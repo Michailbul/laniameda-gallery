@@ -6,7 +6,7 @@ import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ArrowLeft, Check, Copy, Loader2, RotateCcw } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { threadIdOf } from "@/lib/mj-queue";
+import { queueProjects, threadIdOf } from "@/lib/mj-queue";
 import { mjQueuePath } from "@/lib/gallery-routes";
 import { RerunForm, RunStrip, THREAD_PANEL_CSS, ThreadChat, runOf } from "./mj-thread-panel";
 
@@ -177,14 +177,24 @@ export function MjQueueBoard({ ownerUserId, worldKey, worldName, standalone = fa
   const totals = threads.reduce((sum, thread) => sum + thread.left, 0);
   const chipWorlds = [...new Set(threads.map((thread) => thread.worldKey ?? NO_WORLD))];
 
-  // Rail groups: by world on the all-worlds page, one flat list in a world.
-  const groups: Array<{ key: string; name: string; threads: Thread[] }> = [];
+  // Rail groups: by world on the all-worlds page, one flat list in a world, and inside a world by project
+  // (the first part of the label, "HEEL · the kitchen", shared by two or more threads of that world).
+  const projects = queueProjects(threads, (key) => nameOf(key));
+  const groups: Array<{ key: string; name: string; project: string; threads: Thread[] }> = [];
   for (const thread of shown) {
-    const key = worldKey ?? thread.worldKey ?? NO_WORLD;
+    const world = worldKey ?? thread.worldKey ?? NO_WORLD;
+    const project = projects.get(thread.batchKey) ?? "";
+    const key = project ? `${world}::${project.toLowerCase()}` : world;
     let group = groups.find((entry) => entry.key === key);
-    if (!group) groups.push(group = { key, name: worldKey ? "" : key === NO_WORLD ? "No world" : nameOf(key), threads: [] });
+    if (!group) {
+      const worldLabel = worldKey ? "" : world === NO_WORLD ? "No world" : nameOf(world);
+      groups.push(group = { key, project, name: project ? [worldLabel, project].filter(Boolean).join(" · ") : worldLabel, threads: [] });
+    }
     group.threads.push(thread);
   }
+  // Projects first, in their order of last activity; loose threads of a world after them.
+  groups.sort((a, b) => Number(!a.project) - Number(!b.project));
+  if (worldKey && groups.some((group) => group.project)) for (const group of groups) if (!group.project) group.name = "Other threads";
 
   const showRail = wide || !active;
   const showThread = Boolean(active) && (wide || Boolean(picked));
@@ -244,7 +254,7 @@ export function MjQueueBoard({ ownerUserId, worldKey, worldName, standalone = fa
                 const done = thread.sent + thread.skipped;
                 return <button key={thread.batchKey} type="button" className="mjq-thread" aria-current={active?.batchKey === thread.batchKey ? "true" : undefined}
                   onClick={() => open(thread)}>
-                  <span className="mjq-thread-name">{threadLabel(thread.batch, nameOf(thread.worldKey))}</span>
+                  <span className="mjq-thread-name">{group.project ? thread.batch.split(" · ").slice(1).join(" · ") : threadLabel(thread.batch, nameOf(thread.worldKey))}</span>
                   <span className="mjq-thread-meta">
                     {thread.left ? <span className="hot">{thread.left} to send</span> : <span>All done</span>}
                     <span>{thread.total} total</span>

@@ -109,17 +109,39 @@
     return name;
   }
 
-  // Groups by world; inside a group, threads with prompts to send come first
-  // (newest first), finished ones after. scope "open" leaves finished ones out.
+  // A project inside a world: the first part of a thread's label ("HEEL · the kitchen" → HEEL) when it is not the
+  // world's own name and at least two threads of that world share it. Michael names projects that way (25 Nov 2026).
+  function projectOf(batch, shared) {
+    const parts = space(batch && batch.batch).split(/\s+·\s+/);
+    if (parts.length < 2) return "";
+    const norm = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const head = norm(parts[0]), world = norm(worldLabel(batch && batch.worldKey));
+    if (!head || world.startsWith(head)) return "";
+    const key = `${space(batch.worldKey)}::${head}`;
+    return shared && (shared.get(key) || 0) >= 2 ? parts[0] : "";
+  }
+
+  // Groups by world, and by project inside a world (a HEEL group beside DEAR ANNETE ART DECO); inside a group,
+  // threads with prompts to send come first (newest first), finished ones after. scope "open" leaves finished ones out.
   function threadGroups(batches, scope) {
+    const shared = new Map();
+    for (const batch of batches || []) {
+      const parts = space(batch.batch).split(/\s+·\s+/);
+      if (parts.length < 2) continue;
+      const key = `${space(batch.worldKey)}::${parts[0].toLowerCase().replace(/[^a-z0-9]/g, "")}`;
+      shared.set(key, (shared.get(key) || 0) + 1);
+    }
     const groups = new Map();
     for (const batch of batches || []) {
       const done = left(batch) === 0;
       if (scope === "open" && done) continue;
-      const key = space(batch.worldKey) || "";
-      if (!groups.has(key)) groups.set(key, { worldKey: key, label: worldLabel(key), threads: [], left: 0 });
+      const worldKey = space(batch.worldKey) || "";
+      const project = projectOf(batch, shared);
+      const key = project ? `${worldKey}::${project.toLowerCase().replace(/[^a-z0-9]/g, "")}` : worldKey;
+      if (!groups.has(key)) groups.set(key, { key, worldKey, project, label: project ? project.toUpperCase() : worldLabel(worldKey), threads: [], left: 0 });
       const group = groups.get(key);
-      group.threads.push({ ...batch, name: threadName(batch), left: left(batch), done });
+      const name = project ? space(batch.batch).split(/\s+·\s+/).slice(1).join(" · ") : threadName(batch);
+      group.threads.push({ ...batch, name, left: left(batch), done });
       group.left += left(batch);
     }
     const byOpenThenNew = (a, b) => Number(a.done) - Number(b.done) || (b.updatedAt || 0) - (a.updatedAt || 0);
@@ -520,7 +542,7 @@
     PACING, pacing, rateFromHistory,
     recount,
     nextQueued, jobIdsIn, promptNeedle, parseRefLines, refLines,
-    threadName, threadGroups, threadOrder, filterItems, filterCounts, worldLabel,
+    threadName, threadGroups, threadOrder, projectOf, filterItems, filterCounts, worldLabel,
     stylizeOf, withStylize, threadStylize,
     paramOf, withParam, isRaw, withRaw, cleanParamValue, threadParams, applyThreadParams,
     parseBarCommand, belongsToItem, sendKeyAllowed, SEND_GUARD_MS, sendButtonScore,

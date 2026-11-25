@@ -89,6 +89,18 @@ describe("extension Midjourney queue helpers", () => {
     expect(api().threadOrder(batches, "open")).toEqual(["dear annete · hand", "dear annete · airship", "andromeda · kitchen"]);
   });
 
+  test("a shared label prefix becomes a project group inside its world", () => {
+    const batches = [
+      batch("HEEL · the kitchen", "dear-annete-art-deco", { total: 4, queued: 4 }, 30),
+      batch("HEEL · liked frames", "dear-annete-art-deco", { total: 9, queued: 9 }, 20),
+      batch("Dear Annete · houses", "dear-annete-art-deco", { total: 2, sent: 2 }, 10),
+    ];
+    const groups = api().threadGroups(batches, "all");
+    expect(groups.map((group) => group.label)).toEqual(["HEEL", "DEAR ANNETE ART DECO"]);
+    expect(groups[0].threads.map((thread) => thread.name)).toEqual(["the kitchen", "liked frames"]);
+    expect(api().threadGroups([batches[0]], "all")[0].label).toBe("DEAR ANNETE ART DECO");
+  });
+
   test("filters keep the prompt in the bar in view and count each status", () => {
     const items = [
       { id: "a", status: "sent" }, { id: "b", status: "queued" }, { id: "c", status: "skipped" }, { id: "d", status: "injected" },
