@@ -62,6 +62,11 @@ describe("the edit timeline", () => {
     expect(timeline[3].from).toBe("r1t2");
     expect((timeline[3].takes as Array<{ review: string }>)[0].review).toBe("kept");
   });
+  test("a run the agent started comes right after its answer", () => {
+    const answered = [...messages, { id: "m2:answer", role: "agent", text: "Warming it", ran: { runId: "run-b", estimateUsd: 0.03 }, createdAt: 310 }];
+    const timeline = editTimeline(answered, runs) as Array<Record<string, unknown>>;
+    expect(timeline.map(e => e.run ?? e.text)).toEqual(["Make it night", "r1", "Sky too blue here", "Warming it", "r2"]);
+  });
   test("the agent looks at the noted and kept takes first", () => {
     const shown = takesToShow(messages, runs, 2).map(t => t.name);
     expect(shown).toEqual(["r1t2", "r2t1"]);

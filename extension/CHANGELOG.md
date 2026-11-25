@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.46.1 (25 Nov 2026)
+
+- A run the agent starts shows right under its answer, not above it.
+
 ## 0.46.0 (25 Nov 2026)
 
 - The image edit card's conversation shows every run with its takes, in the
