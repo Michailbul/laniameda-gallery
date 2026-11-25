@@ -67,10 +67,13 @@ export function editTimeline(messages: Msg[], runs: Run[]) {
       ...(m.actions?.length ? { offered: m.actions.map(a => a.type) } : {}),
     } });
   }
+  // A run the agent started sits right after the answer that started it.
+  const startedBy = new Map(messages.filter(m => m.ran?.runId).map(m => [m.ran!.runId, m.createdAt ?? 0]));
   ordered.slice(-12).forEach((run) => {
     const n = ordered.indexOf(run) + 1;
+    const at = Math.max(run.createdAt, startedBy.has(run._id) ? startedBy.get(run._id)! + 0.5 : 0);
     const from = run.source.parentRunId ? name({ runId: run.source.parentRunId, index: run.source.parentIndex ?? 0 }) : "the original";
-    entries.push({ at: run.createdAt, entry: { run: `r${n}`, model: run.modelName, prompt: run.instruction, from: from || "an earlier take",
+    entries.push({ at, entry: { run: `r${n}`, model: run.modelName, prompt: run.instruction, from: from || "an earlier take",
       takes: run.takes.map(t => ({ take: `r${n}t${t.index + 1}`, status: t.status, review: t.review || "pending", ...(t.error ? { error: t.error } : {}) })) } });
   });
   return entries.sort((a, b) => a.at - b.at).map(e => e.entry);

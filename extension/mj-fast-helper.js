@@ -91,11 +91,14 @@
   const DEFAULT_CAP = 0.2;
 
   // The conversation as it happened: messages and runs in time order.
+  // A run the agent started sits right under the answer that started it.
   function timelineOf(messages, runs) {
     const numbers = runNumbers(runs);
+    const startedBy = new Map((messages || []).filter((message) => message.ran?.runId).map((message) => [message.ran.runId, message.createdAt || 0]));
+    const runAt = (run) => Math.max(run.createdAt || 0, startedBy.has(run._id) ? startedBy.get(run._id) + 0.5 : 0);
     return [
       ...(messages || []).map((message) => ({ kind: "message", at: message.createdAt || 0, message })),
-      ...(runs || []).map((run) => ({ kind: "run", at: run.createdAt || 0, run, n: numbers.get(run._id) })),
+      ...(runs || []).map((run) => ({ kind: "run", at: runAt(run), run, n: numbers.get(run._id) })),
     ].sort((a, b) => a.at - b.at || (a.kind === "run" ? 1 : -1));
   }
 
