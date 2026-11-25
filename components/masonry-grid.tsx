@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ImageCard } from "./image-card";
+import { selectionIdsOf } from "@/lib/gallery-selection";
 import { useHiddenArchivedIds } from "@/components/gallery/asset-review-controls";
 import { StorybookCard } from "@/components/gallery/storybook-card";
 import { CollectionStackCard } from "@/components/gallery/collection-stack-card";
@@ -543,6 +544,39 @@ export function MasonryGrid({
 
   const marqueeEnabled = selectable && Boolean(onReplaceSelection);
 
+  // A click on a stack's select ring takes or drops the whole stack. Plain
+  // frames keep the dashboard's own toggle (and its shift-range).
+  // Kept in refs (synced after render) so the handler stays stable and a
+  // selection change does not re-render every card.
+  const imagesById = useMemo(
+    () => new Map(images.map((image) => [image.id, image])),
+    [images],
+  );
+  const imagesByIdRef = useRef(imagesById);
+  const selectedIdsRef = useRef(selectedAssetIds);
+  useEffect(() => {
+    imagesByIdRef.current = imagesById;
+    selectedIdsRef.current = selectedAssetIds;
+  }, [imagesById, selectedAssetIds]);
+  const handleToggleSelect = useCallback(
+    (imageId: string, mode?: "toggle" | "range") => {
+      const image = imagesByIdRef.current.get(imageId);
+      if (image?.galleryItemType !== "pack" || mode === "range" || !onReplaceSelection) {
+        onToggleAssetSelect?.(imageId, mode);
+        return;
+      }
+      const members = selectionIdsOf(image);
+      const next = new Set(selectedIdsRef.current ?? []);
+      const allIn = members.every((id) => next.has(id));
+      for (const id of members) {
+        if (allIn) next.delete(id);
+        else next.add(id);
+      }
+      onReplaceSelection(Array.from(next));
+    },
+    [onToggleAssetSelect, onReplaceSelection],
+  );
+
   // Is a box modifier down right now? While one is, tiles stop being
   // draggable, so the browser can't win the race and start the filing drag
   // before the box does. preventDefault on dragstart is not enough — by then
@@ -578,15 +612,7 @@ export function MasonryGrid({
         return;
       }
       event.preventDefault();
-      onReplaceSelection?.(
-        images
-          .filter(
-            (image) =>
-              image.galleryItemType === "asset" ||
-              image.galleryItemType === undefined,
-          )
-          .map((image) => image.id),
-      );
+      onReplaceSelection?.(images.flatMap(selectionIdsOf));
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -622,15 +648,14 @@ export function MasonryGrid({
     const hit = new Set(state.base);
     for (const { image, tile } of tilesRef.current) {
       if (!tile) continue;
-      const isAsset =
-        image.galleryItemType === "asset" || image.galleryItemType === undefined;
-      if (!isAsset) continue;
+      const ids = selectionIdsOf(image);
+      if (ids.length === 0) continue;
       const intersects =
         tile.left < right &&
         tile.left + tile.width > left &&
         tile.top < bottom &&
         tile.top + tile.height > top;
-      if (intersects) hit.add(image.id);
+      if (intersects) for (const id of ids) hit.add(id);
     }
     onReplaceSelection?.(Array.from(hit));
   }, [onReplaceSelection]);
@@ -941,12 +966,13 @@ export function MasonryGrid({
                   selectable &&
                   !markedAssetIds?.has(image.id) &&
                   (image.galleryItemType === "asset" ||
-                    image.galleryItemType === undefined)
+                    image.galleryItemType === undefined ||
+                    image.galleryItemType === "pack")
                 }
                 marked={markedAssetIds?.has(image.id) ? markedLabel : undefined}
                 selected={Boolean(selectedAssetIds?.has(image.id))}
                 selectionActive={Boolean(selectedAssetIds && selectedAssetIds.size > 0)}
-                onToggleSelect={onToggleAssetSelect}
+                onToggleSelect={onToggleAssetSelect ? handleToggleSelect : undefined}
                 starrable={starrable && isAssetCard}
                 onToggleStar={onToggleStar}
                 collections={isAssetCard ? collections : undefined}

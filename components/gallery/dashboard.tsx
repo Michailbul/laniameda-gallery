@@ -64,17 +64,18 @@ import {
   type ViewMode,
 } from "./filter-bar";
 import { MasonryGrid } from "@/components/masonry-grid";
+import { indexEntriesWithStackMembers, selectionIdsOf } from "@/lib/gallery-selection";
 import { AssetReviewControls, ReviewDockHints } from "./asset-review-controls";
 import { useSavedViews } from "./filter-presets";
 import type { PrivateCountArgs, PublishAllOutcome } from "./publish-all-dialog";
 import {
-  StorybookShelf,
   readShelfCache,
   writeShelfCache,
   type ShelfBook,
 } from "./storybook-shelf";
 import { skillCardToEntry } from "@/lib/skill-entries";
 import { CollectionsGrid } from "./collections-grid";
+import { WorldsShelf, type ShelfCollection } from "./worlds-shelf";
 import {
   BrowseBreadcrumb,
   type BreadcrumbSegment,
@@ -1580,7 +1581,11 @@ export function GalleryDashboard({
   // cover thumbnails as drop targets.
   const collectionSummaries = useQuery(
     api.folders.listCollectionSummaries,
-    (viewMode === "collections" || addToPanelOpen) &&
+    (viewMode === "collections" ||
+      addToPanelOpen ||
+      // The home page opens on the worlds shelf; it subscribes after the
+      // grid's first page so the first frame stays the grid's.
+      (viewMode === "grid" && !selectedFolderId && supportQueriesOn)) &&
       galleryScope === "mine" &&
       canAccessMyGallery
       ? { ownerUserId }
@@ -1643,6 +1648,39 @@ export function GalleryDashboard({
     },
     [ownerUserId, setFolderHiddenMutation],
   );
+
+  // The home shelf: worlds first, then the other top-level collections, each
+  // with its cover. Empty and hidden collections stay off it.
+  const homeShelf = useMemo(() => {
+    if (!collectionSummaries || !folders) return null;
+    const cardById = new Map(collectionCards.map((card) => [String(card._id), card]));
+    const roots = orderRootCollections(
+      folders.filter(
+        (folder) =>
+          !folder.parentFolderId &&
+          folder.kind === undefined &&
+          !hiddenFolderIds.has(String(folder._id)),
+      ),
+    );
+    const worlds: ShelfCollection[] = [];
+    const collections: ShelfCollection[] = [];
+    for (const folder of roots) {
+      const card = cardById.get(String(folder._id));
+      if (!card || card.count === 0) continue;
+      const thumbs = card.previewAssets
+        .map((preview) => preview.thumbUrl ?? (preview.kind === "image" ? preview.url : undefined))
+        .filter((src): src is string => Boolean(src));
+      const entry: ShelfCollection = {
+        id: String(folder._id),
+        name: folder.name,
+        count: card.count,
+        covers: thumbs,
+        peeks: thumbs.slice(1, 3),
+      };
+      (isWorldCollection(folder) ? worlds : collections).push(entry);
+    }
+    return { worlds, collections };
+  }, [collectionCards, collectionSummaries, folders, hiddenFolderIds]);
 
   // Featured = hero treatment on the public home. Featuring an unpublished
   // set publishes it too (backend enforces featured ⇒ showcased).
@@ -3332,15 +3370,10 @@ export function GalleryDashboard({
 
   // Every selectable (plain asset) entry currently in the grid — the target
   // set for the bulk toolbar's SELECT ALL.
+  // A stack counts as every frame in it, so cmd+A, copy-IDs order and
+  // shift-range all reach the frames behind a stack's cover.
   const allVisibleAssetIds = useMemo(
-    () =>
-      images
-        .filter(
-          (image) =>
-            image.galleryItemType === "asset" ||
-            image.galleryItemType === undefined,
-        )
-        .map((image) => image.id),
+    () => images.flatMap(selectionIdsOf),
     [images],
   );
   // Mirrors allVisibleAssetIds for the shift-range handler, which is declared
@@ -3540,7 +3573,7 @@ export function GalleryDashboard({
     const ids = Array.from(selectedAssetIds);
     if (ids.length === 0) return;
 
-    const byId = new Map(images.map((image) => [image.id, image]));
+    const byId = indexEntriesWithStackMembers(images);
     const targets = ids
       .map((id) => byId.get(id))
       .filter((image): image is (typeof images)[number] => Boolean(image));
@@ -3610,7 +3643,7 @@ export function GalleryDashboard({
         const plainCollectionIds = new Set(
           collectionFoldersWithCounts.map((folder) => String(folder._id)),
         );
-        const imageById = new Map(imagesRef.current.map((image) => [image.id, image]));
+        const imageById = indexEntriesWithStackMembers(imagesRef.current);
         let moved = 0;
         for (const assetId of assetIds) {
           const image = imageById.get(assetId);
@@ -3674,7 +3707,7 @@ export function GalleryDashboard({
   // The bulk picker is a membership checklist. Counts are scoped to the
   // current selection: all = checked, some = mixed, none = unchecked.
   const selectedAssetMemberships = useMemo(() => {
-    const imageById = new Map(images.map((image) => [image.id, image]));
+    const imageById = indexEntriesWithStackMembers(images);
     return Array.from(selectedAssetIds).flatMap((assetId) => {
       const image = imageById.get(assetId);
       if (
@@ -6361,7 +6394,8 @@ export function GalleryDashboard({
               />
             )}
 
-            {/* Storybooks shelf — lives on the main page, with its own filters. */}
+            {/* Worlds and collections shelf — the top of the main page (was
+                the storybooks shelf until 25 Nov 2026; storybooks keep their tab). */}
             {!storybooksView &&
               !bookmarksView &&
               !extraTabView &&
@@ -6373,19 +6407,13 @@ export function GalleryDashboard({
               excludedFilters.length === 0 &&
               !searchThreadText &&
               !likedOnly &&
-              shelfBooks.length > 0 && (
-                <StorybookShelf
-                  books={shelfBooks}
-                  onOpen={openStorybook}
-                  onCreate={createStorybook}
-                  onSeeAll={() => {
-                    setBookmarksView(false);
-                    setMotionView(false);
-                    setCinematographyView(false);
-                    setStoriesView(false); setMoodboardsTab(false);
-                    setStorybooksView(true);
-                  }}
-                  onDropAssets={handleAssetsDropOnStorybook}
+              homeShelf &&
+              homeShelf.worlds.length + homeShelf.collections.length > 0 && (
+                <WorldsShelf
+                  worlds={homeShelf.worlds}
+                  collections={homeShelf.collections}
+                  onOpen={openCollectionFromCard}
+                  onSeeAll={() => setViewMode("collections")}
                 />
               )}
 
