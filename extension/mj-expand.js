@@ -366,11 +366,13 @@
     return options;
   }
 
-  globalScope.SaveToGalleryExpand = {
+  // Merged, not replaced: a second load of this file (re-injected after an update)
+  // must keep the open/close hooks the running copy added below.
+  globalScope.SaveToGalleryExpand = Object.assign(globalScope.SaveToGalleryExpand || {}, {
     MOVES, ATTACH, HISTORY, HISTORY_READ, moveForCode, attachOf, placeBeside, threadLabel, splitText, queueItemOf, codeLine,
     varyMoodboards, previousPrompts, historyDecision, runRequest, historyKey, recordRun, updateRun, entryOf, recentRows, pillText, ago,
     writerView, nextWriter, autoWorldLabel, briefLine, SHOT_MODES, shotModeOf, shotSettingsOf, shotFromOptions,
-  };
+  });
 
   if (typeof document === "undefined" || typeof location === "undefined" || !/(^|\.)midjourney\.com$/i.test(location.hostname)) return;
   if (globalScope.__saveToGalleryExpand) return;

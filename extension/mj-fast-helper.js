@@ -107,9 +107,10 @@
     return count > 1 ? `≈ ${usd(perTake * count)}` : `≈ ${usd(perTake)}`;
   }
 
-  globalScope.SaveToGalleryFastHelper = {
+  // Merged, not replaced: a second load keeps the running copy's open/close hooks.
+  globalScope.SaveToGalleryFastHelper = Object.assign(globalScope.SaveToGalleryFastHelper || {}, {
     placeBeside, barWithImage, frameUrls, urlFromDrop, anyInFlight, flattenTakes, stepSelection, takeLabel, fantasyNote, priceText, ago,
-  };
+  });
 
   const panelMode = typeof location !== "undefined" && location.protocol === "chrome-extension:" && location.pathname.endsWith("/image-edit.html");
   if (typeof document === "undefined" || typeof location === "undefined" || (!panelMode && !/(^|\.)midjourney\.com$/i.test(location.hostname))) return;
