@@ -22,6 +22,10 @@ interface CollectionStackCardProps {
   collection: CollectionStackCardData;
   eager?: boolean;
   onOpen: (collectionId: string) => void;
+  /** Picked in a shelf selection (box-select, or shift/⌘-click). */
+  selected?: boolean;
+  /** When set, shift/⌘/ctrl-click picks the shelf instead of opening it. */
+  onToggleSelect?: (collectionId: string) => void;
 }
 
 /**
@@ -33,6 +37,8 @@ export const CollectionStackCard = memo(function CollectionStackCard({
   collection,
   eager = false,
   onOpen,
+  selected = false,
+  onToggleSelect,
 }: CollectionStackCardProps) {
   const [coverLoaded, setCoverLoaded] = useState(false);
   const coverRef = useCallback((node: HTMLImageElement | null) => {
@@ -45,7 +51,15 @@ export const CollectionStackCard = memo(function CollectionStackCard({
     <div
       role="button"
       tabIndex={0}
-      onClick={() => onOpen(collection.collectionId)}
+      onClick={(event) => {
+        if (onToggleSelect && (event.shiftKey || event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          onToggleSelect(collection.collectionId);
+          return;
+        }
+        onOpen(collection.collectionId);
+      }}
+      aria-pressed={onToggleSelect ? selected : undefined}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
@@ -85,11 +99,21 @@ export const CollectionStackCard = memo(function CollectionStackCard({
         className="absolute inset-0 z-[3] overflow-hidden transition-transform duration-[var(--duration-normal)] ease-out group-hover:-translate-y-[3px]"
         style={{
           borderRadius: "14px",
-          border: "2px solid var(--border-strong)",
+          border: selected ? "3px solid var(--coral)" : "2px solid var(--border-strong)",
           backgroundColor: "var(--surface-3)",
-          boxShadow: "var(--shadow-sm)",
+          boxShadow: selected
+            ? "0 0 0 4px color-mix(in srgb, var(--coral) 28%, transparent), var(--shadow-sm)"
+            : "var(--shadow-sm)",
         }}
       >
+        {selected ? (
+          <div
+            className="absolute left-2 top-2 z-20 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider"
+            style={{ backgroundColor: "var(--coral)", color: "#000", borderRadius: "6px" }}
+          >
+            Selected
+          </div>
+        ) : null}
         {cover ? (
           <Image
             ref={coverRef}

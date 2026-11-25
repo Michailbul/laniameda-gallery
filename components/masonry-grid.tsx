@@ -139,6 +139,10 @@ interface MasonryGridProps {
   onStorybookOpen?: (storybookId: string) => void;
   /** Opens a nested collection entry. */
   onCollectionOpen?: (collectionId: string) => void;
+  /** Shelf piles picked by box-select or shift/⌘-click (collection ids). */
+  selectedCollectionIds?: Set<string>;
+  /** Replace the shelf selection. Setting it makes shelf piles boxable. */
+  onReplaceCollectionSelection?: (collectionIds: string[]) => void;
   onImageSelect?: (image: {
     id: string;
     packId?: string;
@@ -351,6 +355,8 @@ export function MasonryGrid({
   excludeFolderId,
   onStorybookOpen,
   onCollectionOpen,
+  selectedCollectionIds,
+  onReplaceCollectionSelection,
   showPublicBadge = false,
   showPromptChip = true,
   videoHoverDelayMs,
@@ -430,6 +436,7 @@ export function MasonryGrid({
     x0: number;
     y0: number;
     base: Set<string>;
+    shelfBase: Set<string>;
   } | null>(null);
   // Set after a real drag so the trailing click doesn't also toggle a card.
   const didMarqueeRef = useRef(false);
@@ -542,7 +549,22 @@ export function MasonryGrid({
     ? "columns-1 sm:columns-2 md:columns-2 lg:columns-3 2xl:columns-3"
     : "columns-2 sm:columns-2 md:columns-3 lg:columns-4 2xl:columns-5";
 
-  const marqueeEnabled = selectable && Boolean(onReplaceSelection);
+  const marqueeEnabled =
+    (selectable && Boolean(onReplaceSelection)) || Boolean(onReplaceCollectionSelection);
+  const shelfSelectionRef = useRef(selectedCollectionIds);
+  useEffect(() => {
+    shelfSelectionRef.current = selectedCollectionIds;
+  }, [selectedCollectionIds]);
+  const toggleShelf = useCallback(
+    (collectionId: string) => {
+      if (!onReplaceCollectionSelection) return;
+      const next = new Set(shelfSelectionRef.current ?? []);
+      if (next.has(collectionId)) next.delete(collectionId);
+      else next.add(collectionId);
+      onReplaceCollectionSelection(Array.from(next));
+    },
+    [onReplaceCollectionSelection],
+  );
 
   // A click on a stack's select ring takes or drops the whole stack. Plain
   // frames keep the dashboard's own toggle (and its shift-range).
@@ -646,19 +668,24 @@ export function MasonryGrid({
     const right = left + width;
     const bottom = top + height;
     const hit = new Set(state.base);
+    const shelfHit = new Set(state.shelfBase);
     for (const { image, tile } of tilesRef.current) {
       if (!tile) continue;
-      const ids = selectionIdsOf(image);
-      if (ids.length === 0) continue;
       const intersects =
         tile.left < right &&
         tile.left + tile.width > left &&
         tile.top < bottom &&
         tile.top + tile.height > top;
-      if (intersects) for (const id of ids) hit.add(id);
+      if (!intersects) continue;
+      if (image.galleryItemType === "collection") {
+        shelfHit.add(image.galleryItemId ?? image.id);
+        continue;
+      }
+      for (const id of selectionIdsOf(image)) hit.add(id);
     }
-    onReplaceSelection?.(Array.from(hit));
-  }, [onReplaceSelection]);
+    if (onReplaceSelection && selectable) onReplaceSelection(Array.from(hit));
+    onReplaceCollectionSelection?.(Array.from(shelfHit));
+  }, [onReplaceSelection, onReplaceCollectionSelection, selectable]);
 
   const stopAutoScroll = useCallback(() => {
     if (autoScrollRef.current === null) return;
@@ -769,6 +796,7 @@ export function MasonryGrid({
       x0: pending.x0,
       y0: pending.y0,
       base: pending.additive ? new Set(selectedAssetIds ?? []) : new Set(),
+      shelfBase: pending.additive ? new Set(selectedCollectionIds ?? []) : new Set(),
     };
     scrollerRef.current = findScrollParent(containerRef.current);
     try {
@@ -790,12 +818,9 @@ export function MasonryGrid({
     if (!state) {
       // A press on empty space that never became a box: drop the selection,
       // the way clicking the background of a file manager does.
-      if (
-        pending?.onEmptySpace &&
-        !pending.additive &&
-        (selectedAssetIds?.size ?? 0) > 0
-      ) {
-        onReplaceSelection?.([]);
+      if (pending?.onEmptySpace && !pending.additive) {
+        if ((selectedAssetIds?.size ?? 0) > 0) onReplaceSelection?.([]);
+        if ((selectedCollectionIds?.size ?? 0) > 0) onReplaceCollectionSelection?.([]);
       }
       return;
     }
@@ -930,6 +955,10 @@ export function MasonryGrid({
                   }}
                   eager={originalIndex < EAGER_IMAGE_COUNT}
                   onOpen={onCollectionOpen}
+                  selected={Boolean(
+                    selectedCollectionIds?.has(image.galleryItemId ?? image.id),
+                  )}
+                  onToggleSelect={onReplaceCollectionSelection ? toggleShelf : undefined}
                 />
               </div>
             );
