@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.45.1 (25 Nov 2026)
+
+- Opening the image edit card (⌥Z) puts Grow (⌥X) away again. After the
+  extension updated itself, a second copy of each card script replaced the
+  hooks the cards use to close each other, so Grow stayed open underneath.
+
 ## 0.45.0 (25 Nov 2026)
 
 - Image edit (⌥Z) works again: every gallery read with a query in its address
