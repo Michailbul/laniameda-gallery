@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.46.2 (25 Nov 2026)
+
+- Niji 8 works in the Queue: a prompt with `--niji 8` goes out as Niji 8
+  instead of being switched to `--v 8.2`. Niji 6 and 7 are still switched.
+
 ## 0.46.1 (25 Nov 2026)
 
 - A run the agent starts shows right under its answer, not above it.

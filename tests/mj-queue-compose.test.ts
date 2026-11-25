@@ -31,6 +31,8 @@ const fixtures: Record<string, MjQueueComposable> = {
   restyleFrame: { prompt: "a school patio, wide shot", profileCodes: ["dfvmdw1"], params: "--raw --ar 16:9 --seed 42", editRefs: [{ url: "https://cdn.midjourney.com/1c8e8ead-03c5-47ec-9ac0-5e9472ee466a/0_2.png" }] },
   editV7: { prompt: "a patio", params: "--v 7", editRefs: [{ url: `${R2}/frame.jpg` }] },
   niji: { prompt: "a fox", params: "--niji 6 --ar 2:3", profileCodes: ["n9iqix8", "abc"] },
+  niji8: { prompt: "a beach town", params: "--niji 8 --stylize 600 --ar 16:9", profileCodes: ["dfvmdw1"] },
+  niji8WithV: { prompt: "a beach town", params: "--v 8.2 --niji 8 --ar 16:9" },
   bannedParams: { prompt: "a fox", params: "--profile n9iqix8 --ar 1:1" },
 };
 
@@ -65,6 +67,14 @@ describe("composeMjCommand", () => {
     expect(composeMjCommand({ prompt: "a fox", params: "--v 8.2 —niji 7 --raw" }).command).toBe("a fox --v 8.2 --raw");
   });
 
+  test("--niji 8 and later stay as written; a --v next to it is dropped", () => {
+    expect(composeMjCommand(fixtures.niji8)).toEqual({ command: "a beach town --profile dfvmdw1 --niji 8 --stylize 600 --ar 16:9", warnings: [] });
+    expect(composeMjCommand(fixtures.niji8WithV)).toEqual({ command: "a beach town --niji 8 --ar 16:9", warnings: [] });
+    expect(composeMjCommand({ prompt: "a fox", params: "—niji 8.1 --raw" }).command).toBe("a fox --niji 8.1 --raw");
+    expect(composeMjCommand({ prompt: "a fox", params: "--niji 9" }).command).toBe("a fox --niji 9");
+    expect(pinnedVersion("--niji 8 --ar 16:9")).toBe("niji 8");
+  });
+
   test("the AndromedaCartoon profile never reaches a command", () => {
     const codes = composeMjCommand({ prompt: "a fox", profileCodes: ["n9iqix8", "vtrctg9"], params: "--ar 1:1" });
     expect(codes.command).toBe("a fox --profile vtrctg9 --ar 1:1");
@@ -83,7 +93,7 @@ describe("composeMjCommand", () => {
     for (const [name, fixture] of Object.entries(fixtures)) {
       expect({ name, ...twin().composeMjCommand(fixture) }).toEqual({ name, ...composeMjCommand(fixture) });
     }
-    for (const params of ["--v 7", "--version 6.1 --ar 1:1", "--niji 6", "--niji", "--ar 3:1"]) {
+    for (const params of ["--v 7", "--version 6.1 --ar 1:1", "--niji 6", "--niji", "--niji 8", "--ar 3:1"]) {
       expect(twin().pinnedVersion(params)).toBe(pinnedVersion(params));
     }
     expect(twin().sameCommand("a  b --ar 3:1 ", "a b --ar 3:1")).toBe(true);

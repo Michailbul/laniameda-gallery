@@ -1263,5 +1263,5 @@ thread), `mjQueue:setItemsParams` (thread-wide stylize, raw, aspect, chaos,
 weird, exp on prompts still to send), `mjQueue:deleteThread` (deletes every item
 of a thread in pages of 250, sent ones too). `queueItems` takes `fresh` to start
 a new thread. Extension route POST actions `fork`, `params`, `deleteThread`.
-`--niji` is composed as `--v 8.2` without `--cref`; profile `n9iqix8` is
+`--niji 6`/`7` (or bare) is composed as `--v 8.2` without `--cref`; `--niji 8` and later stay as written; profile `n9iqix8` is
 stripped everywhere.

@@ -45,7 +45,9 @@ the same label join that batch after its last item. Each item:
   older are stored as `--v 8.2` (`lib/mj-version.ts`), the item keeps
   `replacedVersion` and warns "v8.1 is not used: switched to v8.2", so a v8.1
   job can never be sent. The extension's composer and the writer bridge
-  apply the same rule. `--niji` is a separate model and stays as written.
+  apply the same rule. `--niji 8` (and later) is a separate model and stays as
+  written, with any `--v` next to it dropped (Michael, 25 Nov 2026: "make sure
+  it allows niji8 as well"); `--niji 6`, `--niji 7` and a bare `--niji` become `--v 8.2`.
 - `omniRef` / `characterRef`: V8.2 has neither; the Edit model replaced both.
   `--oref` is never added; `--cref` only with `--niji 6`. Otherwise the item
   carries a warning he sees: attach the picture as an `editRefs` image instead.

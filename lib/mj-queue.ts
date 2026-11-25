@@ -9,9 +9,12 @@ import { MJ_VERSION, enforceMjVersion, mjVersionWarning } from "./mj-version";
 export const MJ_BANNED_PROFILE_CODES = ["n9iqix8"] as const;
 const BANNED_TOKEN = /(^|\s)n9iqix8(?=\s|$)/gi;
 const BARE_PROFILE_FLAG = /(^|\s)(?:--profile|--p|-p)(?=\s+--|\s*$)/gi;
-// "--niji", "--niji 6", "—niji 7": Niji is not used either; every job is V8.2.
+// "--niji", "--niji 6", "—niji 7": older Niji is not used; those jobs go out as V8.2.
+// Niji 8 and later stay as written (Michael, 25 Nov 2026: "make sure it allows niji8 as well").
+export const MJ_NIJI_MIN = 8;
 const NIJI_FLAG = /(^|\s)(?:--|[–—])niji(?:\s+(\d+(?:\.\d+)?))?(?=\s|$)/gi;
 const HAS_VERSION = /(^|\s)--(?:v|version)\s+\d/i;
+const ANY_VERSION = /(^|\s)(?:--|[–—])(?:v|version)(?:\s+|(?=\d))\d+(?:\.\d+)?(?=\s|$)/gi;
 export const MJ_BANNED_PROFILE_WARNING = "AndromedaCartoon profile left out: it is never used.";
 
 /** Text without the banned profile code (and a profile flag it leaves empty). */
@@ -20,13 +23,23 @@ export function withoutBannedCodes(text: string) {
   return { text: space(out), removed: space(out) !== space(text) };
 }
 
-/** Params with --niji replaced by --v 8.2, and the niji it replaced ("niji 6"). */
+/**
+ * Params with an older --niji (6, 7, bare) replaced by --v 8.2 and the niji it replaced ("niji 6").
+ * --niji 8 and later stay (written as "--niji 8"); a --v next to it is dropped, since a job runs one model.
+ */
 export function withoutNiji(params: string) {
   let niji = "";
+  let kept = "";
   const out = params.replace(NIJI_FLAG, (_whole: string, lead: string, value: string | undefined) => {
-    niji ||= value ? `niji ${value}` : "niji";
+    const allowed = value !== undefined && Number.parseFloat(value) >= MJ_NIJI_MIN;
+    if (allowed && !kept) {
+      kept = value!;
+      return `${lead}--niji ${value}`;
+    }
+    if (!allowed) niji ||= value ? `niji ${value}` : "niji";
     return lead;
   });
+  if (kept) return { text: space(out.replace(ANY_VERSION, "$1")), niji };
   if (!niji) return { text: params, niji };
   const text = space(out);
   return { text: HAS_VERSION.test(text) ? text : space(`${text} --v ${MJ_VERSION}`), niji };
@@ -112,7 +125,7 @@ export function threadIdOf(batchKey: string) {
  * Image prompts first, then the prose, then the reference flags, the profile
  * codes and the params as written, except the version: every job is --v 8.2
  * (lib/mj-version.ts), so --v 8.1, --v 7 and older become --v 8.2 with a
- * warning; --niji is not used either and becomes --v 8.2 the same way. V8.2
+ * warning; --niji 6/7 are not used either and become --v 8.2 the same way, while --niji 8 and later stay. V8.2
  * has no omni or character reference (the Edit model replaced both): --oref
  * and --cref are never added. The AndromedaCartoon profile (n9iqix8) is left
  * out of every command.
