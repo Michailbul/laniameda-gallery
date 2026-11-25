@@ -52,7 +52,7 @@ midjourney.com a QUEUE pill sits bottom-right with the number left to send.
 
 The extension never presses, clicks or submits anything on Midjourney (a
 scripted Enter got the account flagged on 14 Nov 2026). No timers, no loops,
-no background submits. Every job is `--v 8.2`; `--niji`, `--v 8.1` and older
+no background submits. Every job is `--v 8.2` or `--niji 8`; `--niji 6/7`, `--v 8.1` and older
 are composed as `--v 8.2`, and the AndromedaCartoon profile is stripped.
 
 ## Midjourney bar: presets and Random (0.36)

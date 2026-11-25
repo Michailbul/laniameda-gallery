@@ -3,7 +3,8 @@
 // mj v8.1, do not let it happen". So a pinned version below 8.2 (--v 8.1,
 // --version 8.1, --v 7, --v 6.1 …) is rewritten to --v 8.2 wherever a command
 // is composed, and the item says so. Niji (--niji) is left as written here;
-// the queue composer (lib/mj-queue.ts) turns it into --v 8.2 (17 Nov 2026). The extension carries a line-for-line twin of
+// the queue composer (lib/mj-queue.ts) turns --niji 6/7 into --v 8.2 (17 Nov 2026)
+// and keeps --niji 8 and later (25 Nov 2026). The extension carries a line-for-line twin of
 // enforceMjVersion inside extension/mj-queue-compose.js; the parity test
 // (tests/mj-queue-compose.test.ts) keeps the two identical.
 

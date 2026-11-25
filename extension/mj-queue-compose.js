@@ -28,12 +28,14 @@
   };
   const mjVersionWarning = (from) => `v${from} is not used: switched to v${MJ_VERSION}`;
 
-  // Twin of lib/mj-queue.ts: AndromedaCartoon is never used, nor --niji.
+  // Twin of lib/mj-queue.ts: AndromedaCartoon is never used, nor --niji older than 8.
+  const MJ_NIJI_MIN = 8;
   const MJ_BANNED_PROFILE_CODES = ["n9iqix8"];
   const BANNED_TOKEN = /(^|\s)n9iqix8(?=\s|$)/gi;
   const BARE_PROFILE_FLAG = /(^|\s)(?:--profile|--p|-p)(?=\s+--|\s*$)/gi;
   const NIJI_FLAG = /(^|\s)(?:--|[–—])niji(?:\s+(\d+(?:\.\d+)?))?(?=\s|$)/gi;
   const HAS_VERSION = /(^|\s)--(?:v|version)\s+\d/i;
+  const ANY_VERSION = /(^|\s)(?:--|[–—])(?:v|version)(?:\s+|(?=\d))\d+(?:\.\d+)?(?=\s|$)/gi;
   const MJ_BANNED_PROFILE_WARNING = "AndromedaCartoon profile left out: it is never used.";
 
   function withoutBannedCodes(text) {
@@ -43,10 +45,17 @@
 
   function withoutNiji(params) {
     let niji = "";
+    let kept = "";
     const out = params.replace(NIJI_FLAG, (_whole, lead, value) => {
-      niji ||= value ? `niji ${value}` : "niji";
+      const allowed = value !== undefined && Number.parseFloat(value) >= MJ_NIJI_MIN;
+      if (allowed && !kept) {
+        kept = value;
+        return `${lead}--niji ${value}`;
+      }
+      if (!allowed) niji ||= value ? `niji ${value}` : "niji";
       return lead;
     });
+    if (kept) return { text: space(out.replace(ANY_VERSION, "$1")), niji };
     if (!niji) return { text: params, niji };
     const text = space(out);
     return { text: HAS_VERSION.test(text) ? text : space(`${text} --v ${MJ_VERSION}`), niji };
