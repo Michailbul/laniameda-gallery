@@ -909,7 +909,7 @@
     }
     const worlds = groups
       .filter((group) => group.threads.length)
-      .sort((a, b) => Number(isPinnedWorld(b.worldKey)) - Number(isPinnedWorld(a.worldKey)));
+      .sort((a, b) => Number(isPinnedWorld(b.key || b.worldKey)) - Number(isPinnedWorld(a.key || a.worldKey)));
     return { pinned, worlds };
   }
 
@@ -1051,8 +1051,8 @@
     }
     for (const group of worlds) {
       const counts = `${group.threads.length} thread${group.threads.length === 1 ? "" : "s"} · ${group.left} to send`;
-      const { head: gh, collapsed } = groupHead(group.worldKey || "__other", group.label, counts, { pinKind: "worlds" });
-      if (isPinnedWorld(group.worldKey)) gh.classList.add("mjq-ghead--pinned");
+      const { head: gh, collapsed } = groupHead(group.key || group.worldKey || "__other", group.label, counts, { pinKind: "worlds" });
+      if (isPinnedWorld(group.key || group.worldKey)) gh.classList.add("mjq-ghead--pinned");
       box.appendChild(gh);
       if (!collapsed) for (const thread of group.threads) box.appendChild(threadRow(thread));
     }
