@@ -2,8 +2,9 @@ import { ConvexError, v } from "convex/values";
 import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } from "./actor";
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
-import { editFrame, imageEditFields } from "./mjImageEditValidators";
+import { editFrame, editMessage, imageEditFields } from "./mjImageEditValidators";
 import { fastModelById } from "../lib/mj-fast-helper";
+import { AGENT_CAP_MAX_USD } from "../lib/mj-image-edit-contract";
 import { buildR2PublicUrl } from "./r2_url";
 
 const DEFAULT_TITLE = "Midjourney edit";
@@ -77,14 +78,15 @@ export const create = ownerMutation({
 export const update = ownerMutation({
   args: { ownerUserId: v.string(), id: v.string(), draft: v.optional(v.string()), model: v.optional(v.string()), count: v.optional(v.number()),
     galleryEnabled: v.optional(v.boolean()), world: v.optional(v.string()), activeSource: v.optional(editFrame),
-    message: v.optional(v.object({ id: v.string(), role: v.union(v.literal("michael"), v.literal("agent")), text: v.string(),
-      prompt: v.optional(v.string()), reads: v.optional(v.array(v.string())) })) },
+    agentCapUsd: v.optional(v.number()), message: v.optional(v.object(editMessage)) },
   returns: threadOut,
   handler: async (ctx, args) => {
     const row = await owned(ctx, args.ownerUserId, args.id);
     if (args.message && row.messages.some(m => m.id === args.message!.id)) return row;
     if (args.model && !fastModelById(args.model)) throw new ConvexError("Choose an edit model.");
     if (args.count !== undefined && (!Number.isInteger(args.count) || args.count < 1 || args.count > 3)) throw new ConvexError("Choose 1, 2 or 3 takes.");
+    if (args.agentCapUsd !== undefined && (!Number.isFinite(args.agentCapUsd) || args.agentCapUsd < 0 || args.agentCapUsd > AGENT_CAP_MAX_USD)) throw new ConvexError("That limit is out of range.");
+    if ((args.message?.actions?.length ?? 0) > 3) throw new ConvexError("At most three actions per answer.");
     if ((args.draft?.length ?? 0) > 2000 || (args.message?.text.length ?? 0) > 6000) throw new ConvexError("That message is too long.");
     if (args.message && !row.messages.some(m => m.id === args.message!.id) && row.messages.length >= 200) throw new ConvexError("This thread is full. Start another edit to keep its history.");
     if (args.message && JSON.stringify(row.messages).length + JSON.stringify(args.message).length > 400_000) throw new ConvexError("This thread is full. Start another edit to keep its history.");
@@ -99,7 +101,7 @@ export const update = ownerMutation({
     const { ownerUserId: _owner, id: _id, message, ...patch } = args;
     void _owner; void _id;
     const messages = message && !row.messages.some(m => m.id === message.id)
-      ? [...row.messages, { ...message, text: message.text.slice(0, 6000), prompt: message.prompt?.slice(0, 2000), reads: message.reads?.slice(0, 24), createdAt: Date.now() }] : row.messages;
+      ? [...row.messages, { ...message, text: message.text.slice(0, 6000), prompt: message.prompt?.slice(0, 2000), reads: message.reads?.slice(0, 24), skipped: message.skipped?.slice(0, 300), createdAt: Date.now() }] : row.messages;
     // A thread is named after what it asks for, once it asks for something.
     const named = row.title === DEFAULT_TITLE && patch.draft?.trim() ? { title: patch.draft.trim().replace(/\s+/g, " ").slice(0, 100) } : {};
     await ctx.db.patch(row._id, { ...patch, ...named, messages, updatedAt: Date.now() });

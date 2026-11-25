@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.46.0 (25 Nov 2026)
+
+- The image edit card's conversation shows every run with its takes, in the
+  order they happened. Click a take to look at it and talk about it: your
+  next message is about that picture.
+- The agent sees the whole conversation (every run, which takes you kept or
+  dropped, your notes) and answers with buttons: run the next edit, add a
+  Midjourney prompt to your Queue, or save a take to the gallery.
+- The agent runs its next edit by itself when it costs no more than its limit
+  (Runs ≤ $0.20 by default; pick another limit or Suggests only in the agent
+  box). Queue and save always wait for your click.
+
 ## 0.45.2 (25 Nov 2026)
 
 - The MJ Queue rail groups threads into projects: threads whose label starts

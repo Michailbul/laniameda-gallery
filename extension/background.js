@@ -2422,6 +2422,12 @@ async function fastRequest(message) {
       return fastUploadPicture(message);
     case "start":
       return describeFetchJson(FAST_ROUTE_PATH, { method: "POST", body: JSON.stringify({ ...message.run, action: "start" }) });
+    // The edit agent's Midjourney prompt, held in the queue until Michael sends it.
+    case "queue":
+      return describeFetchJson(MJ_QUEUE_ROUTE_PATH, {
+        method: "POST",
+        body: JSON.stringify({ action: "queue", createdBy: "image edit agent", batch: String(message.batch || "Image edits").slice(0, 120), world: message.world || undefined, items: [message.item] }),
+      });
     case "runs": {
       const ids = (Array.isArray(message.ids) ? message.ids : []).map(String).filter(Boolean).slice(0, 30);
       return describeFetchJson(`${FAST_ROUTE_PATH}?ids=${encodeURIComponent(ids.join(","))}`, { method: "GET" });
