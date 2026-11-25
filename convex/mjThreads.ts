@@ -5,7 +5,7 @@ import { signedOwnerMutation as ownerMutation, signedOwnerQuery as ownerQuery } 
 import { canActorAccessOwnerUserId, resolveUserIdCandidates } from "./authz";
 import { resolveAssetThumbUrl } from "./r2_url";
 import {
-  batchRows, cleanCodes, mjQueueItemOutValidator, ownedRows, resolveRef, text, toOut,
+  batchRows, cleanCodes, mjQueueItemOutValidator, ownedRows, personalProfileCodes, resolveRef, text, toOut,
 } from "./mjQueue";
 import { mjRecipeValidator, mjThreadRoleValidator } from "./mjQueueValidators";
 import { MJ_QUEUE_LIMITS, MJ_THREAD_ID, batchKeyOf, threadIdOf } from "../lib/mj-queue";
@@ -274,7 +274,7 @@ export async function rerun(ctx: MutationCtx, owner: string, thread: Awaited<Ret
       createdAt: now,
       updatedAt: now,
     });
-    out.push(toOut((await ctx.db.get(id))!));
+    out.push(toOut((await ctx.db.get(id))!, await personalProfileCodes(ctx, owner)));
   }
   // An archived thread comes back with its rerun.
   for (const row of rows) if (row.archivedAt !== undefined) await ctx.db.patch(row._id, { archivedAt: undefined });
