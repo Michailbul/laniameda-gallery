@@ -501,6 +501,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
           styleId: row.id as string,
           kicker: isOwner && row.hidden ? "hidden" : undefined,
           line: isOwner ? row.line?.trim() || templateWords(recipeByStyle.get(row.id)?.recipes[0]?.prompt) || undefined : undefined,
+          recipe: isOwner ? recipeByStyle.get(row.id)?.recipes[0] : undefined,
           items: byStyle.get(row.id)!,
         }));
       const loose = byStyle.get("none");
@@ -515,7 +516,7 @@ function Review({ slug, initialPage, initialArgs, initialFeedback, initialSearch
     if (folder && !style) {
       // "All styles": one section per style, in carousel order.
       const out: GridGroup[] = page.styles
-        .map((row) => ({ key: row.id as string, title: row.label, styleId: row.id as string, items: visible.filter((item) => item.styleId === row.id) }))
+        .map((row) => ({ key: row.id as string, title: row.label, styleId: row.id as string, recipe: isOwner ? recipeByStyle.get(row.id)?.recipes[0] : undefined, items: visible.filter((item) => item.styleId === row.id) }))
         .filter((group) => group.items.length > 0);
       const loose = visible.filter((item) => !item.styleId || !index.styleOrder.has(item.styleId));
       if (loose.length) out.push({ key: "none", title: page.styles.length ? "Other" : undefined, items: loose });

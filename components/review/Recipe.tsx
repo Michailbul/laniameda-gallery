@@ -17,6 +17,59 @@ import { ChevronDown } from "./icons";
 export type StyleRecipeRows = NonNullable<FunctionReturnType<typeof api.styleRecipes.reviewStyleRecipes>>;
 type Recipe = StyleRecipeRows[number]["recipes"][number];
 
+/** The settings worth reading at a glance: model first, then stylize, chaos, weird, raw, hd … (no codes, no --ar). */
+export function recipeSettings(params: string) {
+  const text = ` ${params} `;
+  const niji = /\s--niji\s+(\d+(?:\.\d+)?)/i.exec(text);
+  const version = /\s--(?:v|version)\s+(\d+(?:\.\d+)?)/i.exec(text);
+  const model = niji ? `Niji ${niji[1]}` : `V${version?.[1] ?? "8.2"}`;
+  const settings: string[] = [];
+  const re = /\s--([a-z]+)(?:\s+([^\s-][^\s]*))?/gi;
+  for (const match of text.matchAll(re)) {
+    const flag = match[1]!.toLowerCase();
+    if (["niji", "v", "version", "profile", "p", "sref", "ar", "aspect", "seed", "edit", "iw", "oref", "cref"].includes(flag)) continue;
+    const name = ({ s: "stylize", c: "chaos", w: "weird" } as Record<string, string>)[flag] ?? flag;
+    settings.push(match[2] && /^[\d.]+$/.test(match[2]) ? `${name} ${match[2]}` : name);
+  }
+  return { model, settings };
+}
+
+const CODE_KIND: Record<string, string> = { moodboard: "Moodboard", profile: "Profile", sref: "Style ref", unknown: "Code" };
+
+/**
+ * The style's recipe as a heading reads it (Michael, 26 Nov 2026: "I want to see the style keywords +
+ * moodboards/profiles etc in the style heading, so I can see what we are talking about"): the prompt's
+ * style words, the model, each moodboard and profile by name and code, and the main settings.
+ */
+export function RecipeSpec({ recipe, showWords = true }: { recipe: Recipe; showWords?: boolean }) {
+  const words = templateWords(recipe.prompt).replace(/\[subject\]/gi, "").replace(/\s+/g, " ").trim();
+  const { model, settings } = recipeSettings(recipe.params);
+  return (
+    <div className="rv-spec">
+      {showWords && words ? <p className="rv-spec-words"><span className="k">Keywords</span>{words}</p> : null}
+      <ul className="rv-spec-chips">
+        <li className="rv-spec-model" data-niji={model.startsWith("Niji") || undefined}>{model}</li>
+        {recipe.codes.map((code) => (
+          <li key={`${code.flag}-${code.code}`} className="rv-spec-code" data-kind={code.kind} title={`${CODE_KIND[code.kind]} ${code.code}`}>
+            {code.thumbs?.length ? (
+              <span className="rv-recipe-pics">
+                {code.thumbs.slice(0, 3).map((url) => (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img key={url} src={url} alt="" loading="lazy" />
+                ))}
+              </span>
+            ) : null}
+            <span className="kind">{CODE_KIND[code.kind]}</span>
+            {code.name && code.kind !== "sref" ? <b>{code.name}</b> : null}
+            <code>{code.code}</code>
+          </li>
+        ))}
+        {settings.map((setting) => <li key={setting} className="rv-spec-set">{setting}</li>)}
+      </ul>
+    </div>
+  );
+}
+
 const withSubject = (value: string) =>
   value.split(/(\[subject\])/i).map((part, index) => /^\[subject\]$/i.test(part) ? <mark key={index}>{part}</mark> : <span key={index}>{part}</span>);
 
@@ -36,6 +89,7 @@ export function ReviewRecipe({ name, line, recipes }: { name: string; line?: str
           Details <ChevronDown size={11} className="rv-recipe-chev" />
         </button>
       </div>
+      <RecipeSpec recipe={main} showWords={Boolean(line?.trim())} />
       {open ? (
         <div id={detailsId} className="rv-recipe-details">
           <p className="rv-recipe-only">Only you see this</p>

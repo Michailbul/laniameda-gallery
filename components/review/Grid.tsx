@@ -4,7 +4,8 @@
 import { memo, useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { LIST_COLORS, mediaUrl, srcSetOf, thumbAtLeast, type ListKey, type ReviewItem, type Verdict } from "@/lib/review-client";
 import { Check } from "./icons";
-import { CopyText } from "./Recipe";
+import { templateWords } from "@/lib/mj-recipe";
+import { CopyText, RecipeSpec, type StyleRecipeRows } from "./Recipe";
 import { Avatar, Faces, facesTitle, type Person } from "./people";
 import { StyleTalk } from "./StyleTalk";
 
@@ -21,6 +22,8 @@ export type GridGroup = {
   styleId?: string;
   /** Owner only: the style's one-line look, under its heading. */
   line?: string;
+  /** Owner only: the style's main recipe (keywords, model, moodboards, profiles, settings), under its heading. */
+  recipe?: StyleRecipeRows[number]["recipes"][number];
   items: ReviewItem[];
 };
 
@@ -320,6 +323,7 @@ export function Grid(props: GridProps) {
             </div>
           ) : null}
           {group.line ? <p className="rv-sec-line" title={group.line}>{group.line}</p> : null}
+          {group.recipe ? <RecipeSpec recipe={group.recipe} showWords={group.line !== templateWords(group.recipe.prompt)} /> : null}
           <div className="rv-grid" style={{ "--base": base.toFixed(4) } as React.CSSProperties}>
             {items.map(({ item, position }) => {
               const mark = marks.get(item.assetId);
