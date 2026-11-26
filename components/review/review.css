@@ -1563,3 +1563,22 @@ button.rv-bk-round:hover, .rv-bk-round[aria-expanded="true"] { color: var(--text
 @media (hover: none) { .rv-car-arrow { display: none; } }
 .rv-send-target { align-self: flex-start; }
 .rv-send-target button { padding: 0 14px; width: auto; letter-spacing: 0.08em; text-transform: uppercase; }
+
+/* The style's recipe under its heading (owner only): keywords, model, moodboards and profiles by name and code, settings. */
+.rv-spec { margin: -2px 0 14px; display: flex; flex-direction: column; gap: 7px; }
+.rv-recipe .rv-spec { margin: 10px 0 0; }
+.rv-spec-words { margin: 0; max-width: 92ch; font: 400 12.5px/1.5 var(--sans); color: var(--muted); }
+.rv-spec-words .k { margin-right: 8px; font: 500 9.5px/1 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+.rv-spec-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.rv-spec-chips li { display: inline-flex; align-items: center; gap: 6px; min-height: 22px; padding: 2px 9px; border-radius: 999px; background: var(--sel); font: 500 10.5px/1.3 var(--mono); color: var(--muted); white-space: nowrap; }
+.rv-spec-chips li.rv-spec-code { padding-left: 3px; }
+.rv-spec-chips li:not(:has(.rv-recipe-pics)).rv-spec-code { padding-left: 9px; }
+.rv-spec-chips .kind { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--faint); }
+.rv-spec-chips b { font: 600 11px/1.3 var(--sans); color: var(--text); }
+.rv-spec-chips code { font-family: var(--mono); color: var(--muted); user-select: all; }
+.rv-spec-model { font-weight: 700 !important; letter-spacing: 0.06em; color: var(--text) !important; }
+.rv-spec-model[data-niji] { color: var(--bg) !important; background: var(--text) !important; }
+.rv-spec-chips .rv-recipe-pics { border-radius: 999px; }
+.rv-spec-chips .rv-recipe-pics img { width: 18px; height: 18px; }
+.rv-spec-set { background: none !important; border: 1px solid var(--line); color: var(--faint) !important; }
+@media (max-width: 640px) { .rv-spec-chips li { white-space: normal; } }
