@@ -5,6 +5,7 @@ import { signedOwnerQuery as ownerQuery } from "./actor";
 import { resolveUserIdCandidates } from "./authz";
 import { childrenOf, resolveWorld } from "./worldCore";
 import { buildR2PublicUrl } from "./r2_url";
+import { BRIEF_KIND_LABELS, isDocumentKind } from "../lib/brief-documents";
 
 // The agent's map of a project and one search across it: every kind of
 // reference a project holds (briefs and their pictures, locked places, shot
@@ -132,8 +133,8 @@ export const findInProject = ownerQuery({
     const sceneHit = (scenes: number[] | undefined) => (scene !== null && scenes?.includes(scene) ? 3 : 0);
 
     for (const b of data.briefs) {
-      add(scoreText(tokens, `${b.title} ${b.kind} ${b.from ?? ""} ${b.note ?? ""} ${b.topics.join(" ")} ${b.reviewFolders.join(" ")} ${(b.groups ?? []).map((g) => g.label).join(" ")}`) * 2,
-        { kind: "brief", handle: `brief:${b._id}`, title: b.title, line: `${b.kind.replace("_", " ")} from ${b.from ?? "production"} · ${b.assetIds.length} pictures · ${b.files.length} files`, open: "project_get" });
+      add(scoreText(tokens, `${b.title} ${b.kind} ${BRIEF_KIND_LABELS[b.kind]} ${b.from ?? ""} ${b.note ?? ""} ${b.topics.join(" ")} ${b.reviewFolders.join(" ")} ${(b.groups ?? []).map((g) => g.label).join(" ")}`) * 2,
+        { kind: "brief", handle: `brief:${b._id}`, title: b.title, line: `${BRIEF_KIND_LABELS[b.kind].toLowerCase()} from ${b.from ?? (isDocumentKind(b.kind) ? "the art department" : "production")} · ${b.assetIds.length} pictures · ${b.files.length} files`, open: "project_get" });
     }
     for (const p of data.prompts) {
       add(scoreText(tokens, `${p.title} ${p.place} ${p.reviewFolder ?? ""} ${p.text}`) + scoreText(tokens, p.title) + 2 * scoreText(tokens, p.place) + sceneHit(p.scenes),

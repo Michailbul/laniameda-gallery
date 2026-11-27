@@ -10,6 +10,7 @@ import {
   ART_DIRECTOR_SCOPE, BRIEF_LIMITS, briefFileValidator, briefKindValidator,
   projectDetailsValidator, projectPersonValidator,
 } from "./projectValidators";
+import { BRIEF_KIND_LABELS, inferBriefContentType } from "../lib/brief-documents";
 
 // A project is a world with project details: CASSANDRA, the animated feature
 // for Sula Entertainment that Michael art-directs. This module serves the
@@ -107,7 +108,7 @@ const cardOf = async (ctx: Ctx, owner: string, brief: Brief, previewCount: numbe
 });
 
 const searchTextOf = (brief: Pick<Brief, "title" | "kind" | "from" | "note" | "topics" | "reviewFolders" | "files" | "groups">) =>
-  [brief.title, brief.kind.replace("_", " "), brief.from, brief.note, ...brief.topics, ...brief.reviewFolders,
+  [brief.title, brief.kind.replace("_", " "), BRIEF_KIND_LABELS[brief.kind], brief.from, brief.note, ...brief.topics, ...brief.reviewFolders,
     ...brief.files.map((file) => file.name), ...(brief.groups ?? []).map((group) => group.label)]
     .filter(Boolean).join(" \n").slice(0, 16_000);
 
@@ -533,7 +534,8 @@ export const attachBriefFile = ownerMutation({
     while (brief.files.some((file) => file.key === `f${n}`)) n += 1;
     const file: Infer<typeof briefFileValidator> = {
       key: `f${n}`, name: args.name.trim().slice(0, 200) || `file-${n}`,
-      contentType: args.contentType?.trim() || stored.contentType || "application/octet-stream",
+      // Read from the name when missing or octet-stream: .html, .md, .txt, .pdf, .docx.
+      contentType: inferBriefContentType(args.name, args.contentType?.trim() || stored.contentType),
       size: stored.size, sha256: hex, storageId: args.storageId,
       pages: args.pages, coverStorageId: args.coverStorageId, addedAt: Date.now(),
     };
@@ -567,7 +569,7 @@ export const briefFile = ownerQuery({
     return {
       url,
       name: args.cover ? `${file.name.replace(/\.[^.]+$/, "")}-cover.${meta?.contentType?.includes("png") ? "png" : "jpg"}` : file.name,
-      contentType: (args.cover ? meta?.contentType : file.contentType) ?? "application/octet-stream",
+      contentType: args.cover ? meta?.contentType ?? "application/octet-stream" : inferBriefContentType(file.name, file.contentType),
       size: meta?.size,
     };
   },

@@ -2,6 +2,7 @@ import { api } from "@/convex/_generated/api";
 import { getAppUser } from "@/lib/server/app-user";
 import { AgentAuthError, requireAgentAuth } from "@/lib/server/agent-auth";
 import { getServerConvexClient } from "@/lib/server/convex";
+import { SANDBOX_FLAGS, needsSandbox } from "@/lib/brief-documents";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +11,9 @@ export const dynamic = "force-dynamic";
 // storyboard). The signed-in owner (session cookie) or an owner agent token
 // with gallery:read gets the bytes; anyone else 401, a wrong owner 404. The
 // storage address stays on the server; bytes leave `private, no-store`.
+// HTML and SVG (agent-written scripts and breakdowns) are served sandboxed:
+// they run in an opaque origin and can never read the gallery's session,
+// whether opened in the project room's reader or straight from the address.
 
 const PRIVATE = {
   "Cache-Control": "private, no-store, max-age=0",
@@ -39,6 +43,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ brie
     if (!upstream.ok || !upstream.body) return new Response("Could not read this file.", { status: 502, headers: PRIVATE });
     const headers = new Headers(PRIVATE);
     headers.set("Content-Type", file.contentType);
+    if (needsSandbox(file.contentType)) headers.set("Content-Security-Policy", `sandbox ${SANDBOX_FLAGS}`);
     const length = upstream.headers.get("content-length");
     if (length) headers.set("Content-Length", length);
     const disposition = search.get("download") === "1" ? "attachment" : "inline";
