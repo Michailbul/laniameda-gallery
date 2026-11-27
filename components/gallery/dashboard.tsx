@@ -3579,14 +3579,21 @@ export function GalleryDashboard({
     });
   }, []);
 
+  // A change in selection only needs a lookup for the picked frames. Rebuild
+  // the member index when the gallery changes, and skip it while browsing.
+  const hasSelectedAssets = selectedAssetIds.size > 0;
+  const selectedViewIndex = useMemo(
+    () => hasSelectedAssets ? indexEntriesWithStackMembers(images) : null,
+    [hasSelectedAssets, images],
+  );
+
   const downloadSelectedAssets = useCallback(async () => {
     if (bulkActionLoading) return;
     const ids = Array.from(selectedAssetIds);
     if (ids.length === 0) return;
 
-    const byId = indexEntriesWithStackMembers(images);
     const targets = ids
-      .map((id) => byId.get(id))
+      .map((id) => selectedViewIndex?.get(id))
       .filter((image): image is (typeof images)[number] => Boolean(image));
     if (targets.length === 0) {
       setBulkCurationError("Selected assets are not in the current view.");
@@ -3638,7 +3645,7 @@ export function GalleryDashboard({
     } finally {
       setBulkActionLoading(false);
     }
-  }, [bulkActionLoading, images, selectedAssetIds]);
+  }, [bulkActionLoading, selectedViewIndex, selectedAssetIds]);
 
   const moveAssetsToFolder = useCallback(
     async (folderId: string, assetIds: string[]) => {
@@ -3718,9 +3725,9 @@ export function GalleryDashboard({
   // The bulk picker is a membership checklist. Counts are scoped to the
   // current selection: all = checked, some = mixed, none = unchecked.
   const selectedAssetMemberships = useMemo(() => {
-    const imageById = indexEntriesWithStackMembers(images);
+    if (!selectedViewIndex) return [];
     return Array.from(selectedAssetIds).flatMap((assetId) => {
-      const image = imageById.get(assetId);
+      const image = selectedViewIndex.get(assetId);
       if (
         !image ||
         (image.galleryItemType !== "asset" &&
@@ -3736,7 +3743,7 @@ export function GalleryDashboard({
             : [];
       return [{ assetId, folderIds: Array.from(new Set(folderIds)) }];
     });
-  }, [images, selectedAssetIds]);
+  }, [selectedViewIndex, selectedAssetIds]);
 
   const selectedFolderMembershipCounts = useMemo(() => {
     const counts = new Map<string, number>();

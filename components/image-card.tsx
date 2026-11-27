@@ -1006,6 +1006,7 @@ export const ImageCard = memo(function ImageCard({
         {isPackDeck ? (
           <PackDeckMedia
             frames={previewImages}
+            tileWidth={tileWidth}
             index={deck.index}
             scrub={videoScrub}
             eager={eager || mediaLoading === "eager"}
@@ -1452,7 +1453,7 @@ export const ImageCard = memo(function ImageCard({
       data-dimmed={dimmed ? "true" : undefined}
       data-exiting={exiting ? "true" : undefined}
     >
-      <PackDeckLayers frames={previewImages} index={deck.index} />
+      <PackDeckLayers frames={previewImages} tileWidth={tileWidth} index={deck.index} />
       {card}
     </div>
   );
