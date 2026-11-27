@@ -10,7 +10,6 @@ import type { CollectionOption } from "@/components/collection-menu";
 import { SkeletonGrid } from "@/components/ui/coral-skeleton";
 import {
   layoutJustified,
-  type JustifiedTile,
   type LayoutInput,
 } from "@/lib/masonry-layout";
 import { bookmarkCardLayout, type BookmarkPost } from "@/lib/bookmarks";
@@ -204,11 +203,10 @@ interface MasonryGridProps {
   baseScale?: number;
 }
 
-// Rows mount in batches of this many tiles. The first screen's tiles fetch
+// Rows mount in batches of this many tiles. The first row's tiles fetch
 // eagerly; the rest are lazy, so the browser's own viewport threshold throttles
 // a batch that mounted 2400 px ahead of the viewport.
 const BATCH_SIZE = 36;
-const EAGER_IMAGE_COUNT = 12;
 // Mount the next batch once the frontier sentinel is within this distance of
 // the viewport bottom — or anywhere above it (scrollbar drags can jump past
 // the frontier in one frame).
@@ -445,20 +443,13 @@ export function MasonryGrid({
   // mount, then mount whole rows up to (and including) the row that holds the
   // visible-count cutoff. Mounting whole rows means the frontier is always a
   // complete edge-to-edge row — no half-filled trailing row.
-  const { mounted, mountedHeight, loadedHeight, hasMore } = useMemo(() => {
+  const layout = useMemo(() => {
     // Unmeasured means server-rendered or the first client pass. The browser
     // measures before it paints, so tiles laid out without a width would only
     // ever show in server HTML, as a stack of full-width cards that jumps into
     // rows at hydration and fetches every image in it. Mount nothing until the
     // width is known; the page preloads the first screen's thumbs meanwhile.
-    if (contentWidth === null) {
-      return {
-        mounted: [] as Array<{ image: (typeof images)[number]; tile: JustifiedTile | undefined }>,
-        mountedHeight: undefined as number | undefined,
-        loadedHeight: undefined as number | undefined,
-        hasMore: false,
-      };
-    }
+    if (contentWidth === null) return null;
     // targetRowHeight ≈ the width one column would be, so squares land at about
     // one column wide and the density matches the old grid. The zoom factor
     // scales it directly — smaller rows, more tiles per row, whole grid zooms.
@@ -467,12 +458,17 @@ export function MasonryGrid({
       ((contentWidth - gap * (columnCount - 1)) / columnCount) *
       effectiveZoom *
       baseScale;
-    const { tiles, totalHeight } = layoutJustified(images.map(resolveGridLayoutInput), {
+    return layoutJustified(images.map(resolveGridLayoutInput), {
       containerWidth: contentWidth,
       gap,
       targetRowHeight,
     });
+  }, [columnCount, contentWidth, gap, images, zoom, baseScale]);
 
+  const loadedHeight = layout?.totalHeight;
+  const mounted = useMemo(() => {
+    if (!layout) return [];
+    const { tiles } = layout;
     // Extend the cutoff to the end of the row containing the last visible item.
     let cutoff = Math.min(effectiveVisibleCount, images.length);
     if (cutoff > 0 && cutoff < images.length) {
@@ -482,15 +478,11 @@ export function MasonryGrid({
       }
     }
 
-    const mounted = images
-      .slice(0, cutoff)
-      .map((image, i) => ({ image, tile: tiles[i] }));
-    let mountedHeight = 0;
-    for (const { tile } of mounted) {
-      if (tile) mountedHeight = Math.max(mountedHeight, tile.top + tile.height);
-    }
-    return { mounted, mountedHeight, loadedHeight: totalHeight, hasMore: cutoff < images.length };
-  }, [columnCount, contentWidth, gap, images, effectiveVisibleCount, zoom, baseScale]);
+    return images.slice(0, cutoff).map((image, i) => ({ image, tile: tiles[i] }));
+  }, [layout, images, effectiveVisibleCount]);
+  const lastTile = mounted.at(-1)?.tile;
+  const mountedHeight = layout ? (lastTile ? lastTile.top + lastTile.height : 0) : undefined;
+  const hasMore = layout !== null && mounted.length < images.length;
 
   // The mounted tiles' rects, mirrored into a ref. A drag holds its handlers
   // for the whole gesture, and auto-scroll mounts fresh rows underneath it —
@@ -896,6 +888,7 @@ export function MasonryGrid({
           />
         )}
         {mounted.map(({ image, tile }, originalIndex) => {
+          const eager = tile?.row === 0;
           const isAssetCard =
             image.galleryItemType === "asset" ||
             image.galleryItemType === undefined;
@@ -930,7 +923,7 @@ export function MasonryGrid({
                       kind: preview.kind,
                     })),
                   }}
-                  eager={originalIndex < EAGER_IMAGE_COUNT}
+                  eager={eager}
                   onOpen={onStorybookOpen}
                 />
               </div>
@@ -953,7 +946,7 @@ export function MasonryGrid({
                       kind: preview.kind,
                     })),
                   }}
-                  eager={originalIndex < EAGER_IMAGE_COUNT}
+                  eager={eager}
                   onOpen={onCollectionOpen}
                   selected={Boolean(
                     selectedCollectionIds?.has(image.galleryItemId ?? image.id),
@@ -976,8 +969,7 @@ export function MasonryGrid({
             >
               <ImageCard
                 image={image}
-                eager={originalIndex < EAGER_IMAGE_COUNT}
-                mediaLoading={originalIndex < EAGER_IMAGE_COUNT ? "eager" : "lazy"}
+                eager={eager}
                 tileWidth={tile?.width}
                 showPromptChip={showPromptChip}
                 videoHoverDelayMs={videoHoverDelayMs}

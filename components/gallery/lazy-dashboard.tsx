@@ -1,5 +1,6 @@
 "use client";
 
+import { lowData } from "@/components/world-page/playback";
 import { lazyComponent } from "@/components/lazy-component";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -84,6 +85,9 @@ function preloadInIdle(list: Loader[], startDelay: number): () => void {
  */
 export function usePreloadDashboardChunks(owner: boolean) {
   useEffect(() => {
+    // Idle CPU can still mean a busy network. Leave the link to the visible
+    // pictures on slow or metered connections. Tools load normally on tap.
+    if (lowData()) return;
     const first: Loader[] = [GalleryDetailPanel.preload, CinemaModal.preload];
     if (owner) first.push(UploadModal.preload);
     const stopFirst = preloadInIdle(first, 1500);

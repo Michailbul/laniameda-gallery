@@ -5,6 +5,8 @@
    cross-frame transitions. */
 
 import { useEffect, useRef, useState, type RefObject } from "react";
+import type { GalleryEntryPreview } from "@/lib/gallery-entries";
+import { buildGridImageAttrs } from "@/lib/grid-image";
 import { resolveLayoutKind } from "@/lib/masonry-layout";
 import { VideoScrubPreview, type VideoScrubState } from "@/components/video-scrub-preview";
 
@@ -15,15 +17,10 @@ import { VideoScrubPreview, type VideoScrubState } from "@/components/video-scru
  * you are. Hovering holds the deck still; a tab jumps straight to its frame.
  */
 
-export type PackDeckFrame = {
-  id: string;
-  src: string;
-  fullSrc: string;
-  posterSrc?: string;
-  prompt: string;
-  kind?: "image" | "video";
-  contentType?: string;
-};
+export type PackDeckFrame = Pick<GalleryEntryPreview,
+  "id" | "src" | "fullSrc" | "posterSrc" | "thumbSrc" | "thumbWidth" |
+  "fullWidth" | "thumbVariants" | "prompt" | "kind" | "contentType"
+>;
 
 export const PACK_ROTATE_INTERVAL_MS = 3400;
 // Past this many frames the tabs become slivers; one track + a counter reads
@@ -38,6 +35,20 @@ const BACK_LAYER_DEPTHS = [2, 1] as const;
 const isVideoFrame = (frame: PackDeckFrame) =>
   resolveLayoutKind({ kind: frame.kind, contentType: frame.contentType }) ===
   "video";
+
+// Overlapping layers must offer the same candidates as the front. Otherwise
+// the browser downloads a second, larger file for the very same frame.
+function deckStill(frame: PackDeckFrame, tileWidth?: number) {
+  if (isVideoFrame(frame)) return { src: frame.posterSrc };
+  return buildGridImageAttrs({
+    src: frame.src || frame.fullSrc,
+    variants: frame.thumbVariants,
+    thumbSrc: frame.thumbSrc,
+    thumbWidth: frame.thumbWidth,
+    fullSrc: frame.fullSrc,
+    fullWidth: frame.fullWidth,
+  }, tileWidth);
+}
 
 // Deterministic 0–1 from the card id, so a screen of packs doesn't flip in
 // lockstep but a given card always keeps the same rhythm.
@@ -110,18 +121,20 @@ export function usePackRotation({
 
 function DeckFrameMedia({
   frame,
+  tileWidth,
   scrub,
   eager = false,
   onLoad,
 }: {
   frame: PackDeckFrame;
+  tileWidth?: number;
   scrub?: VideoScrubState;
   eager?: boolean;
   onLoad?: () => void;
 }) {
   const reportedRef = useRef<string | null>(null);
   const isVideo = isVideoFrame(frame);
-  const still = isVideo ? frame.posterSrc : frame.src;
+  const still = deckStill(frame, tileWidth);
   // Load can be seen three ways (event, cached-complete check, video data);
   // the owner hears about each frame once.
   const reportLoad = () => {
@@ -131,25 +144,26 @@ function DeckFrameMedia({
   };
 
   // Only the active video can fetch media. Neighboring frames use posters.
-  if (isVideo && scrub && (scrub.active || !still)) {
+  if (isVideo && scrub && (scrub.active || !still.src)) {
     return (
       <VideoScrubPreview
         src={frame.fullSrc}
-        poster={still}
+        poster={still.src}
         scrub={scrub}
         className="absolute inset-0 h-full w-full object-contain"
         onLoadedData={reportLoad}
       />
     );
   }
-  if (isVideo && !still) return <div className="absolute inset-0 bg-[var(--media-stage-bg)]" />;
+  if (isVideo && !still.src) return <div className="absolute inset-0 bg-[var(--media-stage-bg)]" />;
 
   return (
     <img
-      src={still || frame.fullSrc}
+      {...still}
       alt={frame.prompt}
       draggable={false}
       loading={eager ? "eager" : "lazy"}
+      fetchPriority={eager ? "high" : undefined}
       decoding="async"
       className={`absolute inset-0 h-full w-full ${isVideo ? "object-contain" : "object-cover"}`}
       style={isVideo ? { backgroundColor: "var(--media-stage-bg)" } : undefined}
@@ -170,12 +184,14 @@ function DeckFrameMedia({
  */
 export function PackDeckMedia({
   frames,
+  tileWidth,
   index,
   scrub,
   eager,
   onCoverLoad,
 }: {
   frames: PackDeckFrame[];
+  tileWidth?: number;
   index: number;
   scrub: VideoScrubState;
   eager?: boolean;
@@ -210,6 +226,7 @@ export function PackDeckMedia({
           >
             <DeckFrameMedia
               frame={frame}
+              tileWidth={tileWidth}
               eager={eager && frameIndex === 0}
               scrub={role === "active" ? scrub : undefined}
               onLoad={frameIndex === 0 ? onCoverLoad : undefined}
@@ -227,9 +244,11 @@ export function PackDeckMedia({
  */
 export function PackDeckLayers({
   frames,
+  tileWidth,
   index,
 }: {
   frames: PackDeckFrame[];
+  tileWidth?: number;
   index: number;
 }) {
   const count = frames.length;
@@ -237,7 +256,7 @@ export function PackDeckLayers({
     <>
       {BACK_LAYER_DEPTHS.filter((depth) => depth < count).map((depth) => {
         const frame = frames[(index + depth) % count]!;
-        const still = isVideoFrame(frame) ? frame.posterSrc : frame.src;
+        const still = deckStill(frame, tileWidth);
         return (
           <div
             key={depth}
@@ -245,10 +264,10 @@ export function PackDeckLayers({
             className="pack-deck-layer pointer-events-none absolute inset-0 overflow-hidden"
             data-depth={depth}
           >
-            {still ? (
+            {still.src ? (
               <img
                 key={frame.id}
-                src={still}
+                {...still}
                 alt=""
                 draggable={false}
                 loading="lazy"
