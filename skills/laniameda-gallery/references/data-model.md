@@ -719,11 +719,14 @@ only plain collections may be children. One level deep.
   project world get it unless `scope: "shared"` is asked.
 - `productionBriefs`: `ownerUserId`, `worldFolderId`, `ingestKey` (unique per
   owner), `title`, `kind` brief | storyboard | script | style_guide |
-  references | other, `from`, `receivedAt`, `note`, `topics`, `reviewFolders`
+  references | other | breakdown | document (script, breakdown and document
+  are the project room's readable Scripts & documents), `from`, `receivedAt`, `note`, `topics`, `reviewFolders`
   (review folder slugs), `assetIds`, `groups` ({label, assetIds}), `files`
   ({key f1…, name, contentType, size, sha256 hex, storageId, pages,
   coverStorageId, addedAt}: Convex storage, served only by
-  `/api/briefs/<briefId>/files/<key>` to the owner session or an owner token),
+  `/api/briefs/<briefId>/files/<key>` to the owner session or an owner token;
+  a missing or octet-stream contentType is read from the name by
+  `lib/brief-documents.ts`; HTML and SVG are served with a CSP sandbox),
   `searchText`, `revision`. Indexes `by_owner_ingestKey`,
   `by_owner_world_updatedAt`; search index `search_text` filtered by owner and
   world. Every save and attach is a `brief.save` journal entry (undo restores

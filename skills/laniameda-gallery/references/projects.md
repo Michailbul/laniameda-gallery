@@ -88,7 +88,7 @@ is going to the project."
   `open_world` marks it `artDirectorOnly: true`.
 - **Production brief** (`brief:<id>`): what the director or producers sent.
   `title`, `kind` (brief, storyboard, script, style_guide, references,
-  other), `from` (who sent it, plain words), `receivedAt`, `note` (why it was
+  other; breakdown and document for what the art department writes), `from` (who sent it, plain words), `receivedAt`, `note` (why it was
   sent, what it asks), `topics`, `reviewFolders` (review folder slugs it
   informs), its pictures (`assetIds`, optional `groups` such as "School",
   "Metro") and its `files` (the PDF, the script: private bytes, each with
@@ -130,6 +130,42 @@ style in one click) are part of the project: references/locked-prompts.md.
    uploaded the same way.
 4. Never put a brief file's url anywhere public: it opens only for Michael's
    session or an owner token.
+
+## Documents: scripts and breakdowns readable in the project room (27 Nov 2026)
+
+"Make that in laniameda we can have not only images but also md files, or
+better HTML, so that we can save the scripts there ... so that we can see the
+script." A document is a brief whose file Michael reads in place.
+
+- Kinds: `script` (the film's script), `breakdown` (a scene breakdown),
+  `document` (a treatment, notes, anything else the art department writes).
+  These show under **Scripts & documents** on the project page, above From
+  production, each with a Read button; the other kinds stay in From
+  production (their PDFs, HTML and text open in the same reader).
+- The reader: **HTML** (best: write one self-contained page, inline CSS, no
+  outside requests needed) runs in a sandboxed frame with no access to the
+  gallery; **Markdown** renders with headings and GFM tables (no raw HTML);
+  **PDF** in the browser's viewer; **plain text** in monospace; anything else
+  (docx) downloads. Several files on one brief get a file switcher.
+- Save one:
+  1. `save_production_brief {world: "cassandra", ingestKey:
+     "cassandra:doc:scene-breakdown-act-1", title: "Scene breakdown · Act 1",
+     kind: "breakdown", from: "Art department", note, topics, session}`.
+     Leave out `from` when it is not known; the page shows nothing then.
+  2. `production_brief_file {step: "upload_url"}`, then `curl -sS -X POST -H
+     'Content-Type: text/html; charset=utf-8' --data-binary @breakdown.html
+     '<uploadUrl>'` → `{storageId}` (Markdown: `text/markdown; charset=utf-8`).
+  3. `production_brief_file {step: "attach", brief: "<briefId or ingestKey>",
+     storageId, name: "breakdown.html", sha256: "<hex>", contentType:
+     "text/html; charset=utf-8", session}`. Left out or
+     `application/octet-stream`, the type is read from the name (.html, .htm,
+     .md, .txt, .pdf, .docx).
+- A new version of the document is a new file on the same brief (different
+  bytes, same brief): the reader opens the newest readable file and the file
+  switcher keeps the earlier ones. Name versions so the switcher reads
+  (`breakdown-act-1-v2.html`).
+- The file route serves HTML and SVG with `Content-Security-Policy: sandbox`,
+  so the page cannot read the gallery's session even when opened directly.
 
 ## Style recipes for the art director
 

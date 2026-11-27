@@ -44,6 +44,9 @@ export const briefKindValidator = v.union(
   v.literal("style_guide"),
   v.literal("references"), // photo sets, location scouting
   v.literal("other"),
+  // Written by the art department and read in the project room (27 Nov 2026).
+  v.literal("breakdown"), // a scene breakdown
+  v.literal("document"), // a treatment, notes, any other document
 );
 
 // A file of a brief (the PDF, the script): private bytes in Convex storage,

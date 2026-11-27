@@ -1,18 +1,20 @@
 "use client";
 
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useState, type CSSProperties, type ReactNode } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useConvexAuth, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
-import { ArrowLeft, ArrowUpRight, ChevronDown, FileText, Loader2, Lock } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, BookOpenText, ChevronDown, FileText, Loader2, Lock } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { CopyChip, InboxGate } from "@/components/inbox/inbox-ui";
 import { galleryRoutePath, worldStylesPath } from "@/lib/gallery-routes";
 import type { RestylePreset } from "@/components/locked/restyle-dialog";
+import { BRIEF_KIND_LABELS, briefFileLabel, briefReaderMode, defaultReaderFile, isDocumentKind } from "@/lib/brief-documents";
 import { ProjectMoodboards } from "./project-moodboards";
 
 const ProjectRuns = dynamic(() => import("./project-runs").then((m) => m.ProjectRuns), { ssr: false });
+const BriefReader = dynamic(() => import("./brief-reader").then((m) => m.BriefReader), { ssr: false });
 const RestyleDialog = dynamic(() => import("@/components/locked/restyle-dialog").then((m) => m.RestyleDialog), { ssr: false });
 
 // The art director's project room (/w/<world>/project). One page with the
@@ -26,9 +28,9 @@ type Brief = Project["briefs"][number];
 type Picture = Brief["previews"][number];
 
 const SANS: CSSProperties = { fontFamily: "var(--font-geist-sans), system-ui, sans-serif" };
-const KIND: Record<Brief["kind"], string> = {
-  brief: "Design brief", storyboard: "Storyboard", script: "Script", style_guide: "Style guide", references: "Photo set", other: "From production",
-};
+const KIND: Record<Brief["kind"], string> = BRIEF_KIND_LABELS;
+type Reading = { id: Brief["id"]; key?: string };
+const readable = (file: Brief["files"][number]) => briefReaderMode(file.contentType, file.name) !== "download";
 
 const day = (at?: number) => at ? new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : undefined;
 const size = (bytes: number) => bytes >= 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1e3))} KB`;
@@ -55,6 +57,8 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
   const inspiration = useQuery(api.projects.projectInspiration, isAuthenticated && project ? { ownerUserId, world, limit: 24 } : "skip");
   const locked = useQuery(api.lockedPrompts.listLockedPrompts, isAuthenticated && project ? { ownerUserId, world } : "skip");
   const [restyle, setRestyle] = useState<RestylePreset | null>(null);
+  const [reading, setReading] = useState<Reading | null>(null);
+  const closeReader = useCallback(() => setReading(null), []);
 
   if (project === undefined) {
     return <main className="grid min-h-dvh place-items-center" style={{ background: "var(--lm-paper)" }}>
@@ -65,6 +69,10 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
   const details = project.details;
   const adShelves = project.shelves.filter((shelf) => shelf.artDirector);
   const otherShelves = project.shelves.filter((shelf) => !shelf.artDirector);
+  const documents = project.briefs.filter((brief) => isDocumentKind(brief.kind));
+  const fromProduction = project.briefs.filter((brief) => !isDocumentKind(brief.kind));
+  // Read live from the project, so a file attached while reading shows up.
+  const readingBrief = reading ? project.briefs.find((brief) => brief.id === reading.id) : undefined;
 
   return (
     <main className="lmp min-h-dvh pb-24" style={{ background: "var(--lm-paper)", color: "var(--lm-text-primary)" }}>
@@ -101,10 +109,18 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
         </div>
       </section>
 
-      <Section title="From production" count={project.briefs.length} note="What the director and producers sent, with who, when and why.">
-        {project.briefs.length ? (
+      <Section id="documents" title="Scripts & documents" count={documents.length} note="The script, scene breakdowns and notes, read right here.">
+        {documents.length ? (
+          <div className="lmp-docs">
+            {documents.map((brief) => <DocumentCard key={brief.id} brief={brief} onRead={(file) => setReading({ id: brief.id, key: file })} />)}
+          </div>
+        ) : <p className="lmp-empty">No script or document yet.</p>}
+      </Section>
+
+      <Section title="From production" count={fromProduction.length} note="What the director and producers sent, with who, when and why.">
+        {fromProduction.length ? (
           <div className="lmp-briefs">
-            {project.briefs.map((brief) => <BriefCard key={brief.id} brief={brief} ownerUserId={ownerUserId} worldKey={key} />)}
+            {fromProduction.map((brief) => <BriefCard key={brief.id} brief={brief} ownerUserId={ownerUserId} worldKey={key} onRead={(file) => setReading({ id: brief.id, key: file })} />)}
           </div>
         ) : <p className="lmp-empty">Nothing from production yet.</p>}
       </Section>
@@ -206,6 +222,7 @@ function ProjectScreen({ ownerUserId, world }: { ownerUserId: string; world: str
           ))}
         </div>
       </Section>
+      {readingBrief ? <BriefReader key={readingBrief.id} brief={readingBrief} initialKey={reading?.key} onClose={closeReader} /> : null}
       {restyle ? <RestyleDialog ownerUserId={ownerUserId} world={key} preset={restyle} onClose={() => setRestyle(null)} /> : null}
     </main>
   );
@@ -272,7 +289,45 @@ function Thumb({ picture }: { picture: Picture }) {
     style={picture.width && picture.height ? { aspectRatio: `${picture.width} / ${picture.height}` } : undefined} />;
 }
 
-function BriefCard({ brief, ownerUserId, worldKey }: { brief: Brief; ownerUserId: string; worldKey: string }) {
+function DocumentCard({ brief, onRead }: { brief: Brief; onRead: (key?: string) => void }) {
+  const meta = [brief.from ? `From ${brief.from}` : null, day(brief.receivedAt)].filter(Boolean).join(" · ");
+  const first = defaultReaderFile(brief.files);
+  return (
+    <article className="lmp-card lmp-doc">
+      <button type="button" className="lmp-doc-open" onClick={() => onRead(first?.key)} disabled={!first} aria-label={`Read ${brief.title}`}>
+        <span className="lmp-doc-sheet" aria-hidden>
+          <span className="lmp-mono">{first ? briefFileLabel(first.contentType, first.name) : "NO FILE"}</span>
+          <BookOpenText size={22} />
+        </span>
+      </button>
+      <div className="lmp-brief-body">
+        <div className="lmp-brief-top">
+          <span className="lmp-badge">{KIND[brief.kind]}</span>
+          <CopyChip value={`brief:${brief.id}`} label={brief.id.slice(-7)} />
+        </div>
+        <h3 style={SANS}>{brief.title}</h3>
+        {meta ? <p className="lmp-mono lmp-meta">{meta}</p> : null}
+        {brief.note ? <p className="lmp-note lmp-doc-note">{brief.note}</p> : null}
+        {brief.files.length ? (
+          <ul className="lmp-files">
+            {brief.files.map((file) => (
+              <li key={file.key}>
+                <span className="lmp-mono lmp-type">{briefFileLabel(file.contentType, file.name)}</span>
+                <button type="button" onClick={() => onRead(file.key)}>{file.name}</button>
+                <span className="lmp-mono">{[file.pages ? `${file.pages} p` : null, size(file.size)].filter(Boolean).join(" · ")}</span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div className="lmp-actions">
+          <button type="button" className="lmp-btn" onClick={() => onRead(first?.key)} disabled={!first}>Read <BookOpenText size={12} aria-hidden /></button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function BriefCard({ brief, ownerUserId, worldKey, onRead }: { brief: Brief; ownerUserId: string; worldKey: string; onRead: (key?: string) => void }) {
   const [open, setOpen] = useState(false);
   const { isAuthenticated } = useConvexAuth();
   const whole = useQuery(api.projects.findBriefs, open && isAuthenticated ? { ownerUserId, brief: brief.id } : "skip");
@@ -303,7 +358,7 @@ function BriefCard({ brief, ownerUserId, worldKey }: { brief: Brief; ownerUserId
             {brief.files.map((file) => (
               <li key={file.key}>
                 <FileText size={13} aria-hidden />
-                <a href={file.url} target="_blank" rel="noreferrer">{file.name}</a>
+                {readable(file) ? <button type="button" onClick={() => onRead(file.key)}>{file.name}</button> : <a href={file.url} target="_blank" rel="noreferrer">{file.name}</a>}
                 <span className="lmp-mono">{[file.pages ? `${file.pages} p` : null, size(file.size)].filter(Boolean).join(" · ")}</span>
               </li>
             ))}
@@ -381,8 +436,19 @@ const CSS = `
 .lmp-tags span{font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;padding:3px 7px;border-radius:4px;border:1px solid var(--lm-border-subtle);color:var(--lm-text-tertiary)}
 .lmp-files{display:flex;flex-direction:column;gap:4px;padding-top:6px;border-top:1px solid var(--lm-border-subtle)}
 .lmp-files li{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:8px;font-size:12.5px;color:var(--lm-text-tertiary)}
-.lmp-files a{color:var(--lm-text-primary);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lmp-files a:hover{text-decoration:underline;text-underline-offset:3px}
+.lmp-files a,.lmp-files button{color:var(--lm-text-primary);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;min-width:0}
+.lmp-files a:hover,.lmp-files button:hover{text-decoration:underline;text-underline-offset:3px}
+.lmp-files .lmp-type{font-size:9px;font-weight:700;letter-spacing:.1em;padding:2px 5px;border-radius:3px;background:var(--lm-surface-2);color:var(--lm-text-secondary)}
+.lmp-docs{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,340px),1fr));gap:12px}
+.lmp-doc{display:grid;grid-template-columns:112px minmax(0,1fr)}
+.lmp-doc-open{display:block;padding:12px;background:var(--lm-surface-2);cursor:pointer}
+.lmp-doc-open:disabled{cursor:default}
+.lmp-doc-sheet{display:flex;flex-direction:column;justify-content:space-between;height:100%;min-height:120px;aspect-ratio:1/1.3;max-height:150px;margin:0 auto;padding:10px;border-radius:4px;background:var(--lm-paper);color:var(--lm-text-tertiary);box-shadow:0 1px 0 var(--lm-border-subtle),0 8px 20px -12px rgba(0,0,0,.45);transition:transform .18s ease}
+.lmp-doc-sheet .lmp-mono{font-size:9px;font-weight:700;letter-spacing:.12em;color:var(--lm-text-secondary)}
+.lmp-doc-open:hover .lmp-doc-sheet{transform:translateY(-2px)}
+.lmp-doc-note{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.lmp-btn svg{flex:none}
+@media (max-width:420px){.lmp-doc{grid-template-columns:84px minmax(0,1fr)}.lmp-doc-open{padding:8px}}
 .lmp-files .lmp-mono{font-size:10.5px}
 .lmp-more{align-self:flex-start;display:inline-flex;align-items:center;gap:6px;font-family:var(--font-geist-mono),ui-monospace,monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:6px 10px;border-radius:999px;border:1px solid var(--lm-border-strong);color:var(--lm-text-primary)}
 .lmp-more:hover{background:var(--lm-surface-2)}

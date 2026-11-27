@@ -131,7 +131,7 @@ export async function POST(request: Request) {
       const input = projectBriefFileSchema.parse(body);
       if (input.step === "upload_url") {
         const uploadUrl = await client.mutation(api.projects.briefUploadUrl, { ownerUserId });
-        return NextResponse.json({ uploadUrl, how: "curl -sS -X POST -H 'Content-Type: application/pdf' --data-binary @file '<uploadUrl>' answers {storageId}; then step attach." });
+        return NextResponse.json({ uploadUrl, how: "curl -sS -X POST -H 'Content-Type: application/pdf' --data-binary @file '<uploadUrl>' answers {storageId} (the file's own type: text/html; charset=utf-8 for an HTML script, text/markdown; charset=utf-8 for Markdown); then step attach with the same contentType." });
       }
       if (!input.brief || !input.storageId || !input.name || !input.sha256) throw new Error("attach needs brief, storageId, name and sha256.");
       const result = await client.mutation(api.projects.attachBriefFile, {

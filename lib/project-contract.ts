@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BRIEF_KINDS } from "./brief-documents";
 
 // Agent input for projects, shared by /api/agent/projects and the project_*
 // MCP tools. A project is a world with project details (CASSANDRA). It
@@ -9,8 +10,6 @@ import { z } from "zod";
 
 const world = z.string().trim().min(1).max(120).describe("The project's world: its key (cassandra), name or root collection id.");
 const session = z.string().trim().max(80).optional().describe("Journal session label, e.g. cassandra-briefs-2026-11-09. Every change is journaled; world_undo reverts.");
-
-export const BRIEF_KINDS = ["brief", "storyboard", "script", "style_guide", "references", "other"] as const;
 
 export const projectOpenSchema = z.object({ world });
 
@@ -35,7 +34,7 @@ export const projectSaveBriefSchema = z.object({
   world,
   ingestKey: z.string().trim().min(1).max(200).describe("Stable key, e.g. cassandra:brief:school-design. Saving again with it updates that brief."),
   title: z.string().trim().min(1).max(160).optional().describe("Plain words: \"School design brief\". Required for a new brief."),
-  kind: z.enum(BRIEF_KINDS).optional(),
+  kind: z.enum(BRIEF_KINDS).optional().describe("brief (design brief), storyboard, script, style_guide, references (photo set), other; breakdown (a scene breakdown) and document (treatment, notes) are written by the art department. script, breakdown and document show under Scripts & documents in the project room, readable in place."),
   from: z.string().trim().max(160).nullable().optional().describe("Who sent it, plain words: \"Lukáš Skalník · Fantasy Studios\". Never guess: write what is known."),
   receivedAt: z.union([z.number(), z.string()]).nullable().optional().describe("When it arrived: an ISO date (2026-11-09) or epoch ms."),
   note: z.string().trim().max(4000).nullable().optional().describe("Why it was sent and what it asks for."),
@@ -55,7 +54,7 @@ export const projectBriefFileSchema = z.object({
   storageId: z.string().trim().min(1).max(200).optional().describe("attach: what the upload answered."),
   name: z.string().trim().min(1).max(200).optional().describe("attach: the file's name as sent (CASSANDRA-Design_Brief-School.pdf)."),
   sha256: z.string().trim().regex(/^[a-f0-9]{64}$/i).optional().describe("attach: the file's hex SHA-256; a mismatch removes the upload."),
-  contentType: z.string().trim().max(120).optional(),
+  contentType: z.string().trim().max(120).optional().describe("attach: text/html; charset=utf-8, text/markdown; charset=utf-8, text/plain, application/pdf, the docx type … Left out or octet-stream, it is read from the name (.html, .md, .txt, .pdf, .docx)."),
   pages: z.number().int().min(1).max(5000).optional(),
   coverStorageId: z.string().trim().min(1).max(200).optional().describe("attach: an uploaded first-page picture (PNG or JPEG), private like the file."),
   session,
